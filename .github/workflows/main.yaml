@@ -46,7 +46,7 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Unencrypt global-bundle.pem.enc
+      - name: Un encrypt global-bundle.pem.enc
         run: |
           openssl enc -aes-256-cbc -d -salt -in global-bundle.pem.enc -out global-bundle.pem -pass pass:"${{ secrets.PASSPHRASE }}"
 
