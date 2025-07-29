@@ -9,11 +9,11 @@ import { LoggerService } from './services/logger.service';
 import { HealthService } from './services/health.service';
 import { HealthController } from './controllers/health.controller';
 import appConfig from '../config/app.config';
+import * as redisStore from 'cache-manager-redis-store';
 
 @Global()
 @Module({
   imports: [
-    // Configuración global
     ConfigModule.forRoot({
       isGlobal: true,
       load: [appConfig],
@@ -24,8 +24,25 @@ import appConfig from '../config/app.config';
       },
     }),
 
-    // Base de datos
     DatabaseModule,
+    CacheModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: (configService: ConfigService) => ({
+        store: redisStore as any,
+        host: configService.get<string>('app.redis.host'),
+        port: configService.get<string>('app.redis.port'),
+        password: configService.get<string>('app.redis.password'),
+        ttl: configService.get<string>('app.cache.ttl')
+          ? Number(configService.get<string>('app.cache.ttl'))
+          : undefined,
+        max: configService.get<string>('app.cache.max')
+          ? Number(configService.get<string>('app.cache.max'))
+          : undefined,
+        isGlobal: true,
+      }),
+      inject: [ConfigService],
+      isGlobal: true,
+    }),
   ],
   controllers: [HealthController],
   providers: [LoggerService, HealthService],
