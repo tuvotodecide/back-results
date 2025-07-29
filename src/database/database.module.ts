@@ -12,11 +12,8 @@ import * as path from 'path';
         const uri = configService.get<string>('app.database.uri');
         const username = configService.get<string>('app.database.username');
         const password = configService.get<string>('app.database.password');
-
-        const caPath = path.resolve(
-          __dirname,
-          '../../../../rust/global-bundle.pem',
-        );
+        const caPath = path.resolve(__dirname, '../../global-bundle.pem');
+        console.log('Database URI being used:', uri);
 
         return {
           uri,

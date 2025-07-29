@@ -1,10 +1,15 @@
 FROM node:20-alpine AS development
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=development
+RUN npm install
 
+COPY global-bundle.pem ./global-bundle.pem
 COPY . .
 
-CMD ["npm", "run", "start:dev"]
+RUN npm run build
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start:prod"]
