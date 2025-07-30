@@ -102,7 +102,7 @@ jobs:
           echo "📦 Deploying $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG to $EC2_INSTANCE_ID"
 
           if [[ -z "${{ vars.ENV }}" ]]; then
-            echo "❌ ENV secret is empty or not set"
+            echo "❌ ENV var is empty or not set"
             exit 1
           fi
 
@@ -118,12 +118,14 @@ jobs:
             '
           [
             "aws ecr get-login-password --region \($region) | docker login --username AWS --password-stdin \($reg)",
-            "docker pull \($reg)/\($repo):\($tag)",
+            "docker pull --quiet \($reg)/\($repo):\($tag)",
             "docker stop \($name) || true",
             "docker rm \($name) || true",
             "echo \($dotenv_base64) | base64 -d > .env",
+            "cat .env",  
             "docker run -d --name \($name) -p \($port):3000 --env-file .env --restart unless-stopped \($reg)/\($repo):\($tag)",
             "rm .env",
+            "ls .env || echo '.env deleted'",  
             "docker image prune -f"
           ]')
 
@@ -153,7 +155,7 @@ jobs:
           aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands="docker inspect -f \"{{.State.Running}}\" $CONTAINER_NAME" \
+            --parameters commands="docker inspect -f '{{.State.Running}}' $CONTAINER_NAME" \
             --query "Command.CommandId" --output text \
           | xargs -I{} aws ssm wait command-executed --command-id {} --instance-id "$EC2_INSTANCE_ID"
 
@@ -176,7 +178,7 @@ jobs:
           aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=docker logs --tail 200 $CONTAINER_NAME" \
+            --parameters commands="docker logs --tail 200 $CONTAINER_NAME" \
             --query "Command.CommandId" --output text \
           | xargs -I{} aws ssm wait command-executed --command-id {} --instance-id "$EC2_INSTANCE_ID"
           exit 1
