@@ -150,15 +150,6 @@ jobs:
             --query Status --output text)
           [[ "$STATUS" == "Success" ]] || { echo "❌ Remote script failed"; exit 1; }
 
-      - name: Verify container is running
-        run: |
-          aws ssm send-command \
-            --instance-ids "$EC2_INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters commands="docker inspect -f '{{.State.Running}}' $CONTAINER_NAME" \
-            --query "Command.CommandId" --output text \
-          | xargs -I{} aws ssm wait command-executed --command-id {} --instance-id "$EC2_INSTANCE_ID"
-
       - name: Health check loop
         shell: bash
         run: |
