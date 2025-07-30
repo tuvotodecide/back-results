@@ -9,6 +9,7 @@ on:
       - 'package-lock.json'
       - 'src/**'
       - '.github/workflows/**'
+      - 'global-bundle.pem.enc'
 
 env:
   BUILD_PLATFORMS: linux/arm64
@@ -46,7 +47,7 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Un encrypt global-bundle.pem.enc
+      - name: Desencriptar global-bundle.pem.enc
         run: |
           openssl enc -aes-256-cbc -d -salt -in global-bundle.pem.enc -out global-bundle.pem -pass pass:"${{ secrets.PASSPHRASE }}"
 
@@ -56,19 +57,18 @@ jobs:
           context: .
           file: Dockerfile
           push: true
-          no-cache: true # Fuerza rebuild sin cache para refresh completo
+          no-cache: true
           platforms: ${{ env.BUILD_PLATFORMS }}
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:latest
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}
           cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:latest
           cache-to: type=inline
 
       - name: Delete old untagged images in ECR
         run: |
-          # List untagged images
           IMAGE_IDS=$(aws ecr list-images --repository-name ${{ env.ECR_REPO }} --filter "tagStatus=UNTAGGED" --query 'imageIds[*]' --output json)
           if [ "$IMAGE_IDS" != "[]" ]; then
-            # Borra en batch
             aws ecr batch-delete-image --repository-name ${{ env.ECR_REPO }} --image-ids "$IMAGE_IDS"
           fi
 
@@ -99,14 +99,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Deploying $ECR_REGISTRY/$ECR_REPO:latest to $EC2_INSTANCE_ID"
+          echo "📦 Deploying $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG to $EC2_INSTANCE_ID"
 
           if [[ -z "${{ secrets.ENV }}" ]]; then
             echo "❌ ENV secret is empty or not set"
             exit 1
           fi
 
-          # Encode .env content to base64 for safe multiline handling
           DOTENV_BASE64=$(echo -n '${{ secrets.ENV }}' | base64 -w 0)
 
           CMDS=$(jq -nc --arg reg "$ECR_REGISTRY" \
@@ -124,7 +123,7 @@ jobs:
             "docker rm \($name) || true",
             "echo \($dotenv_base64) | base64 -d > .env",
             "docker run -d --name \($name) -p \($port):3000 --env-file .env --restart unless-stopped \($reg)/\($repo):\($tag)",
-            "rm .env",  
+            "rm .env",
             "docker image prune -f"
           ]')
 
@@ -135,7 +134,7 @@ jobs:
             --parameters "commands=$CMDS" \
             --output text \
             --query "Command.CommandId")
-          echo "▶ SSM CommandId = $CMD_ID"
+          echo "▶️ SSM CommandId = $CMD_ID"
 
           aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$EC2_INSTANCE_ID"
 
@@ -154,7 +153,7 @@ jobs:
           aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters "commands=docker inspect -f '{{.State.Running}}' $CONTAINER_NAME" \
+            --parameters commands="docker inspect -f \"{{.State.Running}}\" $CONTAINER_NAME" \
             --query "Command.CommandId" --output text \
           | xargs -I{} aws ssm wait command-executed --command-id {} --instance-id "$EC2_INSTANCE_ID"
 
