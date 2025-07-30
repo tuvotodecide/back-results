@@ -107,6 +107,7 @@ jobs:
           fi
 
           DOTENV_BASE64=$(echo -n '${{ vars.ENV }}' | base64 -w 0)
+          echo "DOTENV_BASE64 length: ${#DOTENV_BASE64}"  # Depuración: Muestra longitud para confirmar no vacío
 
           CMDS=$(jq -nc --arg reg "$ECR_REGISTRY" \
             --arg repo "$ECR_REPO" \
@@ -122,10 +123,10 @@ jobs:
             "docker stop \($name) || true",
             "docker rm \($name) || true",
             "echo \($dotenv_base64) | base64 -d > .env",
-            "cat .env",  
+            "cat .env",
             "docker run -d --name \($name) -p \($port):3000 --env-file .env --restart unless-stopped \($reg)/\($repo):\($tag)",
             "rm .env",
-            "ls .env || echo '.env deleted'",  
+            "ls .env || echo \".env deleted\"",
             "docker image prune -f"
           ]')
 
