@@ -59,8 +59,19 @@ jobs:
           platforms: ${{ env.BUILD_PLATFORMS }}
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:latest
-          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:latest
-          cache-to: type=inline
+            ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }}
+          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:buildcache
+          cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:buildcache,mode=max
+
+      - name: Clean up old ECR images
+        run: |
+          # List images and delete all except the latest 5 to prevent accumulation
+          IMAGES=$(aws ecr list-images --repository-name ${{ env.ECR_REPOSITORY }} --query 'imageIds[?imageTag!=`latest` && imageTag!=`${{ env.IMAGE_TAG }}`]' --output json)
+          if [[ -n "$IMAGES" && "$IMAGES" != "[]" ]]; then
+            aws ecr batch-delete-image --repository-name ${{ env.ECR_REPOSITORY }} --image-ids "$IMAGES" --region ${{ env.AWS_REGION }}
+          else
+            echo "No old images to delete"
+          fi
 
   deploy:
     name: Deploy to EC2 via SSM
@@ -90,15 +101,17 @@ jobs:
           set -euo pipefail
           echo "Deploying $ECR_REGISTRY/$ECR_REPO:latest to $EC2_INSTANCE_ID"
 
-          # Create env
-          ENV='${{ secrets.ENV }}'
+          if [[ -z "${{ vars.ENV }}" ]]; then
+            echo "❌ ENV secret is empty or not set"
+            exit 1
+          fi
 
           CMDS=$(jq -nc --arg reg "$ECR_REGISTRY" \
             --arg repo "$ECR_REPO" \
             --arg region "$AWS_REGION" \
             --arg port "${EXTERNAL_PORT}" \
             --arg name "$CONTAINER_NAME" \
-            --arg dotenv "$ENV" \
+            --arg dotenv "${{ vars.ENV }}" \
             '
           [
             "aws ecr get-login-password --region \($region) | docker login --username AWS --password-stdin \($reg)",
@@ -107,6 +120,7 @@ jobs:
             "docker rm \($name) || true",
             "echo \($dotenv) > .env",
             "docker run -d --name \($name) -p \($port):3000 --env-file .env --restart unless-stopped \($reg)/\($repo):latest",
+            "rm .env",
             "docker image prune -f"
           ]')
 
