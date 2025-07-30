@@ -88,7 +88,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "📦 Deploying $ECR_REGISTRY/$ECR_REPO:latest to $EC2_INSTANCE_ID"
+          echo "Deploying $ECR_REGISTRY/$ECR_REPO:latest to $EC2_INSTANCE_ID"
 
           # Create env
           ENV='${{ secrets.ENV }}'
@@ -107,7 +107,6 @@ jobs:
             "docker rm \($name) || true",
             "echo \($dotenv) > .env",
             "docker run -d --name \($name) -p \($port):3000 --env-file .env --restart unless-stopped \($reg)/\($repo):latest",
-            "rm .env",
             "docker image prune -f"
           ]')
 
@@ -118,7 +117,7 @@ jobs:
             --parameters "commands=$CMDS" \
             --output text \
             --query "Command.CommandId")
-          echo "▶️ SSM CommandId = $CMD_ID"
+          echo "▶SSM CommandId"
 
           aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$EC2_INSTANCE_ID"
 
