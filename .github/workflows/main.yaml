@@ -85,6 +85,7 @@ jobs:
       PUBLIC_IP: ${{ vars.PUBLIC_IP }}
       EXTERNAL_PORT: ${{ vars.EXTERNAL_PORT }}
       CONTAINER_NAME: back_results
+      IMAGE_TAG: ${{ github.sha }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
