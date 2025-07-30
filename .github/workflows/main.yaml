@@ -101,12 +101,12 @@ jobs:
           set -euo pipefail
           echo "📦 Deploying $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG to $EC2_INSTANCE_ID"
 
-          if [[ -z "${{ secrets.ENV }}" ]]; then
+          if [[ -z "${{ vars.ENV }}" ]]; then
             echo "❌ ENV secret is empty or not set"
             exit 1
           fi
 
-          DOTENV_BASE64=$(echo -n '${{ secrets.ENV }}' | base64 -w 0)
+          DOTENV_BASE64=$(echo -n '${{ vars.ENV }}' | base64 -w 0)
           echo "DOTENV_BASE64 length: ${#DOTENV_BASE64}"  # Depuración: Muestra longitud para confirmar no vacío
 
           CMDS=$(jq -nc --arg reg "$ECR_REGISTRY" \
