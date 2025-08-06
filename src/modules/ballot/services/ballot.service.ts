@@ -89,17 +89,12 @@ export class BallotService {
 
   private extractBallotData(metadata: OpenSeaMetadata): BallotDataFromIpfs {
     // Buscar el atributo que contiene 'data'
-    const dataAttribute = metadata.attributes.find(
-      (attr: any) => attr.data !== undefined,
-    );
-
-    if (!dataAttribute || !dataAttribute.data) {
+    if (!metadata.data) {
       throw new BadRequestException(
-        'Formato de metadata inválido: no se encontró data',
+        'Formato de metadata invalido: no se encontro campo data',
       );
     }
-
-    const rawData = dataAttribute.data;
+    const rawData = metadata.data;
 
     // Mapear la estructura de datos desde IPFS al formato esperado
     const ballotData: BallotDataFromIpfs = {

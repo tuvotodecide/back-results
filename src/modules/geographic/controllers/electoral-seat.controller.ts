@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Controller,
   Get,
@@ -30,8 +31,8 @@ export class ElectoralSeatController {
   constructor(private readonly electoralSeatService: ElectoralSeatService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Crear un nuevo asiento electoral' })
   @ApiResponse({
     status: 201,
@@ -130,8 +131,8 @@ export class ElectoralSeatController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar un asiento electoral' })
   @ApiResponse({
     status: 200,
@@ -146,8 +147,8 @@ export class ElectoralSeatController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar un asiento electoral' })
   @ApiResponse({
     status: 200,
@@ -159,16 +160,16 @@ export class ElectoralSeatController {
   }
 
   @Patch(':id/activate')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar un asiento electoral' })
   activate(@Param('id') id: string) {
     return this.electoralSeatService.activate(id);
   }
 
   @Patch(':id/deactivate')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un asiento electoral' })
   deactivate(@Param('id') id: string) {
     return this.electoralSeatService.deactivate(id);

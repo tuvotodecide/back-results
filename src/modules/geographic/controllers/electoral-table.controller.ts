@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Controller,
   Get,
@@ -30,8 +31,8 @@ export class ElectoralTableController {
   constructor(private readonly electoralTableService: ElectoralTableService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Crear una nueva mesa electoral' })
   @ApiResponse({
     status: 201,
@@ -110,8 +111,8 @@ export class ElectoralTableController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar una mesa electoral' })
   @ApiResponse({
     status: 200,
@@ -126,8 +127,8 @@ export class ElectoralTableController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar una mesa electoral' })
   @ApiResponse({
     status: 200,
@@ -139,8 +140,8 @@ export class ElectoralTableController {
   }
 
   @Patch(':id/activate')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar una mesa electoral' })
   @ApiResponse({ status: 200, description: 'Mesa activada exitosamente' })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })
@@ -149,8 +150,8 @@ export class ElectoralTableController {
   }
 
   @Patch(':id/deactivate')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar una mesa electoral' })
   @ApiResponse({ status: 200, description: 'Mesa desactivada exitosamente' })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })

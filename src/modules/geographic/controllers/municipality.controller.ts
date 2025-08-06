@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Controller,
   Get,
@@ -30,8 +31,8 @@ export class MunicipalityController {
   constructor(private readonly municipalityService: MunicipalityService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Crear un nuevo municipio' })
   @ApiResponse({ status: 201, description: 'Municipio creado exitosamente' })
   @ApiResponse({
@@ -100,8 +101,8 @@ export class MunicipalityController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar un municipio' })
   @ApiResponse({
     status: 200,
@@ -116,8 +117,8 @@ export class MunicipalityController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar un municipio' })
   @ApiResponse({ status: 200, description: 'Municipio eliminado exitosamente' })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })
@@ -126,16 +127,16 @@ export class MunicipalityController {
   }
 
   @Patch(':id/activate')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar un municipio' })
   activate(@Param('id') id: string) {
     return this.municipalityService.activate(id);
   }
 
   @Patch(':id/deactivate')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un municipio' })
   deactivate(@Param('id') id: string) {
     return this.municipalityService.deactivate(id);

@@ -133,6 +133,12 @@ export class ResultsService {
       matchStage['location.municipality'] = filters.municipality;
     if (filters.electoralSeat)
       matchStage['location.electoralSeat'] = filters.electoralSeat;
+    if (filters.electoralLocation) {
+      matchStage['location.electoralLocationName'] = filters.electoralLocation;
+    }
+    if (filters.tableNumber) {
+      matchStage.tableNumber = filters.tableNumber;
+    }
 
     // Determinar qué campo de votos usar según el tipo de elección
     const votesPath =

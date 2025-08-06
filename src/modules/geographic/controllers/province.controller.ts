@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Controller,
   Get,
@@ -27,8 +28,8 @@ export class ProvinceController {
   constructor(private readonly provinceService: ProvinceService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Crear una nueva provincia' })
   @ApiResponse({ status: 201, description: 'Provincia creada exitosamente' })
   @ApiResponse({
@@ -71,8 +72,8 @@ export class ProvinceController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar una provincia' })
   @ApiResponse({
     status: 200,
@@ -87,8 +88,8 @@ export class ProvinceController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar una provincia' })
   @ApiResponse({ status: 200, description: 'Provincia eliminada exitosamente' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })

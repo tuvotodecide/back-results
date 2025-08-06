@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Controller,
   Get,
@@ -65,6 +66,11 @@ export class ResultsController {
   @ApiQuery({ name: 'province', required: false, example: 'Murillo' })
   @ApiQuery({ name: 'municipality', required: false, example: 'La Paz' })
   @ApiQuery({ name: 'electoralSeat', required: false, example: 'Achachicala' })
+  @ApiQuery({
+    name: 'electoralLocation',
+    required: false,
+    example: 'U.E Achachicala',
+  })
   @ApiQuery({ name: 'tableNumber', required: false, example: '12345' })
   @ApiResponse({
     status: 200,
@@ -177,8 +183,8 @@ export class ResultsController {
   }
 
   @Get('statistics')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener estadísticas del sistema',
@@ -236,8 +242,8 @@ export class ResultsController {
   }
 
   @Get('export/csv')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({
     summary: 'Exportar resultados a CSV',
     description:

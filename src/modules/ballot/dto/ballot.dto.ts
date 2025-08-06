@@ -37,7 +37,6 @@ export interface OpenSeaAttribute {
   trait_type?: string;
   value?: any;
   display_type?: string;
-  data?: any;
 }
 
 export interface OpenSeaMetadata {
@@ -45,6 +44,8 @@ export interface OpenSeaMetadata {
   description: string;
   image: string;
   attributes: Array<OpenSeaAttribute>;
+  _technical?: any;
+  data: BallotDataFromIpfs;
 }
 
 // Interface para los votos por partido

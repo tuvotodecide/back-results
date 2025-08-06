@@ -114,6 +114,9 @@ export class Ballot {
   @Prop({ required: false, trim: true })
   ipfsCid?: string;
 
+  @Prop({ required: true, trim: true })
+  image: string;
+
   // Campos agregados en el cambio anterior
   @Prop({ required: true, trim: true })
   recordId: string;
@@ -139,6 +142,7 @@ BallotSchema.index({ status: 1 });
 BallotSchema.index({ 'location.department': 1 });
 BallotSchema.index({ 'location.province': 1 });
 BallotSchema.index({ 'location.municipality': 1 });
+BallotSchema.index({ 'location.electoralLocationName': 1 });
 BallotSchema.index({ 'location.circunscripcion.type': 1 });
 BallotSchema.index({ 'blockchain.transactionHash': 1 });
 BallotSchema.index({ ipfsCid: 1 });

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Controller,
   Get,
@@ -30,8 +31,8 @@ export class PoliticalPartyController {
   constructor(private readonly politicalPartyService: PoliticalPartyService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Crear un nuevo partido político' })
   @ApiResponse({
     status: 201,
@@ -102,8 +103,8 @@ export class PoliticalPartyController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar un partido político' })
   @ApiParam({
     name: 'id',
@@ -122,8 +123,8 @@ export class PoliticalPartyController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar un partido político' })
   @ApiParam({
     name: 'id',

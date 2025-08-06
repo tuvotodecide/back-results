@@ -73,6 +73,15 @@ export class LocationFilterDto {
   @IsString()
   electoralSeat?: string;
 
+  @ApiProperty({
+    required: false,
+    example: 'U.E Achachicala',
+    description: 'Nombre del recinto electoral',
+  })
+  @IsOptional()
+  @IsString()
+  electoralLocation?: string;
+
   @ApiProperty({ required: false, example: '12345' })
   @IsOptional()
   @IsString()
