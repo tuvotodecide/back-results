@@ -25,6 +25,8 @@ import {
   LocationByCoordinatesDto,
 } from '../dto/ballot.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guard';
+import { ElectionConfigGuard } from '@/modules/elections/guards/election-config.guard';
 
 @ApiTags('Actas')
 @Controller('api/v1/ballots')
@@ -32,6 +34,7 @@ export class BallotController {
   constructor(private readonly ballotService: BallotService) {}
 
   @Post('from-ipfs')
+  @UseGuards(VotingPeriodGuard)
   //   @UseGuards(JwtAuthGuard)
   //   @ApiBearerAuth()
   @ApiOperation({
