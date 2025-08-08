@@ -2,7 +2,11 @@
   "name": "first",
   "version": "0.0.1",
   "description": "",
-  "author": "",
+  "author": {
+    "name": "Ivan Omonte Carreño",
+    "email": "ivanalex.oc@gmail.com",
+    "linkedIn": "https://www.linkedin.com/in/ivan-omonte-carreno/"
+  },
   "private": true,
   "license": "UNLICENSED",
   "scripts": {

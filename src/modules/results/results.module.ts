@@ -9,6 +9,7 @@ import {
 } from '../geographic/schemas/electoral-table.schema';
 import { BallotModule } from '../ballot/ballot.module';
 import { GeographicModule } from '../geographic/geographic.module';
+import { ElectionsModule } from '../elections/elections.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { GeographicModule } from '../geographic/geographic.module';
     ]),
     BallotModule,
     GeographicModule,
+    ElectionsModule,
   ],
   controllers: [ResultsController],
   providers: [ResultsService],

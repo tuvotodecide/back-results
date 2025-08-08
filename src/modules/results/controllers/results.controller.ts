@@ -27,6 +27,7 @@ import {
   CircunscripcionFilterDto,
 } from '../dto/results.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.guard';
 
 @ApiTags('Resultados')
 @Controller('api/v1/results')
@@ -35,6 +36,7 @@ export class ResultsController {
   constructor(private readonly resultsService: ResultsService) {}
 
   @Get('quick-count')
+  @UseGuards(ResultsPeriodGuard)
   @CacheTTL(30) // Cache por 30 segundos
   @ApiOperation({
     summary: 'Obtener conteo rápido nacional',
@@ -51,6 +53,7 @@ export class ResultsController {
   }
 
   @Get('by-location')
+  @UseGuards(ResultsPeriodGuard)
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resultados por ubicación',
@@ -104,6 +107,7 @@ export class ResultsController {
   }
 
   @Get('by-circunscripcion')
+  @UseGuards(ResultsPeriodGuard)
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resultados por circunscripción',
@@ -141,6 +145,7 @@ export class ResultsController {
   }
 
   @Get('heat-map')
+  @UseGuards(ResultsPeriodGuard)
   @CacheTTL(120) // Cache por 2 minutos
   @ApiOperation({
     summary: 'Obtener datos para mapa de calor',
