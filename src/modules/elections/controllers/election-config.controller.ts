@@ -126,8 +126,8 @@ export class ElectionConfigController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({
     summary: 'Actualizar configuración electoral',
     description: 'Actualiza una configuración electoral existente.',
@@ -157,8 +157,8 @@ export class ElectionConfigController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  // @UseGuards(JwtAuthGuard)
+  // @ApiBearerAuth()
   @ApiOperation({
     summary: 'Eliminar configuración electoral',
     description: 'Elimina una configuración electoral.',

@@ -136,8 +136,8 @@ export class ResultsService {
     if (filters.electoralLocation) {
       matchStage['location.electoralLocationName'] = filters.electoralLocation;
     }
-    if (filters.tableNumber) {
-      matchStage.tableNumber = filters.tableNumber;
+    if (filters.tableCode) {
+      matchStage.tableCode = filters.tableCode;
     }
 
     // Determinar qué campo de votos usar según el tipo de elección

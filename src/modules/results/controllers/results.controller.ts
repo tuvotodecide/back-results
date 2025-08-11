@@ -74,7 +74,7 @@ export class ResultsController {
     required: false,
     example: 'U.E Achachicala',
   })
-  @ApiQuery({ name: 'tableNumber', required: false, example: '12345' })
+  @ApiQuery({ name: 'tableCode', required: false, example: '12345' })
   @ApiResponse({
     status: 200,
     description: 'Resultados por ubicación obtenidos exitosamente',

@@ -85,7 +85,7 @@ export class LocationFilterDto {
   @ApiProperty({ required: false, example: '12345' })
   @IsOptional()
   @IsString()
-  tableNumber?: string;
+  tableCode?: string;
 }
 
 export class ElectionTypeFilterDto extends LocationFilterDto {

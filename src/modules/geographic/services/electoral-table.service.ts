@@ -174,12 +174,79 @@ export class ElectoralTableService {
     return tables;
   }
 
+  private transformElectoralTable(table: any): any {
+    const tableObj = table.toObject ? table.toObject() : table;
+    const location = tableObj.electoralLocationId;
+    const seat = location?.electoralSeatId;
+    const municipality = seat?.municipalityId;
+    const province = municipality?.provinceId;
+    const department = province?.departmentId;
+
+    return {
+      _id: tableObj._id,
+      tableNumber: tableObj.tableNumber,
+      tableCode: tableObj.tableCode,
+      active: tableObj.active,
+      createdAt: tableObj.createdAt,
+      updatedAt: tableObj.updatedAt,
+      __v: tableObj.__v,
+      electoralLocation: location
+        ? {
+            _id: location._id,
+            name: location.name,
+            code: location.code,
+            address: location.address,
+          }
+        : null,
+      electoralSeat: seat
+        ? {
+            _id: seat._id,
+            name: seat.name,
+          }
+        : null,
+      municipality: municipality
+        ? {
+            _id: municipality._id,
+            name: municipality.name,
+          }
+        : null,
+      province: province
+        ? {
+            _id: province._id,
+            name: province.name,
+          }
+        : null,
+      department: department
+        ? {
+            _id: department._id,
+            name: department.name,
+          }
+        : null,
+    };
+  }
+
   async findByTableCode(tableCode: string): Promise<ElectoralTable> {
     const table = await this.electoralTableModel
       .findOne({ tableCode })
       .populate({
         path: 'electoralLocationId',
         select: 'name code address',
+        populate: {
+          path: 'electoralSeatId',
+          select: 'name',
+          populate: {
+            path: 'municipalityId',
+            select: 'name',
+            populate: {
+              path: 'provinceId',
+              select: 'name',
+              populate: {
+                path: 'departmentId',
+                select: 'name',
+              },
+            },
+          },
+        },
       })
       .exec();
 
@@ -188,7 +255,7 @@ export class ElectoralTableService {
         `Mesa electoral con código '${tableCode}' no encontrada`,
       );
     }
-    return table;
+    return this.transformElectoralTable(table);
   }
 
   async update(
