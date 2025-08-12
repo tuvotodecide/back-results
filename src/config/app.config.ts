@@ -1,7 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { registerAs } from '@nestjs/config';
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-call
 export default registerAs('app', () => ({
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -20,11 +19,16 @@ export default registerAs('app', () => ({
     secret: process.env.JWT_SECRET || 'yo-custodio-2025-secret',
     expirationTime: process.env.JWT_EXPIRATION_TIME || '24h',
   },
+
   cors: {
-    origins: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+    origins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
+
   cache: {
-    ttl: parseInt(process.env.CACHE_TTL || '300', 10), // 4 minutes
+    ttl: parseInt(process.env.CACHE_TTL || '300', 10),
     max: parseInt(process.env.CACHE_MAX || '100', 10),
   },
 }));
