@@ -60,6 +60,7 @@ export class BallotService {
         electoralLocationId: ballotData.locationId,
         location: locationDetails,
         votes: ballotData.votes,
+        image: ballotData.image,
         ipfsUri: createDto.ipfsUri,
         ipfsCid: cid,
         recordId: createDto.recordId,
@@ -94,6 +95,12 @@ export class BallotService {
         'Formato de metadata invalido: no se encontro campo data',
       );
     }
+
+    if (!metadata.image) {
+      throw new BadRequestException(
+        'Formato de metadata invalido: no se encontro campo image',
+      );
+    }
     const rawData = metadata.data;
 
     // Mapear la estructura de datos desde IPFS al formato esperado
@@ -101,6 +108,7 @@ export class BallotService {
       tableCode: rawData.tableCode,
       tableNumber: rawData.tableNumber,
       locationId: rawData.locationId,
+      image: metadata.image,
       votes: {
         parties: {
           validVotes: rawData.votes.parties.validVotes,

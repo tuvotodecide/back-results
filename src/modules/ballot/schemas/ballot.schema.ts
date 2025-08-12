@@ -118,10 +118,10 @@ export class Ballot {
   image: string;
 
   // Campos agregados en el cambio anterior
-  @Prop({ required: true, trim: true })
+  @Prop({ required: false, trim: true })
   recordId: string;
 
-  @Prop({ required: true, trim: true })
+  @Prop({ required: false, trim: true })
   tableIdIpfs: string;
 
   @Prop({

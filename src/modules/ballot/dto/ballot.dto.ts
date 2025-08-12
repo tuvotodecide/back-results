@@ -19,16 +19,18 @@ export class CreateBallotFromIpfsDto {
 
   @ApiProperty({
     description: 'ID del NFT en IPFS',
+    required: false,
   })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   recordId: string;
 
   @ApiProperty({
     description: 'ID de la mesa en IPFS',
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   tableIdIpfs: string;
 }
 
@@ -75,6 +77,7 @@ export interface BallotDataFromIpfs {
   tableNumber: string;
   locationId: string;
   votes: VotesDataFromIpfs;
+  image: string;
 }
 
 export class BallotQueryDto {
