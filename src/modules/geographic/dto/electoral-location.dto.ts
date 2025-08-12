@@ -10,6 +10,8 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { TransformObjectId } from '@/core/transforms/objectid.transform';
+import { Types } from 'mongoose';
 
 export class CircunscripcionDto {
   @ApiProperty({ example: 4, description: 'Número de circunscripción' })
@@ -67,7 +69,8 @@ export class CreateElectoralLocationDto {
     description: 'ID del asiento electoral',
   })
   @IsMongoId()
-  electoralSeatId: string;
+  @TransformObjectId()
+  electoralSeatId: Types.ObjectId;
 
   @ApiProperty({
     example: 'Alto Ipaguazu',
