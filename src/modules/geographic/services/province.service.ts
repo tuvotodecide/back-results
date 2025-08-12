@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Province, ProvinceDocument } from '../schemas/province.schema';
 import { CreateProvinceDto, UpdateProvinceDto } from '../dto/province.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
@@ -85,19 +85,23 @@ export class ProvinceService {
     };
   }
 
-  async findOne(id: string): Promise<ProvinceDocument> {
+  async findOne(id: string | Types.ObjectId): Promise<ProvinceDocument> {
     const province = await this.provinceModel
       .findById(id)
       .populate('departmentId', 'name')
       .exec();
 
     if (!province) {
-      throw new NotFoundException(`Provincia con ID ${id} no encontrada`);
+      throw new NotFoundException(
+        `Provincia con ID ${id.toString()} no encontrada`,
+      );
     }
     return province;
   }
 
-  async findByDepartment(departmentId: string): Promise<Province[]> {
+  async findByDepartment(
+    departmentId: string | Types.ObjectId,
+  ): Promise<Province[]> {
     const response = await this.departmentService.findOne(departmentId);
 
     return this.provinceModel
@@ -106,7 +110,10 @@ export class ProvinceService {
       .exec();
   }
 
-  async update(id: string, updateDto: UpdateProvinceDto): Promise<Province> {
+  async update(
+    id: string | Types.ObjectId,
+    updateDto: UpdateProvinceDto,
+  ): Promise<Province> {
     if (updateDto.departmentId) {
       await this.departmentService.findOne(updateDto.departmentId);
     }
@@ -118,7 +125,9 @@ export class ProvinceService {
         .exec();
 
       if (!province) {
-        throw new NotFoundException(`Provincia con ID ${id} no encontrada`);
+        throw new NotFoundException(
+          `Provincia con ID ${id.toString()} no encontrada`,
+        );
       }
 
       this.logger.log(
@@ -136,10 +145,12 @@ export class ProvinceService {
     }
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string | Types.ObjectId): Promise<void> {
     const result = await this.provinceModel.findByIdAndDelete(id).exec();
     if (!result) {
-      throw new NotFoundException(`Provincia con ID ${id} no encontrada`);
+      throw new NotFoundException(
+        `Provincia con ID ${id.toString()} no encontrada`,
+      );
     }
 
     this.logger.log(`Provincia eliminada: ${result.name}`, 'ProvinceService');

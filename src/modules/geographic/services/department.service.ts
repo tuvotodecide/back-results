@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/restrict-template-expressions */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import {
   Injectable,
@@ -5,7 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Department, DepartmentDocument } from '../schemas/department.schema';
 import {
   CreateDepartmentDto,
@@ -77,7 +78,7 @@ export class DepartmentService {
     };
   }
 
-  async findOne(id: string): Promise<DepartmentDocument> {
+  async findOne(id: string | Types.ObjectId): Promise<DepartmentDocument> {
     const department = await this.departmentModel.findById(id).exec();
     if (!department) {
       throw new NotFoundException(`Departamento con ID ${id} no encontrado`);
@@ -94,7 +95,7 @@ export class DepartmentService {
   }
 
   async update(
-    id: string,
+    id: string | Types.ObjectId,
     updateDto: UpdateDepartmentDto,
   ): Promise<Department> {
     try {
@@ -121,7 +122,7 @@ export class DepartmentService {
     }
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string | Types.ObjectId): Promise<void> {
     const result = await this.departmentModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException(`Departamento con ID ${id} no encontrado`);

@@ -128,7 +128,9 @@ export class ElectoralLocationService {
     };
   }
 
-  async findOne(id: string): Promise<ElectoralLocationDocument> {
+  async findOne(
+    id: string | Types.ObjectId,
+  ): Promise<ElectoralLocationDocument> {
     const location = await this.locationModel
       .findById(id)
       .populate({
@@ -151,13 +153,13 @@ export class ElectoralLocationService {
 
     if (!location) {
       throw new NotFoundException(
-        `Recinto electoral con ID ${id} no encontrado`,
+        `Recinto electoral con ID ${id.toString()} no encontrado`,
       );
     }
     return location;
   }
 
-  async findOneWithTables(id: string) {
+  async findOneWithTables(id: string | Types.ObjectId) {
     const location = await this.findOne(id);
     const tables = await this.electoralTableModel
       .find({
@@ -409,7 +411,7 @@ export class ElectoralLocationService {
   }
 
   async findByElectoralSeat(
-    electoralSeatId: string,
+    electoralSeatId: string | Types.ObjectId,
   ): Promise<ElectoralLocation[]> {
     const response = await this.electoralSeatService.findOne(electoralSeatId);
 
@@ -423,7 +425,7 @@ export class ElectoralLocationService {
   }
 
   async update(
-    id: string,
+    id: string | Types.ObjectId,
     updateDto: UpdateElectoralLocationDto,
   ): Promise<ElectoralLocation> {
     if (updateDto.electoralSeatId) {
@@ -438,7 +440,7 @@ export class ElectoralLocationService {
 
       if (!location) {
         throw new NotFoundException(
-          `Recinto electoral con ID ${id} no encontrado`,
+          `Recinto electoral con ID ${id.toString()} no encontrado`,
         );
       }
 
@@ -457,11 +459,11 @@ export class ElectoralLocationService {
     }
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string | Types.ObjectId): Promise<void> {
     const result = await this.locationModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException(
-        `Recinto electoral con ID ${id} no encontrado`,
+        `Recinto electoral con ID ${id.toString()} no encontrado`,
       );
     }
 

@@ -7,7 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import {
   Municipality,
   MunicipalityDocument,
@@ -114,7 +114,7 @@ export class MunicipalityService {
     };
   }
 
-  async findOne(id: string): Promise<MunicipalityDocument> {
+  async findOne(id: string | Types.ObjectId): Promise<MunicipalityDocument> {
     const municipality = await this.municipalityModel
       .findById(id)
       .populate({
@@ -128,12 +128,16 @@ export class MunicipalityService {
       .exec();
 
     if (!municipality) {
-      throw new NotFoundException(`Municipio con ID ${id} no encontrado`);
+      throw new NotFoundException(
+        `Municipio con ID ${id.toString()} no encontrado`,
+      );
     }
     return municipality;
   }
 
-  async findByProvince(provinceId: string): Promise<Municipality[]> {
+  async findByProvince(
+    provinceId: string | Types.ObjectId,
+  ): Promise<Municipality[]> {
     const response = await this.provinceService.findOne(provinceId);
 
     return this.municipalityModel
@@ -142,7 +146,9 @@ export class MunicipalityService {
       .exec();
   }
 
-  async findByDepartment(departmentId: string): Promise<Municipality[]> {
+  async findByDepartment(
+    departmentId: string | Types.ObjectId,
+  ): Promise<Municipality[]> {
     const provinces = await this.provinceService.findByDepartment(departmentId);
     const provinceIds = provinces.map((p: any) => p._id ?? p.id);
 
@@ -154,7 +160,7 @@ export class MunicipalityService {
   }
 
   async update(
-    id: string,
+    id: string | Types.ObjectId,
     updateDto: UpdateMunicipalityDto,
   ): Promise<Municipality> {
     if (updateDto.provinceId) {
@@ -175,7 +181,9 @@ export class MunicipalityService {
         .exec();
 
       if (!municipality) {
-        throw new NotFoundException(`Municipio con ID ${id} no encontrado`);
+        throw new NotFoundException(
+          `Municipio con ID ${id.toString()} no encontrado`,
+        );
       }
 
       this.logger.log(
@@ -193,10 +201,12 @@ export class MunicipalityService {
     }
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string | Types.ObjectId): Promise<void> {
     const result = await this.municipalityModel.findByIdAndDelete(id).exec();
     if (!result) {
-      throw new NotFoundException(`Municipio con ID ${id} no encontrado`);
+      throw new NotFoundException(
+        `Municipio con ID ${id.toString()} no encontrado`,
+      );
     }
 
     this.logger.log(

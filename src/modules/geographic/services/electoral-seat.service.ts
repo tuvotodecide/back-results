@@ -6,7 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import {
   ElectoralSeat,
   ElectoralSeatDocument,
@@ -132,7 +132,7 @@ export class ElectoralSeatService {
     };
   }
 
-  async findOne(id: string): Promise<ElectoralSeatDocument> {
+  async findOne(id: string | Types.ObjectId): Promise<ElectoralSeatDocument> {
     const electoralSeat = await this.electoralSeatModel
       .findById(id)
       .populate({
@@ -151,7 +151,7 @@ export class ElectoralSeatService {
 
     if (!electoralSeat) {
       throw new NotFoundException(
-        `Asiento electoral con ID ${id} no encontrado`,
+        `Asiento electoral con ID ${id.toString()} no encontrado`,
       );
     }
     return electoralSeat;
@@ -182,7 +182,9 @@ export class ElectoralSeatService {
     return electoralSeat;
   }
 
-  async findByMunicipality(municipalityId: string): Promise<ElectoralSeat[]> {
+  async findByMunicipality(
+    municipalityId: string | Types.ObjectId,
+  ): Promise<ElectoralSeat[]> {
     const response = await this.municipalityService.findOne(municipalityId);
 
     return this.electoralSeatModel
@@ -191,7 +193,9 @@ export class ElectoralSeatService {
       .exec();
   }
 
-  async findByProvince(provinceId: string): Promise<ElectoralSeat[]> {
+  async findByProvince(
+    provinceId: string | Types.ObjectId,
+  ): Promise<ElectoralSeat[]> {
     const municipalities =
       await this.municipalityService.findByProvince(provinceId);
     const municipalityIds = municipalities.map((m: any) => m._id);
@@ -203,7 +207,9 @@ export class ElectoralSeatService {
       .exec();
   }
 
-  async findByDepartment(departmentId: string): Promise<ElectoralSeat[]> {
+  async findByDepartment(
+    departmentId: string | Types.ObjectId,
+  ): Promise<ElectoralSeat[]> {
     const municipalities =
       await this.municipalityService.findByDepartment(departmentId);
     const municipalityIds = municipalities.map((m: any) => m._id);
@@ -223,7 +229,7 @@ export class ElectoralSeatService {
   }
 
   async update(
-    id: string,
+    id: string | Types.ObjectId,
     updateDto: UpdateElectoralSeatDto,
   ): Promise<ElectoralSeat> {
     if (updateDto.municipalityId) {
@@ -245,7 +251,7 @@ export class ElectoralSeatService {
 
       if (!electoralSeat) {
         throw new NotFoundException(
-          `Asiento electoral con ID ${id} no encontrado`,
+          `Asiento electoral con ID ${id.toString()} no encontrado`,
         );
       }
 
@@ -264,11 +270,11 @@ export class ElectoralSeatService {
     }
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string | Types.ObjectId): Promise<void> {
     const result = await this.electoralSeatModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException(
-        `Asiento electoral con ID ${id} no encontrado`,
+        `Asiento electoral con ID ${id.toString()} no encontrado`,
       );
     }
 

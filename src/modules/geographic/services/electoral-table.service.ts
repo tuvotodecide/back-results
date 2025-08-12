@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/restrict-template-expressions */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -17,7 +18,6 @@ import {
   UpdateElectoralTableDto,
   ElectoralTableQueryDto,
 } from '../dto/electoral-table.dto';
-import { ElectoralLocationService } from './electoral-location.service';
 import { LoggerService } from '../../../core/services/logger.service';
 
 @Injectable()
@@ -25,14 +25,10 @@ export class ElectoralTableService {
   constructor(
     @InjectModel(ElectoralTable.name)
     private electoralTableModel: Model<ElectoralTableDocument>,
-    private electoralLocationService: ElectoralLocationService,
     private logger: LoggerService,
   ) {}
 
   async create(createDto: CreateElectoralTableDto): Promise<ElectoralTable> {
-    // Verificar que el recinto electoral existe
-    await this.electoralLocationService.findOne(createDto.electoralLocationId);
-
     try {
       const table = new this.electoralTableModel(createDto);
       const saved = await table.save();
@@ -88,27 +84,8 @@ export class ElectoralTableService {
     const [tables, total] = await Promise.all([
       this.electoralTableModel
         .find(filters)
-        .populate({
-          path: 'electoralLocationId',
-          select: 'name code address',
-          populate: {
-            path: 'electoralSeatId',
-            select: 'name',
-            populate: {
-              path: 'municipalityId',
-              select: 'name',
-              populate: {
-                path: 'provinceId',
-                select: 'name',
-                populate: {
-                  path: 'departmentId',
-                  select: 'name',
-                },
-              },
-            },
-          },
-        })
-        .sort({ [sort]: order === 'asc' ? 1 : -1 })
+        .populate('electoralLocationId', 'name code address')
+        .sort({ [String(sort)]: order === 'asc' ? 1 : -1 })
         .skip(skip)
         .limit(limit)
         .exec(),
@@ -126,29 +103,10 @@ export class ElectoralTableService {
     };
   }
 
-  async findOne(id: string): Promise<ElectoralTable> {
+  async findOne(id: string | Types.ObjectId): Promise<ElectoralTableDocument> {
     const table = await this.electoralTableModel
       .findById(id)
-      .populate({
-        path: 'electoralLocationId',
-        select: 'name code address',
-        populate: {
-          path: 'electoralSeatId',
-          select: 'name',
-          populate: {
-            path: 'municipalityId',
-            select: 'name',
-            populate: {
-              path: 'provinceId',
-              select: 'name',
-              populate: {
-                path: 'departmentId',
-                select: 'name',
-              },
-            },
-          },
-        },
-      })
+      .populate('electoralLocationId', 'name code address')
       .exec();
 
     if (!table) {
@@ -158,71 +116,21 @@ export class ElectoralTableService {
   }
 
   async findByElectoralLocation(
-    electoralLocationId: string,
+    electoralLocationId: string | Types.ObjectId,
   ): Promise<ElectoralTable[]> {
-    // Verificar que el recinto existe
-    await this.electoralLocationService.findOne(electoralLocationId);
-
-    const tables = await this.electoralTableModel
+    return this.electoralTableModel
       .find({
         electoralLocationId,
         active: true,
       })
       .sort({ tableNumber: 1 })
       .exec();
-
-    return tables;
   }
 
-  private transformElectoralTable(table: any): any {
-    const tableObj = table.toObject ? table.toObject() : table;
-    const location = tableObj.electoralLocationId;
-    const seat = location?.electoralSeatId;
-    const municipality = seat?.municipalityId;
-    const province = municipality?.provinceId;
-    const department = province?.departmentId;
-
-    return {
-      _id: tableObj._id,
-      tableNumber: tableObj.tableNumber,
-      tableCode: tableObj.tableCode,
-      active: tableObj.active,
-      createdAt: tableObj.createdAt,
-      updatedAt: tableObj.updatedAt,
-      __v: tableObj.__v,
-      electoralLocation: location
-        ? {
-            _id: location._id,
-            name: location.name,
-            code: location.code,
-            address: location.address,
-          }
-        : null,
-      electoralSeat: seat
-        ? {
-            _id: seat._id,
-            name: seat.name,
-          }
-        : null,
-      municipality: municipality
-        ? {
-            _id: municipality._id,
-            name: municipality.name,
-          }
-        : null,
-      province: province
-        ? {
-            _id: province._id,
-            name: province.name,
-          }
-        : null,
-      department: department
-        ? {
-            _id: department._id,
-            name: department.name,
-          }
-        : null,
-    };
+  async findByLocation(
+    electoralLocationId: string | Types.ObjectId,
+  ): Promise<ElectoralTable[]> {
+    return this.findByElectoralLocation(electoralLocationId);
   }
 
   async findByTableCode(tableCode: string): Promise<ElectoralTable> {
@@ -231,22 +139,6 @@ export class ElectoralTableService {
       .populate({
         path: 'electoralLocationId',
         select: 'name code address',
-        populate: {
-          path: 'electoralSeatId',
-          select: 'name',
-          populate: {
-            path: 'municipalityId',
-            select: 'name',
-            populate: {
-              path: 'provinceId',
-              select: 'name',
-              populate: {
-                path: 'departmentId',
-                select: 'name',
-              },
-            },
-          },
-        },
       })
       .exec();
 
@@ -255,19 +147,13 @@ export class ElectoralTableService {
         `Mesa electoral con código '${tableCode}' no encontrada`,
       );
     }
-    return this.transformElectoralTable(table);
+    return table;
   }
 
   async update(
-    id: string,
+    id: string | Types.ObjectId,
     updateDto: UpdateElectoralTableDto,
   ): Promise<ElectoralTable> {
-    if (updateDto.electoralLocationId) {
-      await this.electoralLocationService.findOne(
-        updateDto.electoralLocationId,
-      );
-    }
-
     try {
       const table = await this.electoralTableModel
         .findByIdAndUpdate(id, updateDto, { new: true })
@@ -302,7 +188,7 @@ export class ElectoralTableService {
     }
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string | Types.ObjectId): Promise<void> {
     const result = await this.electoralTableModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException(`Mesa electoral con ID ${id} no encontrada`);
@@ -314,7 +200,7 @@ export class ElectoralTableService {
     );
   }
 
-  async activate(id: string): Promise<ElectoralTable> {
+  async activate(id: string | Types.ObjectId): Promise<ElectoralTable> {
     const table = await this.electoralTableModel
       .findByIdAndUpdate(id, { active: true }, { new: true })
       .exec();
@@ -330,7 +216,7 @@ export class ElectoralTableService {
     return table;
   }
 
-  async deactivate(id: string): Promise<ElectoralTable> {
+  async deactivate(id: string | Types.ObjectId): Promise<ElectoralTable> {
     const table = await this.electoralTableModel
       .findByIdAndUpdate(id, { active: false }, { new: true })
       .exec();
@@ -368,48 +254,31 @@ export class ElectoralTableService {
         $unwind: '$location',
       },
       {
-        $group: {
-          _id: null,
-          totalTables: { $sum: '$tableCount' },
-          totalLocations: { $sum: 1 },
-          avgTablesPerLocation: { $avg: '$tableCount' },
-          maxTablesPerLocation: { $max: '$tableCount' },
-          minTablesPerLocation: { $min: '$tableCount' },
+        $project: {
+          locationName: '$location.name',
+          locationCode: '$location.code',
+          tableCount: 1,
+          tableNumbers: 1,
         },
+      },
+      {
+        $sort: { tableCount: -1 },
+      },
+      {
+        $limit: 10,
       },
     ]);
 
-    const total = await this.electoralTableModel.countDocuments({
-      active: true,
-    });
-    const totalLocationsWithTables = await this.electoralTableModel
-      .distinct('electoralLocationId')
-      .then((arr) => arr.length);
+    const [totalTables, activeTables] = await Promise.all([
+      this.electoralTableModel.countDocuments(),
+      this.electoralTableModel.countDocuments({ active: true }),
+    ]);
 
     return {
-      total,
-      totalLocationsWithTables,
-      summary: stats[0] || {
-        totalTables: 0,
-        totalLocations: 0,
-        avgTablesPerLocation: 0,
-        maxTablesPerLocation: 0,
-        minTablesPerLocation: 0,
-      },
-      timestamp: new Date().toISOString(),
+      totalTables,
+      activeTables,
+      inactiveTables: totalTables - activeTables,
+      topLocations: stats,
     };
-  }
-
-  async countTotal(): Promise<number> {
-    return this.electoralTableModel.countDocuments({ active: true }).exec();
-  }
-
-  async countByLocation(electoralLocationId: string): Promise<number> {
-    return this.electoralTableModel
-      .countDocuments({
-        electoralLocationId: new Types.ObjectId(electoralLocationId),
-        active: true,
-      })
-      .exec();
   }
 }
