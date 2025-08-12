@@ -6,6 +6,8 @@ import {
   IsMongoId,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { TransformObjectId } from '@/core/transforms/objectid.transform';
+import { Types } from 'mongoose';
 
 export class CreateElectoralSeatDto {
   @ApiProperty({ example: '4116', description: 'ID de localización original' })
@@ -26,7 +28,8 @@ export class CreateElectoralSeatDto {
     description: 'ID del municipio',
   })
   @IsMongoId()
-  municipalityId: string;
+  @TransformObjectId()
+  municipalityId: Types.ObjectId;
 
   @ApiProperty({ example: true, description: 'Estado activo', required: false })
   @IsOptional()
