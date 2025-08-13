@@ -92,7 +92,7 @@ export class Ballot {
   @Prop({ required: true, trim: true })
   tableNumber: string;
 
-  @Prop({ required: true, unique: true, trim: true })
+  @Prop({ required: true, trim: true })
   tableCode: string;
 
   @Prop({ type: Types.ObjectId, ref: 'ElectoralLocation', required: true })
@@ -124,14 +124,14 @@ export class Ballot {
   @Prop({ required: false, trim: true })
   tableIdIpfs: string;
 
-  @Prop({ required: false, trim: true })
-  version: number;
-
   @Prop({
     default: 'pending',
     enum: ['pending', 'processed', 'synced', 'error'],
   })
   status: string;
+
+  @Prop({ default: 1, min: 1 })
+  version?: number;
 
   createdAt: Date;
   updatedAt: Date;
@@ -139,7 +139,8 @@ export class Ballot {
 
 export const BallotSchema = SchemaFactory.createForClass(Ballot);
 
-BallotSchema.index({ tableCode: 1, version: 1 }, { unique: true });
+BallotSchema.index({ tableCode: 1 });
+BallotSchema.index({ tableCode: 1, version: 1 });
 BallotSchema.index({ electoralLocationId: 1 });
 BallotSchema.index({ status: 1 });
 BallotSchema.index({ 'location.department': 1 });
