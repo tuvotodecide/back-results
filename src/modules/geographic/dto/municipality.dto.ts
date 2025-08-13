@@ -19,7 +19,7 @@ export class CreateMunicipalityDto {
     example: '507f1f77bcf86cd799439011',
     description: 'ID de la provincia',
   })
-  @IsMongoId()
+  @IsNotEmpty()
   @TransformObjectId()
   provinceId: Types.ObjectId;
 
@@ -46,7 +46,7 @@ export class UpdateMunicipalityDto {
     required: false,
   })
   @IsOptional()
-  @IsMongoId()
+  @TransformObjectId()
   provinceId?: string;
 
   @ApiProperty({ example: true, description: 'Estado activo', required: false })

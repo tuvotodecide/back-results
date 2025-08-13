@@ -22,7 +22,7 @@ export class CreateProvinceDto {
     example: '507f1f77bcf86cd799439011',
     description: 'ID del departamento',
   })
-  @IsMongoId()
+  @IsNotEmpty()
   @TransformObjectId()
   departmentId: Types.ObjectId;
 
@@ -49,7 +49,7 @@ export class UpdateProvinceDto {
     required: false,
   })
   @IsOptional()
-  @IsMongoId()
+  @TransformObjectId()
   departmentId?: string;
 
   @ApiProperty({ example: true, description: 'Estado activo', required: false })
