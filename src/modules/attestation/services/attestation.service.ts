@@ -46,10 +46,8 @@ export class AttestationService {
       const attestationData = createDto.attestations[i];
 
       try {
-        // Validar que el ballot existe
         await this.validateBallotExists(attestationData.ballotId.toString());
 
-        // Validar que el usuario no haya attestado este ballot antes (si idUser está presente)
         if (attestationData.idUser) {
           await this.validateUserNotAttested(
             attestationData.ballotId.toString(),
@@ -57,7 +55,6 @@ export class AttestationService {
           );
         }
 
-        // Crear la attestation
         const attestation = new this.attestationModel({
           support: attestationData.support,
           ballotId: new Types.ObjectId(attestationData.ballotId),
