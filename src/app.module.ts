@@ -8,6 +8,7 @@ import { BallotModule } from './modules/ballot/ballot.module';
 import { ResultsModule } from './modules/results/results.module';
 import { ElectionsModule } from './modules/elections/elections.module';
 import { AttestationModule } from './modules/attestation/attestation.module';
+import { OracleModule } from './modules/oracle/oracle.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AttestationModule } from './modules/attestation/attestation.module';
     BallotModule,
     ResultsModule,
     AttestationModule,
+    OracleModule,
   ],
   controllers: [AppController],
   providers: [AppService],
