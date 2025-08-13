@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -5,6 +6,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -23,6 +25,7 @@ import {
   ElectoralTable,
   ElectoralTableDocument,
 } from '../schemas/electoral-table.schema';
+import { Ballot, BallotDocument } from '../../ballot/schemas/ballot.schema';
 
 @Injectable()
 export class ElectoralLocationService {
@@ -31,6 +34,8 @@ export class ElectoralLocationService {
     private locationModel: Model<ElectoralLocationDocument>,
     @InjectModel(ElectoralTable.name)
     private electoralTableModel: Model<ElectoralTableDocument>,
+    @InjectModel(Ballot.name)
+    private readonly ballotModel: Model<BallotDocument>,
     private electoralSeatService: ElectoralSeatService,
     private logger: LoggerService,
   ) {}
@@ -64,6 +69,8 @@ export class ElectoralLocationService {
   }
 
   async findAll(query: LocationQueryDto) {
+    console.log('Ingresa FindAll');
+
     const {
       page = 1,
       limit = 10,
@@ -74,6 +81,7 @@ export class ElectoralLocationService {
       electoralSeatId,
       circunscripcionType,
     } = query;
+
     const skip = (page - 1) * limit;
 
     const filters: any = {};
@@ -84,15 +92,17 @@ export class ElectoralLocationService {
         { address: { $regex: search, $options: 'i' } },
       ];
     }
+    console.log({ search });
     if (active !== undefined) {
       filters.active = active === 'true';
     }
     if (electoralSeatId) {
-      filters.electoralSeatId = electoralSeatId;
+      filters.electoralSeatId = new Types.ObjectId(electoralSeatId);
     }
     if (circunscripcionType) {
       filters['circunscripcion.type'] = circunscripcionType;
     }
+    console.log({ filters });
 
     const [locations, total] = await Promise.all([
       this.locationModel
@@ -208,193 +218,72 @@ export class ElectoralLocationService {
     return location;
   }
 
-  async findNearby(
-    latitude: number,
-    longitude: number,
-    maxDistance: number = 1000,
-  ) {
-    try {
-      const results = await this.locationModel.aggregate([
-        {
-          $geoNear: {
-            near: {
-              type: 'Point',
-              coordinates: [latitude, longitude],
-            },
-            distanceField: 'distance',
-            maxDistance: maxDistance,
-            query: { active: true },
-            spherical: true,
-            distanceMultiplier: 1,
-          },
-        },
-        {
-          $lookup: {
-            from: 'electoral_seats',
-            localField: 'electoralSeatId',
-            foreignField: '_id',
-            as: 'electoralSeat',
-          },
-        },
-        {
-          $lookup: {
-            from: 'electoral_tables',
-            let: { locationId: { $toString: '$_id' } },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [{ $eq: ['$electoralLocationId', '$$locationId'] }],
-                  },
-                },
-              },
-              { $sort: { tableNumber: 1 } },
-              {
-                $project: {
-                  tableNumber: 1,
-                  tableCode: 1,
-                  _id: 1,
-                },
-              },
-            ],
-            as: 'tables',
-          },
-        },
-        {
-          $lookup: {
-            from: 'ballots',
-            let: { locationId: { $toString: '$_id' } },
-            pipeline: [
-              {
-                $match: {
-                  $expr: {
-                    $and: [{ $eq: ['$electoralLocationId', '$$locationId'] }],
-                  },
-                },
-              },
-              { $sort: { tableNumber: 1 } },
-              {
-                $project: {
-                  tableNumber: 1,
-                  tableCode: 1,
-                  _id: 1,
-                },
-              },
-            ],
-            as: 'ballots',
-          },
-        },
-        {
-          $unwind: {
-            path: '$electoralSeat',
-            preserveNullAndEmptyArrays: false,
-          },
-        },
-        {
-          $lookup: {
-            from: 'municipalities',
-            localField: 'electoralSeat.municipalityId',
-            foreignField: '_id',
-            as: 'municipality',
-          },
-        },
-        {
-          $unwind: {
-            path: '$municipality',
-            preserveNullAndEmptyArrays: false,
-          },
-        },
-        {
-          $lookup: {
-            from: 'provinces',
-            localField: 'municipality.provinceId',
-            foreignField: '_id',
-            as: 'province',
-          },
-        },
-        {
-          $unwind: {
-            path: '$province',
-            preserveNullAndEmptyArrays: false,
-          },
-        },
-        {
-          $lookup: {
-            from: 'departments',
-            localField: 'province.departmentId',
-            foreignField: '_id',
-            as: 'department',
-          },
-        },
-        {
-          $unwind: {
-            path: '$department',
-            preserveNullAndEmptyArrays: false,
-          },
-        },
-        {
-          $project: {
-            _id: 1,
-            fid: 1,
-            code: 1,
-            name: 1,
-            address: 1,
-            district: 1,
-            zone: 1,
-            coordinates: 1,
-            circunscripcion: 1,
-            active: 1,
-            distance: {
-              $round: ['$distance', 0],
-            },
-            electoralSeat: {
-              _id: '$electoralSeat._id',
-              name: '$electoralSeat.name',
-              municipality: {
-                _id: '$municipality._id',
-                name: '$municipality.name',
-                province: {
-                  _id: '$province._id',
-                  name: '$province.name',
-                  department: {
-                    _id: '$department._id',
-                    name: '$department.name',
-                  },
-                },
-              },
-            },
-            tables: 1,
-            ballots: 1,
-            tableCount: { $size: '$tables' },
-          },
-        },
-        {
-          $limit: 10,
-        },
-      ]);
-
-      this.logger.log(
-        `Búsqueda de recintos cercanos: lat=${latitude}, lng=${longitude}, maxDistance=${maxDistance}m, encontrados=${results.length}`,
-        'ElectoralLocationService',
-      );
-
-      return {
-        data: results,
-        query: {
-          latitude,
-          longitude,
-          maxDistance,
-          unit: 'meters',
-        },
-        count: results.length,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Error en búsqueda geoespacial: ${error.message}`,
-        'ElectoralLocationService',
-      );
-      throw error;
+  async findNearby(lat: number, lng: number, maxDistance = 1000) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new BadRequestException('lat/lng inválidos');
     }
+
+    const base = await this.locationModel
+      .find({
+        active: true,
+        coordinates: {
+          $near: {
+            $geometry: { type: 'Point', coordinates: [lng, lat] },
+            $maxDistance: maxDistance,
+          },
+        },
+      })
+      .select('code name address coordinates electoralSeatId')
+      .limit(20)
+      .lean()
+      .exec();
+
+    if (base.length === 0) return [];
+
+    const ids = base.map((d) => d._id as Types.ObjectId);
+
+    const populated = await this.locationModel.populate(base, {
+      path: 'electoralSeatId',
+      select: 'name municipalityId',
+      populate: {
+        path: 'municipalityId',
+        select: 'name provinceId',
+        populate: {
+          path: 'provinceId',
+          select: 'name departmentId',
+          populate: {
+            path: 'departmentId',
+            select: 'name',
+          },
+        },
+      },
+    });
+
+    const tablesAgg = await this.electoralTableModel
+      .aggregate([
+        { $match: { electoralLocationId: { $in: ids } } },
+        { $group: { _id: '$electoralLocationId', count: { $sum: 1 } } },
+      ])
+      .exec();
+
+    const ballotsAgg = await this.ballotModel
+      .aggregate([
+        { $match: { electoralLocationId: { $in: ids } } },
+        { $group: { _id: '$electoralLocationId', count: { $sum: 1 } } },
+      ])
+      .exec();
+
+    const tableCount = new Map(tablesAgg.map((r) => [String(r._id), r.count]));
+    const ballotCount = new Map(
+      ballotsAgg.map((r) => [String(r._id), r.count]),
+    );
+
+    // 4) Ensamblar respuesta final
+    return populated.map((loc) => ({
+      ...loc,
+      tablesCount: tableCount.get(String(loc._id)) ?? 0,
+      ballotsCount: ballotCount.get(String(loc._id)) ?? 0,
+    }));
   }
 
   async findByCircunscripcion(

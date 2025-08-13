@@ -36,6 +36,7 @@ import { MunicipalityController } from './controllers/municipality.controller';
 import { ElectoralSeatController } from './controllers/electoral-seat.controller';
 import { ElectoralLocationController } from './controllers/electoral-location.controller';
 import { ElectoralTableController } from './controllers/electoral-table.controller';
+import { Ballot, BallotSchema } from '../ballot/schemas/ballot.schema';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ElectoralTableController } from './controllers/electoral-table.controll
       { name: ElectoralSeat.name, schema: ElectoralSeatSchema },
       { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
       { name: ElectoralTable.name, schema: ElectoralTableSchema },
+      { name: Ballot.name, schema: BallotSchema },
     ]),
   ],
   controllers: [

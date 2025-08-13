@@ -77,15 +77,14 @@ export class ElectoralLocationController {
   })
   @ApiResponse({ status: 200, description: 'Recintos cercanos encontrados' })
   findNearby(
-    @Query('lat') latitude: number,
-    @Query('lng') longitude: number,
-    @Query('maxDistance') maxDistance?: number,
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('maxDistance') max?: string,
   ) {
-    return this.locationService.findNearby(
-      +latitude,
-      +longitude,
-      maxDistance ? +maxDistance : undefined,
-    );
+    const latitude = Number(lat);
+    const longitude = Number(lng);
+    const maxDistance = max ? Number(max) : 1000;
+    return this.locationService.findNearby(latitude, longitude, maxDistance);
   }
 
   @Get('circunscripcion/:type')
