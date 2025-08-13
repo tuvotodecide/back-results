@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsEnum,
   IsNumber,
+  Min,
 } from 'class-validator';
 
 export class CreateBallotFromIpfsDto {
@@ -32,6 +33,16 @@ export class CreateBallotFromIpfsDto {
   @IsString()
   @IsOptional()
   tableIdIpfs: string;
+
+  @ApiProperty({
+    description: 'Versión del acta',
+    example: 1,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  version?: number;
 }
 
 // Interfaces para el formato OpenSea

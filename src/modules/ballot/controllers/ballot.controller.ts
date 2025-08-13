@@ -83,6 +83,24 @@ export class BallotController {
     return this.ballotService.getStats();
   }
 
+  @Get('versions/:tableCode')
+  @ApiOperation({ summary: 'Obtener versiones de actas' })
+  @ApiParam({
+    name: 'tableCode',
+    description: 'Código de mesa',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de versiones obtenida exitosamente',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'No se encontraron versiones',
+  })
+  getBallotVersions(@Param('tableCode') tableCode: string) {
+    return this.ballotService.findVersionsByTableCode(tableCode);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un acta por ID' })
   @ApiParam({

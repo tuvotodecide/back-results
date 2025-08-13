@@ -1,3 +1,4 @@
+/* eslint-disable no-useless-catch */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
@@ -36,26 +37,20 @@ export class BallotService {
 
   async createFromIpfs(createDto: CreateBallotFromIpfsDto): Promise<Ballot> {
     try {
-      // 1. Fetch data from IPFS
       const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
 
-      // 2. Extract ballot data from OpenSea format
       const ballotData = this.extractBallotData(ipfsData);
 
-      // 3. Validate data
       await this.validateBallotData(ballotData);
 
-      const version = await this.getBallotVersion(ballotData);
-
-      // 4. Get location details
       const locationDetails = await this.getLocationDetails(
         ballotData.locationId,
       );
 
-      // 5. Extract CID from URI
       const cid = this.extractCidFromUri(createDto.ipfsUri);
 
-      // 6. Create ballot document
+      const version = createDto.version || 1;
+
       const ballot = new this.ballotModel({
         tableNumber: ballotData.tableNumber,
         tableCode: ballotData.tableCode,
@@ -67,17 +62,12 @@ export class BallotService {
         ipfsCid: cid,
         recordId: createDto.recordId,
         tableIdIpfs: createDto.tableIdIpfs,
-        version,
         status: 'processed',
+        version,
       });
 
       return await ballot.save();
     } catch (error) {
-      if (error.code === 11000) {
-        throw new ConflictException(
-          ' Error al registrar el acta para esta mesa ',
-        );
-      }
       throw error;
     }
   }
@@ -137,21 +127,6 @@ export class BallotService {
     };
 
     return ballotData;
-  }
-
-  private async getBallotVersion(data: BallotDataFromIpfs): Promise<number> {
-    const latestBallots = await this.ballotModel
-      .find({ tableCode: data.tableCode })
-      .sort({ version: -1 })
-      .limit(1);
-
-    let currentVersion = 1;
-
-    if (latestBallots.length > 0) {
-      const latestBallot = latestBallots[0];
-      currentVersion = latestBallot.version + 1;
-    }
-    return currentVersion;
   }
 
   private async validateBallotData(data: BallotDataFromIpfs): Promise<void> {
@@ -252,6 +227,17 @@ export class BallotService {
     }
 
     return errors;
+  }
+
+  /**
+   * Obtener todas las versiones de un acta por tableCode
+   */
+  async findVersionsByTableCode(tableCode: string): Promise<BallotDocument[]> {
+    return this.ballotModel
+      .find({ tableCode })
+      .sort({ version: -1, createdAt: -1 })
+      .populate('electoralLocationId', 'name code address')
+      .exec();
   }
 
   private async getLocationDetails(locationId: string): Promise<any> {
