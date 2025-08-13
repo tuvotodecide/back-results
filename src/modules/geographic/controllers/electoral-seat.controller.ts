@@ -24,6 +24,7 @@ import {
 } from '../dto/electoral-seat.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Types } from 'mongoose';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-seats')
@@ -72,7 +73,7 @@ export class ElectoralSeatController {
     query: GeographicQueryDto & {
       municipalityId?: string;
       provinceId?: string;
-      departmentId?: string;
+      departmentId?: Types.ObjectId;
     },
   ) {
     return this.electoralSeatService.findAll(query);
@@ -108,7 +109,7 @@ export class ElectoralSeatController {
   @ApiOperation({ summary: 'Obtener asientos electorales por departamento' })
   @ApiResponse({ status: 200, description: 'Asientos electorales encontrados' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
-  findByDepartment(@Param('departmentId') departmentId: string) {
+  findByDepartment(@Param('departmentId') departmentId: Types.ObjectId) {
     return this.electoralSeatService.findByDepartment(departmentId);
   }
 

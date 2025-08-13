@@ -35,7 +35,11 @@ export class ElectoralTableService {
     await this.electoralLocationService.findOne(createDto.electoralLocationId);
 
     try {
-      const table = new this.electoralTableModel(createDto);
+      const table = new this.electoralTableModel({
+        ...createDto,
+        electoralLocationId: new Types.ObjectId(createDto.electoralLocationId),
+      });
+
       const saved = await table.save();
 
       this.logger.log(

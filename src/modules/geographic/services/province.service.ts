@@ -21,11 +21,14 @@ export class ProvinceService {
   ) {}
 
   async create(createDto: CreateProvinceDto): Promise<Province> {
-    // Verificar que el departamento existe
     await this.departmentService.findOne(createDto.departmentId);
 
     try {
-      const province = new this.provinceModel(createDto);
+      const province = new this.provinceModel({
+        ...createDto,
+        departmentId: new Types.ObjectId(createDto.departmentId),
+      });
+
       const saved = await province.save();
 
       this.logger.log(`Provincia creada: ${saved.name}`, 'ProvinceService');
@@ -40,7 +43,7 @@ export class ProvinceService {
     }
   }
 
-  async findAll(query: GeographicQueryDto & { departmentId?: string }) {
+  async findAll(query: GeographicQueryDto & { departmentId?: Types.ObjectId }) {
     const {
       page = 1,
       limit = 10,
@@ -53,6 +56,7 @@ export class ProvinceService {
     const skip = (page - 1) * limit;
 
     const filters: any = {};
+
     if (search) {
       filters.name = { $regex: search, $options: 'i' };
     }
@@ -60,7 +64,7 @@ export class ProvinceService {
       filters.active = active === 'true';
     }
     if (departmentId) {
-      filters.departmentId = departmentId;
+      filters.departmentId = new Types.ObjectId(departmentId);
     }
 
     const [provinces, total] = await Promise.all([
@@ -99,10 +103,9 @@ export class ProvinceService {
     return province;
   }
 
-  async findByDepartment(
-    departmentId: string | Types.ObjectId,
-  ): Promise<Province[]> {
+  async findByDepartment(departmentId: Types.ObjectId): Promise<Province[]> {
     const response = await this.departmentService.findOne(departmentId);
+    console.log({ response });
 
     return this.provinceModel
       .find({ departmentId: response._id, active: true })

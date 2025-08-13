@@ -3,7 +3,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsBoolean,
-  IsMongoId,
   IsNumber,
   IsEnum,
   ValidateNested,
@@ -147,7 +146,7 @@ export class UpdateElectoralLocationDto {
   })
   @IsOptional()
   @TransformObjectId()
-  electoralSeatId?: string;
+  electoralSeatId?: Types.ObjectId;
 
   @ApiProperty({
     example: 'Alto Ipaguazu',

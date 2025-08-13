@@ -24,6 +24,7 @@ import {
 } from '../dto/municipality.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Types } from 'mongoose';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/municipalities')
@@ -61,7 +62,10 @@ export class MunicipalityController {
   })
   findAll(
     @Query()
-    query: GeographicQueryDto & { provinceId?: string; departmentId?: string },
+    query: GeographicQueryDto & {
+      provinceId?: string;
+      departmentId?: Types.ObjectId;
+    },
   ) {
     return this.municipalityService.findAll(query);
   }
@@ -88,7 +92,7 @@ export class MunicipalityController {
   @ApiOperation({ summary: 'Obtener municipios por departamento' })
   @ApiResponse({ status: 200, description: 'Municipios encontrados' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
-  findByDepartment(@Param('departmentId') departmentId: string) {
+  findByDepartment(@Param('departmentId') departmentId: Types.ObjectId) {
     return this.municipalityService.findByDepartment(departmentId);
   }
 

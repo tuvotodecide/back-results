@@ -1,10 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  IsBoolean,
-  IsMongoId,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { TransformObjectId } from '@/core/transforms/objectid.transform';
 import { Types } from 'mongoose';
@@ -65,7 +59,7 @@ export class UpdateElectoralSeatDto {
   })
   @IsOptional()
   @TransformObjectId()
-  municipalityId?: string;
+  municipalityId?: Types.ObjectId;
 
   @ApiProperty({ example: true, description: 'Estado activo', required: false })
   @IsOptional()

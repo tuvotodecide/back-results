@@ -33,7 +33,10 @@ export class ElectoralSeatService {
     await this.municipalityService.findOne(createDto.municipalityId);
 
     try {
-      const electoralSeat = new this.electoralSeatModel(createDto);
+      const electoralSeat = new this.electoralSeatModel({
+        ...createDto,
+        municipalityId: new Types.ObjectId(createDto.municipalityId),
+      });
       const saved = await electoralSeat.save();
 
       this.logger.log(
@@ -55,7 +58,7 @@ export class ElectoralSeatService {
     query: GeographicQueryDto & {
       municipalityId?: string;
       provinceId?: string;
-      departmentId?: string;
+      departmentId?: Types.ObjectId;
     },
   ) {
     const {
@@ -208,7 +211,7 @@ export class ElectoralSeatService {
   }
 
   async findByDepartment(
-    departmentId: string | Types.ObjectId,
+    departmentId: Types.ObjectId,
   ): Promise<ElectoralSeat[]> {
     const municipalities =
       await this.municipalityService.findByDepartment(departmentId);

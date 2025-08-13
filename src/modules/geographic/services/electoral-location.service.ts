@@ -42,7 +42,10 @@ export class ElectoralLocationService {
     await this.electoralSeatService.findOne(createDto.electoralSeatId);
 
     try {
-      const location = new this.locationModel(createDto);
+      const location = new this.locationModel({
+        ...createDto,
+        electoralSeatId: new Types.ObjectId(createDto.electoralSeatId),
+      });
       const saved = await location.save();
 
       this.logger.log(

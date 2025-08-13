@@ -10,6 +10,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { Types } from 'mongoose';
+
 import {
   ApiTags,
   ApiOperation,
@@ -40,7 +42,7 @@ export class ProvinceController {
     return this.provinceService.create(createProvinceDto);
   }
 
-  @Get()
+  @Get() //compare
   @ApiOperation({ summary: 'Listar todas las provincias' })
   @ApiQuery({
     name: 'departmentId',
@@ -51,7 +53,9 @@ export class ProvinceController {
     status: 200,
     description: 'Lista de provincias obtenida exitosamente',
   })
-  findAll(@Query() query: GeographicQueryDto & { departmentId?: string }) {
+  findAll(
+    @Query() query: GeographicQueryDto & { departmentId?: Types.ObjectId },
+  ) {
     return this.provinceService.findAll(query);
   }
 
@@ -59,7 +63,10 @@ export class ProvinceController {
   @ApiOperation({ summary: 'Obtener provincias por departamento' })
   @ApiResponse({ status: 200, description: 'Provincias encontradas' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
-  findByDepartment(@Param('departmentId') departmentId: string) {
+  findByDepartment(
+    @Param('departmentId', new ParseObjectIdPipe())
+    departmentId: Types.ObjectId,
+  ) {
     return this.provinceService.findByDepartment(departmentId);
   }
 

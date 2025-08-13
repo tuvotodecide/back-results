@@ -34,7 +34,12 @@ export class MunicipalityService {
     await this.provinceService.findOne(createDto.provinceId);
 
     try {
-      const municipality = new this.municipalityModel(createDto);
+      // const municipality = new this.municipalityModel(createDto);
+      const municipality = new this.municipalityModel({
+        ...createDto,
+        provinceId: new Types.ObjectId(createDto.provinceId),
+      });
+
       const saved = await municipality.save();
 
       this.logger.log(`Municipio creado: ${saved.name}`, 'MunicipalityService');
@@ -50,7 +55,10 @@ export class MunicipalityService {
   }
 
   async findAll(
-    query: GeographicQueryDto & { provinceId?: string; departmentId?: string },
+    query: GeographicQueryDto & {
+      provinceId?: string;
+      departmentId?: Types.ObjectId;
+    },
   ) {
     const {
       page = 1,
@@ -72,7 +80,7 @@ export class MunicipalityService {
       filters.active = active === 'true';
     }
     if (provinceId) {
-      filters.provinceId = provinceId;
+      filters.provinceId = new Types.ObjectId(provinceId);
     }
 
     // Si se filtra por departamento, primero encontrar las provincias de ese departamento
@@ -147,7 +155,7 @@ export class MunicipalityService {
   }
 
   async findByDepartment(
-    departmentId: string | Types.ObjectId,
+    departmentId: Types.ObjectId,
   ): Promise<Municipality[]> {
     const provinces = await this.provinceService.findByDepartment(departmentId);
     const provinceIds = provinces.map((p: any) => p._id ?? p.id);
