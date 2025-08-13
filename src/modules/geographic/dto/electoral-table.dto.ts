@@ -1,12 +1,6 @@
 import { TransformObjectId } from '@/core/transforms/objectid.transform';
 import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsString,
-  IsNotEmpty,
-  IsMongoId,
-  IsOptional,
-  IsBoolean,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
 import { Types } from 'mongoose';
 
 export class CreateElectoralTableDto {

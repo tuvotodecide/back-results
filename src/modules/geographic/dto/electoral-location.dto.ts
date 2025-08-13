@@ -3,7 +3,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsBoolean,
-  IsMongoId,
   IsNumber,
   IsEnum,
   ValidateNested,
