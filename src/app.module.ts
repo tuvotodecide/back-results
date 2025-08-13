@@ -7,6 +7,7 @@ import { PoliticalModule } from './modules/political/political.module';
 import { BallotModule } from './modules/ballot/ballot.module';
 import { ResultsModule } from './modules/results/results.module';
 import { ElectionsModule } from './modules/elections/elections.module';
+import { AttestationModule } from './modules/attestation/attestation.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { ElectionsModule } from './modules/elections/elections.module';
     PoliticalModule,
     BallotModule,
     ResultsModule,
+    AttestationModule,
   ],
   controllers: [AppController],
   providers: [AppService],
