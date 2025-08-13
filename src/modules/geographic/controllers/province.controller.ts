@@ -20,7 +20,7 @@ import {
 import { ProvinceService } from '../services/province.service';
 import { CreateProvinceDto, UpdateProvinceDto } from '../dto/province.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/provinces')
@@ -67,7 +67,7 @@ export class ProvinceController {
   @ApiOperation({ summary: 'Obtener una provincia por ID' })
   @ApiResponse({ status: 200, description: 'Provincia encontrada' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.provinceService.findOne(id);
   }
 
@@ -81,7 +81,7 @@ export class ProvinceController {
   })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseObjectIdPipe()) id: string,
     @Body() updateProvinceDto: UpdateProvinceDto,
   ) {
     return this.provinceService.update(id, updateProvinceDto);
@@ -93,7 +93,7 @@ export class ProvinceController {
   @ApiOperation({ summary: 'Eliminar una provincia' })
   @ApiResponse({ status: 200, description: 'Provincia eliminada exitosamente' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.provinceService.remove(id);
   }
 }

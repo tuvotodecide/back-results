@@ -22,7 +22,7 @@ import {
   ElectionConfigResponseDto,
   ElectionStatusResponseDto,
 } from '../dto/election-config.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Configuración Electoral')
 @Controller('api/v1/elections/config')
@@ -121,7 +121,9 @@ export class ElectionConfigController {
     status: 404,
     description: 'Configuración no encontrada',
   })
-  findOne(@Param('id') id: string): Promise<ElectionConfigResponseDto> {
+  findOne(
+    @Param('id', new ParseObjectIdPipe()) id: string,
+  ): Promise<ElectionConfigResponseDto> {
     return this.electionConfigService.findOne(id);
   }
 
@@ -150,7 +152,7 @@ export class ElectionConfigController {
     description: 'Datos inválidos o fechas incorrectas',
   })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseObjectIdPipe()) id: string,
     @Body() updateDto: UpdateElectionConfigDto,
   ): Promise<ElectionConfigResponseDto> {
     return this.electionConfigService.update(id, updateDto);
@@ -175,7 +177,7 @@ export class ElectionConfigController {
     status: 404,
     description: 'Configuración no encontrada',
   })
-  remove(@Param('id') id: string): Promise<void> {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string): Promise<void> {
     return this.electionConfigService.remove(id);
   }
 }

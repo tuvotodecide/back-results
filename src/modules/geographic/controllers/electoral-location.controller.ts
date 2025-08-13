@@ -26,7 +26,7 @@ import {
   UpdateElectoralLocationDto,
 } from '../dto/electoral-location.dto';
 import { LocationQueryDto } from '../dto/query.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-locations')
@@ -138,7 +138,7 @@ export class ElectoralLocationController {
     description: 'Recinto encontrado con sus mesas electorales',
   })
   @ApiResponse({ status: 404, description: 'Recinto no encontrado' })
-  findOneWithTables(@Param('id') id: string) {
+  findOneWithTables(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.locationService.findOneWithTables(id);
   }
 
@@ -146,7 +146,7 @@ export class ElectoralLocationController {
   @ApiOperation({ summary: 'Obtener un recinto electoral por ID' })
   @ApiResponse({ status: 200, description: 'Recinto encontrado' })
   @ApiResponse({ status: 404, description: 'Recinto no encontrado' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.locationService.findOne(id);
   }
 
@@ -157,7 +157,7 @@ export class ElectoralLocationController {
   @ApiResponse({ status: 200, description: 'Recinto actualizado exitosamente' })
   @ApiResponse({ status: 404, description: 'Recinto no encontrado' })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseObjectIdPipe()) id: string,
     @Body() updateLocationDto: UpdateElectoralLocationDto,
   ) {
     return this.locationService.update(id, updateLocationDto);
@@ -169,7 +169,7 @@ export class ElectoralLocationController {
   @ApiOperation({ summary: 'Eliminar un recinto electoral' })
   @ApiResponse({ status: 200, description: 'Recinto eliminado exitosamente' })
   @ApiResponse({ status: 404, description: 'Recinto no encontrado' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.locationService.remove(id);
   }
 }

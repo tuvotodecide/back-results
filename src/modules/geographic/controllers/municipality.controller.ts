@@ -23,7 +23,7 @@ import {
   UpdateMunicipalityDto,
 } from '../dto/municipality.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/municipalities')
@@ -96,7 +96,7 @@ export class MunicipalityController {
   @ApiOperation({ summary: 'Obtener un municipio por ID' })
   @ApiResponse({ status: 200, description: 'Municipio encontrado' })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.municipalityService.findOne(id);
   }
 
@@ -110,7 +110,7 @@ export class MunicipalityController {
   })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseObjectIdPipe()) id: string,
     @Body() updateMunicipalityDto: UpdateMunicipalityDto,
   ) {
     return this.municipalityService.update(id, updateMunicipalityDto);
@@ -122,7 +122,7 @@ export class MunicipalityController {
   @ApiOperation({ summary: 'Eliminar un municipio' })
   @ApiResponse({ status: 200, description: 'Municipio eliminado exitosamente' })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.municipalityService.remove(id);
   }
 
@@ -130,7 +130,7 @@ export class MunicipalityController {
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar un municipio' })
-  activate(@Param('id') id: string) {
+  activate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.municipalityService.activate(id);
   }
 
@@ -138,7 +138,7 @@ export class MunicipalityController {
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un municipio' })
-  deactivate(@Param('id') id: string) {
+  deactivate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.municipalityService.deactivate(id);
   }
 }

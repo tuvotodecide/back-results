@@ -22,7 +22,7 @@ import {
   UpdateDepartmentDto,
 } from '../dto/department.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/departments')
@@ -53,7 +53,7 @@ export class DepartmentController {
   @ApiOperation({ summary: 'Obtener un departamento por ID' })
   @ApiResponse({ status: 200, description: 'Departamento encontrado' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.departmentService.findOne(id);
   }
 
@@ -67,7 +67,7 @@ export class DepartmentController {
   })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseObjectIdPipe()) id: string,
     @Body() updateDepartmentDto: UpdateDepartmentDto,
   ) {
     return this.departmentService.update(id, updateDepartmentDto);
@@ -82,7 +82,7 @@ export class DepartmentController {
     description: 'Departamento eliminado exitosamente',
   })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.departmentService.remove(id);
   }
 
@@ -90,7 +90,7 @@ export class DepartmentController {
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar un departamento' })
-  activate(@Param('id') id: string) {
+  activate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.departmentService.activate(id);
   }
 
@@ -98,7 +98,7 @@ export class DepartmentController {
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un departamento' })
-  deactivate(@Param('id') id: string) {
+  deactivate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.departmentService.deactivate(id);
   }
 }

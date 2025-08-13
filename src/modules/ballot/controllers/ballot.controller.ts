@@ -26,7 +26,7 @@ import {
 } from '../dto/ballot.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guard';
-import { ElectionConfigGuard } from '@/modules/elections/guards/election-config.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Actas')
 @Controller('api/v1/ballots')
@@ -97,7 +97,7 @@ export class BallotController {
     status: 404,
     description: 'Acta no encontrada',
   })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.ballotService.findOne(id);
   }
 

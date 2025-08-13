@@ -23,7 +23,7 @@ import {
   UpdateElectoralSeatDto,
 } from '../dto/electoral-seat.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-seats')
@@ -126,7 +126,7 @@ export class ElectoralSeatController {
   @ApiOperation({ summary: 'Obtener un asiento electoral por ID' })
   @ApiResponse({ status: 200, description: 'Asiento electoral encontrado' })
   @ApiResponse({ status: 404, description: 'Asiento electoral no encontrado' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralSeatService.findOne(id);
   }
 
@@ -140,7 +140,7 @@ export class ElectoralSeatController {
   })
   @ApiResponse({ status: 404, description: 'Asiento electoral no encontrado' })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseObjectIdPipe()) id: string,
     @Body() updateElectoralSeatDto: UpdateElectoralSeatDto,
   ) {
     return this.electoralSeatService.update(id, updateElectoralSeatDto);
@@ -155,7 +155,7 @@ export class ElectoralSeatController {
     description: 'Asiento electoral eliminado exitosamente',
   })
   @ApiResponse({ status: 404, description: 'Asiento electoral no encontrado' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralSeatService.remove(id);
   }
 
@@ -163,7 +163,7 @@ export class ElectoralSeatController {
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar un asiento electoral' })
-  activate(@Param('id') id: string) {
+  activate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralSeatService.activate(id);
   }
 
@@ -171,7 +171,7 @@ export class ElectoralSeatController {
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un asiento electoral' })
-  deactivate(@Param('id') id: string) {
+  deactivate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralSeatService.deactivate(id);
   }
 }

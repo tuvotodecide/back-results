@@ -23,7 +23,7 @@ import {
   UpdatePoliticalPartyDto,
   PoliticalPartyQueryDto,
 } from '../dto/political-party.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Partidos')
 @Controller('api/v1/political-parties')
@@ -80,7 +80,7 @@ export class PoliticalPartyController {
     status: 404,
     description: 'Partido político no encontrado',
   })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.politicalPartyService.findOne(id);
   }
 
@@ -118,7 +118,10 @@ export class PoliticalPartyController {
     status: 404,
     description: 'Partido político no encontrado',
   })
-  update(@Param('id') id: string, @Body() updateDto: UpdatePoliticalPartyDto) {
+  update(
+    @Param('id', new ParseObjectIdPipe()) id: string,
+    @Body() updateDto: UpdatePoliticalPartyDto,
+  ) {
     return this.politicalPartyService.update(id, updateDto);
   }
 
@@ -138,7 +141,7 @@ export class PoliticalPartyController {
     status: 404,
     description: 'Partido político no encontrado',
   })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.politicalPartyService.remove(id);
   }
 }

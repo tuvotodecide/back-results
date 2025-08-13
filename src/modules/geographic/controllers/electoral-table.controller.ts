@@ -23,7 +23,7 @@ import {
   UpdateElectoralTableDto,
   ElectoralTableQueryDto,
 } from '../dto/electoral-table.dto';
-import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-tables')
@@ -106,7 +106,7 @@ export class ElectoralTableController {
   @ApiOperation({ summary: 'Obtener una mesa electoral por ID' })
   @ApiResponse({ status: 200, description: 'Mesa encontrada' })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralTableService.findOne(id);
   }
 
@@ -120,7 +120,7 @@ export class ElectoralTableController {
   })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })
   update(
-    @Param('id') id: string,
+    @Param('id', new ParseObjectIdPipe()) id: string,
     @Body() updateTableDto: UpdateElectoralTableDto,
   ) {
     return this.electoralTableService.update(id, updateTableDto);
@@ -135,7 +135,7 @@ export class ElectoralTableController {
     description: 'Mesa electoral eliminada exitosamente',
   })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralTableService.remove(id);
   }
 
@@ -145,7 +145,7 @@ export class ElectoralTableController {
   @ApiOperation({ summary: 'Activar una mesa electoral' })
   @ApiResponse({ status: 200, description: 'Mesa activada exitosamente' })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })
-  activate(@Param('id') id: string) {
+  activate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralTableService.activate(id);
   }
 
@@ -155,7 +155,7 @@ export class ElectoralTableController {
   @ApiOperation({ summary: 'Desactivar una mesa electoral' })
   @ApiResponse({ status: 200, description: 'Mesa desactivada exitosamente' })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })
-  deactivate(@Param('id') id: string) {
+  deactivate(@Param('id', new ParseObjectIdPipe()) id: string) {
     return this.electoralTableService.deactivate(id);
   }
 }
