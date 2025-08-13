@@ -45,6 +45,8 @@ export class BallotService {
       // 3. Validate data
       await this.validateBallotData(ballotData);
 
+      const version = await this.getBallotVersion(ballotData);
+
       // 4. Get location details
       const locationDetails = await this.getLocationDetails(
         ballotData.locationId,
@@ -65,13 +67,16 @@ export class BallotService {
         ipfsCid: cid,
         recordId: createDto.recordId,
         tableIdIpfs: createDto.tableIdIpfs,
+        version,
         status: 'processed',
       });
 
       return await ballot.save();
     } catch (error) {
       if (error.code === 11000) {
-        throw new ConflictException('El acta ya fue registrada para esta mesa');
+        throw new ConflictException(
+          ' Error al registrar el acta para esta mesa ',
+        );
       }
       throw error;
     }
@@ -134,6 +139,21 @@ export class BallotService {
     return ballotData;
   }
 
+  private async getBallotVersion(data: BallotDataFromIpfs): Promise<number> {
+    const latestBallots = await this.ballotModel
+      .find({ tableCode: data.tableCode })
+      .sort({ version: -1 })
+      .limit(1);
+
+    let currentVersion = 1;
+
+    if (latestBallots.length > 0) {
+      const latestBallot = latestBallots[0];
+      currentVersion = latestBallot.version + 1;
+    }
+    return currentVersion;
+  }
+
   private async validateBallotData(data: BallotDataFromIpfs): Promise<void> {
     const errors: string[] = [];
 
@@ -174,14 +194,6 @@ export class BallotService {
       await this.electoralLocationService.findOne(data.locationId);
     } catch (error) {
       errors.push('El recinto electoral especificado no existe');
-    }
-
-    // Validar que no exista un acta para esta mesa
-    const existingBallot = await this.ballotModel.findOne({
-      tableCode: data.tableCode,
-    });
-    if (existingBallot) {
-      errors.push('Ya existe un acta registrada para esta mesa');
     }
 
     if (errors.length > 0) {
