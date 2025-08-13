@@ -83,7 +83,7 @@ export class ElectoralTableService {
       filters.active = active === 'true';
     }
     if (electoralLocationId) {
-      filters.electoralLocationId = electoralLocationId;
+      filters.electoralLocationId = new Types.ObjectId(electoralLocationId);
     }
 
     const [tables, total] = await Promise.all([
@@ -166,9 +166,12 @@ export class ElectoralTableService {
     // Verificar que el recinto existe
     await this.electoralLocationService.findOne(electoralLocationId);
 
+    // Convertir a ObjectId para asegurar que funcione tanto con strings como con ObjectIds almacenados en la BD
+    const objectId = new Types.ObjectId(electoralLocationId);
+
     const tables = await this.electoralTableModel
       .find({
-        electoralLocationId,
+        electoralLocationId: objectId,
         active: true,
       })
       .sort({ tableNumber: 1 })

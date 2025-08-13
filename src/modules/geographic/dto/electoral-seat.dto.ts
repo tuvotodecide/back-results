@@ -27,7 +27,7 @@ export class CreateElectoralSeatDto {
     example: '507f1f77bcf86cd799439011',
     description: 'ID del municipio',
   })
-  @IsMongoId()
+  @IsNotEmpty()
   @TransformObjectId()
   municipalityId: Types.ObjectId;
 
@@ -64,7 +64,7 @@ export class UpdateElectoralSeatDto {
     required: false,
   })
   @IsOptional()
-  @IsMongoId()
+  @TransformObjectId()
   municipalityId?: string;
 
   @ApiProperty({ example: true, description: 'Estado activo', required: false })

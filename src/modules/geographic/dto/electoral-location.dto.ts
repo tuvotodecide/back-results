@@ -68,7 +68,7 @@ export class CreateElectoralLocationDto {
     example: '507f1f77bcf86cd799439011',
     description: 'ID del asiento electoral',
   })
-  @IsMongoId()
+  @IsNotEmpty()
   @TransformObjectId()
   electoralSeatId: Types.ObjectId;
 
@@ -146,7 +146,7 @@ export class UpdateElectoralLocationDto {
     required: false,
   })
   @IsOptional()
-  @IsMongoId()
+  @TransformObjectId()
   electoralSeatId?: string;
 
   @ApiProperty({

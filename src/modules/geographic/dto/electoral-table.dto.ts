@@ -30,7 +30,7 @@ export class CreateElectoralTableDto {
     description: 'ID del recinto electoral al que pertenece la mesa',
     example: '507f1f77bcf86cd799439011',
   })
-  @IsMongoId()
+  @IsNotEmpty()
   @TransformObjectId()
   electoralLocationId: Types.ObjectId;
 
@@ -71,7 +71,6 @@ export class UpdateElectoralTableDto {
     required: false,
   })
   @IsOptional()
-  @IsMongoId()
   @TransformObjectId()
   electoralLocationId?: Types.ObjectId;
 
