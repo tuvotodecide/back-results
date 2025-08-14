@@ -226,14 +226,14 @@ export class ElectoralLocationService {
     const base = await this.locationModel
       .find({
         active: true,
-        coordinates: {
+        geo: {
           $near: {
             $geometry: { type: 'Point', coordinates: [lng, lat] },
             $maxDistance: maxDistance,
           },
         },
       })
-      .select('code name address coordinates electoralSeatId')
+      .select('code name address geo electoralSeatId')
       .limit(20)
       .lean()
       .exec();
@@ -278,7 +278,6 @@ export class ElectoralLocationService {
       ballotsAgg.map((r) => [String(r._id), r.count]),
     );
 
-    // 4) Ensamblar respuesta final
     return populated.map((loc) => ({
       ...loc,
       tablesCount: tableCount.get(String(loc._id)) ?? 0,

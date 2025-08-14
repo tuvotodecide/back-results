@@ -1,7 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import * as mongoose from 'mongoose';
 
 export type ElectoralLocationDocument = ElectoralLocation & Document;
+
+const PointSchema = new mongoose.Schema(
+  {
+    type: { type: String, enum: ['Point'], required: true, default: 'Point' },
+    coordinates: { type: [Number], required: true },
+  },
+  { _id: false },
+);
 
 @Schema({ _id: false })
 export class Circunscripcion {
@@ -56,6 +65,9 @@ export class ElectoralLocation {
   @Prop({ type: Coordinates, required: true })
   coordinates: Coordinates;
 
+  @Prop({ type: PointSchema, required: true })
+  geo: { type: 'Point'; coordinates: [number, number] };
+
   @Prop({ default: true })
   active: boolean;
 
@@ -71,5 +83,5 @@ ElectoralLocationSchema.index({ electoralSeatId: 1 });
 ElectoralLocationSchema.index({ fid: 1 });
 ElectoralLocationSchema.index({ 'circunscripcion.type': 1 });
 ElectoralLocationSchema.index({ 'circunscripcion.number': 1 });
-ElectoralLocationSchema.index({ coordinates: '2dsphere' }); // indice geoespacial
+ElectoralLocationSchema.index({ geo: '2dsphere' });
 ElectoralLocationSchema.index({ active: 1 });
