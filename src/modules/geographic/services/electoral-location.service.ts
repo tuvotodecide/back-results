@@ -229,7 +229,7 @@ export class ElectoralLocationService {
         geo: {
           $near: {
             $geometry: { type: 'Point', coordinates: [lng, lat] },
-            $maxDistance: maxDistance,
+            $maxDistance: maxDistance, // metros con 2dsphere
           },
         },
       })
