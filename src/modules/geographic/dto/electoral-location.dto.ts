@@ -4,8 +4,9 @@ import {
   IsOptional,
   IsBoolean,
   IsNumber,
-  IsEnum,
   ValidateNested,
+  Min,
+  Max,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -13,193 +14,97 @@ import { TransformObjectId } from '@/core/transforms/objectid.transform';
 import { Types } from 'mongoose';
 
 export class CircunscripcionDto {
-  @ApiProperty({ example: 4, description: 'Número de circunscripción' })
+  @ApiProperty({ example: 4 })
   @IsNumber()
+  @Type(() => Number)
   number: number;
 
-  @ApiProperty({
-    example: 'Especial',
-    description: 'Tipo de circunscripción',
-    enum: ['Especial', 'Uninominal'],
-  })
-  @IsEnum(['Especial', 'Uninominal'])
-  type: string;
+  @ApiProperty({ example: 'Uninominal', enum: ['Especial', 'Uninominal'] })
+  @IsString()
+  @IsNotEmpty()
+  type: 'Especial' | 'Uninominal';
 
-  @ApiProperty({
-    example: 'Especial Indígena-Tarija',
-    description: 'Nombre de la circunscripción',
-  })
+  @ApiProperty({ example: 'Cuadragésimo Segunda-Tarija' })
   @IsString()
   @IsNotEmpty()
   name: string;
 }
 
 export class CoordinatesDto {
-  @ApiProperty({ example: -21.357303, description: 'Latitud' })
+  @ApiProperty({ example: -17.368894 })
   @IsNumber()
+  @Type(() => Number)
+  @Min(-90)
+  @Max(90)
   latitude: number;
 
-  @ApiProperty({ example: -63.87766, description: 'Longitud' })
+  @ApiProperty({ example: -66.125185 })
   @IsNumber()
+  @Type(() => Number)
+  @Min(-180)
+  @Max(180)
   longitude: number;
 }
 
 export class CreateElectoralLocationDto {
-  @ApiProperty({ example: '4144', description: 'FID del sistema original' })
-  @IsString()
-  @IsNotEmpty()
-  fid: string;
-
-  @ApiProperty({ example: '25527', description: 'Código del recinto' })
-  @IsString()
-  @IsNotEmpty()
-  code: string;
-
-  @ApiProperty({
-    example: 'U.E. Alto Ipaguazu',
-    description: 'Nombre del recinto',
-  })
+  @ApiProperty({ example: '4144' }) @IsString() @IsNotEmpty() fid: string;
+  @ApiProperty({ example: '25527' }) @IsString() @IsNotEmpty() code: string;
+  @ApiProperty({ example: 'U.E. Alto Ipaguazu' })
   @IsString()
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({
-    example: '507f1f77bcf86cd799439011',
-    description: 'ID del asiento electoral',
-  })
-  @IsNotEmpty()
+  @ApiProperty({ example: '507f1f77bcf86cd799439011' })
   @TransformObjectId()
   electoralSeatId: Types.ObjectId;
 
-  @ApiProperty({
-    example: 'Alto Ipaguazu',
-    description: 'Dirección del recinto',
-  })
+  @ApiProperty({ example: 'Alto Ipaguazu' })
   @IsString()
   @IsNotEmpty()
   address: string;
-
-  @ApiProperty({ example: 'DISTRITO 6', description: 'Distrito electoral' })
+  @ApiProperty({ example: 'DISTRITO 6' })
   @IsString()
   @IsNotEmpty()
   district: string;
+  @ApiProperty({ example: 'Zona 5286' }) @IsString() @IsNotEmpty() zone: string;
 
-  @ApiProperty({ example: 'Zona 5286', description: 'Zona electoral' })
-  @IsString()
-  @IsNotEmpty()
-  zone: string;
-
-  @ApiProperty({
-    type: CircunscripcionDto,
-    description: 'Información de circunscripción',
-  })
+  @ApiProperty({ type: CircunscripcionDto })
   @ValidateNested()
   @Type(() => CircunscripcionDto)
   circunscripcion: CircunscripcionDto;
 
-  @ApiProperty({ type: CoordinatesDto, description: 'Coordenadas geográficas' })
+  @ApiProperty({ type: CoordinatesDto })
   @ValidateNested()
   @Type(() => CoordinatesDto)
   coordinates: CoordinatesDto;
 
-  @ApiProperty({ example: true, description: 'Estado activo', required: false })
+  @ApiProperty({ example: true, required: false })
   @IsOptional()
   @IsBoolean()
   active?: boolean;
 }
 
 export class UpdateElectoralLocationDto {
-  @ApiProperty({
-    example: '4144',
-    description: 'FID del sistema original',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  fid?: string;
+  @IsOptional() @IsString() fid?: string;
+  @IsOptional() @IsString() code?: string;
+  @IsOptional() @IsString() name?: string;
 
-  @ApiProperty({
-    example: '25527',
-    description: 'Código del recinto',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  code?: string;
+  @IsOptional() @TransformObjectId() electoralSeatId?: Types.ObjectId;
 
-  @ApiProperty({
-    example: 'U.E. Alto Ipaguazu',
-    description: 'Nombre del recinto',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  name?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() district?: string;
+  @IsOptional() @IsString() zone?: string;
 
-  @ApiProperty({
-    example: '507f1f77bcf86cd799439011',
-    description: 'ID del asiento electoral',
-    required: false,
-  })
-  @IsOptional()
-  @TransformObjectId()
-  electoralSeatId?: Types.ObjectId;
-
-  @ApiProperty({
-    example: 'Alto Ipaguazu',
-    description: 'Dirección del recinto',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  address?: string;
-
-  @ApiProperty({
-    example: 'DISTRITO 6',
-    description: 'Distrito electoral',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  district?: string;
-
-  @ApiProperty({
-    example: 'Zona 5286',
-    description: 'Zona electoral',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  zone?: string;
-
-  @ApiProperty({
-    type: CircunscripcionDto,
-    description: 'Información de circunscripción',
-    required: false,
-  })
   @IsOptional()
   @ValidateNested()
   @Type(() => CircunscripcionDto)
   circunscripcion?: CircunscripcionDto;
 
-  @ApiProperty({
-    type: CoordinatesDto,
-    description: 'Coordenadas geográficas',
-    required: false,
-  })
+  // Si envías coordinates en update, deben venir AMBOS números
   @IsOptional()
   @ValidateNested()
   @Type(() => CoordinatesDto)
   coordinates?: CoordinatesDto;
 
-  @ApiProperty({ example: true, description: 'Estado activo', required: false })
-  @IsOptional()
-  @IsBoolean()
-  active?: boolean;
+  @IsOptional() @IsBoolean() active?: boolean;
 }
