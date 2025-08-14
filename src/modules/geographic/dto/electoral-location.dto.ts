@@ -7,6 +7,7 @@ import {
   ValidateNested,
   Min,
   Max,
+  IsDefined,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
@@ -55,6 +56,7 @@ export class CreateElectoralLocationDto {
   name: string;
 
   @ApiProperty({ example: '507f1f77bcf86cd799439011' })
+  @IsDefined()
   @TransformObjectId()
   electoralSeatId: Types.ObjectId;
 

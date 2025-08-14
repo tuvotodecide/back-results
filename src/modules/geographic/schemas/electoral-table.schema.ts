@@ -17,6 +17,9 @@ export class ElectoralTable {
   @Prop({ type: Types.ObjectId, ref: 'ElectoralLocation', required: true })
   electoralLocationId: Types.ObjectId;
 
+  @Prop({ default: false })
+  observed: boolean;
+
   @Prop({ default: true })
   active: boolean;
 

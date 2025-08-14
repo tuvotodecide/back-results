@@ -45,6 +45,7 @@ export class ElectoralLocationService {
 
   async create(dto: CreateElectoralLocationDto) {
     const { coordinates, electoralSeatId } = dto;
+    console.log({ dto });
     if (!coordinates) throw new BadRequestException('coordinates es requerido');
 
     const { longitude, latitude } = coordinates;
