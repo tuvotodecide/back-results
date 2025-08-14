@@ -223,20 +223,45 @@ export class ElectoralLocationService {
       throw new BadRequestException('lat/lng inválidos');
     }
 
-    const base = await this.locationModel
+    // Use simple distance calculation in degrees, then filter in JavaScript for accurate distance
+    const maxDistanceInDegrees = maxDistance / 111320; // Rough conversion
+
+    const candidates = await this.locationModel
       .find({
         active: true,
-        coordinates: {
-          $near: {
-            $geometry: { type: 'Point', coordinates: [lng, lat] },
-            $maxDistance: maxDistance,
-          },
+        'coordinates.latitude': {
+          $gte: lat - maxDistanceInDegrees,
+          $lte: lat + maxDistanceInDegrees
         },
+        'coordinates.longitude': {
+          $gte: lng - maxDistanceInDegrees,
+          $lte: lng + maxDistanceInDegrees
+        }
       })
       .select('code name address coordinates electoralSeatId')
-      .limit(20)
       .lean()
       .exec();
+
+    // Calculate accurate Haversine distance in JavaScript
+    const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+      const R = 6371000; // Earth's radius in meters
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c; // Distance in meters
+    };
+
+    const base = candidates
+      .map(location => ({
+        ...location,
+        distance: calculateDistance(lat, lng, location.coordinates.latitude, location.coordinates.longitude)
+      }))
+      .filter(location => location.distance <= maxDistance)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 20);
 
     if (base.length === 0) return [];
 
