@@ -24,6 +24,15 @@ export class Coordinates {
   longitude: number; // -63.87766
 }
 
+@Schema({ _id: false })
+export class GeoPoint {
+  @Prop({ type: String, enum: ['Point'], default: 'Point' })
+  type: 'Point';
+
+  @Prop({ type: [Number], required: true })
+  coordinates: [number, number];
+}
+
 @Schema({
   timestamps: true,
   collection: 'electoral_locations',
@@ -56,6 +65,9 @@ export class ElectoralLocation {
   @Prop({ type: Coordinates, required: true })
   coordinates: Coordinates;
 
+  @Prop({ type: GeoPoint, required: true })
+  geo: GeoPoint;
+
   @Prop({ default: true })
   active: boolean;
 
@@ -71,5 +83,5 @@ ElectoralLocationSchema.index({ electoralSeatId: 1 });
 ElectoralLocationSchema.index({ fid: 1 });
 ElectoralLocationSchema.index({ 'circunscripcion.type': 1 });
 ElectoralLocationSchema.index({ 'circunscripcion.number': 1 });
-ElectoralLocationSchema.index({ coordinates: '2dsphere' }); // indice geoespacial
+ElectoralLocationSchema.index({ geo: '2dsphere' });
 ElectoralLocationSchema.index({ active: 1 });

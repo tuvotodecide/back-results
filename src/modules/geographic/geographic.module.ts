@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BackfillGeoMigration } from './migrations/backfill-geo.migration';
 
 // Schemas
 import { Department, DepartmentSchema } from './schemas/department.schema';
@@ -48,6 +49,7 @@ import { Ballot, BallotSchema } from '../ballot/schemas/ballot.schema';
       { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
       { name: ElectoralTable.name, schema: ElectoralTableSchema },
       { name: Ballot.name, schema: BallotSchema },
+      { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
     ]),
   ],
   controllers: [
@@ -59,6 +61,7 @@ import { Ballot, BallotSchema } from '../ballot/schemas/ballot.schema';
     ElectoralTableController,
   ],
   providers: [
+    BackfillGeoMigration,
     DepartmentService,
     ProvinceService,
     MunicipalityService,

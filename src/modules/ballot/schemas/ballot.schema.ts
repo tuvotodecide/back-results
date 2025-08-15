@@ -117,7 +117,6 @@ export class Ballot {
   @Prop({ required: true, trim: true })
   image: string;
 
-  // Campos agregados en el cambio anterior
   @Prop({ required: false, trim: true })
   recordId: string;
 
@@ -129,6 +128,9 @@ export class Ballot {
     enum: ['pending', 'processed', 'synced', 'error'],
   })
   status: string;
+
+  @Prop({ default: false })
+  valuable: boolean;
 
   @Prop({ default: 1, min: 1 })
   version?: number;

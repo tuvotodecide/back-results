@@ -5,7 +5,6 @@
 import {
   Injectable,
   NotFoundException,
-  ConflictException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -40,32 +39,22 @@ export class ElectoralLocationService {
     private logger: LoggerService,
   ) {}
 
-  async create(
-    createDto: CreateElectoralLocationDto,
-  ): Promise<ElectoralLocation> {
-    // Verificar que el asiento electoral existe
-    await this.electoralSeatService.findOne(createDto.electoralSeatId);
+  async onModuleInit() {
+    await this.locationModel.collection.createIndex({ geo: '2dsphere' });
+  }
 
-    try {
-      const location = new this.locationModel({
-        ...createDto,
-        electoralSeatId: new Types.ObjectId(createDto.electoralSeatId),
-      });
-      const saved = await location.save();
+  async create(dto: CreateElectoralLocationDto) {
+    const { coordinates, electoralSeatId } = dto;
+    console.log({ dto });
+    if (!coordinates) throw new BadRequestException('coordinates es requerido');
 
-      this.logger.log(
-        `Recinto electoral creado: ${saved.name}`,
-        'ElectoralLocationService',
-      );
-      return saved;
-    } catch (error) {
-      if (error.code === 11000) {
-        throw new ConflictException(
-          `El código de recinto '${createDto.code}' ya existe`,
-        );
-      }
-      throw error;
-    }
+    const { longitude, latitude } = coordinates;
+    const doc = await this.locationModel.create({
+      ...dto,
+      electoralSeatId: new Types.ObjectId(electoralSeatId),
+      geo: { type: 'Point', coordinates: [longitude, latitude] }, // [lng, lat]
+    });
+    return doc.toObject();
   }
 
   async findAll(query: LocationQueryDto) {
@@ -217,56 +206,59 @@ export class ElectoralLocationService {
     }
     return location;
   }
+  haversineMeters(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const R = 6371000; // radio tierra en metros
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
 
   async findNearby(lat: number, lng: number, maxDistance = 1000) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       throw new BadRequestException('lat/lng inválidos');
     }
 
-    // Use simple distance calculation in degrees, then filter in JavaScript for accurate distance
-    const maxDistanceInDegrees = maxDistance / 111320; // Rough conversion
-
-    const candidates = await this.locationModel
+    // 1) Búsqueda geoespacial ([lng, lat]) → limit 10 para replicar el pipeline anterior
+    const base = await this.locationModel
       .find({
         active: true,
-        'coordinates.latitude': {
-          $gte: lat - maxDistanceInDegrees,
-          $lte: lat + maxDistanceInDegrees
+        geo: {
+          $near: {
+            $geometry: { type: 'Point', coordinates: [lng, lat] },
+            $maxDistance: maxDistance,
+          },
         },
-        'coordinates.longitude': {
-          $gte: lng - maxDistanceInDegrees,
-          $lte: lng + maxDistanceInDegrees
-        }
       })
-      .select('code name address coordinates electoralSeatId')
+      .select(
+        // incluye TODO lo que el $project original dejaba pasar
+        '_id fid code name address district zone coordinates circunscripcion active electoralSeatId geo',
+      )
+      .limit(10)
       .lean()
       .exec();
 
-    // Calculate accurate Haversine distance in JavaScript
-    const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-      const R = 6371000; // Earth's radius in meters
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon/2) * Math.sin(dLon/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R * c; // Distance in meters
-    };
-
-    const base = candidates
-      .map(location => ({
-        ...location,
-        distance: calculateDistance(lat, lng, location.coordinates.latitude, location.coordinates.longitude)
-      }))
-      .filter(location => location.distance <= maxDistance)
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 20);
-
-    if (base.length === 0) return [];
+    // Si no hay resultados, responde en el mismo formato
+    if (base.length === 0) {
+      return {
+        data: [],
+        query: { latitude: lat, longitude: lng, maxDistance, unit: 'meters' },
+        count: 0,
+      };
+    }
 
     const ids = base.map((d) => d._id as Types.ObjectId);
 
+    // 2) Enriquecimiento jerárquico vía populate (seat → municipality → province → department)
     const populated = await this.locationModel.populate(base, {
       path: 'electoralSeatId',
       select: 'name municipalityId',
@@ -284,31 +276,101 @@ export class ElectoralLocationService {
       },
     });
 
-    const tablesAgg = await this.electoralTableModel
-      .aggregate([
-        { $match: { electoralLocationId: { $in: ids } } },
-        { $group: { _id: '$electoralLocationId', count: { $sum: 1 } } },
-      ])
+    // 3) Traer tables/ballots por lote (mismo orden/proyección que en tu pipeline)
+    const tablesRaw = await this.electoralTableModel
+      .find({ electoralLocationId: { $in: ids } })
+      .select('_id tableNumber tableCode electoralLocationId')
+      .sort({ tableNumber: 1 })
+      .lean()
       .exec();
 
-    const ballotsAgg = await this.ballotModel
-      .aggregate([
-        { $match: { electoralLocationId: { $in: ids } } },
-        { $group: { _id: '$electoralLocationId', count: { $sum: 1 } } },
-      ])
+    const ballotsRaw = await this.ballotModel
+      .find({ electoralLocationId: { $in: ids } })
+      .select('_id tableNumber tableCode electoralLocationId')
+      .sort({ tableNumber: 1 })
+      .lean()
       .exec();
 
-    const tableCount = new Map(tablesAgg.map((r) => [String(r._id), r.count]));
-    const ballotCount = new Map(
-      ballotsAgg.map((r) => [String(r._id), r.count]),
-    );
+    // 4) Agrupar tablas/boletas por location
+    const tablesByLoc = new Map<string, any[]>();
+    for (const t of tablesRaw) {
+      const k = String(t.electoralLocationId);
+      const arr = tablesByLoc.get(k) ?? [];
+      // proyecta como en el $project del pipeline
+      arr.push({
+        _id: t._id,
+        tableNumber: t.tableNumber,
+        tableCode: t.tableCode,
+      });
+      tablesByLoc.set(k, arr);
+    }
 
-    // 4) Ensamblar respuesta final
-    return populated.map((loc) => ({
-      ...loc,
-      tablesCount: tableCount.get(String(loc._id)) ?? 0,
-      ballotsCount: ballotCount.get(String(loc._id)) ?? 0,
-    }));
+    const ballotsByLoc = new Map<string, any[]>();
+    for (const b of ballotsRaw) {
+      const k = String(b.electoralLocationId);
+      const arr = ballotsByLoc.get(k) ?? [];
+      arr.push({
+        _id: b._id,
+        tableNumber: b.tableNumber,
+        tableCode: b.tableCode,
+      });
+      ballotsByLoc.set(k, arr);
+    }
+
+    const data = populated.map((loc: any) => {
+      const [locLng, locLat] = loc.geo?.coordinates ?? [undefined, undefined];
+      const distance =
+        Number.isFinite(locLat) && Number.isFinite(locLng)
+          ? Math.round(this.haversineMeters(lat, lng, locLat, locLng))
+          : undefined;
+
+      const seat = loc.electoralSeatId || {};
+      const mun = seat.municipalityId || {};
+      const prov = mun.provinceId || {};
+      const dept = prov.departmentId || {};
+
+      const tables = tablesByLoc.get(String(loc._id)) ?? [];
+      const ballots = ballotsByLoc.get(String(loc._id)) ?? [];
+
+      return {
+        _id: loc._id,
+        fid: loc.fid,
+        code: loc.code,
+        name: loc.name,
+        address: loc.address,
+        district: loc.district,
+        zone: loc.zone,
+        coordinates: loc.coordinates,
+        circunscripcion: loc.circunscripcion,
+        active: loc.active,
+        distance, // metros
+        electoralSeat: {
+          _id: seat._id,
+          name: seat.name,
+          municipality: {
+            _id: mun._id,
+            name: mun.name,
+            province: {
+              _id: prov._id,
+              name: prov.name,
+              department: {
+                _id: dept._id,
+                name: dept.name,
+              },
+            },
+          },
+        },
+        tables,
+        ballots,
+        tableCount: tables.length,
+      };
+    });
+
+    return {
+      data,
+      query: { latitude: lat, longitude: lng, maxDistance, unit: 'meters' },
+      count: data.length,
+    };
   }
 
   async findByCircunscripcion(
@@ -341,39 +403,35 @@ export class ElectoralLocationService {
       .exec();
   }
 
-  async update(
-    id: string | Types.ObjectId,
-    updateDto: UpdateElectoralLocationDto,
-  ): Promise<ElectoralLocation> {
-    if (updateDto.electoralSeatId) {
-      await this.electoralSeatService.findOne(updateDto.electoralSeatId);
-    }
+  async update(id: string, dto: UpdateElectoralLocationDto) {
+    const updateDoc: any = { ...dto };
 
-    try {
-      const location = await this.locationModel
-        .findByIdAndUpdate(id, updateDto, { new: true })
-        .populate('electoralSeatId', 'name')
-        .exec();
-
-      if (!location) {
-        throw new NotFoundException(
-          `Recinto electoral con ID ${id.toString()} no encontrado`,
+    if (dto.coordinates) {
+      const { longitude, latitude } = dto.coordinates;
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+        throw new BadRequestException(
+          'coordinates.longitude/latitude inválidos',
         );
       }
-
-      this.logger.log(
-        `Recinto electoral actualizado: ${location.name}`,
-        'ElectoralLocationService',
-      );
-      return location;
-    } catch (error) {
-      if (error.code === 11000) {
-        throw new ConflictException(
-          `El código de recinto '${updateDto.code}' ya existe`,
-        );
-      }
-      throw error;
+      updateDoc.geo = { type: 'Point', coordinates: [longitude, latitude] };
     }
+
+    const updated = await this.locationModel
+      .findByIdAndUpdate(
+        id,
+        { $set: updateDoc },
+        {
+          new: true,
+          runValidators: true,
+          context: 'query',
+          validateModifiedOnly: true,
+          setDefaultsOnInsert: false,
+        },
+      )
+      .exec();
+
+    if (!updated) throw new NotFoundException('Recinto no encontrado');
+    return updated.toObject();
   }
 
   async remove(id: string | Types.ObjectId): Promise<void> {

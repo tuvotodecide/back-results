@@ -29,7 +29,6 @@ export class ElectoralSeatService {
   ) {}
 
   async create(createDto: CreateElectoralSeatDto): Promise<ElectoralSeat> {
-    // Verificar que el municipio existe
     await this.municipalityService.findOne(createDto.municipalityId);
 
     try {
