@@ -8,6 +8,7 @@ import {
   Query,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,6 +16,7 @@ import {
   ApiResponse,
   ApiQuery,
   ApiParam,
+  ApiBody,
 } from '@nestjs/swagger';
 import { AttestationService } from '../services/attestation.service';
 import {
@@ -22,18 +24,21 @@ import {
   BulkAttestationResponseDto,
   AttestationResponseDto,
 } from '../dto/attestation.dto';
+import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guard';
 
 @ApiTags('Attestations')
-@Controller('attestations')
+@Controller('api/v1/attestations')
 export class AttestationController {
   constructor(private readonly attestationService: AttestationService) {}
 
   @Post()
+  @UseGuards(VotingPeriodGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Crear múltiples attestations',
     description: 'Permite crear múltiples attestations en una sola operación',
   })
+  @ApiBody({ type: CreateAttestationBulkDto })
   @ApiResponse({
     status: 201,
     description: 'Attestations creadas exitosamente',
@@ -76,9 +81,10 @@ export class AttestationController {
     description: 'Filtrar por ID de ballot',
   })
   @ApiQuery({
-    name: 'typeUser',
+    name: 'isJury',
     required: false,
-    description: 'Filtrar por tipo de usuario',
+    description: 'true=jurado, false=usuario',
+    type: Boolean,
   })
   @ApiQuery({
     name: 'support',
@@ -94,7 +100,7 @@ export class AttestationController {
     @Query('page') page = 1,
     @Query('limit') limit = 10,
     @Query('ballotId') ballotId?: string,
-    @Query('typeUser') typeUser?: string,
+    @Query('isJury') isJury?: string,
     @Query('support') support?: string,
   ): Promise<{
     data: AttestationResponseDto[];
@@ -103,6 +109,8 @@ export class AttestationController {
     limit: number;
     totalPages: number;
   }> {
+    const isJuryBoolean =
+      isJury === 'true' ? true : isJury === 'false' ? false : undefined;
     const supportBoolean =
       support === 'true' ? true : support === 'false' ? false : undefined;
 
@@ -110,7 +118,7 @@ export class AttestationController {
       Number(page),
       Number(limit),
       ballotId,
-      typeUser,
+      isJuryBoolean,
       supportBoolean,
     );
   }
@@ -168,6 +176,47 @@ export class AttestationController {
     return this.attestationService.getMostSupportedVersion(tableCode);
   }
 
+  @Get('cases')
+  @ApiOperation({
+    summary: 'Listar casos de atestiguamiento (mesas)',
+    description:
+      'Permite filtrar por estado y ubicación. VERIFYING = observada (no cuenta).',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['VERIFYING', 'CONSENSUAL', 'CLOSED'],
+  })
+  @ApiQuery({ name: 'department', required: false })
+  @ApiQuery({ name: 'province', required: false })
+  @ApiQuery({ name: 'municipality', required: false })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  async listCases(
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('status') status?: 'VERIFYING' | 'CONSENSUAL' | 'CLOSED',
+    @Query('department') department?: string,
+    @Query('province') province?: string,
+    @Query('municipality') municipality?: string,
+  ) {
+    return this.attestationService.listCases(
+      Number(page),
+      Number(limit),
+      status as any,
+      department,
+      province,
+      municipality,
+    );
+  }
+
+  @Get('cases/:tableCode')
+  @ApiOperation({ summary: 'Detalle de un caso por mesa' })
+  @ApiParam({ name: 'tableCode' })
+  async getCaseDetail(@Param('tableCode') tableCode: string) {
+    return this.attestationService.getCaseDetail(tableCode);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
@@ -192,5 +241,32 @@ export class AttestationController {
   })
   async remove(@Param('id') id: string): Promise<void> {
     return this.attestationService.remove(id);
+  }
+
+  @Get('by-user/:dni')
+  @ApiOperation({ summary: 'Listar atestiguamientos por DNI' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  @ApiQuery({ name: 'isJury', required: false, type: Boolean })
+  @ApiQuery({ name: 'support', required: false, type: Boolean })
+  async findByUser(
+    @Param('dni') dni: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('isJury') isJury?: string,
+    @Query('support') support?: string,
+  ) {
+    const isJuryBoolean =
+      isJury === 'true' ? true : isJury === 'false' ? false : undefined;
+    const supportBoolean =
+      support === 'true' ? true : support === 'false' ? false : undefined;
+
+    return this.attestationService.findByUserDni(
+      dni,
+      Number(page),
+      Number(limit),
+      isJuryBoolean,
+      supportBoolean,
+    );
   }
 }
