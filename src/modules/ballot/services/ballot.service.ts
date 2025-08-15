@@ -40,7 +40,6 @@ export class BallotService {
       const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
 
       const ballotData = this.extractBallotData(ipfsData);
-
       await this.validateBallotData(ballotData);
 
       const locationDetails = await this.getLocationDetails(
@@ -48,8 +47,8 @@ export class BallotService {
       );
 
       const cid = this.extractCidFromUri(createDto.ipfsUri);
-
-      const version = createDto.version || 1;
+      const maxVersion = await this.getMaxVersionForTable(ballotData.tableCode);
+      const version = !maxVersion ? 1 : maxVersion + 1;
 
       const ballot = new this.ballotModel({
         tableNumber: ballotData.tableNumber,
@@ -66,10 +65,21 @@ export class BallotService {
         version,
       });
 
+      console.log({ ballot });
+
       return await ballot.save();
     } catch (error) {
       throw error;
     }
+  }
+
+  async getMaxVersionForTable(tableCode: string): Promise<number | undefined> {
+    const maxBallot = await this.ballotModel
+      .findOne({ tableCode })
+      .sort({ version: -1 })
+      .exec();
+
+    return !maxBallot ? 0 : maxBallot.version;
   }
 
   private async fetchFromIpfs(ipfsUri: string): Promise<OpenSeaMetadata> {

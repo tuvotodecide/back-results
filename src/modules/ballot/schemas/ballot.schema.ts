@@ -141,8 +141,8 @@ export class Ballot {
 
 export const BallotSchema = SchemaFactory.createForClass(Ballot);
 
-BallotSchema.index({ tableCode: 1 });
-BallotSchema.index({ tableCode: 1, version: 1 });
+// BallotSchema.index({ tableCode: 1 }); // Removed to avoid unique constraint conflict
+BallotSchema.index({ tableCode: 1, version: 1 }, { unique: true });
 BallotSchema.index({ electoralLocationId: 1 });
 BallotSchema.index({ status: 1 });
 BallotSchema.index({ 'location.department': 1 });
