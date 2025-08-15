@@ -20,6 +20,18 @@ import {
   AttestationResponseDto,
 } from '../dto/attestation.dto';
 import { AttestationCase } from '../schemas/attestation-case.schema';
+import { UsersService } from '@/modules/users/services/users.service';
+
+type PopulatedUserRef = { _id: Types.ObjectId; dni: string };
+type AttestationLean<TUser = Types.ObjectId> = {
+  _id: Types.ObjectId;
+  support: boolean;
+  ballotId: Types.ObjectId;
+  isJury: boolean;
+  userId: TUser;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 @Injectable()
 export class AttestationService {
@@ -30,6 +42,7 @@ export class AttestationService {
     private ballotModel: Model<BallotDocument>,
     @InjectModel(AttestationCase.name)
     private caseModel: Model<AttestationCase>,
+    private usersService: UsersService,
   ) {}
 
   /**
@@ -56,15 +69,34 @@ export class AttestationService {
             'isJury es requerido (true=jurado, false=usuario)',
           );
         }
+        if (!attestationData.dni) {
+          throw new BadRequestException('dni es requerido');
+        }
+
+        const user = await this.usersService.findOrCreateByDni(
+          attestationData.dni,
+        );
 
         const attestation = new this.attestationModel({
           support: attestationData.support,
           ballotId: new Types.ObjectId(attestationData.ballotId),
           isJury: attestationData.isJury,
+          userId: user._id as Types.ObjectId,
         });
-
-        const savedAttestation = await attestation.save();
-        created.push(this.mapToResponseDto(savedAttestation));
+        try {
+          const savedAttestation = await attestation.save();
+          created.push(
+            this.mapToResponseDto(savedAttestation.toObject(), user.dni),
+          );
+        } catch (e: unknown) {
+          const message =
+            (e as any)?.code === 11000
+              ? 'El usuario ya atestiguó este ballot'
+              : e instanceof Error
+                ? e.message
+                : 'Error al guardar attestation';
+          errors.push({ index: i, error: message, data: attestationData });
+        }
       } catch (error) {
         errors.push({
           index: i,
@@ -85,9 +117,8 @@ export class AttestationService {
     };
   }
 
-  /**
-   * Obtener todas las attestations de un ballot específico
-   */
+  //Obtener todas las attestations de un ballot específico
+
   async findByBallot(ballotId: string): Promise<AttestationResponseDto[]> {
     if (!Types.ObjectId.isValid(ballotId)) {
       throw new BadRequestException('ID de ballot inválido');
@@ -96,16 +127,17 @@ export class AttestationService {
     const attestations = await this.attestationModel
       .find({ ballotId: new Types.ObjectId(ballotId) })
       .sort({ createdAt: -1 })
+      .populate<{ userId: PopulatedUserRef }>('userId', 'dni')
+      .lean<AttestationLean<PopulatedUserRef>[]>()
       .exec();
 
     return attestations.map((attestation) =>
-      this.mapToResponseDto(attestation),
+      this.mapToResponseDto(attestation, attestation.userId.dni),
     );
   }
 
-  /**
-   * Obtener todas las attestations con paginación
-   */
+  //Obtener todas las attestations con paginación
+
   async findAll(
     page = 1,
     limit = 10,
@@ -136,12 +168,15 @@ export class AttestationService {
         .skip(skip)
         .limit(limit)
         .populate('ballotId', 'tableCode tableNumber location.department')
+        .populate<{ userId: PopulatedUserRef }>('userId', 'dni')
+        .lean<AttestationLean<PopulatedUserRef>[]>() // ← agrega esta línea
         .exec(),
       this.attestationModel.countDocuments(filter),
     ]);
-
     return {
-      data: data.map((attestation) => this.mapToResponseDto(attestation)),
+      data: data.map((attestation) =>
+        this.mapToResponseDto(attestation, attestation.userId.dni),
+      ),
       total,
       page,
       limit,
@@ -149,9 +184,43 @@ export class AttestationService {
     };
   }
 
-  /**
-   * Eliminar una attestation
-   */
+  async findByUserDni(
+    dni: string,
+    page = 1,
+    limit = 10,
+    isJury?: boolean,
+    support?: boolean,
+  ) {
+    const user = await this.usersService.findByDni(dni);
+    const skip = (page - 1) * limit;
+    const filter: any = { userId: user._id };
+    if (typeof isJury === 'boolean') filter.isJury = isJury;
+    if (typeof support === 'boolean') filter.support = support;
+
+    const [data, total] = await Promise.all([
+      this.attestationModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('ballotId', 'tableCode version location.department')
+        .lean<AttestationLean[]>()
+        .exec(),
+      this.attestationModel.countDocuments(filter),
+    ]);
+
+    return {
+      user: { id: user._id.toString(), dni: user.dni },
+      data: data.map((attestation) =>
+        this.mapToResponseDto(attestation, user.dni),
+      ),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   async remove(id: string | Types.ObjectId): Promise<void> {
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestException('ID de attestation inválido');
@@ -166,9 +235,7 @@ export class AttestationService {
     }
   }
 
-  /**
-   * Obtener la version con más apoyo para un tableCode específico
-   */
+  // Obtener la version con más apoyo para un tableCode específico
   async getMostSupportedVersion(tableCode: string): Promise<{
     ballotId: string;
     version: number;
@@ -348,7 +415,6 @@ export class AttestationService {
     };
   }
 
-  // Métodos privados
   private async validateBallotExists(
     ballotId: string | Types.ObjectId,
   ): Promise<void> {
@@ -366,12 +432,14 @@ export class AttestationService {
   }
 
   private mapToResponseDto(
-    attestation: AttestationDocument,
+    attestation: AttestationLean<Types.ObjectId | PopulatedUserRef>,
+    dni: string,
   ): AttestationResponseDto {
     return {
       _id: (attestation._id as Types.ObjectId).toString(),
       support: attestation.support,
       ballotId: attestation.ballotId.toString(),
+      dni,
       isJury: attestation.isJury,
       createdAt: attestation.createdAt,
       updatedAt: attestation.updatedAt,

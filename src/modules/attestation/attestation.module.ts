@@ -10,6 +10,7 @@ import {
 } from './schemas/attestation-case.schema';
 import { ElectionsModule } from '../elections/elections.module';
 import { AttestationResolverService } from './services/attestation-resolver.service';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AttestationResolverService } from './services/attestation-resolver.serv
       { name: AttestationCase.name, schema: AttestationCaseSchema },
     ]),
     ElectionsModule,
+     UsersModule,
   ],
   controllers: [AttestationController],
   providers: [AttestationService, AttestationResolverService],
