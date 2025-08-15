@@ -242,4 +242,31 @@ export class AttestationController {
   async remove(@Param('id') id: string): Promise<void> {
     return this.attestationService.remove(id);
   }
+
+  @Get('by-user/:dni')
+  @ApiOperation({ summary: 'Listar atestiguamientos por DNI' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  @ApiQuery({ name: 'isJury', required: false, type: Boolean })
+  @ApiQuery({ name: 'support', required: false, type: Boolean })
+  async findByUser(
+    @Param('dni') dni: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('isJury') isJury?: string,
+    @Query('support') support?: string,
+  ) {
+    const isJuryBoolean =
+      isJury === 'true' ? true : isJury === 'false' ? false : undefined;
+    const supportBoolean =
+      support === 'true' ? true : support === 'false' ? false : undefined;
+
+    return this.attestationService.findByUserDni(
+      dni,
+      Number(page),
+      Number(limit),
+      isJuryBoolean,
+      supportBoolean,
+    );
+  }
 }

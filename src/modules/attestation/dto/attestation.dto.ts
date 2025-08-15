@@ -26,30 +26,20 @@ export class CreateAttestationItemDto {
   })
   @IsBoolean()
   support: boolean;
-
-  // @ApiProperty({
-  //   description: 'ID del usuario (opcional)',
-  //   example: 'user123',
-  //   required: false,
-  // })
-  // @IsOptional()
-  // @IsString()
-  // idUser?: string;
-
-  // @ApiProperty({
-  //   description: 'Tipo de usuario',
-  //   example: 'observer',
-  // })
-  // @IsString()
-  // @IsNotEmpty()
-  // typeUser: string;
-
   @ApiProperty({
     description: 'true = jurado, false = usuario',
     example: false,
   })
   @IsBoolean()
   isJury: boolean;
+
+  @ApiProperty({
+    description: 'DNI del usuario que atestigua',
+    example: '12345678',
+  })
+  @IsString()
+  @IsNotEmpty()
+  dni: string;
 }
 
 export class CreateAttestationBulkDto {
@@ -76,8 +66,7 @@ export class AttestationResponseDto {
   @ApiProperty({ description: 'true = jurado, false = usuario' })
   isJury: boolean;
 
-  // @ApiProperty()
-  // typeUser: string;
+  @ApiProperty({ description: 'DNI del usuario' }) dni: string;
 
   @ApiProperty()
   createdAt: Date;

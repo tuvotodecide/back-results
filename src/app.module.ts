@@ -10,6 +10,7 @@ import { ResultsModule } from './modules/results/results.module';
 import { ElectionsModule } from './modules/elections/elections.module';
 import { AttestationModule } from './modules/attestation/attestation.module';
 import { OracleModule } from './modules/oracle/oracle.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { OracleModule } from './modules/oracle/oracle.module';
     GeographicModule,
     PoliticalModule,
     BallotModule,
+    UsersModule,
     ResultsModule,
     AttestationModule,
     OracleModule,
