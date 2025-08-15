@@ -21,28 +21,35 @@ export class CreateAttestationItemDto {
   ballotId: Types.ObjectId | string;
 
   @ApiProperty({
-    description: 'Apoyo o no al acta',
+    description: 'Apoya (true) o rechaza (false) el acta',
     example: true,
   })
   @IsBoolean()
   support: boolean;
 
-  @ApiProperty({
-    description: 'ID del usuario (opcional)',
-    example: 'user123',
-    required: false,
-  })
-  @IsOptional()
-  @IsString()
-  idUser?: string;
+  // @ApiProperty({
+  //   description: 'ID del usuario (opcional)',
+  //   example: 'user123',
+  //   required: false,
+  // })
+  // @IsOptional()
+  // @IsString()
+  // idUser?: string;
+
+  // @ApiProperty({
+  //   description: 'Tipo de usuario',
+  //   example: 'observer',
+  // })
+  // @IsString()
+  // @IsNotEmpty()
+  // typeUser: string;
 
   @ApiProperty({
-    description: 'Tipo de usuario',
-    example: 'observer',
+    description: 'true = jurado, false = usuario',
+    example: false,
   })
-  @IsString()
-  @IsNotEmpty()
-  typeUser: string;
+  @IsBoolean()
+  isJury: boolean;
 }
 
 export class CreateAttestationBulkDto {
@@ -66,11 +73,11 @@ export class AttestationResponseDto {
   @ApiProperty()
   ballotId: string;
 
-  @ApiProperty()
-  idUser?: string;
+  @ApiProperty({ description: 'true = jurado, false = usuario' })
+  isJury: boolean;
 
-  @ApiProperty()
-  typeUser: string;
+  // @ApiProperty()
+  // typeUser: string;
 
   @ApiProperty()
   createdAt: Date;
