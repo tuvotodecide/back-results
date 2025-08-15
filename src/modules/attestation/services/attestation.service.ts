@@ -203,7 +203,7 @@ export class AttestationService {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate('ballotId', 'tableCode version location.department')
+        .select('support ballotId isJury createdAt updatedAt')
         .lean<AttestationLean[]>()
         .exec(),
       this.attestationModel.countDocuments(filter),
@@ -296,7 +296,6 @@ export class AttestationService {
     department?: string,
     province?: string,
     municipality?: string,
-    
   ) {
     const skip = (page - 1) * limit;
     const match: any = {};
@@ -436,10 +435,15 @@ export class AttestationService {
     attestation: AttestationLean<Types.ObjectId | PopulatedUserRef>,
     dni: string,
   ): AttestationResponseDto {
+    const ballot = attestation.ballotId as any;
+    const ballotId =
+      ballot && typeof ballot === 'object'
+        ? (ballot._id ?? ballot).toString() 
+        : String(ballot);
     return {
       _id: (attestation._id as Types.ObjectId).toString(),
       support: attestation.support,
-      ballotId: attestation.ballotId.toString(),
+      ballotId,
       dni,
       isJury: attestation.isJury,
       createdAt: attestation.createdAt,
