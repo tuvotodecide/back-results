@@ -73,6 +73,19 @@ export class BallotService {
     }
   }
 
+  async previousValidate(createDto: CreateBallotFromIpfsDto): Promise<boolean> {
+    try {
+      const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
+
+      const ballotData = this.extractBallotData(ipfsData);
+      await this.validateBallotData(ballotData);
+
+      return true;
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getMaxVersionForTable(tableCode: string): Promise<number | undefined> {
     const maxBallot = await this.ballotModel
       .findOne({ tableCode })

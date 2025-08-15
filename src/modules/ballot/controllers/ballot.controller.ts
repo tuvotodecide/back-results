@@ -58,6 +58,31 @@ export class BallotController {
     return this.ballotService.createFromIpfs(createDto);
   }
 
+  @Post('validate-ballot-data')
+  @UseGuards(VotingPeriodGuard)
+  //   @UseGuards(JwtAuthGuard)
+  //   @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Crear acta desde IPFS',
+    description:
+      'Recibe una URI de IPFS, extrae los datos y crea el acta electoral',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Acta creada exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Datos inválidos o error de validación',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'El acta ya existe para esta mesa',
+  })
+  validateBallotData(@Body() createDto: CreateBallotFromIpfsDto) {
+    return this.ballotService.previousValidate(createDto);
+  }
+
   @Get()
   @ApiOperation({ summary: 'Listar actas electorales' })
   @ApiResponse({
