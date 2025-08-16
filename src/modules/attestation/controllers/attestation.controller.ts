@@ -186,6 +186,7 @@ export class AttestationController {
     name: 'status',
     required: false,
     enum: ['VERIFYING', 'CONSENSUAL', 'CLOSED'],
+    description: 'Puede ser único o csv VERIFYING,CONSENSUAL,CLOSED',
   })
   @ApiQuery({ name: 'department', required: false })
   @ApiQuery({ name: 'province', required: false })
@@ -195,7 +196,7 @@ export class AttestationController {
   async listCases(
     @Query('page') page = 1,
     @Query('limit') limit = 10,
-    @Query('status') status?: 'VERIFYING' | 'CONSENSUAL' | 'CLOSED',
+    @Query('status') status?: string,
     @Query('department') department?: string,
     @Query('province') province?: string,
     @Query('municipality') municipality?: string,
@@ -203,7 +204,7 @@ export class AttestationController {
     return this.attestationService.listCases(
       Number(page),
       Number(limit),
-      status as any,
+      status,
       department,
       province,
       municipality,

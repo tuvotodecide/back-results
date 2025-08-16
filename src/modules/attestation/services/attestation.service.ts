@@ -292,14 +292,24 @@ export class AttestationService {
   async listCases(
     page = 1,
     limit = 10,
-    status?: 'VERIFYING' | 'CONSENSUAL' | 'CLOSED',
+    status?: string,
     department?: string,
     province?: string,
     municipality?: string,
   ) {
     const skip = (page - 1) * limit;
+
+    const allowed = new Set(['VERIFYING', 'CONSENSUAL', 'CLOSED']);
+    let statusList: string[] | undefined;
+    if (status) {
+      statusList = status
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter((s) => allowed.has(s));
+      if (statusList.length === 0) statusList = undefined;
+    }
     const match: any = {};
-    if (status) match.status = status;
+    if (statusList) match.status = { $in: statusList };
 
     // pipeline base: unir un ballot de la mesa para leer location
     const basePipeline: any[] = [
@@ -438,7 +448,7 @@ export class AttestationService {
     const ballot = attestation.ballotId as any;
     const ballotId =
       ballot && typeof ballot === 'object'
-        ? (ballot._id ?? ballot).toString() 
+        ? (ballot._id ?? ballot).toString()
         : String(ballot);
     return {
       _id: (attestation._id as Types.ObjectId).toString(),
