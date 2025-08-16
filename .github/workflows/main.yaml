@@ -55,22 +55,27 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Mantener el bundle como antes: se desencripta y se hornea en la imagen
+      # SIEMPRE descifrar el bundle antes de construir la imagen
       - name: Decrypt global-bundle.pem.enc
-        if: hashFiles('global-bundle.pem.enc') != ''
         run: |
           set -euo pipefail
+          if [ ! -f global-bundle.pem.enc ]; then
+            echo "global-bundle.pem.enc no existe en el repo"; exit 1
+          fi
           openssl enc -aes-256-cbc -d -salt \
             -in global-bundle.pem.enc \
             -out global-bundle.pem \
             -pass pass:"${{ secrets.PASSPHRASE }}"
+          # Un hash para verificar que cambia invalida cache
+          echo "BUNDLE_SHA256=$(sha256sum global-bundle.pem | cut -d' ' -f1)"
 
-      - name: Build & Push (with cache)
+      - name: Build & Push (with cache bust)
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
           push: true
+          no-cache: true # fuerza incluir bundle recién descifrado
           platforms: ${{ env.BUILD_PLATFORMS }}
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:latest
@@ -108,7 +113,6 @@ jobs:
       EXTERNAL_PORT: ${{ vars.EXTERNAL_PORT }}
       CONTAINER_NAME: back_results
       IMAGE_TAG: ${{ github.sha }}
-      # Nombre del parámetro en SSM con tu .env (SecureString)
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
     steps:
       - name: Configure AWS credentials
@@ -125,7 +129,6 @@ jobs:
           set -euo pipefail
           echo "Deploying…"
 
-          # Fallback por si no seteaste la var del repo
           SSM_NAME="${SSM_ENV_PARAM_NAME:-/miapp/dev/.env}"
           echo "Usando parámetro SSM: $SSM_NAME"
 
@@ -138,80 +141,18 @@ jobs:
             --arg name   "$CONTAINER_NAME" \
             --arg ssm    "$SSM_NAME" \
             '[
+              "set -euo pipefail",
               "aws ecr get-login-password --region \($region) | docker login --username AWS --password-stdin \($reg)",
               "docker pull --quiet \($reg)/\($repo):\($tag)",
               "docker stop \($name) || true",
               "docker rm \($name) || true",
-
-              # 1) Obtener .env desde SSM
+              # ↓ Obtener .env y normalizar saltos de línea (CRLF -> LF)
               "aws ssm get-parameter --name \($ssm) --with-decryption --query Parameter.Value --output text > .env",
-
-              # 2) Normalizar fin de línea (CRLF -> LF) y validar formato simple KEY=VAL
-              "sed -i 's/\\r$//' .env",
-              "echo '🔐 Claves en .env (sin valores):' && awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/{print \" - \" $1}' .env | sort | uniq",
-
-              # 3) Correr contenedor: si falta NODE_EXTRA_CA_CERTS en .env, lo inyecto apuntando al bundle dentro de la imagen
-              \"EXTRA_CA=''; if ! grep -q '^NODE_EXTRA_CA_CERTS=' .env; then EXTRA_CA='-e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem'; fi; \\
-               docker run -d --name \($name) -p \($port):3000 --env-file .env $EXTRA_CA --restart unless-stopped \($reg)/\($repo):\($tag)\",
-
-              # 4) Verificar que arrancó y mostrar estado (sin secretos)
-              \"echo '🟢 Estado del contenedor:' && docker ps --filter name=\($name) --format '{{.Names}}  {{.Status}}'\",
-              \"echo '🔎 Vars clave en runtime (redactadas):' && docker inspect \($name) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=' | sed 's/=.*/=***REDACTED***/'\",
-
-              # 5) Borrado seguro del .env del host
-              "shred -u .env || rm -f .env",
-
-              # 6) Limpieza de imágenes huérfanas
-              "docker image prune -f"
-            ]')
-
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "$EC2_INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --comment "GitHub Actions deploy" \
-            --parameters "commands=$CMDS" \
-            --query "Command.CommandId" --output text)
-
-          echo "▶️ SSM CommandId = $CMD_ID"
-
-          aws ssm wait command-executed \
-            --command-id "$CMD_ID" \
-            --instance-id "$EC2_INSTANCE_ID"
-
-          aws ssm get-command-invocation \
-            --command-id "$CMD_ID" \
-            --instance-id "$EC2_INSTANCE_ID" \
-            --query "{Stdout:StandardOutputContent, Stderr:StandardErrorContent, Status:Status}" \
-            --output text | sed 's/\\n/\n/g'
-
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id "$CMD_ID" \
-            --instance-id "$EC2_INSTANCE_ID" \
-            --query Status --output text)
-
-          [[ "$STATUS" == "Success" ]] || { echo "❌ Remote script failed"; exit 1; }
-
-      - name: Health check loop
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Testing http://${PUBLIC_IP}:${EXTERNAL_PORT}/"
-          for i in {1..24}; do
-            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 \
-              "http://${PUBLIC_IP}:${EXTERNAL_PORT}/") || true
-            if [[ "${http_code:-}" == "200" ]]; then
-              echo "✅ Servicio OK (${http_code})"
-              exit 0
-            fi
-            echo "⏳ intento $i/24 — code=${http_code:-timeout}"
-            sleep 5
-          done
-
-          echo " Health-check failed :("
-          aws ssm send-command \
-            --instance-ids "$EC2_INSTANCE_ID" \
-            --document-name "AWS-RunShellScript" \
-            --parameters commands="docker logs --tail 200 $CONTAINER_NAME" \
-            --query "Command.CommandId" --output text \
-          | xargs -I{} aws ssm wait command-executed --command-id {} --instance-id "$EC2_INSTANCE_ID"
-          exit 1
+              "sed -i \"s/\\r$//\" .env",
+              "echo \"ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)\"",
+              # ↓ Ejecutar contenedor inyectando .env y asegurando CA bundle
+              "docker run -d --name \($name) -p \($port):3000 --env-file .env -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem --restart unless-stopped \($reg)/\($repo):\($tag)",
+              # ↓ Chequeos dentro del contenedor (sin exponer secretos)
+              "sleep 2",
+              "docker exec \($name) /bin/sh -lc 'set -e; [ -f /app/global-bundle.pem ] && echo \"bundle OK\" && ls -l /app/global-bundle.pem && sha256sum /app/global-bundle.pem | cut -c1-16 || (echo \"bundle MISSING\"; exit 1)'",
+              "docker exec \($name) /bin/sh -lc 'env | grep -E \"^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=\" | sed \"s/=.*/=[REDACTED]/\*
