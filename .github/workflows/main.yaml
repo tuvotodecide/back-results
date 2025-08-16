@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'Dockerfile'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
-      - 'src/**'
-      - '.github/workflows/**'
-      - 'global-bundle.pem.enc'
+      - Dockerfile
+      - package.json
+      - package-lock.json
+      - tsconfig.json
+      - src/**
+      - .github/workflows/**
+      - global-bundle.pem.enc
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -55,20 +55,20 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Desencripta SIEMPRE antes del build para que la imagen lo copie
       - name: Decrypt global-bundle.pem.enc
         run: |
           set -euo pipefail
           if [ ! -f global-bundle.pem.enc ]; then
-            echo "global-bundle.pem.enc no existe en el repo"; exit 1
+            echo "global-bundle.pem.enc not found"
+            exit 1
           fi
           openssl enc -aes-256-cbc -d -salt \
             -in global-bundle.pem.enc \
             -out global-bundle.pem \
             -pass pass:"${{ secrets.PASSPHRASE }}"
-          echo "BUNDLE_SHA256=$(sha256sum global-bundle.pem | cut -d' ' -f1)"
+          sha256sum global-bundle.pem | cut -d' ' -f1
 
-      - name: Build & Push (cache bust to include fresh bundle)
+      - name: Build & Push (no cache to ensure fresh bundle)
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -121,41 +121,50 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Deploy container using SSM (safe heredoc + jq)
+      - name: Deploy container using SSM
         id: ssm
         shell: bash
         run: |
           set -euo pipefail
+
           SSM_NAME="${SSM_ENV_PARAM_NAME:-/miapp/dev/.env}"
           echo "Deploying ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} to ${EC2_INSTANCE_ID}"
-          echo "Usando parámetro SSM: ${SSM_NAME}"
+          echo "SSM parameter: ${SSM_NAME}"
 
-          # 1) Prepara el script remoto como texto (variables expanden AQUÍ, no en el remoto)
-          cat > remote_cmds.txt <<EOF
+          # Build the remote script safely (no special YAML chars)
+          cat > remote_cmds.txt <<'EOF'
 set -euo pipefail
-aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-docker pull --quiet ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-docker stop ${CONTAINER_NAME} || true
-docker rm ${CONTAINER_NAME} || true
-aws ssm get-parameter --name ${SSM_NAME} --with-decryption --query Parameter.Value --output text > .env
+aws ecr get-login-password --region __AWS_REGION__ | docker login --username AWS --password-stdin __ECR_REGISTRY__
+docker pull --quiet __ECR_REGISTRY__/__ECR_REPO__:__IMAGE_TAG__
+docker stop __CONTAINER_NAME__ || true
+docker rm __CONTAINER_NAME__ || true
+aws ssm get-parameter --name __SSM_NAME__ --with-decryption --query Parameter.Value --output text > .env
 sed -i 's/\r$//' .env
-echo "ENV bytes=\$(wc -c < .env) lines=\$(wc -l < .env)"
-docker run -d --name ${CONTAINER_NAME} -p ${EXTERNAL_PORT}:3000 --env-file .env -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem --restart unless-stopped ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
+docker run -d --name __CONTAINER_NAME__ -p __EXTERNAL_PORT__:3000 --env-file .env -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem --restart unless-stopped __ECR_REGISTRY__/__ECR_REPO__:__IMAGE_TAG__
 sleep 2
-# Verificaciones (no imprimen secretos)
-docker exec ${CONTAINER_NAME} /bin/sh -lc 'set -e; [ -f /app/global-bundle.pem ] && echo "bundle OK" && ls -l /app/global-bundle.pem && sha256sum /app/global-bundle.pem | cut -c1-16 || (echo "bundle MISSING"; exit 1)'
-docker exec ${CONTAINER_NAME} /bin/sh -lc 'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
-# Imprime Cmd/Entrypoint para confirmar que NO es un nginx accidental
-docker inspect --format="Name={{.Name}} Image={{.Config.Image}} Cmd={{.Config.Cmd}} Entrypoint={{.Config.Entrypoint}}" ${CONTAINER_NAME} || true
-docker image inspect ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} --format 'RepoDigests: {{json .RepoDigests}} Cmd: {{json .Config.Cmd}} Entrypoint: {{json .Config.Entrypoint}}' || true
+docker exec __CONTAINER_NAME__ /bin/sh -lc 'set -e; [ -f /app/global-bundle.pem ] && echo "bundle OK" && ls -l /app/global-bundle.pem && sha256sum /app/global-bundle.pem | cut -c1-16 || (echo "bundle MISSING"; exit 1)'
+docker exec __CONTAINER_NAME__ /bin/sh -lc 'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
+docker inspect --format="Name={{.Name}} Image={{.Config.Image}} Cmd={{.Config.Cmd}} Entrypoint={{.Config.Entrypoint}}" __CONTAINER_NAME__ || true
+docker image inspect __ECR_REGISTRY__/__ECR_REPO__:__IMAGE_TAG__ --format 'RepoDigests: {{json .RepoDigests}} Cmd: {{json .Config.Cmd}} Entrypoint: {{json .Config.Entrypoint}}' || true
 shred -u .env || rm -f .env
 docker image prune -f
 EOF
 
-          # 2) Convierte a arreglo JSON para SSM (cada línea = un comando)
+          # Replace placeholders with env values
+          sed -i \
+            -e "s#__AWS_REGION__#${AWS_REGION}#g" \
+            -e "s#__ECR_REGISTRY__#${ECR_REGISTRY}#g" \
+            -e "s#__ECR_REPO__#${ECR_REPO}#g" \
+            -e "s#__IMAGE_TAG__#${IMAGE_TAG}#g" \
+            -e "s#__CONTAINER_NAME__#${CONTAINER_NAME}#g" \
+            -e "s#__EXTERNAL_PORT__#${EXTERNAL_PORT}#g" \
+            -e "s#__SSM_NAME__#${SSM_NAME}#g" \
+            remote_cmds.txt
+
+          # Convert lines to JSON array for SSM
           CMDS_JSON=$(jq -R -s -c 'split("\n") | map(select(length>0))' < remote_cmds.txt)
 
-          # 3) Ejecuta en la instancia
           CMD_ID=$(aws ssm send-command \
             --instance-ids "${EC2_INSTANCE_ID}" \
             --document-name "AWS-RunShellScript" \
@@ -163,7 +172,7 @@ EOF
             --parameters "commands=${CMDS_JSON}" \
             --query "Command.CommandId" --output text)
 
-          echo "▶️ SSM CommandId = ${CMD_ID}"
+          echo "SSM CommandId = ${CMD_ID}"
           aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${EC2_INSTANCE_ID}"
 
           aws ssm get-command-invocation \
@@ -176,7 +185,10 @@ EOF
             --command-id "${CMD_ID}" \
             --instance-id "${EC2_INSTANCE_ID}" \
             --query Status --output text)
-          [[ "${STATUS}" == "Success" ]] || { echo "❌ Remote script failed"; exit 1; }
+          if [ "${STATUS}" != "Success" ]; then
+            echo "Remote script failed"
+            exit 1
+          fi
 
       - name: Health check loop
         shell: bash
@@ -185,15 +197,15 @@ EOF
           echo "Testing http://${PUBLIC_IP}:${EXTERNAL_PORT}/"
           for i in {1..24}; do
             http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${PUBLIC_IP}:${EXTERNAL_PORT}/") || true
-            if [[ "${http_code:-}" == "200" ]]; then
-              echo "✅ Servicio OK (${http_code})"
+            if [ "${http_code:-}" = "200" ]; then
+              echo "Service OK (${http_code})"
               exit 0
             fi
-            echo "⏳ intento $i/24 — code=${http_code:-timeout}"
+            echo "Attempt $i/24 — code=${http_code:-timeout}"
             sleep 5
           done
 
-          echo "❌ Health-check failed, dumping container logs"
+          echo "Health-check failed, dumping container logs"
           aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
