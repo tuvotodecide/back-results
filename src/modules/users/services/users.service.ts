@@ -16,9 +16,23 @@ export class UsersService {
   }
 
   async findOrCreateByDni(dni: string): Promise<UserDocument> {
-    const existing = await this.userModel.findOne({ dni }).exec();
-    if (existing) return existing;
-    const created = new this.userModel({ dni, active: true });
-    return created.save();
+    try {
+      const user = await this.userModel
+        .findOneAndUpdate(
+          { dni },
+          { $setOnInsert: { dni, active: true } },
+          { upsert: true, new: true, setDefaultsOnInsert: true },
+        )
+        .orFail()
+        .exec();
+
+      return user as UserDocument;
+    } catch (e: any) {
+
+      if (e?.code === 11000) {
+        return this.userModel.findOne({ dni }).orFail().exec();
+      }
+      throw e;
+    }
   }
 }

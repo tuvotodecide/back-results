@@ -299,7 +299,7 @@ export class AttestationService {
   ) {
     const skip = (page - 1) * limit;
 
-    const allowed = new Set(['VERIFYING', 'CONSENSUAL', 'CLOSED']);
+    const allowed = new Set(['VERIFYING', 'PENDING', 'CONSENSUAL', 'CLOSED']);
     let statusList: string[] | undefined;
     if (status) {
       statusList = status
