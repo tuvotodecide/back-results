@@ -392,8 +392,8 @@ export class BallotService {
     return ballot;
   }
 
-  async findByTableCode(tableCode: string): Promise<Ballot> {
-    const ballot = await this.ballotModel.findOne({ tableCode }).exec();
+  async findByTableCode(tableCode: string): Promise<Ballot[]> {
+    const ballot = await this.ballotModel.find({ tableCode }).exec();
     if (!ballot) {
       throw new NotFoundException('Acta no encontrada');
     }
