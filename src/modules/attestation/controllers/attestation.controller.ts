@@ -185,8 +185,8 @@ export class AttestationController {
   @ApiQuery({
     name: 'status',
     required: false,
-    enum: ['VERIFYING', 'CONSENSUAL', 'CLOSED'],
-    description: 'Puede ser único o csv VERIFYING,CONSENSUAL,CLOSED',
+    enum: ['VERIFYING', 'PENDING', 'CONSENSUAL', 'CLOSED'],
+    description: 'Puede ser único o csv VERIFYING,PENDING,CONSENSUAL,CLOSED',
   })
   @ApiQuery({ name: 'department', required: false })
   @ApiQuery({ name: 'province', required: false })

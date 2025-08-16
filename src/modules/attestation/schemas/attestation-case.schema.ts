@@ -11,8 +11,11 @@ export class AttestationCase {
   @Prop({ required: true, trim: true })
   tableCode: string;
 
-  @Prop({ enum: ['VERIFYING', 'CONSENSUAL', 'CLOSED'], required: true })
-  status: 'VERIFYING' | 'CONSENSUAL' | 'CLOSED';
+  @Prop({
+    enum: ['VERIFYING', 'PENDING', 'CONSENSUAL', 'CLOSED'],
+    required: true,
+  })
+  status: 'VERIFYING' | 'PENDING' | 'CONSENSUAL' | 'CLOSED';
 
   @Prop({ type: Types.ObjectId, ref: 'Ballot' })
   winningBallotId?: Types.ObjectId;
@@ -24,7 +27,8 @@ export class AttestationCase {
   summary?: any;
 }
 
-export const AttestationCaseSchema = SchemaFactory.createForClass(AttestationCase);
+export const AttestationCaseSchema =
+  SchemaFactory.createForClass(AttestationCase);
 
 AttestationCaseSchema.index({ tableCode: 1 }, { unique: true });
 AttestationCaseSchema.index({ status: 1 });

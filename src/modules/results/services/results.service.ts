@@ -54,7 +54,16 @@ export class ResultsService {
     const locMatch = this.buildLocationMatch(locationFilters);
 
     return [
-      { $match: { status: { $in: ['processed', 'synced'] }, ...locMatch } },
+      // Solo actas listas y marcadas como "cuentan"
+      {
+        $match: {
+          status: { $in: ['processed', 'synced'] },
+          valuable: true,
+          ...locMatch,
+        },
+      },
+
+      // Caso de atestiguamiento por mesa
       {
         $lookup: {
           from: 'attestation_cases',
@@ -64,8 +73,26 @@ export class ResultsService {
         },
       },
       { $addFields: { case: { $arrayElemAt: ['$case', 0] } } },
-      { $match: { 'case.status': { $in: ['CONSENSUAL', 'CLOSED'] } } },
+      // Solo mesas que cuentan: CONSENSUAL, CLOSED o PENDING (VERIFYING no cuenta)
+      {
+        $match: { 'case.status': { $in: ['CONSENSUAL', 'CLOSED', 'PENDING'] } },
+      },
+
+      // Solo la versión ganadora del caso
       { $match: { $expr: { $eq: ['$_id', '$case.winningBallotId'] } } },
+
+      // Vincular mesa y descartar observadas/ inactivas
+      {
+        $lookup: {
+          from: 'electoral_tables',
+          localField: 'tableCode',
+          foreignField: 'tableCode',
+          as: 'table',
+        },
+      },
+      { $addFields: { table: { $arrayElemAt: ['$table', 0] } } },
+      { $match: { 'table.active': true, 'table.observed': false } },
+
       { $sort: { tableCode: 1, version: -1, createdAt: -1 } },
       { $group: { _id: '$tableCode', doc: { $first: '$$ROOT' } } },
       { $replaceRoot: { newRoot: '$doc' } },
