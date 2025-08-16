@@ -9,7 +9,6 @@ import { BallotModule } from './modules/ballot/ballot.module';
 import { ResultsModule } from './modules/results/results.module';
 import { ElectionsModule } from './modules/elections/elections.module';
 import { AttestationModule } from './modules/attestation/attestation.module';
-import { OracleModule } from './modules/oracle/oracle.module';
 import { UsersModule } from './modules/users/users.module';
 import { ApiKeyGuard } from './core/guards/api-key.guard';
 import { APP_GUARD } from '@nestjs/core';
@@ -25,7 +24,6 @@ import { APP_GUARD } from '@nestjs/core';
     UsersModule,
     ResultsModule,
     AttestationModule,
-    OracleModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ApiKeyGuard }],

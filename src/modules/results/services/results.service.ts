@@ -26,6 +26,51 @@ export class ResultsService {
     @InjectModel(ElectoralTable.name)
     private electoralTableModel: Model<ElectoralTable>,
   ) {}
+  private buildLocationMatch(filters?: LocationFilterDto) {
+    const match: any = {};
+    if (!filters) return match;
+    if (filters.department) match['location.department'] = filters.department;
+    if (filters.province) match['location.province'] = filters.province;
+    if (filters.municipality)
+      match['location.municipality'] = filters.municipality;
+    if (filters.electoralSeat)
+      match['location.electoralSeat'] = filters.electoralSeat;
+    if (filters.electoralLocation)
+      match['location.electoralLocationName'] = filters.electoralLocation;
+    if (filters.tableCode) match['tableCode'] = filters.tableCode;
+    return match;
+  }
+
+  /**
+   * Devuelve un pipeline que filtra:
+   * ballots processed/synced
+   * solo mesas con caso de atestiguamiento resuelto (CONSENSUAL/CLOSED)
+   * solo la versión ganadora (winningBallotId) por mesa
+   * dedup por tableCode y vuelve al documento original con $replaceRoot
+   */
+  private attestedEffectiveBallotsPipeline(
+    locationFilters?: LocationFilterDto,
+  ): any[] {
+    const locMatch = this.buildLocationMatch(locationFilters);
+
+    return [
+      { $match: { status: { $in: ['processed', 'synced'] }, ...locMatch } },
+      {
+        $lookup: {
+          from: 'attestation_cases',
+          localField: 'tableCode',
+          foreignField: 'tableCode',
+          as: 'case',
+        },
+      },
+      { $addFields: { case: { $arrayElemAt: ['$case', 0] } } },
+      { $match: { 'case.status': { $in: ['CONSENSUAL', 'CLOSED'] } } },
+      { $match: { $expr: { $eq: ['$_id', '$case.winningBallotId'] } } },
+      { $sort: { tableCode: 1, version: -1, createdAt: -1 } },
+      { $group: { _id: '$tableCode', doc: { $first: '$$ROOT' } } },
+      { $replaceRoot: { newRoot: '$doc' } },
+    ];
+  }
 
   /**
    * Obtiene el conteo rápido nacional (solo votos presidenciales)
@@ -35,14 +80,11 @@ export class ResultsService {
    * Actualizado para usar la nueva estructura votes.parties
    */
   async getQuickCount(): Promise<QuickCountResponseDto> {
+    const base = this.attestedEffectiveBallotsPipeline();
     // TODO: implementar publicación en cache
 
     const results = await this.ballotModel.aggregate([
-      {
-        $match: {
-          status: 'processed',
-        },
-      },
+      ...base,
       {
         // Ahora descomponemos votes.parties.partyVotes en lugar de votes.partyVotes
         $unwind: '$votes.parties.partyVotes',
@@ -69,17 +111,17 @@ export class ResultsService {
 
     // Calcular totales generales usando votes.parties
     const totalValidVotes = await this.ballotModel.aggregate([
-      { $match: { status: 'processed' } },
+      ...base,
       { $group: { _id: null, total: { $sum: '$votes.parties.validVotes' } } },
     ]);
 
     const totalNullVotes = await this.ballotModel.aggregate([
-      { $match: { status: 'processed' } },
+      ...base,
       { $group: { _id: null, total: { $sum: '$votes.parties.nullVotes' } } },
     ]);
 
     const totalBlankVotes = await this.ballotModel.aggregate([
-      { $match: { status: 'processed' } },
+      ...base,
       { $group: { _id: null, total: { $sum: '$votes.parties.blankVotes' } } },
     ]);
 
@@ -106,9 +148,13 @@ export class ResultsService {
         nullVotes: totalNullVotes[0]?.total || 0,
         blankVotes: totalBlankVotes[0]?.total || 0,
         totalVotes: grandTotal,
-        tablesProcessed: await this.ballotModel.countDocuments({
-          status: 'processed',
-        }),
+        tablesProcessed: await this.ballotModel
+          .aggregate([
+            ...base,
+            { $group: { _id: null, count: { $addToSet: '$tableCode' } } },
+            { $project: { _id: 0, tablesProcessed: { $size: '$count' } } },
+          ])
+          .then((r) => r[0]?.tablesProcessed ?? 0),
       },
       lastUpdate: new Date(),
     };
@@ -123,22 +169,7 @@ export class ResultsService {
   ): Promise<LocationResultsResponseDto> {
     // TODO: Verificar cache
 
-    const matchStage: any = { status: 'processed' };
-
-    // Aplicar filtros geográficos
-    if (filters.department)
-      matchStage['location.department'] = filters.department;
-    if (filters.province) matchStage['location.province'] = filters.province;
-    if (filters.municipality)
-      matchStage['location.municipality'] = filters.municipality;
-    if (filters.electoralSeat)
-      matchStage['location.electoralSeat'] = filters.electoralSeat;
-    if (filters.electoralLocation) {
-      matchStage['location.electoralLocationName'] = filters.electoralLocation;
-    }
-    if (filters.tableCode) {
-      matchStage.tableCode = filters.tableCode;
-    }
+    const base = this.attestedEffectiveBallotsPipeline(filters);
 
     // Determinar qué campo de votos usar según el tipo de elección
     const votesPath =
@@ -147,7 +178,7 @@ export class ResultsService {
         : 'votes.deputies';
 
     const results = await this.ballotModel.aggregate([
-      { $match: matchStage },
+      ...base,
       { $unwind: `$${votesPath}.partyVotes` },
       {
         $group: {
@@ -169,7 +200,7 @@ export class ResultsService {
 
     // Calcular totales usando el path correcto
     const summary = await this.ballotModel.aggregate([
-      { $match: matchStage },
+      ...base,
       {
         $group: {
           _id: null,
@@ -363,8 +394,16 @@ export class ResultsService {
    */
   async getHeatMapData(params: any): Promise<HeatMapResponseDto> {
     // TODO: Verificar cache
-
-    const matchStage: any = { status: 'processed' };
+    const locFilters = params.department
+      ? { department: params.department }
+      : undefined;
+    const base = this.attestedEffectiveBallotsPipeline(locFilters as any);
+    const groupKey =
+      params.locationType === 'province'
+        ? '$location.province'
+        : params.locationType === 'municipality'
+          ? '$location.municipality'
+          : '$location.department';
 
     // Determinar qué campo usar según el tipo de elección
     const votesPath =
@@ -373,10 +412,10 @@ export class ResultsService {
         : 'votes.deputies';
 
     const results = await this.ballotModel.aggregate([
-      { $match: matchStage },
+      ...base,
       {
         $group: {
-          _id: '$location.department', // o el nivel que necesites
+          _id: groupKey,
           totalVotes: { $sum: `$${votesPath}.totalVotes` },
           validVotes: { $sum: `$${votesPath}.validVotes` },
           partyVotes: { $push: `$${votesPath}.partyVotes` },
@@ -386,7 +425,7 @@ export class ResultsService {
         $project: {
           _id: 0,
           location: '$_id',
-          locationType: 'department',
+          locationType: params.locationType ?? 'department',
           totalVotes: 1,
           participationRate: 0, // TODO: Implementar cuando tengamos datos del OEP
           partyPercentages: {
@@ -403,14 +442,20 @@ export class ResultsService {
                 in: {
                   k: '$$party.partyId',
                   v: {
-                    $round: [
+                    $cond: [
+                      { $gt: ['$validVotes', 0] },
                       {
-                        $multiply: [
-                          { $divide: ['$$party.votes', '$validVotes'] },
-                          100,
+                        $round: [
+                          {
+                            $multiply: [
+                              { $divide: ['$$party.votes', '$validVotes'] },
+                              100,
+                            ],
+                          },
+                          2,
                         ],
                       },
-                      2,
+                      0,
                     ],
                   },
                 },
@@ -437,9 +482,15 @@ export class ResultsService {
     filters: CircunscripcionFilterDto,
   ): Promise<CircunscripcionResponseDto> {
     // TODO: Verificar cache
+    const base = this.attestedEffectiveBallotsPipeline(filters);
 
-    const matchStage: any = { status: 'processed' };
+    // Determinar qué campo usar según el tipo de elección
+    const votesPath =
+      filters.electionType === 'presidential'
+        ? 'votes.parties'
+        : 'votes.deputies';
 
+    const matchStage: any = {};
     if (filters.circunscripcionType) {
       matchStage['location.circunscripcion.type'] = filters.circunscripcionType;
     }
@@ -448,14 +499,9 @@ export class ResultsService {
         filters.circunscripcionNumber;
     }
 
-    // Determinar qué campo usar según el tipo de elección
-    const votesPath =
-      filters.electionType === 'presidential'
-        ? 'votes.parties'
-        : 'votes.deputies';
-
     const results = await this.ballotModel.aggregate([
-      { $match: matchStage },
+      ...base,
+      ...(Object.keys(matchStage).length ? [{ $match: matchStage }] : []),
       {
         $group: {
           _id: {
