@@ -55,12 +55,15 @@ jobs:
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Si necesitas el bundle para conexiones SSL (no es secreto, pero el pass sí):
+      # Mantener el bundle como antes: se desencripta y se hornea en la imagen
       - name: Decrypt global-bundle.pem.enc
         if: hashFiles('global-bundle.pem.enc') != ''
         run: |
           set -euo pipefail
-          openssl enc -aes-256-cbc -d -salt -in global-bundle.pem.enc -out global-bundle.pem -pass pass:"${{ secrets.PASSPHRASE }}"
+          openssl enc -aes-256-cbc -d -salt \
+            -in global-bundle.pem.enc \
+            -out global-bundle.pem \
+            -pass pass:"${{ secrets.PASSPHRASE }}"
 
       - name: Build & Push (with cache)
         uses: docker/build-push-action@v5
@@ -105,6 +108,7 @@ jobs:
       EXTERNAL_PORT: ${{ vars.EXTERNAL_PORT }}
       CONTAINER_NAME: back_results
       IMAGE_TAG: ${{ github.sha }}
+      # Nombre del parámetro en SSM con tu .env (SecureString)
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
     steps:
       - name: Configure AWS credentials
@@ -120,7 +124,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "Deploying…"
+
+          # Fallback por si no seteaste la var del repo
           SSM_NAME="${SSM_ENV_PARAM_NAME:-/miapp/dev/.env}"
+          echo "Usando parámetro SSM: $SSM_NAME"
 
           CMDS=$(jq -nc \
             --arg reg    "$ECR_REGISTRY" \
@@ -135,9 +142,26 @@ jobs:
               "docker pull --quiet \($reg)/\($repo):\($tag)",
               "docker stop \($name) || true",
               "docker rm \($name) || true",
+
+              # 1) Obtener .env desde SSM
               "aws ssm get-parameter --name \($ssm) --with-decryption --query Parameter.Value --output text > .env",
-              "docker run -d --name \($name) -p \($port):3000 --env-file .env --restart unless-stopped \($reg)/\($repo):\($tag)",
+
+              # 2) Normalizar fin de línea (CRLF -> LF) y validar formato simple KEY=VAL
+              "sed -i 's/\\r$//' .env",
+              "echo '🔐 Claves en .env (sin valores):' && awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/{print \" - \" $1}' .env | sort | uniq",
+
+              # 3) Correr contenedor: si falta NODE_EXTRA_CA_CERTS en .env, lo inyecto apuntando al bundle dentro de la imagen
+              \"EXTRA_CA=''; if ! grep -q '^NODE_EXTRA_CA_CERTS=' .env; then EXTRA_CA='-e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem'; fi; \\
+               docker run -d --name \($name) -p \($port):3000 --env-file .env $EXTRA_CA --restart unless-stopped \($reg)/\($repo):\($tag)\",
+
+              # 4) Verificar que arrancó y mostrar estado (sin secretos)
+              \"echo '🟢 Estado del contenedor:' && docker ps --filter name=\($name) --format '{{.Names}}  {{.Status}}'\",
+              \"echo '🔎 Vars clave en runtime (redactadas):' && docker inspect \($name) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E '^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=' | sed 's/=.*/=***REDACTED***/'\",
+
+              # 5) Borrado seguro del .env del host
               "shred -u .env || rm -f .env",
+
+              # 6) Limpieza de imágenes huérfanas
               "docker image prune -f"
             ]')
 
