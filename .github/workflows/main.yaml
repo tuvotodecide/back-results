@@ -120,6 +120,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Deploying…"
+          SSM_NAME="${SSM_ENV_PARAM_NAME}"
 
           CMDS=$(jq -nc \
             --arg reg    "$ECR_REGISTRY" \
