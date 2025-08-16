@@ -129,7 +129,7 @@ jobs:
           set -euo pipefail
           echo "Deploying…"
 
-          SSM_NAME="${SSM_ENV_PARAM_NAME:-/miapp/dev/.env}"
+          SSM_NAME="${SSM_ENV_PARAM_NAME}"
           echo "Usando parámetro SSM: $SSM_NAME"
 
           CMDS=$(jq -nc \
