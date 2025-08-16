@@ -31,4 +31,11 @@ export default registerAs('app', () => ({
     ttl: parseInt(process.env.CACHE_TTL || '300', 10),
     max: parseInt(process.env.CACHE_MAX || '100', 10),
   },
+  apiKey: {
+    header: process.env.API_KEY_HEADER || 'x-api-key',
+    keys: (process.env.API_KEYS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
 }));

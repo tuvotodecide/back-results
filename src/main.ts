@@ -33,10 +33,15 @@ async function bootstrap() {
     .setTitle('Resultados API')
     .setDescription('API de resultados electorales')
     .setVersion('1.0')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'JWT',
+    .addApiKey(
+      {
+        type: 'apiKey',
+        name: config.get('app.apiKey.header') || 'x-api-key',
+        in: 'header',
+      },
+      'X-API-Key',
     )
+    .addSecurityRequirements('X-API-Key')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerCfg);
