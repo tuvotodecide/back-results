@@ -157,12 +157,14 @@ export class ResultsService {
       (totalNullVotes[0]?.total || 0) +
       (totalBlankVotes[0]?.total || 0);
 
+    const denValid = totalValidVotes[0]?.total || 0;
+
     // Agregar porcentajes a cada partido
     const resultsWithPercentages = results.map((party) => ({
       ...party,
       percentage:
-        grandTotal > 0
-          ? ((party.totalVotes / grandTotal) * 100).toFixed(2)
+        denValid > 0
+          ? ((party.totalVotes / denValid) * 100).toFixed(2)
           : '0.00',
     }));
 
