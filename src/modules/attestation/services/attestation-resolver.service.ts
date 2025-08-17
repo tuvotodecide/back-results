@@ -23,7 +23,7 @@ export class AttestationResolverService {
     private electionConfigService: ElectionConfigService,
   ) {}
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron(CronExpression.EVERY_HOUR)
   async resolvePending() {
     const status = await this.electionConfigService.getElectionStatus();
     // No resolvemos hasta que acabe el período de votación (y haya config activa)
