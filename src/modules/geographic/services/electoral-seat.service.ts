@@ -367,4 +367,110 @@ export class ElectoralSeatService {
       timestamp: new Date().toISOString(),
     };
   }
+
+  private normalizeName(s: string): string {
+    return (s ?? '').trim().replace(/\s+/g, ' ');
+  }
+
+  private isDupKey(err: any): boolean {
+    return (
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+      !!err && (err.code === 11000 || (err?.message ?? '').includes('E11000'))
+    );
+  }
+
+  async ensureByName(
+    municipalityId: Types.ObjectId,
+    name: string,
+  ): Promise<ElectoralSeatDocument> {
+    const n = this.normalizeName(name);
+    if (!municipalityId) throw new Error('municipalityId is required');
+    if (!n) throw new Error('Electoral seat name is required');
+
+    const found = await this.electoralSeatModel
+      .findOne({ municipalityId, name: n })
+      .exec();
+    if (found) return found;
+
+    try {
+      return await this.electoralSeatModel.create({
+        municipalityId,
+        name: n,
+        active: true,
+      });
+    } catch (e) {
+      if (this.isDupKey(e)) {
+        const again = await this.electoralSeatModel
+          .findOne({ municipalityId, name: n })
+          .exec();
+        if (again) return again;
+      }
+      this.logger.error(`ensureByName error: ${e?.message ?? e}`);
+      throw e;
+    }
+  }
+
+  /**
+   * Upsert masivo por municipio. Retorna Map name->doc.
+   */
+  async bulkEnsureByMunicipality(
+    municipalityId: Types.ObjectId,
+    names: string[],
+  ): Promise<Map<string, ElectoralSeatDocument>> {
+    if (!municipalityId) throw new Error('municipalityId is required');
+    if (!names?.length) return new Map();
+
+    const normalizedUnique = [
+      ...new Set(names.map((s) => this.normalizeName(s)).filter(Boolean)),
+    ];
+    if (!normalizedUnique.length) return new Map();
+
+    const ops = normalizedUnique.map((name) => ({
+      updateOne: {
+        filter: { municipalityId, name },
+        update: { $setOnInsert: { municipalityId, name, active: true } },
+        upsert: true,
+      },
+    }));
+
+    if (ops.length) {
+      try {
+        await this.electoralSeatModel.bulkWrite(ops, { ordered: false });
+      } catch (e) {
+        if (!this.isDupKey(e))
+          this.logger.warn(`bulkEnsureByMunicipality: ${e?.message ?? e}`);
+      }
+    }
+
+    const docs = await this.electoralSeatModel
+      .find({ municipalityId, name: { $in: normalizedUnique } })
+      .exec();
+
+    const map = new Map<string, ElectoralSeatDocument>();
+    for (const d of docs) map.set(d.name, d);
+    return map;
+  }
+
+  /**
+   * Lookup masivo (sin creación). Retorna Map name->doc.
+   */
+  async mapByNames(
+    municipalityId: Types.ObjectId,
+    names: string[],
+  ): Promise<Map<string, ElectoralSeatDocument>> {
+    if (!municipalityId || !names?.length) return new Map();
+
+    const normalizedUnique = [
+      ...new Set(names.map((s) => this.normalizeName(s)).filter(Boolean)),
+    ];
+    if (!normalizedUnique.length) return new Map();
+
+    const docs = await this.electoralSeatModel
+      .find({ municipalityId, name: { $in: normalizedUnique } })
+      .exec();
+
+    const map = new Map<string, ElectoralSeatDocument>();
+    for (const d of docs) map.set(d.name, d);
+    return map;
+  }
 }

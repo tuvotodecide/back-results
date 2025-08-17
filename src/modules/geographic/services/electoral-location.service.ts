@@ -25,6 +25,19 @@ import {
   ElectoralTableDocument,
 } from '../schemas/electoral-table.schema';
 import { Ballot, BallotDocument } from '../../ballot/schemas/ballot.schema';
+type RecintoUpsert = {
+  code: string; // Reci
+  name: string; // NombreReci
+  district?: string; // NomDist
+  zone?: string; // NomZona
+  address?: string; // Direccion
+  latitude?: number; // parseFloat(latitud)
+  longitude?: number; // parseFloat(longitud)
+  circNumber?: string; // NroCircun
+  circType?: string; // TipoCircun
+  circName?: string; // NomCircun
+};
+type RecintoUpdate = Omit<RecintoUpsert, 'code'> & { code?: string };
 
 @Injectable()
 export class ElectoralLocationService {
@@ -557,5 +570,165 @@ export class ElectoralLocationService {
     }
 
     return result[0];
+  }
+
+  private normalizeName(s?: string): string {
+    return (s ?? '').trim().replace(/\s+/g, ' ');
+  }
+  private normalizeCode(s?: string): string {
+    return (s ?? '').trim();
+  }
+  private parseCoord(s?: string | number): number | undefined {
+    if (s === null || s === undefined) return undefined;
+    const n = typeof s === 'number' ? s : parseFloat(String(s).trim());
+    return Number.isFinite(n) ? n : undefined;
+  }
+  private buildUpdateFromPayload(payload: RecintoUpdate) {
+    const update: Record<string, any> = {
+      name: this.normalizeName(payload.name),
+      district: payload.district
+        ? this.normalizeName(payload.district)
+        : undefined,
+      zone: payload.zone ? this.normalizeName(payload.zone) : undefined,
+      address: payload.address
+        ? this.normalizeName(payload.address)
+        : undefined,
+      circNumber: payload.circNumber
+        ? this.normalizeCode(payload.circNumber)
+        : undefined,
+      circType: payload.circType
+        ? this.normalizeName(payload.circType)
+        : undefined,
+      circName: payload.circName
+        ? this.normalizeName(payload.circName)
+        : undefined,
+    };
+
+    const lat = this.parseCoord(payload.latitude as any);
+    const lng = this.parseCoord(payload.longitude as any);
+    if (lat !== undefined) update.latitude = lat;
+    if (lng !== undefined) update.longitude = lng;
+
+    Object.keys(update).forEach(
+      (k) => update[k] === undefined && delete update[k],
+    );
+    return update;
+  }
+
+  async ensureBySeatAndCode(
+    seatId: Types.ObjectId,
+    payload: RecintoUpsert,
+  ): Promise<any> {
+    const code = this.normalizeCode(payload.code);
+    const name = this.normalizeName(payload.name);
+    if (!code || !name) {
+      throw new Error('code y name son requeridos para ensureBySeatAndCode');
+    }
+
+    const $set = this.buildUpdateFromPayload({ ...payload, code, name });
+    const filter = { seatId, code };
+
+    const doc = await this.locationModel
+      .findOneAndUpdate(
+        filter,
+        {
+          $set,
+          $setOnInsert: { seatId, code, name, active: true },
+        },
+        { upsert: true, new: true },
+      )
+      .lean();
+
+    return doc;
+  }
+
+  async bulkUpsertBySeat(
+    seatId: Types.ObjectId,
+    recintos: RecintoUpsert[],
+  ): Promise<Map<string, any>> {
+    if (!recintos?.length) return new Map();
+
+    // 1) normalizar + deduplicar por code
+    const byCode = new Map<string, RecintoUpsert>();
+    for (const r of recintos) {
+      const code = this.normalizeCode(r.code);
+      const name = this.normalizeName(r.name);
+      if (!code || !name) {
+        this.logger.warn(
+          `Recinto omitido por datos insuficientes (code/name vacío). Payload: ${JSON.stringify(r)}`,
+        );
+        continue;
+      }
+      byCode.set(code, { ...r, code, name });
+    }
+
+    // 2) construir bulk ops
+    const ops = Array.from(byCode.values()).map((r) => {
+      const filter = { seatId, code: r.code };
+      const $set = this.buildUpdateFromPayload(r);
+      return {
+        updateOne: {
+          filter,
+          update: {
+            $set,
+            $setOnInsert: { seatId, code: r.code, name: r.name, active: true },
+          },
+          upsert: true,
+        },
+      };
+    });
+
+    if (ops.length) {
+      await this.locationModel.bulkWrite(ops, { ordered: false });
+    }
+
+    const codes = [...byCode.keys()];
+    const docs = await this.locationModel
+      .find({ seatId, code: { $in: codes } })
+      .lean();
+    const map = new Map<string, any>();
+    for (const d of docs) map.set(d.code, d);
+    return map;
+  }
+
+  async ensureBySeatAndName(
+    seatId: Types.ObjectId,
+    payload: Omit<RecintoUpsert, 'code'> & { code?: string },
+  ): Promise<any> {
+    const name = this.normalizeName(payload.name);
+    if (!name) throw new Error('name es requerido para ensureBySeatAndName');
+
+    const $set = this.buildUpdateFromPayload({ ...payload, name });
+    const filter = { seatId, name };
+    const setOnInsert: Record<string, any> = { seatId, name, active: true };
+    if (payload.code) setOnInsert.code = this.normalizeCode(payload.code);
+
+    const doc = await this.locationModel
+      .findOneAndUpdate(
+        filter,
+        { $set, $setOnInsert: setOnInsert },
+        { upsert: true, new: true },
+      )
+      .lean();
+
+    return doc;
+  }
+
+  /**
+   * Utilidad opcional para obtener un mapa por codes existentes (optimiza consultas posteriores).
+   */
+  async mapByCodes(
+    seatId: Types.ObjectId,
+    codes: string[],
+  ): Promise<Map<string, any>> {
+    const norm = codes.map((c) => this.normalizeCode(c)).filter(Boolean);
+    if (!norm.length) return new Map();
+    const docs = await this.locationModel
+      .find({ seatId, code: { $in: norm } })
+      .select('_id code')
+      .lean();
+    const map = new Map<string, any>();
+    for (const d of docs) map.set(d.code, d);
+    return map;
   }
 }

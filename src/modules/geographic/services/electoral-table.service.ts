@@ -21,6 +21,13 @@ import {
 import { ElectoralLocationService } from './electoral-location.service';
 import { LoggerService } from '../../../core/services/logger.service';
 
+export type MesaUpsert = {
+  code?: string; // codigo_mesa (si existe, se usa como clave primaria)
+  number: number; // num_mesa
+  habilitados: number; // habilitados
+  inhabilitados: number; // inhabilitados
+};
+
 @Injectable()
 export class ElectoralTableService {
   constructor(
@@ -423,5 +430,198 @@ export class ElectoralTableService {
         active: true,
       })
       .exec();
+  }
+
+  private normalizeCode(s?: string): string {
+    return (s ?? '').trim();
+  }
+
+  validateMesaPayload(m: MesaUpsert): { ok: boolean; reason?: string } {
+    if (m.number === null || m.number === undefined || Number(m.number) < 1) {
+      return { ok: false, reason: `num_mesa inválido: ${m.number}` };
+    }
+    if (
+      m.habilitados === null ||
+      m.habilitados === undefined ||
+      Number(m.habilitados) < 0
+    ) {
+      return { ok: false, reason: `habilitados inválido: ${m.habilitados}` };
+    }
+    if (
+      m.inhabilitados === null ||
+      m.inhabilitados === undefined ||
+      Number(m.inhabilitados) < 0
+    ) {
+      return {
+        ok: false,
+        reason: `inhabilitados inválido: ${m.inhabilitados}`,
+      };
+    }
+    return { ok: true };
+  }
+
+  private buildUpdateFromPayload(payload: MesaUpsert) {
+    const update: Record<string, any> = {
+      number: Number(payload.number),
+      habilitados: Number(payload.habilitados),
+      inhabilitados: Number(payload.inhabilitados),
+    };
+    // Elimina undefined por si acaso
+    Object.keys(update).forEach(
+      (k) => update[k] === undefined && delete update[k],
+    );
+    return update;
+  }
+
+  // ---------- API pública sugerida ----------
+
+  /**
+   * Upsert idempotente.
+   * Regla:
+   *  - Si hay code -> upsert por { code }
+   *  - Si NO hay code -> upsert por { precinctId, number }
+   */
+  async ensureByCodeOrPrecinctAndNumber(
+    precinctId: Types.ObjectId,
+    payload: MesaUpsert,
+  ): Promise<any> {
+    const v = this.validateMesaPayload(payload);
+    if (!v.ok) {
+      this.logger.warn(`Mesa omitida: ${v.reason}`);
+      return null;
+    }
+
+    const code = payload.code ? this.normalizeCode(payload.code) : undefined;
+    const $set = this.buildUpdateFromPayload(payload);
+
+    if (code) {
+      // Clave primaria por code (y seteamos precinctId/number en insert)
+      const doc = await this.electoralTableModel
+        .findOneAndUpdate(
+          { code },
+          {
+            $set,
+            $setOnInsert: {
+              code,
+              precinctId,
+              number: payload.number,
+              active: true,
+            },
+          },
+          { upsert: true, new: true },
+        )
+        .lean();
+      return doc;
+    } else {
+      // Sin code: clave por (precinctId, number)
+      const doc = await this.electoralTableModel
+        .findOneAndUpdate(
+          { precinctId, number: payload.number },
+          {
+            $set,
+            $setOnInsert: { precinctId, number: payload.number, active: true },
+          },
+          { upsert: true, new: true },
+        )
+        .lean();
+      return doc;
+    }
+  }
+
+  /**
+   * Upsert masivo por recinto (precinctId).
+   * Devuelve un mapa:
+   *  - clave = code si existe
+   *  - clave = `${precinctId}:${number}` si no hay code
+   */
+  async bulkUpsertByPrecinct(
+    precinctId: Types.ObjectId,
+    mesas: MesaUpsert[],
+  ): Promise<Map<string, any>> {
+    if (!mesas?.length) return new Map();
+
+    // 1) normalizar/deduplicar en el lote:
+    //    - con code: deduplicar por code
+    //    - sin code: deduplicar por number dentro del mismo precinctId
+    const seenByCode = new Map<string, MesaUpsert>();
+    const seenByNumber = new Map<number, MesaUpsert>();
+
+    for (const m of mesas) {
+      const v = this.validateMesaPayload(m);
+      if (!v.ok) {
+        this.logger.warn(`Mesa omitida: ${v.reason}`);
+        continue;
+      }
+      const code = m.code ? this.normalizeCode(m.code) : undefined;
+      if (code) {
+        seenByCode.set(code, { ...m, code });
+      } else {
+        seenByNumber.set(Number(m.number), { ...m, code: undefined });
+      }
+    }
+
+    // 2) construir bulk ops
+    const ops: any[] = [];
+
+    // con code
+    for (const [code, m] of seenByCode.entries()) {
+      const $set = this.buildUpdateFromPayload(m);
+      ops.push({
+        updateOne: {
+          filter: { code },
+          update: {
+            $set,
+            $setOnInsert: { code, precinctId, number: m.number, active: true },
+          },
+          upsert: true,
+        },
+      });
+    }
+
+    // sin code
+    for (const [num, m] of seenByNumber.entries()) {
+      const $set = this.buildUpdateFromPayload(m);
+      ops.push({
+        updateOne: {
+          filter: { precinctId, number: num },
+          update: {
+            $set,
+            $setOnInsert: { precinctId, number: num, active: true },
+          },
+          upsert: true,
+        },
+      });
+    }
+
+    if (ops.length) {
+      await this.electoralTableModel.bulkWrite(ops, { ordered: false });
+    }
+
+    // 3) recuperar todos y construir mapa de retorno
+    const keysWithCode = [...seenByCode.keys()];
+    const numbersNoCode = [...seenByNumber.keys()];
+
+    const results: any[] = [];
+    if (keysWithCode.length) {
+      const docsByCode = await this.electoralTableModel
+        .find({ code: { $in: keysWithCode } })
+        .lean();
+      results.push(...docsByCode);
+    }
+    if (numbersNoCode.length) {
+      const docsByNum = await this.electoralTableModel
+        .find({ precinctId, number: { $in: numbersNoCode } })
+        .lean();
+      results.push(...docsByNum);
+    }
+
+    const map = new Map<string, any>();
+    for (const d of results) {
+      const key = d.code
+        ? String(d.code)
+        : `${String(d.precinctId)}:${Number(d.number)}`;
+      map.set(key, d);
+    }
+    return map;
   }
 }

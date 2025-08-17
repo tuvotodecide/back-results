@@ -277,4 +277,114 @@ export class MunicipalityService {
       timestamp: new Date().toISOString(),
     };
   }
+
+  private normalizeName(s: string): string {
+    return (s ?? '').trim().replace(/\s+/g, ' ');
+  }
+
+  private isDupKey(err: any): boolean {
+    return (
+      !!err && (err.code === 11000 || (err?.message ?? '').includes('E11000'))
+    );
+  }
+
+  async ensureByName(
+    provinceId: Types.ObjectId,
+    name: string,
+  ): Promise<MunicipalityDocument> {
+    const n = this.normalizeName(name);
+    if (!provinceId) throw new Error('provinceId is required');
+    if (!n) throw new Error('Municipality name is required');
+
+    // 1) buscar
+    const found = await this.municipalityModel
+      .findOne({ provinceId, name: n })
+      .exec();
+    if (found) return found;
+
+    // 2) crear (manejar carrera)
+    try {
+      return await this.municipalityModel.create({
+        provinceId,
+        name: n,
+        active: true,
+      });
+    } catch (e) {
+      if (this.isDupKey(e)) {
+        const again = await this.municipalityModel
+          .findOne({ provinceId, name: n })
+          .exec();
+        if (again) return again;
+      }
+      this.logger.error(`ensureByName error: ${e?.message ?? e}`);
+      throw e;
+    }
+  }
+
+  /**
+   * Upsert masivo por provincia. Retorna un Map name->doc.
+   * Usa bulkWrite para rendimiento; luego resuelve los docs.
+   */
+  async bulkEnsureByProvince(
+    provinceId: Types.ObjectId,
+    names: string[],
+  ): Promise<Map<string, MunicipalityDocument>> {
+    if (!provinceId) throw new Error('provinceId is required');
+    if (!names?.length) return new Map();
+
+    const normalizedUnique = [
+      ...new Set(names.map((s) => this.normalizeName(s)).filter(Boolean)),
+    ];
+    if (!normalizedUnique.length) return new Map();
+
+    const ops = normalizedUnique.map((name) => ({
+      updateOne: {
+        filter: { provinceId, name },
+        update: { $setOnInsert: { provinceId, name, active: true } },
+        upsert: true,
+      },
+    }));
+
+    if (ops.length) {
+      try {
+        await this.municipalityModel.bulkWrite(ops, { ordered: false });
+      } catch (e) {
+        // En bulkWrite pueden aparecer dup keys por carreras entre procesos → seguro re-consultar
+        if (!this.isDupKey(e))
+          this.logger.warn(`bulkEnsureByProvince: ${e?.message ?? e}`);
+      }
+    }
+
+    const docs = await this.municipalityModel
+      .find({ provinceId, name: { $in: normalizedUnique } })
+      .exec();
+
+    const map = new Map<string, MunicipalityDocument>();
+    for (const d of docs) map.set(d.name, d);
+    return map;
+  }
+
+  /**
+   * Devuelve un Map name->doc para una lista de nombres (normalizados y únicos).
+   * No crea nada; solo lookup.
+   */
+  async mapByNames(
+    provinceId: Types.ObjectId,
+    names: string[],
+  ): Promise<Map<string, MunicipalityDocument>> {
+    if (!provinceId || !names?.length) return new Map();
+
+    const normalizedUnique = [
+      ...new Set(names.map((s) => this.normalizeName(s)).filter(Boolean)),
+    ];
+    if (!normalizedUnique.length) return new Map();
+
+    const docs = await this.municipalityModel
+      .find({ provinceId, name: { $in: normalizedUnique } })
+      .exec();
+
+    const map = new Map<string, MunicipalityDocument>();
+    for (const d of docs) map.set(d.name, d);
+    return map;
+  }
 }
