@@ -158,4 +158,52 @@ export class ProvinceService {
 
     this.logger.log(`Provincia eliminada: ${result.name}`, 'ProvinceService');
   }
+
+  async ensureByName(
+    name: string,
+    departmentId: Types.ObjectId,
+  ): Promise<Province> {
+    const n = name.trim().replace(/\s+/g, ' ');
+    const found = await this.provinceModel
+      .findOne({ departmentId, name: n })
+      .exec();
+    if (found) return found;
+    try {
+      return await this.provinceModel.create({
+        departmentId,
+        name: n,
+        active: true,
+      });
+    } catch (e) {
+      const again = await this.provinceModel
+        .findOne({ departmentId, name: n })
+        .exec();
+      if (again) return again;
+      throw e;
+    }
+  }
+
+  async bulkEnsureByDept(
+    departmentId: Types.ObjectId,
+    names: string[],
+  ): Promise<Map<string, Province>> {
+    const trimmed = [
+      ...new Set(names.map((s) => s.trim().replace(/\s+/g, ' '))),
+    ];
+    const ops = trimmed.map((name) => ({
+      updateOne: {
+        filter: { departmentId, name },
+        update: { $setOnInsert: { departmentId, name, active: true } },
+        upsert: true,
+      },
+    }));
+    if (ops.length) await this.provinceModel.bulkWrite(ops, { ordered: false });
+
+    const docs = await this.provinceModel
+      .find({ departmentId, name: { $in: trimmed } })
+      .exec();
+    const map = new Map<string, Province>();
+    for (const p of docs) map.set(p.name, p);
+    return map;
+  }
 }

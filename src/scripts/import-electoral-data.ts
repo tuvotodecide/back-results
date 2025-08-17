@@ -1,348 +1,302 @@
-/* eslint-disable prettier/prettier */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
+/*
+  Nest-integrated importer for missing_415_tables.json → MongoDB/AWS DocumentDB
+  - Reuses your Nest connection (CoreModule → DatabaseModule → MongooseModule.forRootAsync)
+  - DocumentDB-safe upserts (updateOne + findOne)
+  - Idempotent, key-driven upserts aligned to your unique indexes
+
+  Run:
+    ts-node -r tsconfig-paths/register src/scripts/import-electoral-data.nest.ts --file ./final_data_replaced.json
+*/
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-import * as mongoose from 'mongoose';
-import { readFileSync } from 'fs';
-import { join } from 'path';
-import * as dotenv from 'dotenv';
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+import 'reflect-metadata';
+import * as fs from 'fs';
+import * as path from 'path';
+import { NestFactory } from '@nestjs/core';
+import { CoreModule } from '../core/core.module';
+import { getConnectionToken } from '@nestjs/mongoose';
+import type { Connection } from 'mongoose';
+import type { Db, Collection, Document, ObjectId } from 'mongodb';
 
-// Configurar variables de entorno
-dotenv.config();
-
-interface Mesa {
+// ===== Input types =====
+type Mesa = {
   codigo_mesa: string;
-  num_mesa: number;
-  habilitados: number;
-  inhabilitados: number;
-}
+  num_mesa: number | string;
+  habilitados?: number | string;
+  inhabilitados?: number | string;
+};
 
-interface ElectoralRecord {
-  FID: string;
+type InputRow = {
+  FID?: string;
   NomDep: string;
   NomProv: string;
   NombreMuni: string;
-  IdLoc: string;
-  AsientoEle: string;
-  Reci: string;
-  NombreReci: string;
-  NomDist: string;
-  NomZona: string;
-  Direccion: string;
-  NroCircun: string;
-  TipoCircun: string;
-  NomCircun: string;
-  latitud: string;
-  longitud: string;
-  mesas: Mesa[];
+  IdLoc: string; // seat code
+  AsientoEle: string; // seat name
+  Reci: string; // location code
+  NombreReci: string; // location name
+  NomDist?: string; // district
+  NomZona?: string; // zone
+  Direccion?: string; // address
+  NroCircun?: string | number; // circ. number
+  TipoCircun?: 'Especial' | 'Uninominal' | string;
+  NomCircun?: string; // circ. name (often blank)
+  latitud?: string | number;
+  longitud?: string | number;
+  x?: string | number;
+  y?: string | number;
+  mesas?: Mesa[];
+};
+
+// ===== Helpers =====
+const now = () => new Date();
+const norm = (s?: unknown) => (s ?? '').toString().trim().replace(/\s+/g, ' ');
+const toInt = (v: unknown, d = 0) => {
+  const n =
+    typeof v === 'string'
+      ? parseInt(v, 10)
+      : typeof v === 'number'
+        ? Math.trunc(v)
+        : NaN;
+  return Number.isFinite(n) ? n : d;
+};
+const toFloat = (v: unknown, d = 0) => {
+  const n =
+    typeof v === 'string' ? parseFloat(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) ? n : d;
+};
+
+// ===== Caches =====
+const depCache = new Map<string, ObjectId>();
+const provCache = new Map<string, ObjectId>(); // key: depId|name
+const muniCache = new Map<string, ObjectId>(); // key: provId|name
+const seatCache = new Map<string, ObjectId>(); // key: muniId|idLoc
+const locCache = new Map<string, ObjectId>(); // key: seatId|Reci
+
+// ===== Collections =====
+let Departments!: Collection<Document>;
+let Provinces!: Collection<Document>;
+let Municipalities!: Collection<Document>;
+let Seats!: Collection<Document>;
+let Locations!: Collection<Document>;
+let Tables!: Collection<Document>;
+
+// ===== DocumentDB-safe upsert helper =====
+async function upsertGetId(
+  coll: Collection<Document>,
+  filter: Record<string, unknown>,
+  setOnInsert: Record<string, unknown>,
+  set: Record<string, unknown>,
+): Promise<ObjectId> {
+  await coll.updateOne(
+    filter,
+    { $setOnInsert: setOnInsert, $set: set },
+    { upsert: true },
+  );
+  const doc = await coll.findOne(filter, { projection: { _id: 1 } });
+  if (!doc || !doc._id)
+    throw new Error(`Upsert/readback failed for ${coll.collectionName}`);
+  return doc._id as ObjectId;
 }
 
-const DepartmentSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  active: { type: Boolean, default: true },
-}, { timestamps: true, collection: 'departments' });
-
-const ProvinceSchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  departmentId: { type: mongoose.Types.ObjectId, ref: 'Department', required: true },
-  active: { type: Boolean, default: true },
-}, { timestamps: true, collection: 'provinces' });
-
-const MunicipalitySchema = new mongoose.Schema({
-  name: { type: String, required: true, trim: true },
-  provinceId: { type: mongoose.Types.ObjectId, ref: 'Province', required: true },
-  active: { type: Boolean, default: true },
-}, { timestamps: true, collection: 'municipalities' });
-
-const ElectoralSeatSchema = new mongoose.Schema({
-  idLoc: { type: String, required: true, trim: true },
-  name: { type: String, required: true, trim: true },
-  municipalityId: { type: mongoose.Types.ObjectId, ref: 'Municipality', required: true },
-  active: { type: Boolean, default: true },
-}, { timestamps: true, collection: 'electoral_seats' });
-
-const ElectoralLocationSchema = new mongoose.Schema({
-  fid: { type: String, trim: true },
-  code: { type: String, required: true, trim: true },
-  name: { type: String, required: true, trim: true },
-  electoralSeatId: { type: mongoose.Types.ObjectId, ref: 'ElectoralSeat', required: true },
-  address: { type: String, trim: true },
-  district: { type: String, trim: true },
-  zone: { type: String, trim: true },
-  circunscripcion: {
-    number: { type: Number, required: true },
-    type: { type: String, required: true },
-    name: { type: String, required: true },
-  },
-  coordinates: {
-    latitude: { type: Number, default: 0 },
-    longitude: { type: Number, default: 0 },
-  },
-  active: { type: Boolean, default: true },
-}, { timestamps: true, collection: 'electoral_locations' });
-
-const ElectoralTableSchema = new mongoose.Schema({
-  tableNumber: { type: String, required: true, trim: true },
-  tableCode: { type: String, required: true, trim: true },
-  electoralLocationId: { type: mongoose.Types.ObjectId, ref: 'ElectoralLocation', required: true },
-  active: { type: Boolean, default: true },
-}, { timestamps: true, collection: 'electoral_tables' });
-
-ElectoralTableSchema.index({ tableCode: 1 }, { unique: true });
-ElectoralTableSchema.index({ electoralLocationId: 1, tableNumber: 1 }, { unique: true });
-
-async function connectToDatabase() {
-  const mongoUri = process.env.MONGODB_URI || 'mongodb://admin:password@localhost:27017/electoral_results?authSource=admin';
-  
-  try {
-    await mongoose.connect(mongoUri);
-    console.log('✅ Conectado a MongoDB');
-  } catch (error) {
-    console.error('❌ Error conectando a MongoDB:', error);
-    process.exit(1);
-  }
+// ===== Upserts =====
+async function upsertDepartment(nameRaw: string) {
+  const name = norm(nameRaw);
+  if (!name) throw new Error('Department name missing');
+  if (depCache.has(name)) return depCache.get(name)!;
+  const id = await upsertGetId(
+    Departments,
+    { name },
+    { name, active: true, createdAt: now() },
+    { updatedAt: now() },
+  );
+  depCache.set(name, id);
+  return id;
 }
 
-async function importElectoralDataDirect() {
-  await connectToDatabase();
+async function upsertProvince(depId: ObjectId, nameRaw: string) {
+  const name = norm(nameRaw);
+  const key = `${String(depId)}|${name}`;
+  if (provCache.has(key)) return provCache.get(key)!;
+  const id = await upsertGetId(
+    Provinces,
+    { departmentId: depId, name },
+    { departmentId: depId, name, active: true, createdAt: now() },
+    { updatedAt: now() },
+  );
+  provCache.set(key, id);
+  return id;
+}
 
-  const Department = mongoose.model('Department', DepartmentSchema);
-  const Province = mongoose.model('Province', ProvinceSchema);
-  const Municipality = mongoose.model('Municipality', MunicipalitySchema);
-  const ElectoralSeat = mongoose.model('ElectoralSeat', ElectoralSeatSchema);
-  const ElectoralLocation = mongoose.model('ElectoralLocation', ElectoralLocationSchema);
-  const ElectoralTable = mongoose.model('ElectoralTable', ElectoralTableSchema);
+async function upsertMunicipality(provId: ObjectId, nameRaw: string) {
+  const name = norm(nameRaw);
+  const key = `${String(provId)}|${name}`;
+  if (muniCache.has(key)) return muniCache.get(key)!;
+  const id = await upsertGetId(
+    Municipalities,
+    { provinceId: provId, name },
+    { provinceId: provId, name, active: true, createdAt: now() },
+    { updatedAt: now() },
+  );
+  muniCache.set(key, id);
+  return id;
+}
 
-  try {
-    console.log('🚀 Iniciando importación de datos electorales con mesas...');
+async function upsertSeat(
+  muniId: ObjectId,
+  idLocRaw: string,
+  seatNameRaw: string,
+) {
+  const idLoc = norm(idLocRaw);
+  const name = norm(seatNameRaw);
+  if (!idLoc) throw new Error('ElectoralSeat.idLoc missing');
+  const key = `${String(muniId)}|${idLoc}`;
+  if (seatCache.has(key)) return seatCache.get(key)!;
+  const id = await upsertGetId(
+    Seats,
+    { municipalityId: muniId, idLoc },
+    { municipalityId: muniId, idLoc, name, active: true, createdAt: now() },
+    { name, updatedAt: now() },
+  );
+  seatCache.set(key, id);
+  return id;
+}
 
-    /**
-     * AQUI PONER EL NOMBRE DEL ARCHIVO QUE ESTA EN LA RAIZ DEL PROYECTO
-     */
-    const filePath = join(process.cwd(), 'missing_415_tables.json');
-    const allData = JSON.parse(readFileSync(filePath, 'utf-8')) as ElectoralRecord[];
+function buildCircunscripcion(row: InputRow) {
+  const number = toInt(row.NroCircun, 0);
+  const type =
+    (norm(row.TipoCircun) as 'Especial' | 'Uninominal') || 'Uninominal';
+  const name = norm(row.NomCircun) || `${type} ${number || ''}`.trim();
+  return { number, type, name };
+}
 
-    const jsonData = allData.filter(
-      (record) =>
-        record.IdLoc &&
-        record.IdLoc.trim() !== '' &&
-        record.IdLoc !== 'null' &&
-        record.IdLoc !== 'undefined',
-    );
+function buildGeo(row: InputRow) {
+  const lat = toFloat(row.latitud, 0);
+  const lon = toFloat(row.longitud, 0);
+  return {
+    coordinates: { latitude: lat, longitude: lon },
+    geo: { type: 'Point', coordinates: [lon, lat] as [number, number] },
+  };
+}
 
-    console.log(`📄 Archivo leído: ${allData.length} registros totales, ${jsonData.length} con IdLoc válido`);
+async function upsertLocation(seatId: ObjectId, row: InputRow) {
+  const code = norm(row.Reci);
+  const name = norm(row.NombreReci);
+  const fid = norm(row.FID || '');
+  const district = norm(row.NomDist || '');
+  const zone = norm(row.NomZona || '');
+  const address = norm(row.Direccion || '');
+  const circunscripcion = buildCircunscripcion(row);
+  const { coordinates, geo } = buildGeo(row);
 
-    // Contar mesas totales
-    const totalMesas = jsonData.reduce((total, record) => {
-      return total + (record.mesas ? record.mesas.length : 0);
-    }, 0);
+  const key = `${String(seatId)}|${code}`;
+  if (locCache.has(key)) return locCache.get(key)!;
 
-    console.log(`📊 Se procesarán ${totalMesas} mesas electorales`);
+  const id = await upsertGetId(
+    Locations,
+    { electoralSeatId: seatId, code },
+    { electoralSeatId: seatId, code, createdAt: now(), active: true },
+    {
+      name,
+      fid: fid || undefined,
+      district: district || undefined,
+      zone: zone || undefined,
+      address: address || undefined,
+      circunscripcion,
+      coordinates,
+      geo,
+      updatedAt: now(),
+    },
+  );
+  locCache.set(key, id);
+  return id;
+}
 
-    const departments = [...new Set(jsonData.map((r) => r.NomDep))];
-    const provinces = [...new Set(jsonData.map((r) => `${r.NomDep}|${r.NomProv}`))];
-    const municipalities = [...new Set(jsonData.map((r) => `${r.NomDep}|${r.NomProv}|${r.NombreMuni}`))];
-    const electoralSeats = [...new Set(jsonData.map((r) => `${r.NomDep}|${r.NomProv}|${r.NombreMuni}|${r.IdLoc}|${r.AsientoEle}`))];
+async function upsertTable(locId: ObjectId, m: Mesa) {
+  const tableCode = norm(m.codigo_mesa);
+  const tableNumber = String(m.num_mesa);
+  const enabledVoters = toInt(m.habilitados, 0);
+  const disabledVoters = toInt(m.inhabilitados, 0);
 
-    console.log(`📊 Entidades encontradas:
-    - Departamentos: ${departments.length}
-    - Provincias: ${provinces.length}
-    - Municipios: ${municipalities.length}
-    - Asientos Electorales: ${electoralSeats.length}
-    - Recintos Electorales: ${jsonData.length}
-    - Mesas Electorales: ${totalMesas}`);
-
-    // 1. Insertar Departamentos
-    console.log('1️⃣ Insertando departamentos...');
-    const departmentMap = new Map();
-    for (const depName of departments) {
-      const result = await Department.findOneAndUpdate(
-        { name: depName },
-        { name: depName, active: true },
-        { upsert: true, new: true },
-      );
-      departmentMap.set(depName, result._id);
-    }
-    console.log(`✅ ${departments.length} departamentos procesados`);
-
-    // 2. Insertar Provincias
-    console.log('2️⃣ Insertando provincias...');
-    const provinceMap = new Map();
-    for (const provKey of provinces) {
-      const [depName, provName] = provKey.split('|');
-      const departmentId = departmentMap.get(depName);
-
-      const result = await Province.findOneAndUpdate(
-        { name: provName, departmentId },
-        { name: provName, departmentId, active: true },
-        { upsert: true, new: true },
-      );
-      provinceMap.set(provKey, result._id);
-    }
-    console.log(`✅ ${provinces.length} provincias procesadas`);
-
-    // 3. Insertar Municipios
-    console.log('3️⃣ Insertando municipios...');
-    const municipalityMap = new Map();
-    for (const muniKey of municipalities) {
-      const [depName, provName, muniName] = muniKey.split('|');
-      const provinceId = provinceMap.get(`${depName}|${provName}`);
-
-      const result = await Municipality.findOneAndUpdate(
-        { name: muniName, provinceId },
-        { name: muniName, provinceId, active: true },
-        { upsert: true, new: true },
-      );
-      municipalityMap.set(muniKey, result._id);
-    }
-    console.log(`✅ ${municipalities.length} municipios procesados`);
-
-    // 4. Insertar Asientos Electorales
-    console.log('4️⃣ Insertando asientos electorales...');
-    const electoralSeatMap = new Map();
-    for (const seatKey of electoralSeats) {
-      const [depName, provName, muniName, idLoc, seatName] = seatKey.split('|');
-      const municipalityId = municipalityMap.get(`${depName}|${provName}|${muniName}`);
-
-      const result = await ElectoralSeat.findOneAndUpdate(
-        { idLoc, municipalityId },
-        { idLoc, name: seatName, municipalityId, active: true },
-        { upsert: true, new: true },
-      );
-      electoralSeatMap.set(seatKey, result._id);
-    }
-    console.log(`✅ ${electoralSeats.length} asientos electorales procesados`);
-
-    // 5. Insertar Recintos Electorales
-    console.log('5️⃣ Insertando recintos electorales...');
-    const electoralLocationMap = new Map();
-    let processed = 0;
-
-    for (const record of jsonData) {
-      const seatKey = `${record.NomDep}|${record.NomProv}|${record.NombreMuni}|${record.IdLoc}|${record.AsientoEle}`;
-      const electoralSeatId = electoralSeatMap.get(seatKey);
-
-      if (!electoralSeatId) {
-        console.warn(`⚠️  No se encontró electoral seat para: ${seatKey}`);
-        continue;
-      }
-
-      const locationData = {
-        fid: record.FID,
-        code: record.Reci,
-        name: record.NombreReci,
-        electoralSeatId,
-        address: record.Direccion,
-        district: record.NomDist,
-        zone: record.NomZona,
-        circunscripcion: {
-          number: parseInt(record.NroCircun) || 0,
-          type: record.TipoCircun,
-          name: record.NomCircun,
-        },
-        coordinates: {
-          latitude: parseFloat(record.latitud) || 0,
-          longitude: parseFloat(record.longitud) || 0,
-        },
+  await Tables.updateOne(
+    { tableCode },
+    {
+      $setOnInsert: {
+        electoralLocationId: locId,
+        tableCode,
+        tableNumber,
+        enabledVoters,
+        disabledVoters,
         active: true,
-      };
+        createdAt: now(),
+      },
+      $set: {
+        electoralLocationId: locId,
+        tableNumber,
+        enabledVoters,
+        disabledVoters,
+        updatedAt: now(),
+      },
+    },
+    { upsert: true },
+  );
+}
 
-      const result = await ElectoralLocation.findOneAndUpdate(
-        { code: record.Reci },
-        locationData,
-        { upsert: true, new: true },
-      );
+// ===== Main (Nest connection reuse) =====
+async function main() {
+  const app = await NestFactory.createApplicationContext(CoreModule, {
+    logger: ['error', 'warn', 'log'],
+  });
+  try {
+    const conn = app.get<Connection>(getConnectionToken());
+    const db: Db = conn.db!;
 
-      electoralLocationMap.set(record.Reci, result._id);
-      processed++;
+    // Bind collections from the same Nest/Mongoose connection
+    Departments = db.collection('departments');
+    Provinces = db.collection('provinces');
+    Municipalities = db.collection('municipalities');
+    Seats = db.collection('electoral_seats');
+    Locations = db.collection('electoral_locations');
+    Tables = db.collection('electoral_tables');
 
-      if (processed % 50 === 0) {
-        const percentage = Math.round((processed / jsonData.length) * 100);
-        console.log(`   📍 Procesados ${processed}/${jsonData.length} recintos (${percentage}%)`);
+    // Resolve input file
+    const eqIdx = process.argv.findIndex((a) => a.startsWith('--file='));
+    const argIdx = process.argv.indexOf('--file');
+    let dataFile = path.join(process.cwd(), 'missing_415_tables.json');
+    if (eqIdx >= 0) dataFile = process.argv[eqIdx].split('=')[1];
+    else if (argIdx >= 0 && process.argv[argIdx + 1])
+      dataFile = process.argv[argIdx + 1];
+
+    const raw = fs.readFileSync(dataFile, 'utf8');
+    const rows = JSON.parse(raw) as InputRow[];
+
+    let cTable = 0;
+
+    for (const row of rows) {
+      const depId = await upsertDepartment(row.NomDep);
+      const provId = await upsertProvince(depId, row.NomProv);
+      const muniId = await upsertMunicipality(provId, row.NombreMuni);
+      const seatId = await upsertSeat(muniId, row.IdLoc, row.AsientoEle);
+      const locId = await upsertLocation(seatId, row);
+
+      for (const m of row.mesas || []) {
+        await upsertTable(locId, m);
+        cTable++;
       }
     }
-    console.log(`✅ ${processed} recintos procesados`);
 
-    // 6. Insertar Mesas Electorales
-    console.log('6️⃣ Insertando mesas electorales...');
-    let processedTables = 0;
-
-    for (const record of jsonData) {
-      if (!record.mesas || record.mesas.length === 0) continue;
-
-      const electoralLocationId = electoralLocationMap.get(record.Reci);
-      if (!electoralLocationId) {
-        console.warn(`⚠️  No se encontró recinto para código: ${record.Reci}`);
-        continue;
-      }
-
-      for (const mesa of record.mesas) {
-        const mesaData = {
-          tableNumber: mesa.num_mesa.toString(),
-          tableCode: mesa.codigo_mesa,
-          electoralLocationId,
-          active: true,
-        };
-
-        try {
-          await ElectoralTable.findOneAndUpdate(
-            { tableCode: mesa.codigo_mesa },
-            mesaData,
-            { upsert: true, new: true },
-          );
-          processedTables++;
-        } catch (error) {
-          if (error.code !== 11000) { // Ignorar duplicados
-            console.warn(`⚠️  Error insertando mesa ${mesa.codigo_mesa}:`, error.message);
-          }
-        }
-      }
-
-      if (processedTables % 100 === 0) {
-        console.log(`   🗳️  Procesadas ${processedTables} mesas`);
-      }
-    }
-
-    console.log('✅ Importación completada exitosamente');
-
-    // Mostrar estadísticas finales
-    const stats = {
-      departments: await Department.countDocuments({ active: true }),
-      provinces: await Province.countDocuments({ active: true }),
-      municipalities: await Municipality.countDocuments({ active: true }),
-      electoralSeats: await ElectoralSeat.countDocuments({ active: true }),
-      electoralLocations: await ElectoralLocation.countDocuments({ active: true }),
-      electoralTables: await ElectoralTable.countDocuments({ active: true }),
-    };
-
-    console.log(`
-🎉 IMPORTACIÓN COMPLETADA EXITOSAMENTE
-📊 Estadísticas finales:
-   - Departamentos: ${stats.departments}
-   - Provincias: ${stats.provinces}
-   - Municipios: ${stats.municipalities}
-   - Asientos Electorales: ${stats.electoralSeats}
-   - Recintos Electorales: ${stats.electoralLocations}
-   - Mesas Electorales: ${stats.electoralTables}
-    `);
-
-  } catch (error) {
-    console.error('💥 Error fatal:', error);
-    process.exit(1);
+    console.log(
+      `Done. departments: ${depCache.size}, provinces: ${provCache.size}, municipalities: ${muniCache.size}, seats: ${seatCache.size}, locations: ${locCache.size}, tables: ${cTable}`,
+    );
   } finally {
-    await mongoose.disconnect();
-    console.log('🔌 Desconectado de MongoDB');
+    await (await NestFactory.createApplicationContext(CoreModule)).close();
   }
 }
 
 if (require.main === module) {
-  importElectoralDataDirect()
-    .then(() => {
-      console.log('🏁 Proceso terminado exitosamente');
-      process.exit(0);
-    })
-    .catch((error) => {
-      console.error('💥 Error en el proceso:', error);
-      process.exit(1);
-    });
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

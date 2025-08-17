@@ -141,4 +141,39 @@ export class DepartmentService {
   async deactivate(id: string): Promise<Department> {
     return this.update(id, { active: false });
   }
+
+  async ensureByName(name: string): Promise<Department> {
+    const n = name.trim().replace(/\s+/g, ' ');
+    const found = await this.departmentModel.findOne({ name: n }).exec();
+    if (found) return found;
+    try {
+      return await this.departmentModel.create({ name: n, active: true });
+    } catch (e) {
+      const again = await this.departmentModel.findOne({ name: n }).exec();
+      if (again) return again;
+      throw e;
+    }
+  }
+
+  async bulkEnsure(names: string[]): Promise<Map<string, Department>> {
+    const trimmed = [
+      ...new Set(names.map((s) => s.trim().replace(/\s+/g, ' '))),
+    ];
+    const ops = trimmed.map((name) => ({
+      updateOne: {
+        filter: { name },
+        update: { $setOnInsert: { name, active: true } },
+        upsert: true,
+      },
+    }));
+    if (ops.length)
+      await this.departmentModel.bulkWrite(ops, { ordered: false });
+
+    const docs = await this.departmentModel
+      .find({ name: { $in: trimmed } })
+      .exec();
+    const map = new Map<string, Department>();
+    for (const d of docs) map.set(d.name, d);
+    return map;
+  }
 }

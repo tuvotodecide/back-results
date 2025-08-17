@@ -29,8 +29,6 @@ export class DepartmentController {
   constructor(private readonly departmentService: DepartmentService) {}
 
   @Post()
-  // @UseGuards(JwtAuthGuard)
-  // @ApiBearerAuth()
   @ApiOperation({ summary: 'Crear un nuevo departamento' })
   @ApiResponse({ status: 201, description: 'Departamento creado exitosamente' })
   @ApiResponse({ status: 409, description: 'El departamento ya existe' })
