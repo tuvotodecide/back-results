@@ -38,6 +38,9 @@ export class VoteSummaryDto {
 
   @ApiProperty({ example: 500, required: false })
   tablesProcessed?: number;
+
+  @ApiProperty({ example: 1000, required: false })
+  totalTables?: number;
 }
 
 export class QuickCountResponseDto {

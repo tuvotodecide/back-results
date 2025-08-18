@@ -227,19 +227,23 @@ export class ResultsService {
       { $sort: { totalVotes: -1 } },
     ]);
 
-    // Calcular totales usando el path correcto
-    const summary = await this.ballotModel.aggregate([
-      ...base,
-      {
-        $group: {
-          _id: null,
-          validVotes: { $sum: `$${votesPath}.validVotes` },
-          nullVotes: { $sum: `$${votesPath}.nullVotes` },
-          blankVotes: { $sum: `$${votesPath}.blankVotes` },
-          totalTables: { $addToSet: '$_id' },
+    const [summary, totalTables] = await Promise.all([
+      // Calcular totales usando el path correcto
+      this.ballotModel.aggregate([
+        ...base,
+        {
+          $group: {
+            _id: null,
+            validVotes: { $sum: `$${votesPath}.validVotes` },
+            nullVotes: { $sum: `$${votesPath}.nullVotes` },
+            blankVotes: { $sum: `$${votesPath}.blankVotes` },
+            totalTables: { $addToSet: '$_id' },
+          },
         },
-      },
-    ]);
+      ]),
+      //Calcular total de mesas
+      this.electoralTableModel.countDocuments()
+    ])
 
     const grandTotal = summary[0]
       ? summary[0].validVotes + summary[0].nullVotes + summary[0].blankVotes
@@ -264,6 +268,7 @@ export class ResultsService {
         blankVotes: summary[0]?.blankVotes || 0,
         totalVotes: grandTotal,
         tablesProcessed: summary[0]?.totalTables.length || 0,
+        totalTables,
       },
       lastUpdate: new Date(),
     };
