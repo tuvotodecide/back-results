@@ -138,6 +138,31 @@ export class ElectoralTableService {
     };
   }
 
+  async findWithRecords() {
+    const tables = await this.electoralTableModel.aggregate([
+      {
+        $lookup: {
+          from: 'ballots',
+          localField: 'tableCode',
+          foreignField: 'tableCode',
+          as: 'ballots'
+        }
+      },{
+        $match: {
+          $expr: { $gt: [{ $size: "$ballots" }, 0] }
+        }
+      }
+    ]);
+
+    return {
+      data: tables.map(table => ({
+        ...table,
+        ballots: table.ballots.length
+      })),
+      count: tables.length,
+    };
+  }
+
   async findOne(id: string | Types.ObjectId): Promise<ElectoralTable> {
     const table = await this.electoralTableModel
       .findById(id)

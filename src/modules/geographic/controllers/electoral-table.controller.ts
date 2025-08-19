@@ -56,6 +56,16 @@ export class ElectoralTableController {
     return this.electoralTableService.findAll(query);
   }
 
+  @Get('attested-only')
+  @ApiOperation({ summary: 'Listar las mesas con actas' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de mesas obtenida exitosamente',
+  })
+  findWithRecords() {
+    return this.electoralTableService.findWithRecords();
+  }
+
   @Get('statistics')
   @ApiOperation({ summary: 'Obtener estadísticas de mesas electorales' })
   @ApiResponse({
