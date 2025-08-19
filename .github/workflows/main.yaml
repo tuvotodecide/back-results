@@ -143,6 +143,7 @@ jobs:
 
           cat > remote_cmds.txt <<'EOF'
           set -euo pipefail
+          docker system prune -a -f --volumes
           aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
           docker pull --quiet ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
           docker stop ${CONTAINER_NAME} || true
