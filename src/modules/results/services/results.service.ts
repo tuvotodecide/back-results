@@ -41,6 +41,72 @@ export class ResultsService {
     return match;
   }
 
+  private buildLocationTableQuery(filters?: LocationFilterDto) {
+    const match: any = {};
+    const query: any[] = [
+      {
+        $lookup: {
+          from: 'electoral_locations',
+          localField: 'electoralLocationId',
+          foreignField: '_id',
+          as: 'location'
+        }
+      },{
+        $unwind: '$location'
+      },{
+        $lookup: {
+          from: 'electoral_seats',
+          localField: 'location.electoralSeatId',
+          foreignField: '_id',
+          as: 'seat'
+        }
+      },{
+        $unwind: '$seat'
+      },{
+        $lookup: {
+          from: 'municipalities',
+          localField: 'seat.municipalityId',
+          foreignField: '_id',
+          as: 'municipality'
+        }
+      },{
+        $unwind: '$municipality'
+      },{
+        $lookup: {
+          from: 'provinces',
+          localField: 'municipality.provinceId',
+          foreignField: '_id',
+          as: 'province'
+        }
+      },{
+        $unwind: '$province'
+      },{
+        $lookup: {
+          from: 'departments',
+          localField: 'province.departmentId',
+          foreignField: '_id',
+          as: 'department'
+        }
+      },{
+        $unwind: '$department'
+      },{
+        $match: match
+      }
+    ];
+    if (!filters) return query;
+    if (filters.department) match['department.name'] = filters.department;
+    if (filters.province) match['province.name'] = filters.province;
+    if (filters.municipality)
+      match['municipality.name'] = filters.municipality;
+    if (filters.electoralSeat)
+      match['seat.name'] = filters.electoralSeat;
+    if (filters.electoralLocation)
+      match['location.name'] = filters.electoralLocation;
+    if (filters.tableCode) match['tableCode'] = filters.tableCode;
+
+    return query;
+  }
+
   /**
    * Devuelve un pipeline que filtra:
    * ballots processed/synced
@@ -199,6 +265,7 @@ export class ResultsService {
     // TODO: Verificar cache
 
     const base = this.attestedEffectiveBallotsPipeline(filters);
+    const tableQuery = this.buildLocationTableQuery(filters);
 
     // Determinar qué campo de votos usar según el tipo de elección
     const votesPath =
@@ -227,19 +294,23 @@ export class ResultsService {
       { $sort: { totalVotes: -1 } },
     ]);
 
-    // Calcular totales usando el path correcto
-    const summary = await this.ballotModel.aggregate([
-      ...base,
-      {
-        $group: {
-          _id: null,
-          validVotes: { $sum: `$${votesPath}.validVotes` },
-          nullVotes: { $sum: `$${votesPath}.nullVotes` },
-          blankVotes: { $sum: `$${votesPath}.blankVotes` },
-          totalTables: { $addToSet: '$_id' },
+    const [summary, totalTables] = await Promise.all([
+      // Calcular totales usando el path correcto
+      this.ballotModel.aggregate([
+        ...base,
+        {
+          $group: {
+            _id: null,
+            validVotes: { $sum: `$${votesPath}.validVotes` },
+            nullVotes: { $sum: `$${votesPath}.nullVotes` },
+            blankVotes: { $sum: `$${votesPath}.blankVotes` },
+            totalTables: { $addToSet: '$_id' },
+          },
         },
-      },
-    ]);
+      ]),
+      //Calcular total de mesas
+      this.electoralTableModel.aggregate(tableQuery)
+    ])
 
     const grandTotal = summary[0]
       ? summary[0].validVotes + summary[0].nullVotes + summary[0].blankVotes
@@ -264,6 +335,7 @@ export class ResultsService {
         blankVotes: summary[0]?.blankVotes || 0,
         totalVotes: grandTotal,
         tablesProcessed: summary[0]?.totalTables.length || 0,
+        totalTables: totalTables.length,
       },
       lastUpdate: new Date(),
     };
