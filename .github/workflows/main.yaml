@@ -157,7 +157,7 @@ jobs:
           docker inspect --format="Name={{.Name}} Image={{.Config.Image}} Cmd={{.Config.Cmd}} Entrypoint={{.Config.Entrypoint}}" ${CONTAINER_NAME} || true
           docker image inspect ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} --format 'RepoDigests: {{json .RepoDigests}} Cmd: {{json .Config.Cmd}} Entrypoint: {{json .Config.Entrypoint}}' || true
           shred -u .env || rm -f .env
-          docker image prune -f
+          docker system prune -a -f --volumes
           EOF
 
           sed -i "s|\${AWS_REGION}|${{ env.AWS_REGION }}|g" remote_cmds.txt

@@ -1,400 +1,306 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/*
+  Nest-integrated importer for missing_415_tables.json → MongoDB/AWS DocumentDB
+  - Reuses your Nest connection (CoreModule → DatabaseModule → MongooseModule.forRootAsync)
+  - DocumentDB-safe upserts (updateOne + findOne)
+  - Avoids duplicate field paths across $setOnInsert and $set (error code 40)
+  - Idempotent, key-driven upserts aligned to your unique indexes
 
+  Run:
+    ts-node -r tsconfig-paths/register src/scripts/import-electoral-data.nest.ts --file ./final_data_replaced.json
+*/
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import 'reflect-metadata';
-import * as fs from 'fs/promises';
+import * as fs from 'fs';
 import * as path from 'path';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module';
-import { Types } from 'mongoose';
+import { CoreModule } from '../core/core.module';
+import { getConnectionToken } from '@nestjs/mongoose';
+import type { Connection } from 'mongoose';
+import type { Db, Collection, Document, ObjectId } from 'mongodb';
 
-import { DepartmentService } from '../modules/geographic/services/department.service';
-import { ProvinceService } from '../modules/geographic/services/province.service';
-import { MunicipalityService } from '../modules/geographic/services/municipality.service';
-import { ElectoralSeatService } from '../modules/geographic/services/electoral-seat.service';
-import { ElectoralLocationService } from '../modules/geographic/services/electoral-location.service';
-import { ElectoralTableService } from '../modules/geographic/services/electoral-table.service';
-
-// ---------- Tipos de entrada ----------
-type MesaInput = {
+// ===== Input types =====
+type Mesa = {
   codigo_mesa: string;
-  num_mesa: number;
-  habilitados: number;
-  inhabilitados: number;
+  num_mesa: number | string;
+  habilitados?: number | string;
+  inhabilitados?: number | string;
 };
 
-type RowInput = {
-  FID: string;
+type InputRow = {
+  FID?: string;
   NomDep: string;
   NomProv: string;
   NombreMuni: string;
-  IdLoc: string;
-  AsientoEle: string;
-  Reci: string;
-  NombreReci: string;
-  NomDist: string;
-  NomZona: string;
-  Direccion: string;
-  NroCircun: string;
-  TipoCircun: string;
-  NomCircun: string;
-  latitud: string;
-  longitud: string;
-  x: string;
-  y: string;
-  mesas: MesaInput[];
+  IdLoc: string; // seat code
+  AsientoEle: string; // seat name
+  Reci: string; // location code
+  NombreReci: string; // location name
+  NomDist?: string; // district
+  NomZona?: string; // zone
+  Direccion?: string; // address
+  NroCircun?: string | number; // circ. number
+  TipoCircun?: 'Especial' | 'Uninominal' | string;
+  NomCircun?: string; // circ. name (often blank)
+  latitud?: string | number;
+  longitud?: string | number;
+  x?: string | number;
+  y?: string | number;
+  mesas?: Mesa[];
 };
 
-// ---------- Tipos para servicios ----------
-type RecintoUpsert = {
-  code: string;
-  name: string;
-  district?: string;
-  zone?: string;
-  address?: string;
-  latitude?: number;
-  longitude?: number;
-  circNumber?: string;
-  circType?: string;
-  circName?: string;
+// ===== Helpers =====
+const now = () => new Date();
+const norm = (s?: unknown) => (s ?? '').toString().trim().replace(/\s+/g, ' ');
+const toInt = (v: unknown, d = 0) => {
+  const n =
+    typeof v === 'string'
+      ? parseInt(v, 10)
+      : typeof v === 'number'
+        ? Math.trunc(v)
+        : NaN;
+  return Number.isFinite(n) ? n : d;
+};
+const toFloat = (v: unknown, d = 0) => {
+  const n =
+    typeof v === 'string' ? parseFloat(v) : typeof v === 'number' ? v : NaN;
+  return Number.isFinite(n) ? n : d;
 };
 
-type MesaUpsert = {
-  code: string;
-  number: number;
-  habilitados: number;
-  inhabilitados: number;
-};
+// ===== Caches =====
+const depCache = new Map<string, ObjectId>();
+const provCache = new Map<string, ObjectId>(); // key: depId|name
+const muniCache = new Map<string, ObjectId>(); // key: provId|name
+const seatCache = new Map<string, ObjectId>(); // key: muniId|idLoc
+const locCache = new Map<string, ObjectId>(); // key: seatId|Reci
 
-// ---------- Utilidades ----------
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const out: Record<string, string | boolean> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === '--dry-run') out['dryRun'] = true;
-    else if (a === '--file') {
-      out['file'] = args[i + 1];
-      i++;
-    }
+// ===== Collections =====
+let Departments!: Collection<Document>;
+let Provinces!: Collection<Document>;
+let Municipalities!: Collection<Document>;
+let Seats!: Collection<Document>;
+let Locations!: Collection<Document>;
+let Tables!: Collection<Document>;
+
+// ===== DocumentDB-safe upsert helper =====
+async function upsertGetId(
+  coll: Collection<Document>,
+  filter: Record<string, unknown>,
+  setOnInsert: Record<string, unknown>,
+  set: Record<string, unknown>,
+): Promise<ObjectId> {
+  // Ensure no duplicate field paths across operators (DocumentDB code 40)
+  for (const k of Object.keys(setOnInsert)) {
+    if (k in set) delete (setOnInsert as any)[k];
   }
-  if (!out['file']) {
-    console.error('❌ Debes pasar --file <ruta.json>');
-    process.exit(1);
-  }
-  return { file: String(out['file']), dryRun: Boolean(out['dryRun']) };
+  await coll.updateOne(
+    filter,
+    { $setOnInsert: setOnInsert, $set: set },
+    { upsert: true },
+  );
+  const doc = await coll.findOne(filter, { projection: { _id: 1 } });
+  if (!doc || !doc._id)
+    throw new Error(`Upsert/readback failed for ${coll.collectionName}`);
+  return doc._id as ObjectId;
 }
 
-const normName = (s: string) => (s || '').trim().replace(/\s+/g, ' ');
-const normCode = (s: string | number) => String(s ?? '').trim();
-const toNum = (v: unknown): number | undefined => {
-  const n =
-    typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(',', '.'));
-  return Number.isFinite(n) ? n : undefined;
-};
+// ===== Upserts =====
+async function upsertDepartment(nameRaw: string) {
+  const name = norm(nameRaw);
+  if (!name) throw new Error('Department name missing');
+  const cached = depCache.get(name);
+  if (cached) return cached;
+  const id = await upsertGetId(
+    Departments,
+    { name },
+    { name, active: true, createdAt: now() },
+    { updatedAt: now() },
+  );
+  depCache.set(name, id);
+  return id;
+}
 
-// ---------- Script principal ----------
+async function upsertProvince(depId: ObjectId, nameRaw: string) {
+  const name = norm(nameRaw);
+  const key = `${String(depId)}|${name}`;
+  const cached = provCache.get(key);
+  if (cached) return cached;
+  const id = await upsertGetId(
+    Provinces,
+    { departmentId: depId, name },
+    { departmentId: depId, name, active: true, createdAt: now() },
+    { updatedAt: now() },
+  );
+  provCache.set(key, id);
+  return id;
+}
+
+async function upsertMunicipality(provId: ObjectId, nameRaw: string) {
+  const name = norm(nameRaw);
+  const key = `${String(provId)}|${name}`;
+  const cached = muniCache.get(key);
+  if (cached) return cached;
+  const id = await upsertGetId(
+    Municipalities,
+    { provinceId: provId, name },
+    { provinceId: provId, name, active: true, createdAt: now() },
+    { updatedAt: now() },
+  );
+  muniCache.set(key, id);
+  return id;
+}
+
+async function upsertSeat(
+  muniId: ObjectId,
+  idLocRaw: string,
+  seatNameRaw: string,
+) {
+  const idLoc = norm(idLocRaw);
+  if (!idLoc) throw new Error('ElectoralSeat.idLoc missing');
+  const name = norm(seatNameRaw);
+  const key = `${String(muniId)}|${idLoc}`;
+  const cached = seatCache.get(key);
+  if (cached) return cached;
+  const id = await upsertGetId(
+    Seats,
+    { municipalityId: muniId, idLoc },
+    { municipalityId: muniId, idLoc, active: true, createdAt: now() }, // NO 'name' here to avoid duplicate path
+    { name, updatedAt: now() },
+  );
+  seatCache.set(key, id);
+  return id;
+}
+
+function buildCircunscripcion(row: InputRow) {
+  const number = toInt(row.NroCircun, 0);
+  const type =
+    (norm(row.TipoCircun) as 'Especial' | 'Uninominal') || 'Uninominal';
+  const name = norm(row.NomCircun) || `${type} ${number || ''}`.trim();
+  return { number, type, name };
+}
+
+function buildGeo(row: InputRow) {
+  const lat = toFloat(row.latitud, 0);
+  const lon = toFloat(row.longitud, 0);
+  return {
+    coordinates: { latitude: lat, longitude: lon },
+    geo: { type: 'Point', coordinates: [lon, lat] as [number, number] },
+  };
+}
+
+async function upsertLocation(seatId: ObjectId, row: InputRow) {
+  const code = norm(row.Reci);
+  const name = norm(row.NombreReci);
+  const fid = norm(row.FID || '');
+  const district = norm(row.NomDist || '');
+  const zone = norm(row.NomZona || '');
+  const address = norm(row.Direccion || '');
+  const circunscripcion = buildCircunscripcion(row);
+  const { coordinates, geo } = buildGeo(row);
+
+  const key = `${String(seatId)}|${code}`;
+  const cached = locCache.get(key);
+  if (cached) return cached;
+
+  const id = await upsertGetId(
+    Locations,
+    { electoralSeatId: seatId, code },
+    { electoralSeatId: seatId, code, active: true, createdAt: now() },
+    {
+      name,
+      fid: fid || undefined,
+      district: district || undefined,
+      zone: zone || undefined,
+      address: address || undefined,
+      circunscripcion,
+      coordinates,
+      geo,
+      updatedAt: now(),
+    },
+  );
+  locCache.set(key, id);
+  return id;
+}
+
+async function upsertTable(locId: ObjectId, m: Mesa) {
+  const tableCode = norm(m.codigo_mesa);
+  const tableNumber = String(m.num_mesa);
+  const enabledVoters = toInt(m.habilitados, 0);
+  const disabledVoters = toInt(m.inhabilitados, 0);
+
+  await Tables.updateOne(
+    { tableCode }, // unique by code
+    {
+      $setOnInsert: {
+        active: true,
+        createdAt: now(),
+      },
+      $set: {
+        electoralLocationId: locId,
+        tableCode,
+        tableNumber,
+        enabledVoters,
+        disabledVoters,
+        updatedAt: now(),
+      },
+    },
+    { upsert: true },
+  );
+}
+
+// ===== Main (Nest connection reuse) =====
 async function main() {
-  const { file, dryRun } = parseArgs();
-  const abs = path.resolve(process.cwd(), file);
-  const raw = await fs.readFile(abs, 'utf8');
-  const rows: RowInput[] = JSON.parse(raw);
-
-  // ---- 1) Agregar y agrupar datos desde el JSON (para lotes) ----
-  const depNames = new Set<string>();
-  const provsByDep = new Map<string, Set<string>>();
-  const munisByDepProv = new Map<string, Set<string>>(); // key: dep|prov -> set muni
-  const seatsByMuniKey = new Map<string, Set<string>>(); // key: dep|prov|muni -> set seat
-  const recintosBySeatKey = new Map<string, Map<string, RecintoUpsert>>(); // key: dep|prov|muni|seat -> code -> payload
-  const mesasByPrecinctKey = new Map<string, MesaUpsert[]>(); // key: dep|prov|muni|seat|code
-
-  const SEP = '¦'; // separador poco común para llaves compuestas
-
-  for (const r of rows) {
-    const dep = normName(r.NomDep);
-    if (!dep) continue;
-    const prov = normName(r.NomProv);
-    const muni = normName(r.NombreMuni);
-    const seat = normName(r.AsientoEle);
-    const reciCode = normCode(r.Reci);
-    const reciName = normName(r.NombreReci);
-
-    depNames.add(dep);
-    if (prov) {
-      if (!provsByDep.has(dep)) provsByDep.set(dep, new Set());
-      provsByDep.get(dep)!.add(prov);
-    }
-
-    if (prov && muni) {
-      const keyDepProv = `${dep}${SEP}${prov}`;
-      if (!munisByDepProv.has(keyDepProv))
-        munisByDepProv.set(keyDepProv, new Set());
-      munisByDepProv.get(keyDepProv)!.add(muni);
-    }
-
-    if (prov && muni && seat) {
-      const keyMuni = `${dep}${SEP}${prov}${SEP}${muni}`;
-      if (!seatsByMuniKey.has(keyMuni)) seatsByMuniKey.set(keyMuni, new Set());
-      seatsByMuniKey.get(keyMuni)!.add(seat);
-
-      // Recintos por asiento
-      const keySeat = `${keyMuni}${SEP}${seat}`;
-      if (!recintosBySeatKey.has(keySeat))
-        recintosBySeatKey.set(keySeat, new Map());
-
-      if (reciCode) {
-        const payload: RecintoUpsert = {
-          code: reciCode,
-          name: reciName,
-          district: normName(r.NomDist),
-          zone: normName(r.NomZona),
-          address: normName(r.Direccion),
-          latitude: toNum(r.latitud),
-          longitude: toNum(r.longitud),
-          circNumber: normCode(r.NroCircun),
-          circType: normName(r.TipoCircun),
-          circName: normName(r.NomCircun),
-        };
-        // deduplicación por code: mantener el más “completo”
-        const current = recintosBySeatKey.get(keySeat)!.get(reciCode);
-        if (!current) {
-          recintosBySeatKey.get(keySeat)!.set(reciCode, payload);
-        } else {
-          // merge simple: preferir campos nuevos no vacíos
-          recintosBySeatKey.get(keySeat)!.set(reciCode, {
-            ...current,
-            ...Object.fromEntries(
-              Object.entries(payload).filter(
-                ([_, v]) =>
-                  v !== undefined && v !== null && String(v).trim() !== '',
-              ),
-            ),
-          });
-        }
-
-        // Mesas por recinto
-        if (Array.isArray(r.mesas)) {
-          const pKey = `${keySeat}${SEP}${reciCode}`;
-          if (!mesasByPrecinctKey.has(pKey)) mesasByPrecinctKey.set(pKey, []);
-          for (const m of r.mesas) {
-            const mesa: MesaUpsert = {
-              code: normCode(m.codigo_mesa),
-              number: toNum(m.num_mesa) ?? 0,
-              habilitados: toNum(m.habilitados) ?? 0,
-              inhabilitados: toNum(m.inhabilitados) ?? 0,
-            };
-            if (!mesa.code && mesa.number <= 0) {
-              console.warn(`⚠️ Mesa omitida por datos inválidos en ${pKey}`);
-              continue;
-            }
-            mesasByPrecinctKey.get(pKey)!.push(mesa);
-          }
-        }
-      } else {
-        console.warn(
-          `⚠️ Recinto SIN código (Reci) en: ${dep} / ${prov} / ${muni} / ${seat} -> "${reciName}". Se omitirá.`,
-        );
-      }
-    }
-  }
-
-  // Stats preliminares
-  const totalProvU = [...provsByDep.values()].reduce((a, s) => a + s.size, 0);
-  const totalMuniU = [...munisByDepProv.values()].reduce(
-    (a, s) => a + s.size,
-    0,
-  );
-  const totalSeatU = [...seatsByMuniKey.values()].reduce(
-    (a, s) => a + s.size,
-    0,
-  );
-  const totalRecintosU = [...recintosBySeatKey.values()].reduce(
-    (a, m) => a + m.size,
-    0,
-  );
-  const totalMesasU = [...mesasByPrecinctKey.values()].reduce(
-    (a, arr) => a + arr.length,
-    0,
-  );
-
-  console.log(`🧭 Departamentos únicos: ${depNames.size}`);
-  console.log(`🧭 Provincias únicas:    ${totalProvU}`);
-  console.log(`🧭 Municipios únicos:    ${totalMuniU}`);
-  console.log(`🧭 Asientos únicos:      ${totalSeatU}`);
-  console.log(`🧭 Recintos únicos:      ${totalRecintosU}`);
-  console.log(`🧭 Mesas totales:        ${totalMesasU}`);
-
-  // ---- 2) Levantar Nest y usar tus servicios ----
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: ['log', 'error', 'warn'],
+  const app = await NestFactory.createApplicationContext(CoreModule, {
+    logger: ['error', 'warn', 'log'],
   });
-
   try {
-    const departmentService = app.get(DepartmentService);
-    const provinceService = app.get(ProvinceService);
-    const municipalityService = app.get(MunicipalityService);
-    const seatService = app.get(ElectoralSeatService);
-    const locationService = app.get(ElectoralLocationService);
-    const tableService = app.get(ElectoralTableService);
+    const conn = app.get<Connection>(getConnectionToken());
+    const db: Db = (conn as any).db!; // ensured by Mongoose once connected
 
-    // ---- 3) Departments ----
-    let depMap: Map<string, any>;
-    if (dryRun) {
-      console.log('🔎 [DRY-RUN] bulkEnsure Departments…');
-      depMap = new Map(
-        [...depNames].map((name) => [
-          name,
-          { _id: new Types.ObjectId(), name },
-        ]),
-      );
-    } else {
-      depMap = await departmentService.bulkEnsure([...depNames]);
+    // Bind collections from the same Nest/Mongoose connection
+    Departments = db.collection('departments');
+    Provinces = db.collection('provinces');
+    Municipalities = db.collection('municipalities');
+    Seats = db.collection('electoral_seats');
+    Locations = db.collection('electoral_locations');
+    Tables = db.collection('electoral_tables');
+
+    // Resolve input file (supports --file=... or --file ...)
+    let dataFile = path.join(process.cwd(), 'missing_415_tables.json');
+    for (let i = 0; i < process.argv.length; i++) {
+      const a = process.argv[i];
+      if (a.startsWith('--file=')) dataFile = a.split('=')[1];
+      if (a === '--file' && process.argv[i + 1]) dataFile = process.argv[i + 1];
     }
 
-    // ---- 4) Provinces (por depto) ----
-    const provMapByDep = new Map<string, Map<string, any>>(); // depName -> (provName -> doc)
-    for (const [depName, setOfProv] of provsByDep.entries()) {
-      const depDoc = depMap.get(depName);
-      if (!depDoc?._id) {
-        console.warn(`⚠️ Department no resuelto: ${depName}`);
-        continue;
-      }
-      const names = [...setOfProv];
+    const raw = fs.readFileSync(dataFile, 'utf8');
+    const rows = JSON.parse(raw) as InputRow[];
 
-      const map = dryRun
-        ? new Map(
-            names.map((n) => [
-              n,
-              { _id: new Types.ObjectId(), name: n, departmentId: depDoc._id },
-            ]),
-          )
-        : await provinceService.bulkEnsureByDept(depDoc._id, names); // (name -> doc)
+    let upsertedTables = 0;
 
-      provMapByDep.set(depName, map);
-    }
+    for (const row of rows) {
+      const depId = await upsertDepartment(row.NomDep);
+      const provId = await upsertProvince(depId, row.NomProv);
+      const muniId = await upsertMunicipality(provId, row.NombreMuni);
+      const seatId = await upsertSeat(muniId, row.IdLoc, row.AsientoEle);
+      const locId = await upsertLocation(seatId, row);
 
-    // ---- 5) Municipalities (por provincia) ----
-    const muniMapByDepProv = new Map<string, Map<string, any>>(); // key dep|prov -> (muniName -> doc)
-    for (const [keyDepProv, muniSet] of munisByDepProv.entries()) {
-      const [depName, provName] = keyDepProv.split(SEP);
-      const provDoc = provMapByDep.get(depName)?.get(provName);
-      if (!provDoc?._id) {
-        console.warn(`⚠️ Provincia no resuelta: ${depName} / ${provName}`);
-        continue;
-      }
-      const names = [...muniSet];
-
-      const map = dryRun
-        ? new Map(
-            names.map((n) => [
-              n,
-              { _id: new Types.ObjectId(), name: n, provinceId: provDoc._id },
-            ]),
-          )
-        : await municipalityService.bulkEnsureByProvince(provDoc._id, names);
-
-      muniMapByDepProv.set(keyDepProv, map);
-    }
-
-    // ---- 6) Seats (por municipio) ----
-    const seatMapByMuniKey = new Map<string, Map<string, any>>(); // key dep|prov|muni -> (seatName -> doc)
-    for (const [keyMuni, seatSet] of seatsByMuniKey.entries()) {
-      const [depName, provName, muniName] = keyMuni.split(SEP);
-      const muniDoc = muniMapByDepProv
-        .get(`${depName}${SEP}${provName}`)
-        ?.get(muniName);
-      if (!muniDoc?._id) {
-        console.warn(
-          `⚠️ Municipio no resuelto: ${depName} / ${provName} / ${muniName}`,
-        );
-        continue;
-      }
-      const names = [...seatSet];
-
-      const map = dryRun
-        ? new Map(
-            names.map((n) => [
-              n,
-              {
-                _id: new Types.ObjectId(),
-                name: n,
-                municipalityId: muniDoc._id,
-              },
-            ]),
-          )
-        : await seatService.bulkEnsureByMunicipality(muniDoc._id, names);
-
-      seatMapByMuniKey.set(keyMuni, map);
-    }
-
-    // ---- 7) Locations (recintos) por seat + Mesas por recinto ----
-    let totalRecintos = 0;
-    let totalMesas = 0;
-
-    for (const [keySeat, recintosMap] of recintosBySeatKey.entries()) {
-      const [depName, provName, muniName, seatName] = keySeat.split(SEP);
-      const seatDoc = seatMapByMuniKey
-        .get(`${depName}${SEP}${provName}${SEP}${muniName}`)
-        ?.get(seatName);
-      if (!seatDoc?._id) {
-        console.warn(
-          `⚠️ Asiento no resuelto: ${depName} / ${provName} / ${muniName} / ${seatName}`,
-        );
-        continue;
-      }
-
-      const recintosArr = [...recintosMap.values()];
-      totalRecintos += recintosArr.length;
-
-      // Upsert de recintos por asiento
-      const locMapByCode = dryRun
-        ? new Map(
-            recintosArr.map((r) => [
-              r.code,
-              { _id: new Types.ObjectId(), code: r.code, seatId: seatDoc._id },
-            ]),
-          )
-        : await locationService.bulkUpsertBySeat(seatDoc._id, recintosArr); // (code -> doc)
-
-      // Para cada recinto, insertar/bulk las mesas
-      for (const [code, locDoc] of locMapByCode.entries()) {
-        const pKey = `${keySeat}${SEP}${code}`;
-        const mesas = mesasByPrecinctKey.get(pKey) ?? [];
-        if (!mesas.length) continue;
-
-        totalMesas += mesas.length;
-
-        if (dryRun) {
-          console.log(
-            `🔎 [DRY-RUN] Mesas (${mesas.length}) -> Recinto ${code} (${depName}/${provName}/${muniName}/${seatName})`,
-          );
-        } else {
-          await tableService.bulkUpsertByPrecinct(locDoc._id, mesas);
-        }
+      for (const m of row.mesas || []) {
+        await upsertTable(locId, m);
+        upsertedTables++;
       }
     }
 
-    // ---- Resumen ----
-    console.log(
-      `\n✅ ${dryRun ? 'Simulación completada' : 'Migración completada'}.`,
-    );
-    console.log(`   Departamentos: ${depNames.size}`);
-    console.log(`   Provincias:    ${totalProvU}`);
-    console.log(`   Municipios:    ${totalMuniU}`);
-    console.log(`   Asientos:      ${totalSeatU}`);
-    console.log(`   Recintos:      ${totalRecintos}`);
-    console.log(`   Mesas:         ${totalMesas}`);
-  } catch (err) {
-    console.error('❌ Error en la migración:', err);
-    process.exitCode = 1;
+    console.log(`\n✅ Import terminado. Tables upserted: ${upsertedTables}`);
   } finally {
     await app.close();
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('❌ Import error:', err);
+    process.exit(1);
+  });
+}
