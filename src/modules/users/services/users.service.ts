@@ -56,7 +56,6 @@ export class UsersService {
     let locationId: Types.ObjectId | null | undefined = undefined;
     let tableId: Types.ObjectId | null | undefined = undefined;
 
-    // 1) Resolver locationId si viene
     if (dto.locationId) {
       const locId = new Types.ObjectId(dto.locationId);
       const exists = await this.electoralLocationModel.exists({ _id: locId });
@@ -64,7 +63,6 @@ export class UsersService {
       locationId = locId;
     }
 
-    // 2) Resolver tableId si viene tableId o tableCode
     if (dto.tableId || dto.tableCode) {
       const table = await (dto.tableId
         ? this.electoralTableModel.findById(dto.tableId).lean()
@@ -74,9 +72,7 @@ export class UsersService {
 
       if (!table) throw new NotFoundException('Mesa no encontrada');
 
-      // Si te interesa validar que coincida con locationId cuando ambos vienen:
       if (locationId) {
-        // muchos esquemas guardan reference como "locationId"
         const tLoc: any =
           (table as any).locationId || (table as any).electoralLocationId;
         if (tLoc && !new Types.ObjectId(tLoc).equals(locationId)) {
@@ -88,7 +84,6 @@ export class UsersService {
 
       tableId = table._id as Types.ObjectId;
 
-      // Si no vino locationId, intenta inferirlo de la mesa
       if (!locationId) {
         const inferredLoc: any =
           (table as any).locationId || (table as any).electoralLocationId;
@@ -96,7 +91,6 @@ export class UsersService {
       }
     }
 
-    // Si viene locationId pero NO viene mesa, y el usuario tenía una mesa de otro recinto, la limpiamos
     if (typeof locationId !== 'undefined' && !tableId && user.votingTableId) {
       try {
         const prev = await this.electoralTableModel
@@ -116,7 +110,6 @@ export class UsersService {
 
     await this.userModel.updateOne({ _id: user._id }, { $set: update });
 
-    // Responder con detalles poblados
     const fresh = await this.userModel
       .findById(user._id)
       .populate('votingLocationId', 'name address code')
