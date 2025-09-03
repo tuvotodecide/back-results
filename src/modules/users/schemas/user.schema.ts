@@ -13,9 +13,17 @@ export class User {
 
   createdAt: Date;
   updatedAt: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'ElectoralLocation', default: null })
+  votingLocationId?: Types.ObjectId | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'ElectoralTable', default: null })
+  votingTableId?: Types.ObjectId | null;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
 
 UserSchema.index({ dni: 1 }, { unique: true });
 UserSchema.index({ active: 1 });
+UserSchema.index({ votingLocationId: 1 });
+UserSchema.index({ votingTableId: 1 });
