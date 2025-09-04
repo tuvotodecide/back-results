@@ -329,4 +329,63 @@ export class AttestationController {
       supportBoolean,
     );
   }
+
+  @Get('by-department-id/:departmentId')
+  @ApiOperation({ 
+    summary: 'Obtener ballots atestiguadas por ID de departamento',
+    description: 'Lista todas las ballots que han sido atestiguadas en un departamento específico usando su ID'
+  })
+  @ApiParam({
+    name: 'departmentId',
+    description: 'ID del departamento (ObjectId de MongoDB)',
+    example: '689e477f261b7d0130a036e0'
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Número de página',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Elementos por página',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'support',
+    required: false,
+    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    type: Boolean,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de ballots atestiguadas por departamento obtenida exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'ID de departamento inválido',
+  })
+  async findAttestedBallotsByDepartmentId(
+    @Param('departmentId') departmentId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('support') support?: string,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const supportBoolean =
+      support === 'true' ? true : support === 'false' ? false : undefined;
+
+    return this.attestationService.findAttestedBallotsByDepartmentId(
+      departmentId,
+      Number(page),
+      Number(limit),
+      supportBoolean,
+    );
+  }
 }
