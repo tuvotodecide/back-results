@@ -273,7 +273,7 @@ export class AttestationController {
 
   @Get('by-department/:departmentName')
   @ApiOperation({ 
-    summary: 'Obtener ballots atestiguadas por departamento',
+    summary: 'ballots atestiguadas por departamento (por nombre)',
     description: 'Lista todas las ballots que han sido atestiguadas en un departamento específico'
   })
   @ApiParam({
@@ -332,7 +332,7 @@ export class AttestationController {
 
   @Get('by-department-id/:departmentId')
   @ApiOperation({ 
-    summary: 'Obtener ballots atestiguadas por ID de departamento',
+    summary: 'ballots atestiguadas por ID de departamento (departmentId)',
     description: 'Lista todas las ballots que han sido atestiguadas en un departamento específico usando su ID'
   })
   @ApiParam({
@@ -391,7 +391,7 @@ export class AttestationController {
 
   @Get('by-province-id/:provinceId')
   @ApiOperation({ 
-    summary: 'Obtener ballots atestiguadas por ID de provincia',
+    summary: 'ballots atestiguadas por ID de provincia (provinceId)',
     description: 'Lista todas las ballots que han sido atestiguadas en una provincia específica usando su ID'
   })
   @ApiParam({
@@ -450,7 +450,7 @@ export class AttestationController {
 
   @Get('by-municipality-id/:municipalityId')
   @ApiOperation({ 
-    summary: 'Obtener ballots atestiguadas por ID de municipio',
+    summary: 'ballots atestiguadas por ID de municipio (municipalityId)',
     description: 'Lista todas las ballots que han sido atestiguadas en un municipio específico usando su ID'
   })
   @ApiParam({
