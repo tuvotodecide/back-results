@@ -425,6 +425,458 @@ export class AttestationService {
     };
   }
 
+  async findAttestedBallotsByDepartment(
+    departmentName: string,
+    page = 1,
+    limit = 10,
+    support?: boolean,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const skip = (page - 1) * limit;
+    
+    const matchStage: any = {
+      'location.department': departmentName,
+    };
+
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: 'attestations',
+          localField: '_id',
+          foreignField: 'ballotId',
+          as: 'attestations',
+        },
+      },
+      {
+        $match: {
+          'attestations.0': { $exists: true },
+        },
+      },
+      {
+        $addFields: {
+          supportCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', true] },
+              },
+            },
+          },
+          opposeCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', false] },
+              },
+            },
+          },
+          totalAttestations: { $size: '$attestations' },
+        },
+      },
+    ];
+
+    if (typeof support === 'boolean') {
+      if (support) {
+        pipeline.push({
+          $match: { supportCount: { $gt: 0 } },
+        });
+      } else {
+        pipeline.push({
+          $match: { opposeCount: { $gt: 0 } },
+        });
+      }
+    }
+
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const total = countResult[0]?.total || 0;
+
+    const dataPipeline = [
+      ...pipeline,
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          tableCode: 1,
+          tableNumber: 1,
+          location: 1,
+          version: 1,
+          supportCount: 1,
+          opposeCount: 1,
+          totalAttestations: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    ];
+
+    const data = await this.ballotModel.aggregate(dataPipeline as any).exec();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async findAttestedBallotsByDepartmentId(
+    departmentId: string,
+    page = 1,
+    limit = 10,
+    support?: boolean,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    if (!Types.ObjectId.isValid(departmentId)) {
+      throw new BadRequestException('ID de departamento inválido');
+    }
+
+    const skip = (page - 1) * limit;
+    
+    const pipeline = [
+      {
+        $lookup: {
+          from: 'departments',
+          localField: 'location.department',
+          foreignField: 'name',
+          as: 'departmentInfo',
+        },
+      },
+      {
+        $match: {
+          'departmentInfo._id': new Types.ObjectId(departmentId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'attestations',
+          localField: '_id',
+          foreignField: 'ballotId',
+          as: 'attestations',
+        },
+      },
+      {
+        $match: {
+          'attestations.0': { $exists: true },
+        },
+      },
+      {
+        $addFields: {
+          supportCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', true] },
+              },
+            },
+          },
+          opposeCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', false] },
+              },
+            },
+          },
+          totalAttestations: { $size: '$attestations' },
+        },
+      },
+    ];
+
+    if (typeof support === 'boolean') {
+      if (support) {
+        pipeline.push({
+          $match: { supportCount: { $gt: 0 } } as any,
+        });
+      } else {
+        pipeline.push({
+          $match: { opposeCount: { $gt: 0 } } as any,
+        });
+      }
+    }
+
+    // Get total count
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const total = countResult[0]?.total || 0;
+
+    // Get paginated data
+    const dataPipeline = [
+      ...pipeline,
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          tableCode: 1,
+          tableNumber: 1,
+          location: 1,
+          version: 1,
+          supportCount: 1,
+          opposeCount: 1,
+          totalAttestations: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    ];
+
+    const data = await this.ballotModel.aggregate(dataPipeline as any).exec();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async findAttestedBallotsByProvinceId(
+    provinceId: string,
+    page = 1,
+    limit = 10,
+    support?: boolean,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    if (!Types.ObjectId.isValid(provinceId)) {
+      throw new BadRequestException('ID de provincia inválido');
+    }
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: 'provinces',
+          localField: 'location.province',
+          foreignField: 'name',
+          as: 'provinceInfo',
+        },
+      },
+      {
+        $match: {
+          'provinceInfo._id': new Types.ObjectId(provinceId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'attestations',
+          localField: '_id',
+          foreignField: 'ballotId',
+          as: 'attestations',
+        },
+      },
+      {
+        $match: {
+          'attestations.0': { $exists: true },
+        },
+      },
+      {
+        $addFields: {
+          supportCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', true] },
+              },
+            },
+          },
+          opposeCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', false] },
+              },
+            },
+          },
+          totalAttestations: { $size: '$attestations' },
+        },
+      },
+    ];
+
+    if (typeof support === 'boolean') {
+      if (support) {
+        pipeline.push({
+          $match: { supportCount: { $gt: 0 } } as any,
+        });
+      } else {
+        pipeline.push({
+          $match: { opposeCount: { $gt: 0 } } as any,
+        });
+      }
+    }
+
+    // Get total count
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const total = countResult[0]?.total || 0;
+
+    // Get paginated data
+    const dataPipeline = [
+      ...pipeline,
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          tableNumber: 1,
+          tableCode: 1,
+          location: 1,
+          version: 1,
+          supportCount: 1,
+          opposeCount: 1,
+          totalAttestations: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    ];
+
+    const data = await this.ballotModel.aggregate(dataPipeline as any).exec();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async findAttestedBallotsByMunicipalityId(
+    municipalityId: string,
+    page = 1,
+    limit = 10,
+    support?: boolean,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    if (!Types.ObjectId.isValid(municipalityId)) {
+      throw new BadRequestException('ID de municipio inválido');
+    }
+
+    const pipeline = [
+      {
+        $lookup: {
+          from: 'municipalities',
+          localField: 'location.municipality',
+          foreignField: 'name',
+          as: 'municipalityInfo',
+        },
+      },
+      {
+        $match: {
+          'municipalityInfo._id': new Types.ObjectId(municipalityId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'attestations',
+          localField: '_id',
+          foreignField: 'ballotId',
+          as: 'attestations',
+        },
+      },
+      {
+        $match: {
+          'attestations.0': { $exists: true },
+        },
+      },
+      {
+        $addFields: {
+          supportCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', true] },
+              },
+            },
+          },
+          opposeCount: {
+            $size: {
+              $filter: {
+                input: '$attestations',
+                cond: { $eq: ['$$this.support', false] },
+              },
+            },
+          },
+          totalAttestations: { $size: '$attestations' },
+        },
+      },
+    ];
+
+    if (typeof support === 'boolean') {
+      if (support) {
+        pipeline.push({
+          $match: { supportCount: { $gt: 0 } } as any,
+        });
+      } else {
+        pipeline.push({
+          $match: { opposeCount: { $gt: 0 } } as any,
+        });
+      }
+    }
+
+    // Get total count
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const total = countResult[0]?.total || 0;
+
+    // Get paginated data
+    const dataPipeline = [
+      ...pipeline,
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 1,
+          tableNumber: 1,
+          tableCode: 1,
+          location: 1,
+          version: 1,
+          supportCount: 1,
+          opposeCount: 1,
+          totalAttestations: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    ];
+
+    const data = await this.ballotModel.aggregate(dataPipeline as any).exec();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   private async validateBallotExists(
     ballotId: string | Types.ObjectId,
   ): Promise<void> {

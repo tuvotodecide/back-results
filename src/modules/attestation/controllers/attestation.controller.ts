@@ -270,4 +270,240 @@ export class AttestationController {
       supportBoolean,
     );
   }
+
+  @Get('by-department/:departmentName')
+  @ApiOperation({ 
+    summary: 'ballots atestiguadas por departamento (por nombre)',
+    description: 'Lista todas las ballots que han sido atestiguadas en un departamento específico'
+  })
+  @ApiParam({
+    name: 'departmentName',
+    description: 'Nombre del departamento (ej: La Paz, Santa Cruz, Cochabamba)',
+    example: 'La Paz'
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Número de página',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Elementos por página',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'support',
+    required: false,
+    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    type: Boolean,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de ballots atestiguadas por departamento obtenida exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Parámetros inválidos',
+  })
+  async findAttestedBallotsByDepartment(
+    @Param('departmentName') departmentName: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('support') support?: string,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const supportBoolean =
+      support === 'true' ? true : support === 'false' ? false : undefined;
+
+    return this.attestationService.findAttestedBallotsByDepartment(
+      departmentName,
+      Number(page),
+      Number(limit),
+      supportBoolean,
+    );
+  }
+
+  @Get('by-department-id/:departmentId')
+  @ApiOperation({ 
+    summary: 'ballots atestiguadas por ID de departamento (departmentId)',
+    description: 'Lista todas las ballots que han sido atestiguadas en un departamento específico usando su ID'
+  })
+  @ApiParam({
+    name: 'departmentId',
+    description: 'ID del departamento (ObjectId de MongoDB)',
+    example: '689e477f261b7d0130a036e0'
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Número de página',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Elementos por página',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'support',
+    required: false,
+    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    type: Boolean,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de ballots atestiguadas por departamento obtenida exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'ID de departamento inválido',
+  })
+  async findAttestedBallotsByDepartmentId(
+    @Param('departmentId') departmentId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('support') support?: string,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const supportBoolean =
+      support === 'true' ? true : support === 'false' ? false : undefined;
+
+    return this.attestationService.findAttestedBallotsByDepartmentId(
+      departmentId,
+      Number(page),
+      Number(limit),
+      supportBoolean,
+    );
+  }
+
+  @Get('by-province-id/:provinceId')
+  @ApiOperation({ 
+    summary: 'ballots atestiguadas por ID de provincia (provinceId)',
+    description: 'Lista todas las ballots que han sido atestiguadas en una provincia específica usando su ID'
+  })
+  @ApiParam({
+    name: 'provinceId',
+    description: 'ID de la provincia (ObjectId de MongoDB)',
+    example: '689f468a141448f33dd9c854'
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Número de página',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Elementos por página',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'support',
+    required: false,
+    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    type: Boolean,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de ballots atestiguadas por provincia obtenida exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'ID de provincia inválido',
+  })
+  async findAttestedBallotsByProvinceId(
+    @Param('provinceId') provinceId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('support') support?: string,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const supportBoolean =
+      support === 'true' ? true : support === 'false' ? false : undefined;
+
+    return this.attestationService.findAttestedBallotsByProvinceId(
+      provinceId,
+      Number(page),
+      Number(limit),
+      supportBoolean,
+    );
+  }
+
+  @Get('by-municipality-id/:municipalityId')
+  @ApiOperation({ 
+    summary: 'ballots atestiguadas por ID de municipio (municipalityId)',
+    description: 'Lista todas las ballots que han sido atestiguadas en un municipio específico usando su ID'
+  })
+  @ApiParam({
+    name: 'municipalityId',
+    description: 'ID del municipio (ObjectId de MongoDB)',
+    example: '689f468a141448f33dd9c855'
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    description: 'Número de página',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Elementos por página',
+    example: 10,
+  })
+  @ApiQuery({
+    name: 'support',
+    required: false,
+    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    type: Boolean,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de ballots atestiguadas por municipio obtenida exitosamente',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'ID de municipio inválido',
+  })
+  async findAttestedBallotsByMunicipalityId(
+    @Param('municipalityId') municipalityId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
+    @Query('support') support?: string,
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  }> {
+    const supportBoolean =
+      support === 'true' ? true : support === 'false' ? false : undefined;
+
+    return this.attestationService.findAttestedBallotsByMunicipalityId(
+      municipalityId,
+      Number(page),
+      Number(limit),
+      supportBoolean,
+    );
+  }
 }
