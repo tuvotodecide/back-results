@@ -92,19 +92,6 @@ jobs:
           cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:latest
           cache-to: type=inline
 
-      - name: Prune old untagged images in ECR
-        run: |
-          set -euo pipefail
-          IMAGE_IDS=$(aws ecr list-images \
-            --repository-name "${{ env.ECR_REPO }}" \
-            --filter tagStatus=UNTAGGED \
-            --query 'imageIds[*]' --output json)
-          if [ "$IMAGE_IDS" != "[]" ]; then
-            aws ecr batch-delete-image \
-              --repository-name "${{ env.ECR_REPO }}" \
-              --image-ids "$IMAGE_IDS"
-          fi
-
   deploy-dev:
     if: github.ref == 'refs/heads/main'
     name: Deploy to EC2 (dev) via SSM
