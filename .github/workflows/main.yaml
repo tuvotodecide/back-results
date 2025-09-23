@@ -66,7 +66,7 @@ jobs:
             -pass pass:"${{ secrets.PASSPHRASE }}"
           echo "BUNDLE_SHA256=$(sha256sum global-bundle.pem | cut -d' ' -f1)"
 
-      - name: Set image tags
+      - name: Set image tag
         id: image-tags
         shell: bash
         run: |
