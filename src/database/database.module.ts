@@ -17,18 +17,16 @@ import * as path from 'path';
           ? undefined
           : path.resolve(__dirname, '../../global-bundle.pem'); // Solo para no-local
 
-        console.log('Database URI being used:', uri);
-
         return {
           uri,
-          authSource: username ? 'admin' : undefined, // Solo si hay username
+          // authSource: username ? 'admin' : undefined, // Solo si hay username
           auth: username && password ? { username, password } : undefined,
           retryWrites: false,
           w: 'majority',
           maxPoolSize: 10,
-          tls: !isLocal, // Desactiva TLS para local
-          tlsCAFile: caPath, // Solo si tls está activo
-          tlsAllowInvalidHostnames: !isLocal, // Solo si tls está activo
+          tls: !isLocal,
+          tlsCAFile: caPath,
+          tlsAllowInvalidHostnames: !isLocal,
           directConnection: true,
           serverSelectionTimeoutMS: 30000,
         };
