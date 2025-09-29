@@ -6,6 +6,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -137,6 +138,12 @@ export class ElectoralTableService {
       },
     };
   }
+  async resolveByIdOrCode(args: { tableId?: string; tableCode?: string }) {
+    const { tableId, tableCode } = args || {};
+    if (tableId) return this.findOne(tableId);
+    if (tableCode) return this.findByTableCode(tableCode);
+    throw new BadRequestException('tableId o tableCode requerido');
+  }
 
   async findWithRecords() {
     const tables = await this.electoralTableModel.aggregate([
@@ -145,19 +152,20 @@ export class ElectoralTableService {
           from: 'ballots',
           localField: 'tableCode',
           foreignField: 'tableCode',
-          as: 'ballots'
-        }
-      },{
+          as: 'ballots',
+        },
+      },
+      {
         $match: {
-          $expr: { $gt: [{ $size: "$ballots" }, 0] }
-        }
-      }
+          $expr: { $gt: [{ $size: '$ballots' }, 0] },
+        },
+      },
     ]);
 
     return {
-      data: tables.map(table => ({
+      data: tables.map((table) => ({
         ...table,
-        ballots: table.ballots.length
+        ballots: table.ballots.length,
       })),
       count: tables.length,
     };

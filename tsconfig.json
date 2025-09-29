@@ -25,6 +25,7 @@
       "@modules/*": ["src/modules/*"],
       "@shared/*": ["src/shared/*"],
       "@utils/*": ["src/utils/*"],
-    }
+    },
+    "esModuleInterop": true
   }
 }

@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Patch,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,11 +22,18 @@ import {
   UpdateVotePlaceDto,
   VotePlaceResponseDto,
 } from '../dto/update-vote-place.dto';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 
 @ApiTags('Users')
 @Controller('api/v1/users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    @InjectModel(NotificationLog.name)
+    private logModel: Model<NotificationLog>,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -91,5 +99,49 @@ export class UsersController {
   @ApiResponse({ status: 200, type: VotePlaceResponseDto })
   getVotePlace(@Param('dni') dni: string): Promise<VotePlaceResponseDto> {
     return this.usersService.getVotePlaceByDni(dni);
+  }
+
+  @Get(':dni/notifications')
+  @ApiOperation({
+    summary: 'Notificaciones del usuario por DNI (topic del recinto elegido)',
+  })
+  @ApiParam({ name: 'dni' })
+  @ApiResponse({ status: 200, description: 'Lista paginada' })
+  async listNotificationsByDni(
+    @Param('dni') dni: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+  ) {
+    const user = await this.usersService.findOrCreateByDni(dni);
+    const locId = (user as any)?.votingLocationId?.toString();
+    if (!locId) {
+      return {
+        data: [],
+        total: 0,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: 0,
+      };
+    }
+    const topic = `loc_${String(locId).replace(/[^A-Za-z0-9_-]/g, '')}`;
+
+    const skip = (Number(page) - 1) * Number(limit);
+    const [data, total] = await Promise.all([
+      this.logModel
+        .find({ topic })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit))
+        .lean(),
+      this.logModel.countDocuments({ topic }),
+    ]);
+
+    return {
+      data,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.ceil(total / Number(limit)),
+    };
   }
 }

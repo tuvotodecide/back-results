@@ -191,7 +191,7 @@ export class ElectoralLocationService {
     };
   }
 
-  async findByCode(code: string): Promise<ElectoralLocation> {
+  async findByCode(code: string): Promise<ElectoralLocationDocument> {
     const location = await this.locationModel
       .findOne({ code })
       .populate({
@@ -200,10 +200,7 @@ export class ElectoralLocationService {
           path: 'municipalityId',
           populate: {
             path: 'provinceId',
-            populate: {
-              path: 'departmentId',
-              select: 'name',
-            },
+            populate: { path: 'departmentId', select: 'name' },
             select: 'name departmentId',
           },
           select: 'name provinceId',
@@ -626,20 +623,30 @@ export class ElectoralLocationService {
     }
 
     const $set = this.buildUpdateFromPayload({ ...payload, code, name });
-    const filter = { seatId, code };
+    const filter = { electoralSeatId: seatId, code };
 
     const doc = await this.locationModel
       .findOneAndUpdate(
         filter,
         {
           $set,
-          $setOnInsert: { seatId, code, name, active: true },
+          $setOnInsert: { electoralSeatId: seatId, code, name, active: true },
         },
         { upsert: true, new: true },
       )
       .lean();
 
     return doc;
+  }
+
+  async resolveByIdOrCode(args: {
+    locationId?: string;
+    locationCode?: string;
+  }): Promise<ElectoralLocationDocument> {
+    const { locationId, locationCode } = args || {};
+    if (locationId) return this.findOne(locationId);
+    if (locationCode) return this.findByCode(locationCode);
+    throw new BadRequestException('locationId o locationCode requerido');
   }
 
   async bulkUpsertBySeat(
@@ -664,14 +671,19 @@ export class ElectoralLocationService {
 
     // 2) construir bulk ops
     const ops = Array.from(byCode.values()).map((r) => {
-      const filter = { seatId, code: r.code };
+      const filter = { electoralSeatId: seatId, code: r.code };
       const $set = this.buildUpdateFromPayload(r);
       return {
         updateOne: {
           filter,
           update: {
             $set,
-            $setOnInsert: { seatId, code: r.code, name: r.name, active: true },
+            $setOnInsert: {
+              electoralSeatId: seatId,
+              code: r.code,
+              name: r.name,
+              active: true,
+            },
           },
           upsert: true,
         },
@@ -684,7 +696,7 @@ export class ElectoralLocationService {
 
     const codes = [...byCode.keys()];
     const docs = await this.locationModel
-      .find({ seatId, code: { $in: codes } })
+      .find({ electoralSeatId: seatId, code: { $in: codes } })
       .lean();
     const map = new Map<string, any>();
     for (const d of docs) map.set(d.code, d);
@@ -699,8 +711,12 @@ export class ElectoralLocationService {
     if (!name) throw new Error('name es requerido para ensureBySeatAndName');
 
     const $set = this.buildUpdateFromPayload({ ...payload, name });
-    const filter = { seatId, name };
-    const setOnInsert: Record<string, any> = { seatId, name, active: true };
+    const filter = { electoralSeatId: seatId, name };
+    const setOnInsert: Record<string, any> = {
+      electoralSeatId: seatId,
+      name,
+      active: true,
+    };
     if (payload.code) setOnInsert.code = this.normalizeCode(payload.code);
 
     const doc = await this.locationModel
@@ -724,7 +740,7 @@ export class ElectoralLocationService {
     const norm = codes.map((c) => this.normalizeCode(c)).filter(Boolean);
     if (!norm.length) return new Map();
     const docs = await this.locationModel
-      .find({ seatId, code: { $in: norm } })
+      .find({ electoralSeatId: seatId, code: { $in: norm } })
       .select('_id code')
       .lean();
     const map = new Map<string, any>();

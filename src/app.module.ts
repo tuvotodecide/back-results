@@ -12,6 +12,8 @@ import { AttestationModule } from './modules/attestation/attestation.module';
 import { UsersModule } from './modules/users/users.module';
 import { ApiKeyGuard } from './core/guards/api-key.guard';
 import { APP_GUARD } from '@nestjs/core';
+import { FirebaseModule } from './core/firebase/firebase.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -24,6 +26,8 @@ import { APP_GUARD } from '@nestjs/core';
     UsersModule,
     ResultsModule,
     AttestationModule,
+    FirebaseModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ApiKeyGuard }],
