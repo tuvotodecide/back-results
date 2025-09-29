@@ -77,6 +77,8 @@ export class TopicMessagingService {
         .find({ votingLocationId: locObjId }, { _id: 1, dni: 1 })
         .lean();
 
+        
+
       if (users.length) {
         const batch = users.map((u) => ({
           userId: u._id as any,
