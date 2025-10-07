@@ -98,7 +98,7 @@ export class AttestationController {
   })
   async findAll(
     @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('limit') limit = 200,
     @Query('ballotId') ballotId?: string,
     @Query('isJury') isJury?: string,
     @Query('support') support?: string,
@@ -195,7 +195,7 @@ export class AttestationController {
   @ApiQuery({ name: 'limit', required: false, example: 10 })
   async listCases(
     @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('limit') limit = 200,
     @Query('status') status?: string,
     @Query('department') department?: string,
     @Query('province') province?: string,
@@ -253,7 +253,7 @@ export class AttestationController {
   async findByUser(
     @Param('dni') dni: string,
     @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('limit') limit = 200,
     @Query('isJury') isJury?: string,
     @Query('support') support?: string,
   ) {
@@ -310,7 +310,7 @@ export class AttestationController {
   async findAttestedBallotsByDepartment(
     @Param('departmentName') departmentName: string,
     @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('limit') limit = 200,
     @Query('support') support?: string,
   ): Promise<{
     data: any[];
@@ -369,7 +369,7 @@ export class AttestationController {
   async findAttestedBallotsByDepartmentId(
     @Param('departmentId') departmentId: string,
     @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('limit') limit = 200,
     @Query('support') support?: string,
   ): Promise<{
     data: any[];
@@ -428,7 +428,7 @@ export class AttestationController {
   async findAttestedBallotsByProvinceId(
     @Param('provinceId') provinceId: string,
     @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('limit') limit = 200,
     @Query('support') support?: string,
   ): Promise<{
     data: any[];
@@ -487,7 +487,7 @@ export class AttestationController {
   async findAttestedBallotsByMunicipalityId(
     @Param('municipalityId') municipalityId: string,
     @Query('page') page = 1,
-    @Query('limit') limit = 10,
+    @Query('limit') limit = 200,
     @Query('support') support?: string,
   ): Promise<{
     data: any[];

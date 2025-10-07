@@ -22,7 +22,7 @@ export class NotificationLogsController {
     @Query('topic') topic?: string,
     @Query('type') type?: string,
     @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query('limit') limit = 50,
   ) {
     const filter: any = {};
     if (locationId) filter.locationId = locationId;

@@ -140,7 +140,7 @@ export class AttestationService {
 
   async findAll(
     page = 1,
-    limit = 10,
+    limit = 200,
     ballotId?: string,
     isJury?: boolean,
     support?: boolean,
@@ -187,7 +187,7 @@ export class AttestationService {
   async findByUserDni(
     dni: string,
     page = 1,
-    limit = 10,
+    limit = 200,
     isJury?: boolean,
     support?: boolean,
   ) {
@@ -291,7 +291,7 @@ export class AttestationService {
   // Listar casos por estado y ubicación (para ver "observadas" vs "resueltas") usando $facet
   async listCases(
     page = 1,
-    limit = 10,
+    limit = 200,
     status?: string,
     department?: string,
     province?: string,
@@ -428,7 +428,7 @@ export class AttestationService {
   async findAttestedBallotsByDepartment(
     departmentName: string,
     page = 1,
-    limit = 10,
+    limit = 200,
     support?: boolean,
   ): Promise<{
     data: any[];
@@ -532,7 +532,7 @@ export class AttestationService {
   async findAttestedBallotsByDepartmentId(
     departmentId: string,
     page = 1,
-    limit = 10,
+    limit = 200,
     support?: boolean,
   ): Promise<{
     data: any[];
@@ -650,7 +650,7 @@ export class AttestationService {
   async findAttestedBallotsByProvinceId(
     provinceId: string,
     page = 1,
-    limit = 10,
+    limit = 200,
     support?: boolean,
   ): Promise<{
     data: any[];
@@ -765,7 +765,7 @@ export class AttestationService {
   async findAttestedBallotsByMunicipalityId(
     municipalityId: string,
     page = 1,
-    limit = 10,
+    limit = 200,
     support?: boolean,
   ): Promise<{
     data: any[];

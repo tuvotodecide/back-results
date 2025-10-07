@@ -75,7 +75,7 @@ export class ElectoralLocationService {
 
     const {
       page = 1,
-      limit = 10,
+      limit = 200,
       sort,
       order,
       search,
@@ -253,7 +253,7 @@ export class ElectoralLocationService {
         // incluye TODO lo que el $project original dejaba pasar
         '_id fid code name address district zone coordinates circunscripcion active electoralSeatId geo',
       )
-      .limit(10)
+      .limit(100)
       .lean()
       .exec();
 

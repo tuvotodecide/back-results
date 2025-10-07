@@ -23,7 +23,7 @@ export class UserNotificationsController {
     @Param('dni') dni: string,
     @Query('status') status?: string,
     @Query('page') page = 1,
-    @Query('limit') limit = 20,
+    @Query('limit') limit = 50,
   ) {
     const user = await this.userModel.findOne({ dni }, { _id: 1 }).lean();
     if (!user) {

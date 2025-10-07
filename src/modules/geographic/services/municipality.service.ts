@@ -62,7 +62,7 @@ export class MunicipalityService {
   ) {
     const {
       page = 1,
-      limit = 10,
+      limit = 100,
       sort,
       order,
       search,

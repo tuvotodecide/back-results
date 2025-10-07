@@ -75,7 +75,7 @@ export class ElectoralTableService {
   async findAll(query: ElectoralTableQueryDto) {
     const {
       page = 1,
-      limit = 10,
+      limit = 100,
       sort = 'tableNumber',
       order = 'asc',
       search,

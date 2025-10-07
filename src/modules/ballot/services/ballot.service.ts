@@ -335,7 +335,7 @@ export class BallotService {
     }
 
     const page = query.page || 1;
-    const limit = query.limit || 10;
+    const limit = query.limit || 200;
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([

@@ -46,7 +46,7 @@ export class ProvinceService {
   async findAll(query: GeographicQueryDto & { departmentId?: Types.ObjectId }) {
     const {
       page = 1,
-      limit = 10,
+      limit = 50,
       sort,
       order,
       search,

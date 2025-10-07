@@ -62,7 +62,7 @@ export class ElectoralSeatService {
   ) {
     const {
       page = 1,
-      limit = 10,
+      limit = 200,
       sort,
       order,
       search,

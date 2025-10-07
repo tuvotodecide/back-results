@@ -44,7 +44,7 @@ export class DepartmentService {
   }
 
   async findAll(query: GeographicQueryDto) {
-    const { page = 1, limit = 10, sort, order, search, active } = query;
+    const { page = 1, limit = 200, sort, order, search, active } = query;
     const skip = (page - 1) * limit;
 
     // Construir filtros
