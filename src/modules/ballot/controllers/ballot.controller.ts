@@ -15,6 +15,7 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiBody,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { BallotService } from '../services/ballot.service';
 import {
@@ -104,8 +105,9 @@ export class BallotController {
     description: 'Estadísticas obtenidas exitosamente',
     type: BallotStatsDto,
   })
-  getStats() {
-    return this.ballotService.getStats();
+  @ApiQuery({ name: 'electionId', required: false })
+  getStats(@Query('electionId') electionId?: string) {
+    return this.ballotService.getStats(electionId);
   }
 
   @Get('versions/:tableCode')
@@ -122,8 +124,11 @@ export class BallotController {
     status: 404,
     description: 'No se encontraron versiones',
   })
-  getBallotVersions(@Param('tableCode') tableCode: string) {
-    return this.ballotService.findVersionsByTableCode(tableCode);
+  getBallotVersions(
+    @Param('tableCode') tableCode: string,
+    @Query('electionId') electionId?: string,
+  ) {
+    return this.ballotService.findVersionsByTableCode(tableCode, electionId);
   }
 
   @Get(':id')
@@ -158,8 +163,11 @@ export class BallotController {
     status: 404,
     description: 'Acta no encontrada',
   })
-  findByTableCode(@Param('tableCode') tableCode: string) {
-    return this.ballotService.findByTableCode(tableCode);
+  findByTableCode(
+    @Param('tableCode') tableCode: string,
+    @Query('electionId') electionId?: string,
+  ) {
+    return this.ballotService.findByTableCode(tableCode, electionId);
   }
 
   @Post('by-location')
@@ -168,6 +176,7 @@ export class BallotController {
     description:
       'Busca el recinto electoral más cercano a las coordenadas proporcionadas y retorna todas las actas de ese recinto',
   })
+  @ApiQuery({ name: 'electionId', required: false })
   @ApiBody({ type: LocationByCoordinatesDto })
   @ApiResponse({
     status: 200,
@@ -178,11 +187,15 @@ export class BallotController {
     status: 404,
     description: 'No se encontró ningún recinto electoral cercano',
   })
-  findByNearestLocation(@Body() locationDto: LocationByCoordinatesDto) {
+  findByNearestLocation(
+    @Body() locationDto: LocationByCoordinatesDto,
+    @Query('electionId') electionId?: string,
+  ) {
     return this.ballotService.findByNearestLocation(
       locationDto.latitude,
       locationDto.longitude,
       locationDto.maxDistance,
+      electionId,
     );
   }
 }

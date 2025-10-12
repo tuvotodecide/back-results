@@ -4,7 +4,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Ballot, BallotDocument } from '../../ballot/schemas/ballot.schema';
 import { ElectoralTable } from '../../geographic/schemas/electoral-table.schema';
 import {
@@ -18,6 +18,7 @@ import {
   LocationFilterDto,
   CircunscripcionFilterDto,
 } from '../dto/results.dto';
+import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 
 @Injectable()
 export class ResultsService {
@@ -25,6 +26,7 @@ export class ResultsService {
     @InjectModel(Ballot.name) private ballotModel: Model<BallotDocument>,
     @InjectModel(ElectoralTable.name)
     private electoralTableModel: Model<ElectoralTable>,
+    private electionConfigService: ElectionConfigService,
   ) {}
   private buildLocationMatch(filters?: LocationFilterDto) {
     const match: any = {};
@@ -41,6 +43,13 @@ export class ResultsService {
     return match;
   }
 
+  private async currentElectionMatch(electionId?: string) {
+    if (electionId) return { electionId: new Types.ObjectId(electionId) };
+    // si quieres por defecto la activa, inyecta ElectionConfigService aquí también
+    const active = await this.electionConfigService.getActiveConfig();
+    return active ? { electionId: new Types.ObjectId(active.id) } : {};
+  }
+
   private buildLocationTableQuery(filters?: LocationFilterDto) {
     const match: any = {};
     const query: any[] = [
@@ -49,57 +58,65 @@ export class ResultsService {
           from: 'electoral_locations',
           localField: 'electoralLocationId',
           foreignField: '_id',
-          as: 'location'
-        }
-      },{
-        $unwind: '$location'
-      },{
+          as: 'location',
+        },
+      },
+      {
+        $unwind: '$location',
+      },
+      {
         $lookup: {
           from: 'electoral_seats',
           localField: 'location.electoralSeatId',
           foreignField: '_id',
-          as: 'seat'
-        }
-      },{
-        $unwind: '$seat'
-      },{
+          as: 'seat',
+        },
+      },
+      {
+        $unwind: '$seat',
+      },
+      {
         $lookup: {
           from: 'municipalities',
           localField: 'seat.municipalityId',
           foreignField: '_id',
-          as: 'municipality'
-        }
-      },{
-        $unwind: '$municipality'
-      },{
+          as: 'municipality',
+        },
+      },
+      {
+        $unwind: '$municipality',
+      },
+      {
         $lookup: {
           from: 'provinces',
           localField: 'municipality.provinceId',
           foreignField: '_id',
-          as: 'province'
-        }
-      },{
-        $unwind: '$province'
-      },{
+          as: 'province',
+        },
+      },
+      {
+        $unwind: '$province',
+      },
+      {
         $lookup: {
           from: 'departments',
           localField: 'province.departmentId',
           foreignField: '_id',
-          as: 'department'
-        }
-      },{
-        $unwind: '$department'
-      },{
-        $match: match
-      }
+          as: 'department',
+        },
+      },
+      {
+        $unwind: '$department',
+      },
+      {
+        $match: match,
+      },
     ];
     if (!filters) return query;
     if (filters.department) match['department.name'] = filters.department;
     if (filters.province) match['province.name'] = filters.province;
-    if (filters.municipality)
-      match['municipality.name'] = filters.municipality;
-    if (filters.electoralSeat)
-      match['seat.name'] = filters.electoralSeat;
+    if (filters.municipality) match['municipality.name'] = filters.municipality;
+    if (filters.electoralSeat) match['seat.name'] = filters.electoralSeat;
     if (filters.electoralLocation)
       match['location.name'] = filters.electoralLocation;
     if (filters.tableCode) match['tableCode'] = filters.tableCode;
@@ -114,9 +131,11 @@ export class ResultsService {
    * solo la versión ganadora (winningBallotId) por mesa
    * dedup por tableCode y vuelve al documento original con $replaceRoot
    */
-  private attestedEffectiveBallotsPipeline(
+  private async attestedEffectiveBallotsPipeline(
     locationFilters?: LocationFilterDto,
-  ): any[] {
+    electionId?: string,
+  ): Promise<any[]> {
+    const eidMatch = await this.currentElectionMatch(electionId);
     const locMatch = this.buildLocationMatch(locationFilters);
 
     return [
@@ -125,6 +144,7 @@ export class ResultsService {
         $match: {
           status: { $in: ['processed', 'synced'] },
           valuable: true,
+          ...eidMatch,
           ...locMatch,
         },
       },
@@ -133,8 +153,19 @@ export class ResultsService {
       {
         $lookup: {
           from: 'attestation_cases',
-          localField: 'tableCode',
-          foreignField: 'tableCode',
+          let: { tcode: '$tableCode', eid: '$electionId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$tableCode', '$$tcode'] },
+                    { $eq: ['$electionId', '$$eid'] },
+                  ],
+                },
+              },
+            },
+          ],
           as: 'case',
         },
       },
@@ -157,7 +188,26 @@ export class ResultsService {
         },
       },
       { $addFields: { table: { $arrayElemAt: ['$table', 0] } } },
-      { $match: { 'table.active': true, 'table.observed': false } },
+
+      // derive key por elección y marca por-elección
+      { $addFields: { observedKey: { $toString: '$electionId' } } },
+      {
+        $addFields: {
+          isObservedByElection: {
+            $ifNull: [
+              {
+                $getField: {
+                  input: '$table.observedByElection',
+                  field: '$observedKey',
+                },
+              },
+              false,
+            ],
+          },
+        },
+      },
+      // ahora sí filtra
+      { $match: { 'table.active': true, isObservedByElection: { $ne: true } } },
 
       { $sort: { tableCode: 1, version: -1, createdAt: -1 } },
       { $group: { _id: '$tableCode', doc: { $first: '$$ROOT' } } },
@@ -172,9 +222,11 @@ export class ResultsService {
    * Obtiene el conteo rápido nacional (solo votos presidenciales)
    * Actualizado para usar la nueva estructura votes.parties
    */
-  async getQuickCount(): Promise<QuickCountResponseDto> {
-    const base = this.attestedEffectiveBallotsPipeline();
-    // TODO: implementar publicación en cache
+  async getQuickCount(electionId?: string): Promise<QuickCountResponseDto> {
+    const base = await this.attestedEffectiveBallotsPipeline(
+      undefined,
+      electionId,
+    );
 
     const results = await this.ballotModel.aggregate([
       ...base,
@@ -264,7 +316,10 @@ export class ResultsService {
   ): Promise<LocationResultsResponseDto> {
     // TODO: Verificar cache
 
-    const base = this.attestedEffectiveBallotsPipeline(filters);
+    const base = await this.attestedEffectiveBallotsPipeline(
+      filters,
+      filters.electionId,
+    );
     const tableQuery = this.buildLocationTableQuery(filters);
 
     // Determinar qué campo de votos usar según el tipo de elección
@@ -309,8 +364,8 @@ export class ResultsService {
         },
       ]),
       //Calcular total de mesas
-      this.electoralTableModel.aggregate(tableQuery)
-    ])
+      this.electoralTableModel.aggregate(tableQuery),
+    ]);
 
     const grandTotal = summary[0]
       ? summary[0].validVotes + summary[0].nullVotes + summary[0].blankVotes
@@ -363,7 +418,11 @@ export class ResultsService {
       await this.electoralTableModel.countDocuments(tableFilter);
 
     // Construir filtro para actas registradas
-    const ballotFilter: any = { status: { $in: ['processed', 'synced'] } };
+    const eidMatch = await this.currentElectionMatch(filters?.electionId);
+    const ballotFilter: any = {
+      status: { $in: ['processed', 'synced'] },
+      ...eidMatch,
+    };
     if (filters?.department)
       ballotFilter['location.department'] = filters.department;
     if (filters?.municipality)
@@ -498,7 +557,10 @@ export class ResultsService {
     const locFilters = params.department
       ? { department: params.department }
       : undefined;
-    const base = this.attestedEffectiveBallotsPipeline(locFilters as any);
+    const base = await this.attestedEffectiveBallotsPipeline(
+      locFilters as any,
+      params.electionId,
+    );
     const groupKey =
       params.locationType === 'province'
         ? '$location.province'
@@ -583,8 +645,10 @@ export class ResultsService {
     filters: CircunscripcionFilterDto,
   ): Promise<CircunscripcionResponseDto> {
     // TODO: Verificar cache
-    const base = this.attestedEffectiveBallotsPipeline(filters);
-
+    const base = await this.attestedEffectiveBallotsPipeline(
+      filters,
+      filters.electionId,
+    );
     // Determinar qué campo usar según el tipo de elección
     const votesPath =
       filters.electionType === 'presidential'

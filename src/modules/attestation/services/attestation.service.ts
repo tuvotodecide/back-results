@@ -21,6 +21,7 @@ import {
 } from '../dto/attestation.dto';
 import { AttestationCase } from '../schemas/attestation-case.schema';
 import { UsersService } from '@/modules/users/services/users.service';
+import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 
 type PopulatedUserRef = { _id: Types.ObjectId; dni: string };
 type AttestationLean<TUser = Types.ObjectId> = {
@@ -43,6 +44,7 @@ export class AttestationService {
     @InjectModel(AttestationCase.name)
     private caseModel: Model<AttestationCase>,
     private usersService: UsersService,
+    private electionConfigService: ElectionConfigService,
   ) {}
 
   /**
@@ -76,8 +78,9 @@ export class AttestationService {
         const user = await this.usersService.findOrCreateByDni(
           attestationData.dni,
         );
-
+        const ballot = await this.getBallotOrThrow(attestationData.ballotId);
         const attestation = new this.attestationModel({
+          electionId: ballot.electionId,
           support: attestationData.support,
           ballotId: new Types.ObjectId(attestationData.ballotId),
           isJury: attestationData.isJury,
@@ -144,6 +147,7 @@ export class AttestationService {
     ballotId?: string,
     isJury?: boolean,
     support?: boolean,
+    electionId?: string,
   ): Promise<{
     data: AttestationResponseDto[];
     total: number;
@@ -151,6 +155,7 @@ export class AttestationService {
     limit: number;
     totalPages: number;
   }> {
+    const eid = await this.resolveElectionId(electionId);
     const skip = (page - 1) * limit;
     const filter: any = {};
 
@@ -161,22 +166,103 @@ export class AttestationService {
     if (typeof isJury === 'boolean') filter.isJury = isJury;
     if (typeof support === 'boolean') filter.support = support;
 
-    const [data, total] = await Promise.all([
-      this.attestationModel
-        .find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('ballotId', 'tableCode tableNumber location.department')
-        .populate<{ userId: PopulatedUserRef }>('userId', 'dni')
-        .lean<AttestationLean<PopulatedUserRef>[]>() // ← agrega esta línea
-        .exec(),
-      this.attestationModel.countDocuments(filter),
-    ]);
+    if (!eid) {
+      const [data, total] = await Promise.all([
+        this.attestationModel
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate('ballotId', 'tableCode tableNumber location.department')
+          .populate<{ userId: PopulatedUserRef }>('userId', 'dni')
+          .lean<AttestationLean<PopulatedUserRef>[]>()
+          .exec(),
+        this.attestationModel.countDocuments(filter),
+      ]);
+      return {
+        data: data.map((attestation) =>
+          this.mapToResponseDto(attestation, (attestation.userId as any).dni),
+        ),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    }
+
+    const pipeline: any[] = [
+      { $match: filter },
+      {
+        $lookup: {
+          from: 'ballots',
+          localField: 'ballotId',
+          foreignField: '_id',
+          as: 'ballot',
+        },
+      },
+      { $unwind: '$ballot' },
+      { $match: { 'ballot.electionId': eid } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      { $addFields: { user: { $arrayElemAt: ['$user', 0] } } },
+      {
+        $facet: {
+          data: [
+            { $sort: { createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                support: 1,
+                ballotId: '$ballot._id',
+                isJury: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                dni: '$user.dni',
+              },
+            },
+          ],
+          meta: [{ $count: 'total' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$meta.total', 0] }, 0] },
+        },
+      },
+    ];
+
+    const agg = await this.attestationModel.aggregate(pipeline).exec();
+    const { data, total } = (agg[0] ?? { data: [], total: 0 }) as {
+      data: Array<{
+        _id: Types.ObjectId;
+        support: boolean;
+        isJury: boolean;
+        ballotId: Types.ObjectId;
+        dni: string;
+        createdAt: Date;
+        updatedAt: Date;
+      }>;
+      total: number;
+    };
     return {
-      data: data.map((attestation) =>
-        this.mapToResponseDto(attestation, attestation.userId.dni),
-      ),
+      data: data.map((d) => ({
+        _id: d._id.toString(),
+        support: d.support,
+        ballotId: d.ballotId.toString(),
+        dni: d.dni,
+        isJury: d.isJury,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+      })),
       total,
       page,
       limit,
@@ -187,9 +273,10 @@ export class AttestationService {
   async findByUserDni(
     dni: string,
     page = 1,
-    limit = 200,
+    limit = 10,
     isJury?: boolean,
     support?: boolean,
+    electionId?: string,
   ) {
     const user = await this.usersService.findByDni(dni);
     const skip = (page - 1) * limit;
@@ -197,22 +284,98 @@ export class AttestationService {
     if (typeof isJury === 'boolean') filter.isJury = isJury;
     if (typeof support === 'boolean') filter.support = support;
 
-    const [data, total] = await Promise.all([
-      this.attestationModel
-        .find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .select('support ballotId isJury createdAt updatedAt')
-        .lean<AttestationLean[]>()
-        .exec(),
-      this.attestationModel.countDocuments(filter),
-    ]);
+    const eid = await this.resolveElectionId(electionId);
 
+    if (!eid) {
+      const [data, total] = await Promise.all([
+        this.attestationModel
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .select('support ballotId isJury createdAt updatedAt')
+          .lean<AttestationLean[]>()
+          .exec(),
+        this.attestationModel.countDocuments(filter),
+      ]);
+      return {
+        user: { id: user._id.toString(), dni: user.dni },
+        data: data.map((attestation) =>
+          this.mapToResponseDto(attestation, user.dni),
+        ),
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      };
+    }
+
+    const pipeline: any[] = [
+      { $match: filter },
+      {
+        $lookup: {
+          from: 'ballots',
+          localField: 'ballotId',
+          foreignField: '_id',
+          as: 'ballot',
+        },
+      },
+      { $unwind: '$ballot' },
+      { $match: { 'ballot.electionId': eid } },
+      {
+        $facet: {
+          data: [
+            { $sort: { createdAt: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                support: 1,
+                isJury: 1,
+                ballotId: '$ballot._id',
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            },
+          ],
+          meta: [{ $count: 'total' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$meta.total', 0] }, 0] },
+        },
+      },
+    ];
+    const agg = await this.attestationModel.aggregate(pipeline).exec();
+    const { data, total } = (agg[0] ?? { data: [], total: 0 }) as {
+      data: Array<{
+        _id: Types.ObjectId;
+        support: boolean;
+        isJury: boolean;
+        ballotId: Types.ObjectId;
+        createdAt: Date;
+        updatedAt: Date;
+      }>;
+      total: number;
+    };
     return {
       user: { id: user._id.toString(), dni: user.dni },
-      data: data.map((attestation) =>
-        this.mapToResponseDto(attestation, user.dni),
+      data: data.map((a) =>
+        this.mapToResponseDto(
+          {
+            _id: a._id,
+            support: a.support,
+            ballotId: a.ballotId,
+            isJury: a.isJury,
+            userId: user._id,
+            createdAt: a.createdAt,
+            updatedAt: a.updatedAt,
+          } as any,
+          user.dni,
+        ),
       ),
       total,
       page,
@@ -236,16 +399,18 @@ export class AttestationService {
   }
 
   // Obtener la version con más apoyo para un tableCode específico
-  async getMostSupportedVersion(tableCode: string): Promise<{
+  async getMostSupportedVersion(
+    tableCode: string,
+    electionId?: string,
+  ): Promise<{
     ballotId: string;
     version: number;
     supportCount: number;
     totalAttestations: number;
   } | null> {
+    const eid = await this.resolveElectionId(electionId);
     const result = await this.ballotModel.aggregate([
-      {
-        $match: { tableCode },
-      },
+      { $match: { tableCode, ...(eid ? { electionId: eid } : {}) } },
       {
         $lookup: {
           from: 'attestations',
@@ -291,11 +456,12 @@ export class AttestationService {
   // Listar casos por estado y ubicación (para ver "observadas" vs "resueltas") usando $facet
   async listCases(
     page = 1,
-    limit = 200,
+    limit = 10,
     status?: string,
     department?: string,
     province?: string,
     municipality?: string,
+    electionId?: string,
   ) {
     const skip = (page - 1) * limit;
 
@@ -311,15 +477,27 @@ export class AttestationService {
     const match: any = {};
     if (statusList) match.status = { $in: statusList };
 
+    const eid = await this.resolveElectionId(electionId);
+    if (eid) match.electionId = eid;
+
     // pipeline base: unir un ballot de la mesa para leer location
     const basePipeline: any[] = [
       { $match: match },
       {
         $lookup: {
           from: 'ballots',
-          let: { tcode: '$tableCode' },
+          let: { tcode: '$tableCode', eid: '$electionId' },
           pipeline: [
-            { $match: { $expr: { $eq: ['$tableCode', '$$tcode'] } } },
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$tableCode', '$$tcode'] },
+                    { $eq: ['$electionId', '$$eid'] },
+                  ],
+                },
+              },
+            },
             { $sort: { createdAt: -1 } },
             { $limit: 1 },
           ],
@@ -380,13 +558,18 @@ export class AttestationService {
     };
   }
   // Detalle de un caso por mesa (conteos por acta y por rol)
-  async getCaseDetail(tableCode: string) {
-    const ballots = await this.ballotModel.find({ tableCode }).lean();
+  async getCaseDetail(tableCode: string, electionId?: string) {
+    const eid = await this.resolveElectionId(electionId);
+    const ballots = await this.ballotModel
+      .find({ tableCode, ...(eid ? { electionId: eid } : {}) })
+      .lean();
     if (ballots.length === 0) {
       throw new NotFoundException('No hay actas para esa mesa');
     }
 
-    const caseDoc = await this.caseModel.findOne({ tableCode }).lean();
+    const caseDoc = await this.caseModel
+      .findOne({ tableCode, ...(eid ? { electionId: eid } : {}) })
+      .lean();
     const ballotIds = ballots.map((b) => b._id as Types.ObjectId);
 
     const counts = await this.attestationModel.aggregate([
@@ -430,6 +613,7 @@ export class AttestationService {
     page = 1,
     limit = 200,
     support?: boolean,
+    electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -438,13 +622,11 @@ export class AttestationService {
     totalPages: number;
   }> {
     const skip = (page - 1) * limit;
-    
-    const matchStage: any = {
-      'location.department': departmentName,
-    };
 
-    const pipeline = [
-      { $match: matchStage },
+    const eid = await this.resolveElectionId(electionId);
+    const pipeline: any[] = [
+      ...(eid ? [{ $match: { electionId: eid } }] : []),
+      { $match: { 'location.department': departmentName } },
       {
         $lookup: {
           from: 'attestations',
@@ -494,7 +676,9 @@ export class AttestationService {
     }
 
     const countPipeline = [...pipeline, { $count: 'total' }];
-    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const countResult = await this.ballotModel
+      .aggregate(countPipeline as any)
+      .exec();
     const total = countResult[0]?.total || 0;
 
     const dataPipeline = [
@@ -534,6 +718,7 @@ export class AttestationService {
     page = 1,
     limit = 200,
     support?: boolean,
+    electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -546,8 +731,9 @@ export class AttestationService {
     }
 
     const skip = (page - 1) * limit;
-    
-    const pipeline = [
+    const eid = await this.resolveElectionId(electionId);
+    const pipeline: any[] = [
+      ...(eid ? [{ $match: { electionId: eid } }] : []),
       {
         $lookup: {
           from: 'departments',
@@ -611,7 +797,9 @@ export class AttestationService {
 
     // Get total count
     const countPipeline = [...pipeline, { $count: 'total' }];
-    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const countResult = await this.ballotModel
+      .aggregate(countPipeline as any)
+      .exec();
     const total = countResult[0]?.total || 0;
 
     // Get paginated data
@@ -652,6 +840,7 @@ export class AttestationService {
     page = 1,
     limit = 200,
     support?: boolean,
+    electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -663,7 +852,9 @@ export class AttestationService {
       throw new BadRequestException('ID de provincia inválido');
     }
 
-    const pipeline = [
+    const eid = await this.resolveElectionId(electionId);
+    const pipeline: any[] = [
+      ...(eid ? [{ $match: { electionId: eid } }] : []),
       {
         $lookup: {
           from: 'provinces',
@@ -727,7 +918,9 @@ export class AttestationService {
 
     // Get total count
     const countPipeline = [...pipeline, { $count: 'total' }];
-    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const countResult = await this.ballotModel
+      .aggregate(countPipeline as any)
+      .exec();
     const total = countResult[0]?.total || 0;
 
     // Get paginated data
@@ -767,6 +960,7 @@ export class AttestationService {
     page = 1,
     limit = 200,
     support?: boolean,
+    electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -778,7 +972,9 @@ export class AttestationService {
       throw new BadRequestException('ID de municipio inválido');
     }
 
-    const pipeline = [
+    const eid = await this.resolveElectionId(electionId);
+    const pipeline: any[] = [
+      ...(eid ? [{ $match: { electionId: eid } }] : []),
       {
         $lookup: {
           from: 'municipalities',
@@ -842,7 +1038,9 @@ export class AttestationService {
 
     // Get total count
     const countPipeline = [...pipeline, { $count: 'total' }];
-    const countResult = await this.ballotModel.aggregate(countPipeline as any).exec();
+    const countResult = await this.ballotModel
+      .aggregate(countPipeline as any)
+      .exec();
     const total = countResult[0]?.total || 0;
 
     // Get paginated data
@@ -875,6 +1073,32 @@ export class AttestationService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  private async resolveElectionId(
+    electionId?: string,
+  ): Promise<Types.ObjectId | undefined> {
+    if (electionId !== undefined) {
+      if (!Types.ObjectId.isValid(electionId)) {
+        throw new BadRequestException('electionId inválido');
+      }
+      return new Types.ObjectId(electionId);
+    }
+    const active = await this.electionConfigService.getActiveConfig();
+    return active ? new Types.ObjectId(active.id) : undefined;
+  }
+
+  private async getBallotOrThrow(ballotId: string | Types.ObjectId) {
+    if (!Types.ObjectId.isValid(ballotId)) {
+      throw new BadRequestException('ID de ballot inválido');
+    }
+    const ballot = await this.ballotModel
+      .findById(new Types.ObjectId(ballotId))
+      .select('_id electionId')
+      .lean();
+    if (!ballot)
+      throw new BadRequestException('El ballot especificado no existe');
+    return ballot;
   }
 
   private async validateBallotExists(

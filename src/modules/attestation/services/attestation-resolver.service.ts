@@ -35,7 +35,7 @@ export class AttestationResolverService {
     }
 
     // Mesas con atestiguamientos
-    const tableCodes: Array<{ tableCode: string }> =
+    const tableCodes: Array<{ electionId: Types.ObjectId; tableCode: string }> =
       await this.attModel.aggregate([
         {
           $lookup: {
@@ -46,19 +46,27 @@ export class AttestationResolverService {
           },
         },
         { $unwind: '$ballot' },
-        { $group: { _id: '$ballot.tableCode' } },
-        { $project: { _id: 0, tableCode: '$_id' } },
+        {
+          $group: {
+            _id: { eid: '$ballot.electionId', t: '$ballot.tableCode' },
+          },
+        },
+        { $project: { _id: 0, electionId: '$_id.eid', tableCode: '$_id.t' } },
       ]);
 
-    for (const { tableCode } of tableCodes) {
-      const existing = await this.caseModel.findOne({ tableCode }).exec();
+    for (const { electionId, tableCode } of tableCodes) {
+      const existing = await this.caseModel
+        .findOne({ electionId, tableCode })
+        .exec();
       if (existing && existing.status) continue;
-      await this.resolveCase(tableCode);
+      await this.resolveCase(electionId, tableCode);
     }
   }
 
-  private async resolveCase(tableCode: string) {
-    const ballots = await this.ballotModel.find({ tableCode }).exec();
+  private async resolveCase(electionId: Types.ObjectId, tableCode: string) {
+    const ballots = await this.ballotModel
+      .find({ electionId, tableCode })
+      .exec();
     if (ballots.length === 0) return;
 
     const ballotIds = ballots.map((b) => b._id as Types.ObjectId);
@@ -69,7 +77,7 @@ export class AttestationResolverService {
       .exec();
 
     if (attestations.length === 0) {
-      await this.upsertCase(tableCode, 'VERIFYING', undefined, {
+      await this.upsertCase(electionId, tableCode, 'VERIFYING', undefined, {
         reason: 'Sin apoyos',
       });
       return;
@@ -117,7 +125,13 @@ export class AttestationResolverService {
       const only = supportedBallots[0];
       if (!only) {
         summary.reason = 'Sin apoyos';
-        await this.upsertCase(tableCode, 'VERIFYING', undefined, summary);
+        await this.upsertCase(
+          electionId,
+          tableCode,
+          'VERIFYING',
+          undefined,
+          summary,
+        );
         return;
       }
       const value = perBallot[only];
@@ -139,7 +153,13 @@ export class AttestationResolverService {
         summary.reason = 'Participación insuficiente';
       }
 
-      await this.upsertCase(tableCode, status, winningBallotId, summary);
+      await this.upsertCase(
+        electionId,
+        tableCode,
+        status,
+        winningBallotId,
+        summary,
+      );
       return;
     }
 
@@ -160,7 +180,13 @@ export class AttestationResolverService {
         status = 'VERIFYING';
         summary.reason = 'Empate o apoyos insuficientes (sin jurados)';
       }
-      await this.upsertCase(tableCode, status, winningBallotId, summary);
+      await this.upsertCase(
+        electionId,
+        tableCode,
+        status,
+        winningBallotId,
+        summary,
+      );
       return;
     }
 
@@ -169,7 +195,7 @@ export class AttestationResolverService {
     if (juryLeaders.length > 1) {
       status = 'VERIFYING';
       summary.reason = 'Empate en jurados';
-      await this.upsertCase(tableCode, status, undefined, summary);
+      await this.upsertCase(electionId, tableCode, status, undefined, summary);
       return;
     }
 
@@ -191,7 +217,13 @@ export class AttestationResolverService {
         status = 'VERIFYING';
         summary.reason = 'Empate de usuarios; jurados favorecen otra acta';
       }
-      await this.upsertCase(tableCode, status, winningBallotId, summary);
+      await this.upsertCase(
+        electionId,
+        tableCode,
+        status,
+        winningBallotId,
+        summary,
+      );
       return;
     }
 
@@ -200,7 +232,7 @@ export class AttestationResolverService {
     if (userWinner !== juryWinner) {
       status = 'VERIFYING';
       summary.reason = 'Conflicto: mayoría de usuarios vs jurados';
-      await this.upsertCase(tableCode, status, undefined, summary);
+      await this.upsertCase(electionId, tableCode, status, undefined, summary);
       return;
     }
 
@@ -208,30 +240,39 @@ export class AttestationResolverService {
     winningBallotId = new Types.ObjectId(juryWinner);
     summary.reason = 'Mayoría alcanzada';
 
-    await this.upsertCase(tableCode, status, winningBallotId, summary);
+    await this.upsertCase(
+      electionId,
+      tableCode,
+      status,
+      winningBallotId,
+      summary,
+    );
   }
 
   private async upsertCase(
+    electionId: Types.ObjectId,
     tableCode: string,
     status: 'VERIFYING' | 'PENDING' | 'CONSENSUAL' | 'CLOSED',
     winningBallotId?: Types.ObjectId,
     summary?: any,
   ) {
     await this.caseModel.updateOne(
-      { tableCode },
+      { electionId, tableCode },
       {
         $set: {
           status,
           winningBallotId: winningBallotId ?? null,
           resolvedAt: new Date(),
           summary: summary ?? {},
+          electionId,
+          tableCode,
         },
       },
       { upsert: true },
     );
     // Asegurar que SOLO el ganador quede como valuable=true (para que cuente)
     await this.ballotModel.updateMany(
-      { tableCode },
+      { electionId, tableCode },
       { $set: { valuable: false } },
     );
     if (winningBallotId) {
@@ -241,11 +282,11 @@ export class AttestationResolverService {
       );
     }
 
+    const observedKey = `observedByElection.${electionId.toString()}`;
     await this.electoralTableModel.updateOne(
       { tableCode },
-      { $set: { observed: status === 'VERIFYING' } },
+      { $set: { [observedKey]: status === 'VERIFYING' } }, 
       { upsert: false },
     );
   }
-
 }

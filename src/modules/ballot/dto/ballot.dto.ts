@@ -26,6 +26,11 @@ export class CreateBallotFromIpfsDto {
   @IsString()
   recordId: string;
 
+  @ApiProperty({ description: 'Filtrar por elección', required: false })
+  @IsOptional()
+  @IsString()
+  electionId?: string;
+
   @ApiProperty({
     description: 'ID de la mesa en IPFS',
     required: false,
@@ -110,7 +115,10 @@ export class BallotQueryDto {
   @IsOptional()
   @IsString()
   department?: string;
-
+  @ApiProperty({ description: 'Filtrar por elección', required: false })
+  @IsOptional()
+  @IsString()
+  electionId?: string;
   @ApiProperty({
     description: 'Filtrar por provincia',
     example: 'Murillo',

@@ -43,7 +43,6 @@ export class ElectoralLocationController {
   })
   @ApiResponse({ status: 409, description: 'El código de recinto ya existe' })
   create(@Body() createLocationDto: CreateElectoralLocationDto) {
-    console.log({ createLocationDto });
     return this.locationService.create(createLocationDto);
   }
 

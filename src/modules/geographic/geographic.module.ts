@@ -49,7 +49,6 @@ import { Ballot, BallotSchema } from '../ballot/schemas/ballot.schema';
       { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
       { name: ElectoralTable.name, schema: ElectoralTableSchema },
       { name: Ballot.name, schema: BallotSchema },
-      { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
     ]),
   ],
   controllers: [

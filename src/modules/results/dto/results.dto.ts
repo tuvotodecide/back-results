@@ -89,6 +89,14 @@ export class LocationFilterDto {
   @IsOptional()
   @IsString()
   tableCode?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Filtrar por elección',
+  })
+  @IsOptional()
+  @IsString()
+  electionId?: string;
 }
 
 export class ElectionTypeFilterDto extends LocationFilterDto {

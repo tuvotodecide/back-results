@@ -11,7 +11,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Ballot, BallotDocument } from '../schemas/ballot.schema';
 import {
   CreateBallotFromIpfsDto,
@@ -24,7 +24,7 @@ import {
 import { ElectoralLocationService } from '../../geographic/services/electoral-location.service';
 import { ElectoralTableService } from '../../geographic/services/electoral-table.service';
 import { PoliticalPartyService } from '../../political/services/political-party.service';
-import { HttpService } from '@nestjs/axios';
+import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 
 @Injectable()
 export class BallotService {
@@ -33,12 +33,16 @@ export class BallotService {
     private electoralLocationService: ElectoralLocationService,
     private electoralTableService: ElectoralTableService,
     private politicalPartyService: PoliticalPartyService,
+    private electionConfigService: ElectionConfigService,
   ) {}
 
   async createFromIpfs(createDto: CreateBallotFromIpfsDto): Promise<Ballot> {
     try {
       const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
-
+      const electionId = await this.resolveElectionId(
+        createDto.electionId,
+        true,
+      );
       const ballotData = this.extractBallotData(ipfsData);
       await this.validateBallotData(ballotData);
 
@@ -47,10 +51,14 @@ export class BallotService {
       );
 
       const cid = this.extractCidFromUri(createDto.ipfsUri);
-      const maxVersion = await this.getMaxVersionForTable(ballotData.tableCode);
-      const version = !maxVersion ? 1 : maxVersion + 1;
+      const maxVersion = await this.getMaxVersionForTable(
+        ballotData.tableCode,
+        electionId,
+      );
+      const version = createDto.version ?? (maxVersion ? maxVersion + 1 : 1);
 
       const ballot = new this.ballotModel({
+        electionId,
         tableNumber: ballotData.tableNumber,
         tableCode: ballotData.tableCode,
         electoralLocationId: ballotData.locationId,
@@ -64,8 +72,6 @@ export class BallotService {
         status: 'processed',
         version,
       });
-
-      console.log({ ballot });
 
       return await ballot.save();
     } catch (error) {
@@ -86,13 +92,41 @@ export class BallotService {
     }
   }
 
-  async getMaxVersionForTable(tableCode: string): Promise<number | undefined> {
+  async getMaxVersionForTable(
+    tableCode: string,
+    electionId: Types.ObjectId,
+  ): Promise<number> {
     const maxBallot = await this.ballotModel
-      .findOne({ tableCode })
+      .findOne({ electionId, tableCode })
       .sort({ version: -1 })
       .exec();
+    return maxBallot?.version ?? 0;
+  }
+  private async resolveElectionId(
+    electionId: string | undefined,
+    require: true,
+  ): Promise<Types.ObjectId>;
+  private async resolveElectionId(
+    electionId?: string,
+    require?: false,
+  ): Promise<Types.ObjectId | undefined>;
 
-    return !maxBallot ? 0 : maxBallot.version;
+  private async resolveElectionId(
+    electionId?: string,
+    require = false,
+  ): Promise<Types.ObjectId | undefined> {
+    if (electionId !== undefined) {
+      if (!Types.ObjectId.isValid(electionId)) {
+        throw new BadRequestException('electionId inválido');
+      }
+      return new Types.ObjectId(electionId);
+    }
+    const active = await this.electionConfigService.getActiveConfig();
+    if (active) return new Types.ObjectId(active.id);
+    if (require) {
+      throw new NotFoundException('No hay configuración electoral activa');
+    }
+    return undefined;
   }
 
   private async fetchFromIpfs(ipfsUri: string): Promise<OpenSeaMetadata> {
@@ -101,7 +135,6 @@ export class BallotService {
       const data = await response.json();
       return data as unknown as OpenSeaMetadata;
     } catch (error) {
-      console.log('Error al obtener datos de IPFS:', error);
       throw new BadRequestException('Error al obtener datos de IPFS');
     }
   }
@@ -194,6 +227,20 @@ export class BallotService {
       errors.push('El recinto electoral especificado no existe');
     }
 
+    try {
+      const partyIds = [
+        ...(data.votes?.parties?.partyVotes ?? []).map((pv) => pv.partyId),
+        ...(data.votes?.deputies?.partyVotes ?? []).map((pv) => pv.partyId),
+      ];
+      const uniqueIds = Array.from(new Set(partyIds)).filter(Boolean);
+      if (uniqueIds.length > 0) {
+        const ok = await this.politicalPartyService.validatePartyIds(uniqueIds);
+        if (!ok) errors.push('IDs de partido inválidos o inactivos');
+      }
+    } catch {
+      errors.push('Error validando IDs de partido');
+    }
+
     if (errors.length > 0) {
       throw new BadRequestException(
         `Errores de validación: ${errors.join(', ')}`,
@@ -255,9 +302,10 @@ export class BallotService {
   /**
    * Obtener todas las versiones de un acta por tableCode
    */
-  async findVersionsByTableCode(tableCode: string): Promise<BallotDocument[]> {
+  async findVersionsByTableCode(tableCode: string, electionId?: string) {
+    const eid = await this.resolveElectionId(electionId, true);
     return this.ballotModel
-      .find({ tableCode })
+      .find({ electionId: eid, tableCode })
       .sort({ version: -1, createdAt: -1 })
       .populate('electoralLocationId', 'name code address')
       .exec();
@@ -333,6 +381,8 @@ export class BallotService {
     if (query.circunscripcionType) {
       filter['location.circunscripcion.type'] = query.circunscripcionType;
     }
+    const eid = await this.resolveElectionId(query.electionId);
+    if (eid) filter.electionId = eid;
 
     const page = query.page || 1;
     const limit = query.limit || 200;
@@ -356,16 +406,15 @@ export class BallotService {
     };
   }
 
-  async getStats(): Promise<BallotStatsDto> {
-    // Obtener total de mesas desde electoral_tables
+  async getStats(electionId?: string): Promise<BallotStatsDto> {
     const totalTables = await this.electoralTableService.countTotal();
-
-    // Obtener estadísticas de ballots
+    const eid = await this.resolveElectionId(electionId); // filtra si hay
+    const eidFilter = eid ? { electionId: eid } : {};
     const [processed, pending, synced, error] = await Promise.all([
-      this.ballotModel.countDocuments({ status: 'processed' }),
-      this.ballotModel.countDocuments({ status: 'pending' }),
-      this.ballotModel.countDocuments({ status: 'synced' }),
-      this.ballotModel.countDocuments({ status: 'error' }),
+      this.ballotModel.countDocuments({ ...eidFilter, status: 'processed' }),
+      this.ballotModel.countDocuments({ ...eidFilter, status: 'pending' }),
+      this.ballotModel.countDocuments({ ...eidFilter, status: 'synced' }),
+      this.ballotModel.countDocuments({ ...eidFilter, status: 'error' }),
     ]);
 
     const processedTotal = processed + synced;
@@ -392,18 +441,20 @@ export class BallotService {
     return ballot;
   }
 
-  async findByTableCode(tableCode: string): Promise<Ballot[]> {
-    const ballot = await this.ballotModel.find({ tableCode }).exec();
-    if (!ballot) {
-      throw new NotFoundException('Acta no encontrada');
-    }
-    return ballot;
+  async findByTableCode(tableCode: string, electionId?: string) {
+    const eid = await this.resolveElectionId(electionId, true);
+    const ballots = await this.ballotModel
+      .find({ electionId: eid, tableCode })
+      .exec();
+    if (!ballots?.length) throw new NotFoundException('Acta no encontrada');
+    return ballots;
   }
 
   async findByNearestLocation(
     latitude: number,
     longitude: number,
     maxDistance: number = 5000,
+    electionId?: string,
   ): Promise<{
     location: any;
     ballots: Ballot[];
@@ -423,13 +474,15 @@ export class BallotService {
       );
     }
 
-    // 2. Buscar todas las actas de ese recinto
+    const eid = await this.resolveElectionId(electionId, true);
     const ballots = await this.ballotModel
-      .find({ electoralLocationId: nearestLocation._id.toString() })
+      .find({
+        electoralLocationId: nearestLocation._id.toString(),
+        electionId: eid,
+      })
       .sort({ tableNumber: 1 })
       .exec();
 
-    // 3. Obtener estadísticas del recinto
     const totalTables = await this.electoralTableService.countByLocation(
       nearestLocation._id.toString(),
     );

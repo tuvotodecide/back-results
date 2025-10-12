@@ -17,6 +17,9 @@ export class AttestationCase {
   })
   status: 'VERIFYING' | 'PENDING' | 'CONSENSUAL' | 'CLOSED';
 
+  @Prop({ type: Types.ObjectId, ref: 'ElectionConfig', required: true })
+  electionId: Types.ObjectId;
+
   @Prop({ type: Types.ObjectId, ref: 'Ballot' })
   winningBallotId?: Types.ObjectId;
 
@@ -30,5 +33,5 @@ export class AttestationCase {
 export const AttestationCaseSchema =
   SchemaFactory.createForClass(AttestationCase);
 
-AttestationCaseSchema.index({ tableCode: 1 }, { unique: true });
+AttestationCaseSchema.index({ electionId: 1, tableCode: 1 }, { unique: true });
 AttestationCaseSchema.index({ status: 1 });

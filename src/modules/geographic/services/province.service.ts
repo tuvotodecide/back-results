@@ -105,7 +105,6 @@ export class ProvinceService {
 
   async findByDepartment(departmentId: Types.ObjectId): Promise<Province[]> {
     const response = await this.departmentService.findOne(departmentId);
-    console.log({ response });
 
     return this.provinceModel
       .find({ departmentId: response._id, active: true })
