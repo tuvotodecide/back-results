@@ -95,10 +95,50 @@ export class BallotService {
     return !maxBallot ? 0 : maxBallot.version;
   }
 
+  // private async fetchFromIpfs(ipfsUri: string): Promise<OpenSeaMetadata> {
+  //   try {
+  //     const response = await fetch(ipfsUri);
+  //     const data = await response.json();
+  //     return data as unknown as OpenSeaMetadata;
+  //   } catch (error) {
+  //     console.log('Error al obtener datos de IPFS:', error);
+  //     throw new BadRequestException('Error al obtener datos de IPFS');
+  //   }
+  // }
+
   private async fetchFromIpfs(ipfsUri: string): Promise<OpenSeaMetadata> {
     try {
-      const response = await fetch(ipfsUri);
-      const data = await response.json();
+      let response = await fetch(ipfsUri, {
+        headers: { accept: 'application/json' },
+      } as any);
+      let text = await response.text();
+
+      const isJson = text.trim().startsWith('{') || text.trim().startsWith('[');
+      if (!isJson) {
+        const cid = this.extractCidFromUri(ipfsUri);
+        const gateways = [
+          `https://ipfs.io/ipfs/${cid}`,
+          `https://cloudflare-ipfs.com/ipfs/${cid}`,
+          `https://gateway.pinata.cloud/ipfs/${cid}`,
+        ];
+
+        for (const url of gateways) {
+          try {
+            response = await fetch(url, {
+              headers: { accept: 'application/json' },
+            } as any);
+            text = await response.text();
+            if (text.trim().startsWith('{') || text.trim().startsWith('['))
+              break;
+          } catch {
+          }
+        }
+      }
+      if (!(text.trim().startsWith('{') || text.trim().startsWith('['))) {
+        throw new Error('Respuesta no-JSON de los gateways de IPFS');
+      }
+
+      const data = JSON.parse(text);
       return data as unknown as OpenSeaMetadata;
     } catch (error) {
       console.log('Error al obtener datos de IPFS:', error);
