@@ -145,8 +145,10 @@ export class ElectoralTableService {
     throw new BadRequestException('tableId o tableCode requerido');
   }
 
-  async findWithRecords() {
-    const tables = await this.electoralTableModel.aggregate([
+  async findWithRecords(electionId?: string) {
+    const eid = electionId ? new Types.ObjectId(electionId) : null;
+
+    const pipeline: any[] = [
       {
         $lookup: {
           from: 'ballots',
@@ -155,22 +157,37 @@ export class ElectoralTableService {
           as: 'ballots',
         },
       },
+    ];
+
+    if (eid) {
+      pipeline.push({
+        $addFields: {
+          ballots: {
+            $filter: {
+              input: '$ballots',
+              as: 'b',
+              cond: { $eq: ['$$b.electionId', eid] },
+            },
+          },
+        },
+      });
+    }
+
+    pipeline.push(
+      { $match: { $expr: { $gt: [{ $size: '$ballots' }, 0] } } },
       {
-        $match: {
-          $expr: { $gt: [{ $size: '$ballots' }, 0] },
+        $project: {
+          tableNumber: 1,
+          tableCode: 1,
+          electoralLocationId: 1,
+          ballots: { $size: '$ballots' },
         },
       },
-    ]);
+    );
 
-    return {
-      data: tables.map((table) => ({
-        ...table,
-        ballots: table.ballots.length,
-      })),
-      count: tables.length,
-    };
+    const tables = await this.electoralTableModel.aggregate(pipeline);
+    return { data: tables, count: tables.length };
   }
-
   async findOne(id: string | Types.ObjectId): Promise<ElectoralTable> {
     const table = await this.electoralTableModel
       .findById(id)

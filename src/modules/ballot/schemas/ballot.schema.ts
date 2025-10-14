@@ -65,10 +65,10 @@ export class VotingCategory {
 // Nueva estructura completa de votos
 @Schema({ _id: false })
 export class Votes {
-  @Prop({ type: VotingCategory, required: true })
+  @Prop({ type: VotingCategory, required: false })
   parties: VotingCategory; // Votación para presidentes
 
-  @Prop({ type: VotingCategory, required: true })
+  @Prop({ type: VotingCategory, required: false })
   deputies: VotingCategory; // Votación para diputados
 }
 
@@ -94,6 +94,8 @@ export class Ballot {
 
   @Prop({ required: true, trim: true })
   tableCode: string;
+  @Prop({ type: Types.ObjectId, ref: 'ElectionConfig', required: true })
+  electionId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'ElectoralLocation', required: true })
   electoralLocationId: Types.ObjectId;
@@ -142,7 +144,10 @@ export class Ballot {
 export const BallotSchema = SchemaFactory.createForClass(Ballot);
 
 // BallotSchema.index({ tableCode: 1 }); // Removed to avoid unique constraint conflict
-BallotSchema.index({ tableCode: 1, version: 1 }, { unique: true });
+BallotSchema.index(
+  { electionId: 1, tableCode: 1, version: 1 },
+  { unique: true },
+);
 BallotSchema.index({ electoralLocationId: 1 });
 BallotSchema.index({ status: 1 });
 BallotSchema.index({ 'location.department': 1 });
@@ -154,25 +159,29 @@ BallotSchema.index({ 'blockchain.transactionHash': 1 });
 BallotSchema.index({ ipfsCid: 1 });
 BallotSchema.index({ recordId: 1 });
 BallotSchema.index({ tableIdIpfs: 1 });
+BallotSchema.index({ electionId: 1, status: 1 });
+BallotSchema.index({ electionId: 1, 'location.department': 1 });
+BallotSchema.index({ electionId: 1, 'location.province': 1 });
+BallotSchema.index({ electionId: 1, 'location.municipality': 1 });
+BallotSchema.index({ electionId: 1, valuable: 1, tableCode: 1 });
 
 // Middleware para calcular totalVotes en ambas categorías
 BallotSchema.pre('save', function (next) {
-  if (this.votes) {
-    // Calcular totalVotes para presidentes
-    if (this.votes.parties) {
-      this.votes.parties.totalVotes =
-        this.votes.parties.validVotes +
-        this.votes.parties.nullVotes +
-        this.votes.parties.blankVotes;
-    }
-
-    // Calcular totalVotes para diputados
-    if (this.votes.deputies) {
-      this.votes.deputies.totalVotes =
-        this.votes.deputies.validVotes +
-        this.votes.deputies.nullVotes +
-        this.votes.deputies.blankVotes;
-    }
+  // Calcular totalVotes para presidentes
+  if (this.votes?.parties) {
+    this.votes.parties.totalVotes =
+      this.votes.parties.validVotes +
+      this.votes.parties.nullVotes +
+      this.votes.parties.blankVotes;
   }
+
+  // Calcular totalVotes para diputados
+  if (this.votes?.deputies) {
+    this.votes.deputies.totalVotes =
+      this.votes.deputies.validVotes +
+      this.votes.deputies.nullVotes +
+      this.votes.deputies.blankVotes;
+  }
+
   next();
 });

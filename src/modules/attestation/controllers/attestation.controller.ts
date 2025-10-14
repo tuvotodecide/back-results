@@ -92,6 +92,7 @@ export class AttestationController {
     description: 'Filtrar por apoyo (true/false)',
     type: Boolean,
   })
+  @ApiQuery({ name: 'electionId', required: false })
   @ApiResponse({
     status: 200,
     description: 'Lista de attestations obtenida exitosamente',
@@ -102,6 +103,7 @@ export class AttestationController {
     @Query('ballotId') ballotId?: string,
     @Query('isJury') isJury?: string,
     @Query('support') support?: string,
+    @Query('electionId') electionId?: string,
   ): Promise<{
     data: AttestationResponseDto[];
     total: number;
@@ -120,6 +122,7 @@ export class AttestationController {
       ballotId,
       isJuryBoolean,
       supportBoolean,
+      electionId,
     );
   }
 
@@ -165,15 +168,20 @@ export class AttestationController {
     status: 404,
     description: 'No se encontraron ballots para el código de mesa',
   })
+  @ApiQuery({ name: 'electionId', required: false })
   async getMostSupportedVersion(
     @Param('tableCode') tableCode: string,
+    @Query('electionId') electionId?: string,
   ): Promise<{
     ballotId: string;
     version: number;
     supportCount: number;
     totalAttestations: number;
   } | null> {
-    return this.attestationService.getMostSupportedVersion(tableCode);
+    return this.attestationService.getMostSupportedVersion(
+      tableCode,
+      electionId,
+    );
   }
 
   @Get('cases')
@@ -193,6 +201,7 @@ export class AttestationController {
   @ApiQuery({ name: 'municipality', required: false })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
+  @ApiQuery({ name: 'electionId', required: false })
   async listCases(
     @Query('page') page = 1,
     @Query('limit') limit = 200,
@@ -200,6 +209,7 @@ export class AttestationController {
     @Query('department') department?: string,
     @Query('province') province?: string,
     @Query('municipality') municipality?: string,
+    @Query('electionId') electionId?: string,
   ) {
     return this.attestationService.listCases(
       Number(page),
@@ -208,14 +218,19 @@ export class AttestationController {
       department,
       province,
       municipality,
+      electionId,
     );
   }
 
   @Get('cases/:tableCode')
   @ApiOperation({ summary: 'Detalle de un caso por mesa' })
   @ApiParam({ name: 'tableCode' })
-  async getCaseDetail(@Param('tableCode') tableCode: string) {
-    return this.attestationService.getCaseDetail(tableCode);
+  @ApiQuery({ name: 'electionId', required: false })
+  async getCaseDetail(
+    @Param('tableCode') tableCode: string,
+    @Query('electionId') electionId?: string,
+  ) {
+    return this.attestationService.getCaseDetail(tableCode, electionId);
   }
 
   @Delete(':id')
@@ -250,12 +265,14 @@ export class AttestationController {
   @ApiQuery({ name: 'limit', required: false, example: 10 })
   @ApiQuery({ name: 'isJury', required: false, type: Boolean })
   @ApiQuery({ name: 'support', required: false, type: Boolean })
+  @ApiQuery({ name: 'electionId', required: false })
   async findByUser(
     @Param('dni') dni: string,
     @Query('page') page = 1,
     @Query('limit') limit = 200,
     @Query('isJury') isJury?: string,
     @Query('support') support?: string,
+    @Query('electionId') electionId?: string,
   ) {
     const isJuryBoolean =
       isJury === 'true' ? true : isJury === 'false' ? false : undefined;
@@ -268,18 +285,20 @@ export class AttestationController {
       Number(limit),
       isJuryBoolean,
       supportBoolean,
+      electionId,
     );
   }
 
   @Get('by-department/:departmentName')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'ballots atestiguadas por departamento (por nombre)',
-    description: 'Lista todas las ballots que han sido atestiguadas en un departamento específico'
+    description:
+      'Lista todas las ballots que han sido atestiguadas en un departamento específico',
   })
   @ApiParam({
     name: 'departmentName',
     description: 'Nombre del departamento (ej: La Paz, Santa Cruz, Cochabamba)',
-    example: 'La Paz'
+    example: 'La Paz',
   })
   @ApiQuery({
     name: 'page',
@@ -296,12 +315,19 @@ export class AttestationController {
   @ApiQuery({
     name: 'support',
     required: false,
-    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    description:
+      'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
     type: Boolean,
+  })
+  @ApiQuery({
+    name: 'electionId',
+    required: false,
+    description: 'ID de la elección',
   })
   @ApiResponse({
     status: 200,
-    description: 'Lista de ballots atestiguadas por departamento obtenida exitosamente',
+    description:
+      'Lista de ballots atestiguadas por departamento obtenida exitosamente',
   })
   @ApiResponse({
     status: 400,
@@ -312,6 +338,7 @@ export class AttestationController {
     @Query('page') page = 1,
     @Query('limit') limit = 200,
     @Query('support') support?: string,
+    @Query('electionId') electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -327,18 +354,20 @@ export class AttestationController {
       Number(page),
       Number(limit),
       supportBoolean,
+      electionId,
     );
   }
 
   @Get('by-department-id/:departmentId')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'ballots atestiguadas por ID de departamento (departmentId)',
-    description: 'Lista todas las ballots que han sido atestiguadas en un departamento específico usando su ID'
+    description:
+      'Lista todas las ballots que han sido atestiguadas en un departamento específico usando su ID',
   })
   @ApiParam({
     name: 'departmentId',
     description: 'ID del departamento (ObjectId de MongoDB)',
-    example: '689e477f261b7d0130a036e0'
+    example: '689e477f261b7d0130a036e0',
   })
   @ApiQuery({
     name: 'page',
@@ -355,12 +384,15 @@ export class AttestationController {
   @ApiQuery({
     name: 'support',
     required: false,
-    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    description:
+      'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
     type: Boolean,
   })
+  @ApiQuery({ name: 'electionId', required: false })
   @ApiResponse({
     status: 200,
-    description: 'Lista de ballots atestiguadas por departamento obtenida exitosamente',
+    description:
+      'Lista de ballots atestiguadas por departamento obtenida exitosamente',
   })
   @ApiResponse({
     status: 400,
@@ -371,6 +403,7 @@ export class AttestationController {
     @Query('page') page = 1,
     @Query('limit') limit = 200,
     @Query('support') support?: string,
+    @Query('electionId') electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -386,18 +419,20 @@ export class AttestationController {
       Number(page),
       Number(limit),
       supportBoolean,
+      electionId,
     );
   }
 
   @Get('by-province-id/:provinceId')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'ballots atestiguadas por ID de provincia (provinceId)',
-    description: 'Lista todas las ballots que han sido atestiguadas en una provincia específica usando su ID'
+    description:
+      'Lista todas las ballots que han sido atestiguadas en una provincia específica usando su ID',
   })
   @ApiParam({
     name: 'provinceId',
     description: 'ID de la provincia (ObjectId de MongoDB)',
-    example: '689f468a141448f33dd9c854'
+    example: '689f468a141448f33dd9c854',
   })
   @ApiQuery({
     name: 'page',
@@ -414,12 +449,15 @@ export class AttestationController {
   @ApiQuery({
     name: 'support',
     required: false,
-    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    description:
+      'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
     type: Boolean,
   })
+  @ApiQuery({ name: 'electionId', required: false })
   @ApiResponse({
     status: 200,
-    description: 'Lista de ballots atestiguadas por provincia obtenida exitosamente',
+    description:
+      'Lista de ballots atestiguadas por provincia obtenida exitosamente',
   })
   @ApiResponse({
     status: 400,
@@ -430,6 +468,7 @@ export class AttestationController {
     @Query('page') page = 1,
     @Query('limit') limit = 200,
     @Query('support') support?: string,
+    @Query('electionId') electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -445,18 +484,20 @@ export class AttestationController {
       Number(page),
       Number(limit),
       supportBoolean,
+      electionId,
     );
   }
 
   @Get('by-municipality-id/:municipalityId')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'ballots atestiguadas por ID de municipio (municipalityId)',
-    description: 'Lista todas las ballots que han sido atestiguadas en un municipio específico usando su ID'
+    description:
+      'Lista todas las ballots que han sido atestiguadas en un municipio específico usando su ID',
   })
   @ApiParam({
     name: 'municipalityId',
     description: 'ID del municipio (ObjectId de MongoDB)',
-    example: '689f468a141448f33dd9c855'
+    example: '689f468a141448f33dd9c855',
   })
   @ApiQuery({
     name: 'page',
@@ -473,12 +514,15 @@ export class AttestationController {
   @ApiQuery({
     name: 'support',
     required: false,
-    description: 'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
+    description:
+      'Filtrar por apoyo: true=solo ballots con apoyos, false=solo ballots con oposición',
     type: Boolean,
   })
+  @ApiQuery({ name: 'electionId', required: false })
   @ApiResponse({
     status: 200,
-    description: 'Lista de ballots atestiguadas por municipio obtenida exitosamente',
+    description:
+      'Lista de ballots atestiguadas por municipio obtenida exitosamente',
   })
   @ApiResponse({
     status: 400,
@@ -489,6 +533,7 @@ export class AttestationController {
     @Query('page') page = 1,
     @Query('limit') limit = 200,
     @Query('support') support?: string,
+    @Query('electionId') electionId?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -504,6 +549,7 @@ export class AttestationController {
       Number(page),
       Number(limit),
       supportBoolean,
+      electionId,
     );
   }
 }

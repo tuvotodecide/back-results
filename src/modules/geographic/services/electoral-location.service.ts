@@ -58,7 +58,6 @@ export class ElectoralLocationService {
 
   async create(dto: CreateElectoralLocationDto) {
     const { coordinates, electoralSeatId } = dto;
-    console.log({ dto });
     if (!coordinates) throw new BadRequestException('coordinates es requerido');
 
     const { longitude, latitude } = coordinates;
@@ -71,8 +70,6 @@ export class ElectoralLocationService {
   }
 
   async findAll(query: LocationQueryDto) {
-    console.log('Ingresa FindAll');
-
     const {
       page = 1,
       limit = 200,
@@ -94,7 +91,6 @@ export class ElectoralLocationService {
         { address: { $regex: search, $options: 'i' } },
       ];
     }
-    console.log({ search });
     if (active !== undefined) {
       filters.active = active === 'true';
     }
@@ -104,8 +100,6 @@ export class ElectoralLocationService {
     if (circunscripcionType) {
       filters['circunscripcion.type'] = circunscripcionType;
     }
-    console.log({ filters });
-
     const [locations, total] = await Promise.all([
       this.locationModel
         .find(filters)
@@ -233,7 +227,12 @@ export class ElectoralLocationService {
     return R * c;
   }
 
-  async findNearby(lat: number, lng: number, maxDistance = 1000) {
+  async findNearby(
+    lat: number,
+    lng: number,
+    maxDistance = 1000,
+    electionId?: string,
+  ) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       throw new BadRequestException('lat/lng inválidos');
     }
@@ -294,8 +293,11 @@ export class ElectoralLocationService {
       .lean()
       .exec();
 
+    const ballotFilter: any = { electoralLocationId: { $in: ids } };
+    if (electionId) ballotFilter.electionId = new Types.ObjectId(electionId);
+
     const ballotsRaw = await this.ballotModel
-      .find({ electoralLocationId: { $in: ids } })
+      .find(ballotFilter)
       .select('_id tableNumber tableCode electoralLocationId')
       .sort({ tableNumber: 1 })
       .lean()

@@ -16,6 +16,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { ElectoralTableService } from '../services/electoral-table.service';
 import {
@@ -58,12 +59,13 @@ export class ElectoralTableController {
 
   @Get('attested-only')
   @ApiOperation({ summary: 'Listar las mesas con actas' })
+  @ApiQuery({ name: 'electionId', required: false })
   @ApiResponse({
     status: 200,
     description: 'Lista de mesas obtenida exitosamente',
   })
-  findWithRecords() {
-    return this.electoralTableService.findWithRecords();
+  findWithRecords(@Query('electionId') electionId?: string) {
+    return this.electoralTableService.findWithRecords(electionId);
   }
 
   @Get('statistics')

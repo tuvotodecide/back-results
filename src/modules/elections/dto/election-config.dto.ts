@@ -1,8 +1,25 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsBoolean, IsOptional } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsBoolean,
+  IsOptional,
+  IsEnum,
+} from 'class-validator';
 import { Transform } from 'class-transformer';
 import { TimezoneUtil } from '@/utils/timezone.util';
+
+export enum ElectionType {
+  PRESIDENTIAL = 'presidential',
+  DEPARTAMENTAL = 'departamental',
+  MUNICIPAL = 'municipal',
+  REFERENDUM = 'referendum',
+}
+export enum ElectionRound {
+  FIRST = 1,
+  SECOND = 2,
+}
 
 export class CreateElectionConfigDto {
   @ApiProperty({
@@ -56,6 +73,15 @@ export class CreateElectionConfigDto {
   @IsOptional()
   @IsBoolean()
   allowDataModification?: boolean;
+  @ApiProperty({ enum: ElectionType, required: false })
+  @IsOptional()
+  @IsEnum(ElectionType)
+  type?: ElectionType;
+
+  @ApiProperty({ enum: ElectionRound, required: false })
+  @IsOptional()
+  @IsEnum(ElectionRound)
+  round?: ElectionRound;
 }
 
 export class UpdateElectionConfigDto {
@@ -97,6 +123,14 @@ export class UpdateElectionConfigDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsEnum(ElectionType)
+  type?: ElectionType;
+
+  @IsOptional()
+  @IsEnum(ElectionRound)
+  round?: ElectionRound;
 }
 
 export class ElectionConfigResponseDto {
@@ -114,6 +148,8 @@ export class ElectionConfigResponseDto {
   timezone: string;
   createdAt: Date;
   updatedAt: Date;
+    type?: ElectionType;
+  round?: ElectionRound;
 }
 
 export class ElectionStatusResponseDto {

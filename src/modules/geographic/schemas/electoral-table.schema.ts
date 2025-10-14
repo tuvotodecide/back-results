@@ -25,6 +25,9 @@ export class ElectoralTable {
 
   createdAt: Date;
   updatedAt: Date;
+  
+  @Prop({ type: Object, default: {} })
+  observedByElection?: Record<string, boolean>;
 }
 
 export const ElectoralTableSchema =

@@ -53,6 +53,8 @@ export class ElectionConfigService {
         allowDataModification: createDto.allowDataModification || false,
         timezone: 'America/La_Paz',
         isActive: true,
+        type: createDto.type,
+        round: createDto.round,
       });
 
       const savedConfig = await config.save();
@@ -105,6 +107,8 @@ export class ElectionConfigService {
       updateData.allowDataModification = updateDto.allowDataModification;
     if (updateDto.isActive !== undefined)
       updateData.isActive = updateDto.isActive;
+    if (updateDto.type !== undefined) updateData.type = updateDto.type;
+    if (updateDto.round !== undefined) updateData.round = updateDto.round;
 
     // Fechas ya convertidas por Transform
     if (updateDto.votingStartDate)
@@ -230,6 +234,8 @@ export class ElectionConfigService {
       timezone: config.timezone,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
+      type: config.type as any,
+      round: config.round as any,
     };
   }
 }

@@ -26,6 +26,11 @@ export class CreateBallotFromIpfsDto {
   @IsString()
   recordId: string;
 
+  @ApiProperty({ description: 'Filtrar por elección', required: false })
+  @IsOptional()
+  @IsString()
+  electionId?: string;
+
   @ApiProperty({
     description: 'ID de la mesa en IPFS',
     required: false,
@@ -78,8 +83,8 @@ export interface VotingCategoryData {
 
 // Interface actualizada para la estructura completa de votos desde IPFS
 export interface VotesDataFromIpfs {
-  parties: VotingCategoryData; // Votos para presidentes
-  deputies: VotingCategoryData; // Votos para diputados
+  parties?: VotingCategoryData; // Votos para presidentes
+  deputies?: VotingCategoryData; // Votos para diputados
 }
 
 // Interface principal actualizada para los datos del ballot desde IPFS
@@ -110,7 +115,10 @@ export class BallotQueryDto {
   @IsOptional()
   @IsString()
   department?: string;
-
+  @ApiProperty({ description: 'Filtrar por elección', required: false })
+  @IsOptional()
+  @IsString()
+  electionId?: string;
   @ApiProperty({
     description: 'Filtrar por provincia',
     example: 'Murillo',

@@ -2,6 +2,7 @@
 import {
   Controller,
   Get,
+  Param,
   Query,
   UseGuards,
   UseInterceptors,
@@ -35,6 +36,7 @@ import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.gu
 export class ResultsController {
   constructor(private readonly resultsService: ResultsService) {}
 
+  @ApiQuery({ name: 'electionId', required: false })
   @Get('quick-count')
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(30) // Cache por 30 segundos
@@ -48,10 +50,13 @@ export class ResultsController {
     description: 'Conteo rápido obtenido exitosamente',
     type: QuickCountResponseDto,
   })
-  async getQuickCount(): Promise<QuickCountResponseDto> {
-    return this.resultsService.getQuickCount();
+  async getQuickCount(
+    @Query('electionId') electionId?: string,
+  ): Promise<QuickCountResponseDto> {
+    return this.resultsService.getQuickCount(electionId);
   }
 
+  @ApiQuery({ name: 'electionId', required: false })
   @Get('by-location')
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(60) // Cache por 60 segundos
@@ -86,6 +91,7 @@ export class ResultsController {
     return this.resultsService.getResultsByLocation(filters);
   }
 
+  @ApiQuery({ name: 'electionId', required: false })
   @Get('registration-progress')
   @CacheTTL(30) // Cache por 30 segundos
   @ApiOperation({
@@ -106,6 +112,7 @@ export class ResultsController {
     return this.resultsService.getRegistrationProgress(filters);
   }
 
+  @ApiQuery({ name: 'electionId', required: false })
   @Get('by-circunscripcion')
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(60) // Cache por 60 segundos
@@ -144,6 +151,7 @@ export class ResultsController {
     return this.resultsService.getResultsByCircunscripcion(filters);
   }
 
+  @ApiQuery({ name: 'electionId', required: false })
   @Get('heat-map')
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(120) // Cache por 2 minutos
@@ -179,11 +187,13 @@ export class ResultsController {
     @Query('locationType')
     locationType: 'department' | 'municipality' | 'province',
     @Query('department') department?: string,
+    @Query('electionId') electionId?: string,
   ): Promise<HeatMapResponseDto> {
     return this.resultsService.getHeatMapData({
       electionType,
       locationType,
       department,
+      electionId,
     });
   }
 
@@ -226,8 +236,8 @@ export class ResultsController {
     description: 'Resumen del partido obtenido exitosamente',
   })
   getPartySummary(
+    @Param('partyId') partyId: string,
     @Query('electionType') electionType: 'presidential' | 'deputies',
-    @Query('partyId') partyId: string,
   ) {
     // Este método podría agregarse al servicio para obtener detalles específicos de un partido
     return {
