@@ -83,8 +83,8 @@ export interface VotingCategoryData {
 
 // Interface actualizada para la estructura completa de votos desde IPFS
 export interface VotesDataFromIpfs {
-  parties: VotingCategoryData; // Votos para presidentes
-  deputies: VotingCategoryData; // Votos para diputados
+  parties?: VotingCategoryData; // Votos para presidentes
+  deputies?: VotingCategoryData; // Votos para diputados
 }
 
 // Interface principal actualizada para los datos del ballot desde IPFS

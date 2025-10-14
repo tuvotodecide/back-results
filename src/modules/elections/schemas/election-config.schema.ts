@@ -29,6 +29,20 @@ export class ElectionConfig {
   @Prop({ default: 'America/La_Paz' })
   timezone: string;
 
+  @Prop({
+    enum: [
+      'presidential',
+      'departamental',
+      'municipal',
+      'referendum',
+    ],
+    required: false,
+  })
+  type?: string;
+
+  @Prop({ enum: [1, 2], required: false })
+  round?: number;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -38,3 +52,7 @@ export const ElectionConfigSchema =
 ElectionConfigSchema.index({ isActive: 1 });
 ElectionConfigSchema.index({ votingStartDate: 1, votingEndDate: 1 });
 ElectionConfigSchema.index({ resultsStartDate: 1 });
+ElectionConfigSchema.index(
+  { isActive: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } },
+);

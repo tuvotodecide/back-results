@@ -160,27 +160,32 @@ export class BallotService {
       tableNumber: rawData.tableNumber,
       locationId: rawData.locationId,
       image: metadata.image,
-      votes: {
-        parties: {
-          validVotes: rawData.votes.parties.validVotes,
-          nullVotes: rawData.votes.parties.nullVotes,
-          blankVotes: rawData.votes.parties.blankVotes,
-          partyVotes: rawData.votes.parties.partyVotes.map((pv: any) => ({
-            partyId: pv.partyId,
-            votes: pv.votes,
-          })),
-        },
-        deputies: {
-          validVotes: rawData.votes.deputies.validVotes,
-          nullVotes: rawData.votes.deputies.nullVotes,
-          blankVotes: rawData.votes.deputies.blankVotes,
-          partyVotes: rawData.votes.deputies.partyVotes.map((pv: any) => ({
-            partyId: pv.partyId,
-            votes: pv.votes,
-          })),
-        },
-      },
+      votes: {} as any,
     };
+
+    if (rawData.votes?.parties) {
+      ballotData.votes.parties = {
+        validVotes: rawData.votes.parties.validVotes,
+        nullVotes: rawData.votes.parties.nullVotes,
+        blankVotes: rawData.votes.parties.blankVotes,
+        partyVotes: rawData.votes.parties.partyVotes.map((pv: any) => ({
+          partyId: pv.partyId,
+          votes: pv.votes,
+        })),
+      };
+    }
+
+    if (rawData.votes?.deputies) {
+      ballotData.votes.deputies = {
+        validVotes: rawData.votes.deputies.validVotes,
+        nullVotes: rawData.votes.deputies.nullVotes,
+        blankVotes: rawData.votes.deputies.blankVotes,
+        partyVotes: rawData.votes.deputies.partyVotes.map((pv: any) => ({
+          partyId: pv.partyId,
+          votes: pv.votes,
+        })),
+      };
+    }
 
     return ballotData;
   }
@@ -194,30 +199,26 @@ export class BallotService {
     }
 
     // Validar estructura de votos
-    if (!data.votes) {
-      errors.push('Estructura de votos faltante');
+    if (!data.votes || (!data.votes.parties && !data.votes.deputies)) {
+      errors.push('Debe enviar al menos una categoría de votos');
     } else {
       // Validar votos de presidentes
-      if (!data.votes.parties) {
-        errors.push('Sección de votos para presidentes faltante');
-      } else {
+      if (data.votes.parties) {
         const partiesErrors = this.validateVotingCategory(
           data.votes.parties,
           'presidentes',
         );
         errors.push(...partiesErrors);
-      }
+      } 
 
       // Validar votos de diputados
-      if (!data.votes.deputies) {
-        errors.push('Sección de votos para diputados faltante');
-      } else {
+      if (data.votes.deputies) {
         const deputiesErrors = this.validateVotingCategory(
           data.votes.deputies,
           'diputados',
         );
         errors.push(...deputiesErrors);
-      }
+      } 
     }
 
     // Validar que el recinto electoral existe

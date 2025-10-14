@@ -65,10 +65,10 @@ export class VotingCategory {
 // Nueva estructura completa de votos
 @Schema({ _id: false })
 export class Votes {
-  @Prop({ type: VotingCategory, required: true })
+  @Prop({ type: VotingCategory, required: false })
   parties: VotingCategory; // Votación para presidentes
 
-  @Prop({ type: VotingCategory, required: true })
+  @Prop({ type: VotingCategory, required: false })
   deputies: VotingCategory; // Votación para diputados
 }
 
@@ -167,22 +167,21 @@ BallotSchema.index({ electionId: 1, valuable: 1, tableCode: 1 });
 
 // Middleware para calcular totalVotes en ambas categorías
 BallotSchema.pre('save', function (next) {
-  if (this.votes) {
-    // Calcular totalVotes para presidentes
-    if (this.votes.parties) {
-      this.votes.parties.totalVotes =
-        this.votes.parties.validVotes +
-        this.votes.parties.nullVotes +
-        this.votes.parties.blankVotes;
-    }
-
-    // Calcular totalVotes para diputados
-    if (this.votes.deputies) {
-      this.votes.deputies.totalVotes =
-        this.votes.deputies.validVotes +
-        this.votes.deputies.nullVotes +
-        this.votes.deputies.blankVotes;
-    }
+  // Calcular totalVotes para presidentes
+  if (this.votes?.parties) {
+    this.votes.parties.totalVotes =
+      this.votes.parties.validVotes +
+      this.votes.parties.nullVotes +
+      this.votes.parties.blankVotes;
   }
+
+  // Calcular totalVotes para diputados
+  if (this.votes?.deputies) {
+    this.votes.deputies.totalVotes =
+      this.votes.deputies.validVotes +
+      this.votes.deputies.nullVotes +
+      this.votes.deputies.blankVotes;
+  }
+
   next();
 });

@@ -284,7 +284,7 @@ export class AttestationService {
     if (typeof isJury === 'boolean') filter.isJury = isJury;
     if (typeof support === 'boolean') filter.support = support;
 
-    const eid = await this.resolveElectionId(electionId);
+    const eid = await this.resolveElectionId(electionId, false);
 
     if (!eid) {
       const [data, total] = await Promise.all([
@@ -1077,6 +1077,7 @@ export class AttestationService {
 
   private async resolveElectionId(
     electionId?: string,
+    fallbackToActive = true,
   ): Promise<Types.ObjectId | undefined> {
     if (electionId !== undefined) {
       if (!Types.ObjectId.isValid(electionId)) {
@@ -1084,6 +1085,7 @@ export class AttestationService {
       }
       return new Types.ObjectId(electionId);
     }
+    if (!fallbackToActive) return undefined;
     const active = await this.electionConfigService.getActiveConfig();
     return active ? new Types.ObjectId(active.id) : undefined;
   }
