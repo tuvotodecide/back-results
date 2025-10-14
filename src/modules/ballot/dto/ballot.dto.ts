@@ -48,6 +48,7 @@ export class CreateBallotFromIpfsDto {
   @IsNumber()
   @Min(1)
   version?: number;
+  
 }
 
 // Interfaces para el formato OpenSea
