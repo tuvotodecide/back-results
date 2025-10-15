@@ -162,7 +162,7 @@ export class ElectionConfigService {
         isResultsPeriod: false,
         hasActiveConfig: false,
         currentTime: currentTimeUTC,
-        currentTimeBolivia: TimezoneUtil.utcToBolivia(currentTimeUTC),
+        currentTimeBolivia: TimezoneUtil.utcToBoliviaSafe(currentTimeUTC),
       };
     }
 
@@ -180,7 +180,7 @@ export class ElectionConfigService {
       isResultsPeriod,
       hasActiveConfig: true,
       currentTime: currentTimeUTC,
-      currentTimeBolivia: TimezoneUtil.utcToBolivia(currentTimeUTC),
+      currentTimeBolivia: TimezoneUtil.utcToBoliviaSafe(currentTimeUTC),
       config,
     };
   }
@@ -224,9 +224,9 @@ export class ElectionConfigService {
       votingEndDate: config.votingEndDate,
       resultsStartDate: config.resultsStartDate,
       // Convertir de vuelta a Bolivia para mostrar
-      votingStartDateBolivia: TimezoneUtil.utcToBolivia(config.votingStartDate),
-      votingEndDateBolivia: TimezoneUtil.utcToBolivia(config.votingEndDate),
-      resultsStartDateBolivia: TimezoneUtil.utcToBolivia(
+      votingStartDateBolivia: TimezoneUtil.utcToBoliviaSafe(config.votingStartDate),
+      votingEndDateBolivia: TimezoneUtil.utcToBoliviaSafe(config.votingEndDate),
+      resultsStartDateBolivia: TimezoneUtil.utcToBoliviaSafe(
         config.resultsStartDate,
       ),
       isActive: config.isActive,
