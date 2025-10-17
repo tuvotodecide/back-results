@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Ballot, BallotDocument } from '../../ballot/schemas/ballot.schema';
@@ -21,7 +21,8 @@ import {
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 
 @Injectable()
-export class ResultsService {
+export class ResultsService implements OnModuleInit {
+  private readonly logger = new Logger(ResultsService.name);
   constructor(
     @InjectModel(Ballot.name) private ballotModel: Model<BallotDocument>,
     @InjectModel(ElectoralTable.name)
@@ -43,6 +44,18 @@ export class ResultsService {
     return match;
   }
 
+  private hasAnyLocationFilter(filters?: LocationFilterDto): boolean {
+    if (!filters) return false;
+    return Boolean(
+      filters.department ||
+        filters.province ||
+        filters.municipality ||
+        filters.electoralSeat ||
+        filters.electoralLocation ||
+        filters.tableCode,
+    );
+  }
+
   private async currentElectionMatch(electionId?: string) {
     if (electionId) return { electionId: new Types.ObjectId(electionId) };
     // si quieres por defecto la activa, inyecta ElectionConfigService aquí también
@@ -50,9 +63,83 @@ export class ResultsService {
     return active ? { electionId: new Types.ObjectId(active.id) } : {};
   }
 
+  // private buildLocationTableQuery(filters?: LocationFilterDto) {
+  //   const match: any = {};
+  //   const query: any[] = [
+  //     {
+  //       $lookup: {
+  //         from: 'electoral_locations',
+  //         localField: 'electoralLocationId',
+  //         foreignField: '_id',
+  //         as: 'location',
+  //       },
+  //     },
+  //     {
+  //       $unwind: '$location',
+  //     },
+  //     {
+  //       $lookup: {
+  //         from: 'electoral_seats',
+  //         localField: 'location.electoralSeatId',
+  //         foreignField: '_id',
+  //         as: 'seat',
+  //       },
+  //     },
+  //     {
+  //       $unwind: '$seat',
+  //     },
+  //     {
+  //       $lookup: {
+  //         from: 'municipalities',
+  //         localField: 'seat.municipalityId',
+  //         foreignField: '_id',
+  //         as: 'municipality',
+  //       },
+  //     },
+  //     {
+  //       $unwind: '$municipality',
+  //     },
+  //     {
+  //       $lookup: {
+  //         from: 'provinces',
+  //         localField: 'municipality.provinceId',
+  //         foreignField: '_id',
+  //         as: 'province',
+  //       },
+  //     },
+  //     {
+  //       $unwind: '$province',
+  //     },
+  //     {
+  //       $lookup: {
+  //         from: 'departments',
+  //         localField: 'province.departmentId',
+  //         foreignField: '_id',
+  //         as: 'department',
+  //       },
+  //     },
+  //     {
+  //       $unwind: '$department',
+  //     },
+  //     {
+  //       $match: match,
+  //     },
+  //   ];
+  //   if (!filters) return query;
+  //   if (filters.department) match['department.name'] = filters.department;
+  //   if (filters.province) match['province.name'] = filters.province;
+  //   if (filters.municipality) match['municipality.name'] = filters.municipality;
+  //   if (filters.electoralSeat) match['seat.name'] = filters.electoralSeat;
+  //   if (filters.electoralLocation)
+  //     match['location.name'] = filters.electoralLocation;
+  //   if (filters.tableCode) match['tableCode'] = filters.tableCode;
+
+  //   return query;
+  // }
+
   private buildLocationTableQuery(filters?: LocationFilterDto) {
-    const match: any = {};
-    const query: any[] = [
+    const stages: any[] = [
+      // electoral_tables → electoral_locations
       {
         $lookup: {
           from: 'electoral_locations',
@@ -61,67 +148,77 @@ export class ResultsService {
           as: 'location',
         },
       },
-      {
-        $unwind: '$location',
-      },
-      {
-        $lookup: {
-          from: 'electoral_seats',
-          localField: 'location.electoralSeatId',
-          foreignField: '_id',
-          as: 'seat',
-        },
-      },
-      {
-        $unwind: '$seat',
-      },
-      {
-        $lookup: {
-          from: 'municipalities',
-          localField: 'seat.municipalityId',
-          foreignField: '_id',
-          as: 'municipality',
-        },
-      },
-      {
-        $unwind: '$municipality',
-      },
-      {
-        $lookup: {
-          from: 'provinces',
-          localField: 'municipality.provinceId',
-          foreignField: '_id',
-          as: 'province',
-        },
-      },
-      {
-        $unwind: '$province',
-      },
-      {
-        $lookup: {
-          from: 'departments',
-          localField: 'province.departmentId',
-          foreignField: '_id',
-          as: 'department',
-        },
-      },
-      {
-        $unwind: '$department',
-      },
-      {
-        $match: match,
-      },
+      { $unwind: '$location' },
     ];
-    if (!filters) return query;
-    if (filters.department) match['department.name'] = filters.department;
-    if (filters.province) match['province.name'] = filters.province;
-    if (filters.municipality) match['municipality.name'] = filters.municipality;
-    if (filters.electoralSeat) match['seat.name'] = filters.electoralSeat;
-    if (filters.electoralLocation)
-      match['location.name'] = filters.electoralLocation;
-    if (filters.tableCode) match['tableCode'] = filters.tableCode;
 
-    return query;
+    if (filters?.electoralLocation) {
+      stages.push({ $match: { 'location.name': filters.electoralLocation } });
+    }
+
+    // locations → seats
+    stages.push({
+      $lookup: {
+        from: 'electoral_seats',
+        localField: 'location.electoralSeatId',
+        foreignField: '_id',
+        as: 'seat',
+      },
+    });
+    stages.push({ $unwind: '$seat' });
+
+    if (filters?.electoralSeat) {
+      stages.push({ $match: { 'seat.name': filters.electoralSeat } });
+    }
+
+    // seats → municipalities
+    stages.push({
+      $lookup: {
+        from: 'municipalities',
+        localField: 'seat.municipalityId',
+        foreignField: '_id',
+        as: 'municipality',
+      },
+    });
+    stages.push({ $unwind: '$municipality' });
+
+    if (filters?.municipality) {
+      stages.push({ $match: { 'municipality.name': filters.municipality } });
+    }
+
+    // municipalities → provinces
+    stages.push({
+      $lookup: {
+        from: 'provinces',
+        localField: 'municipality.provinceId',
+        foreignField: '_id',
+        as: 'province',
+      },
+    });
+    stages.push({ $unwind: '$province' });
+
+    if (filters?.province) {
+      stages.push({ $match: { 'province.name': filters.province } });
+    }
+
+    // provinces → departments
+    stages.push({
+      $lookup: {
+        from: 'departments',
+        localField: 'province.departmentId',
+        foreignField: '_id',
+        as: 'department',
+      },
+    });
+    stages.push({ $unwind: '$department' });
+
+    if (filters?.department) {
+      stages.push({ $match: { 'department.name': filters.department } });
+    }
+    if (filters?.tableCode) {
+      stages.push({ $match: { tableCode: filters.tableCode } });
+    }
+
+    return stages;
   }
 
   /**
@@ -222,63 +319,172 @@ export class ResultsService {
    * Obtiene el conteo rápido nacional (solo votos presidenciales)
    * Actualizado para usar la nueva estructura votes.parties
    */
+  // async getQuickCount(electionId?: string): Promise<QuickCountResponseDto> {
+  //   const base = await this.attestedEffectiveBallotsPipeline(
+  //     undefined,
+  //     electionId,
+  //   );
+
+  //   const results = await this.ballotModel.aggregate([
+  //     ...base,
+  //     {
+  //       // Ahora descomponemos votes.parties.partyVotes en lugar de votes.partyVotes
+  //       $unwind: '$votes.parties.partyVotes',
+  //     },
+  //     {
+  //       $group: {
+  //         _id: '$votes.parties.partyVotes.partyId',
+  //         totalVotes: { $sum: '$votes.parties.partyVotes.votes' },
+  //         departments: { $addToSet: '$location.department' },
+  //       },
+  //     },
+  //     {
+  //       $project: {
+  //         _id: 0,
+  //         partyId: '$_id',
+  //         totalVotes: 1,
+  //         departmentsCovered: { $size: '$departments' },
+  //       },
+  //     },
+  //     {
+  //       $sort: { totalVotes: -1 },
+  //     },
+  //   ]);
+
+  //   // Calcular totales generales usando votes.parties
+  //   const totalValidVotes = await this.ballotModel.aggregate([
+  //     ...base,
+  //     { $group: { _id: null, total: { $sum: '$votes.parties.validVotes' } } },
+  //   ]);
+
+  //   const totalNullVotes = await this.ballotModel.aggregate([
+  //     ...base,
+  //     { $group: { _id: null, total: { $sum: '$votes.parties.nullVotes' } } },
+  //   ]);
+
+  //   const totalBlankVotes = await this.ballotModel.aggregate([
+  //     ...base,
+  //     { $group: { _id: null, total: { $sum: '$votes.parties.blankVotes' } } },
+  //   ]);
+
+  //   const grandTotal =
+  //     (totalValidVotes[0]?.total || 0) +
+  //     (totalNullVotes[0]?.total || 0) +
+  //     (totalBlankVotes[0]?.total || 0);
+
+  //   const denValid = totalValidVotes[0]?.total || 0;
+
+  //   // Agregar porcentajes a cada partido
+  //   const resultsWithPercentages = results.map((party) => ({
+  //     ...party,
+  //     percentage:
+  //       denValid > 0
+  //         ? ((party.totalVotes / denValid) * 100).toFixed(2)
+  //         : '0.00',
+  //   }));
+
+  //   // TODO: Publicar en cache
+
+  //   return {
+  //     results: resultsWithPercentages,
+  //     summary: {
+  //       validVotes: totalValidVotes[0]?.total || 0,
+  //       nullVotes: totalNullVotes[0]?.total || 0,
+  //       blankVotes: totalBlankVotes[0]?.total || 0,
+  //       totalVotes: grandTotal,
+  //       tablesProcessed: await this.ballotModel
+  //         .aggregate([
+  //           ...base,
+  //           { $group: { _id: null, count: { $addToSet: '$tableCode' } } },
+  //           { $project: { _id: 0, tablesProcessed: { $size: '$count' } } },
+  //         ])
+  //         .then((r) => r[0]?.tablesProcessed ?? 0),
+  //     },
+  //     lastUpdate: new Date(),
+  //   };
+  // }
+
   async getQuickCount(electionId?: string): Promise<QuickCountResponseDto> {
     const base = await this.attestedEffectiveBallotsPipeline(
       undefined,
       electionId,
     );
 
-    const results = await this.ballotModel.aggregate([
-      ...base,
-      {
-        // Ahora descomponemos votes.parties.partyVotes en lugar de votes.partyVotes
-        $unwind: '$votes.parties.partyVotes',
-      },
-      {
-        $group: {
-          _id: '$votes.parties.partyVotes.partyId',
-          totalVotes: { $sum: '$votes.parties.partyVotes.votes' },
-          departments: { $addToSet: '$location.department' },
+    const agg = await this.ballotModel
+      .aggregate([
+        ...base,
+        {
+          $facet: {
+            perParty: [
+              { $unwind: '$votes.parties.partyVotes' },
+              {
+                $group: {
+                  _id: '$votes.parties.partyVotes.partyId',
+                  totalVotes: { $sum: '$votes.parties.partyVotes.votes' },
+                  departments: { $addToSet: '$location.department' },
+                },
+              },
+              {
+                $project: {
+                  _id: 0,
+                  partyId: '$_id',
+                  totalVotes: 1,
+                  departmentsCovered: { $size: '$departments' },
+                },
+              },
+              { $sort: { totalVotes: -1 } },
+            ],
+            totals: [
+              {
+                $group: {
+                  _id: null,
+                  validVotes: { $sum: '$votes.parties.validVotes' },
+                  nullVotes: { $sum: '$votes.parties.nullVotes' },
+                  blankVotes: { $sum: '$votes.parties.blankVotes' },
+                  tablesProcessed: { $addToSet: '$tableCode' },
+                },
+              },
+            ],
+          },
         },
-      },
-      {
-        $project: {
-          _id: 0,
-          partyId: '$_id',
-          totalVotes: 1,
-          departmentsCovered: { $size: '$departments' },
+        {
+          $project: {
+            results: '$perParty',
+            summary: {
+              $ifNull: [
+                { $arrayElemAt: ['$totals', 0] },
+                {
+                  validVotes: 0,
+                  nullVotes: 0,
+                  blankVotes: 0,
+                  tablesProcessed: [],
+                },
+              ],
+            },
+          },
         },
-      },
-      {
-        $sort: { totalVotes: -1 },
-      },
-    ]);
+      ])
+      .allowDiskUse(true)
+      .exec();
 
-    // Calcular totales generales usando votes.parties
-    const totalValidVotes = await this.ballotModel.aggregate([
-      ...base,
-      { $group: { _id: null, total: { $sum: '$votes.parties.validVotes' } } },
-    ]);
-
-    const totalNullVotes = await this.ballotModel.aggregate([
-      ...base,
-      { $group: { _id: null, total: { $sum: '$votes.parties.nullVotes' } } },
-    ]);
-
-    const totalBlankVotes = await this.ballotModel.aggregate([
-      ...base,
-      { $group: { _id: null, total: { $sum: '$votes.parties.blankVotes' } } },
-    ]);
+    const results = agg[0]?.results ?? [];
+    const summaryAgg =
+      agg[0]?.summary ??
+      ({
+        validVotes: 0,
+        nullVotes: 0,
+        blankVotes: 0,
+        tablesProcessed: [],
+      } as any);
 
     const grandTotal =
-      (totalValidVotes[0]?.total || 0) +
-      (totalNullVotes[0]?.total || 0) +
-      (totalBlankVotes[0]?.total || 0);
+      (summaryAgg.validVotes || 0) +
+      (summaryAgg.nullVotes || 0) +
+      (summaryAgg.blankVotes || 0);
 
-    const denValid = totalValidVotes[0]?.total || 0;
+    const denValid = summaryAgg.validVotes || 0;
 
-    // Agregar porcentajes a cada partido
-    const resultsWithPercentages = results.map((party) => ({
+    const resultsWithPercentages = results.map((party: any) => ({
       ...party,
       percentage:
         denValid > 0
@@ -286,22 +492,14 @@ export class ResultsService {
           : '0.00',
     }));
 
-    // TODO: Publicar en cache
-
     return {
       results: resultsWithPercentages,
       summary: {
-        validVotes: totalValidVotes[0]?.total || 0,
-        nullVotes: totalNullVotes[0]?.total || 0,
-        blankVotes: totalBlankVotes[0]?.total || 0,
+        validVotes: summaryAgg.validVotes || 0,
+        nullVotes: summaryAgg.nullVotes || 0,
+        blankVotes: summaryAgg.blankVotes || 0,
         totalVotes: grandTotal,
-        tablesProcessed: await this.ballotModel
-          .aggregate([
-            ...base,
-            { $group: { _id: null, count: { $addToSet: '$tableCode' } } },
-            { $project: { _id: 0, tablesProcessed: { $size: '$count' } } },
-          ])
-          .then((r) => r[0]?.tablesProcessed ?? 0),
+        tablesProcessed: (summaryAgg.tablesProcessed || []).length,
       },
       lastUpdate: new Date(),
     };
@@ -311,86 +509,196 @@ export class ResultsService {
    * Obtiene resultados por ubicación geográfica
    * Actualizado para manejar tanto presidential como deputies
    */
+  // async getResultsByLocation(
+  //   filters: LocationFilterDto & ElectionTypeFilterDto,
+  // ): Promise<LocationResultsResponseDto> {
+  //   // TODO: Verificar cache
+
+  //   const base = await this.attestedEffectiveBallotsPipeline(
+  //     filters,
+  //     filters.electionId,
+  //   );
+  //   const tableQuery = this.buildLocationTableQuery(filters);
+
+  //   // Determinar qué campo de votos usar según el tipo de elección
+  //   const votesPath =
+  //     filters.electionType === 'presidential'
+  //       ? 'votes.parties'
+  //       : 'votes.deputies';
+
+  //   const results = await this.ballotModel.aggregate([
+  //     ...base,
+  //     { $unwind: `$${votesPath}.partyVotes` },
+  //     {
+  //       $group: {
+  //         _id: `$${votesPath}.partyVotes.partyId`,
+  //         totalVotes: { $sum: `$${votesPath}.partyVotes.votes` },
+  //         locations: { $addToSet: '$location' },
+  //       },
+  //     },
+  //     {
+  //       $project: {
+  //         _id: 0,
+  //         partyId: '$_id',
+  //         totalVotes: 1,
+  //         locationsCovered: { $size: '$locations' },
+  //       },
+  //     },
+  //     { $sort: { totalVotes: -1 } },
+  //   ]);
+
+  //   const [summary, totalTables] = await Promise.all([
+  //     // Calcular totales usando el path correcto
+  //     this.ballotModel.aggregate([
+  //       ...base,
+  //       {
+  //         $group: {
+  //           _id: null,
+  //           validVotes: { $sum: `$${votesPath}.validVotes` },
+  //           nullVotes: { $sum: `$${votesPath}.nullVotes` },
+  //           blankVotes: { $sum: `$${votesPath}.blankVotes` },
+  //           totalTables: { $addToSet: '$_id' },
+  //         },
+  //       },
+  //     ]),
+  //     //Calcular total de mesas
+  //     this.electoralTableModel.aggregate(tableQuery),
+  //   ]);
+
+  //   const grandTotal = summary[0]
+  //     ? summary[0].validVotes + summary[0].nullVotes + summary[0].blankVotes
+  //     : 0;
+
+  //   const resultsWithPercentages = results.map((party) => ({
+  //     ...party,
+  //     percentage:
+  //       summary[0]?.validVotes > 0
+  //         ? ((party.totalVotes / summary[0].validVotes) * 100).toFixed(2)
+  //         : '0.00',
+  //   }));
+
+  //   // TODO: Publicar en cache
+
+  //   return {
+  //     filters,
+  //     results: resultsWithPercentages,
+  //     summary: {
+  //       validVotes: summary[0]?.validVotes || 0,
+  //       nullVotes: summary[0]?.nullVotes || 0,
+  //       blankVotes: summary[0]?.blankVotes || 0,
+  //       totalVotes: grandTotal,
+  //       tablesProcessed: summary[0]?.totalTables.length || 0,
+  //       totalTables: totalTables.length,
+  //     },
+  //     lastUpdate: new Date(),
+  //   };
+  // }
   async getResultsByLocation(
     filters: LocationFilterDto & ElectionTypeFilterDto,
   ): Promise<LocationResultsResponseDto> {
-    // TODO: Verificar cache
-
     const base = await this.attestedEffectiveBallotsPipeline(
       filters,
       filters.electionId,
     );
     const tableQuery = this.buildLocationTableQuery(filters);
 
-    // Determinar qué campo de votos usar según el tipo de elección
     const votesPath =
       filters.electionType === 'presidential'
         ? 'votes.parties'
         : 'votes.deputies';
 
-    const results = await this.ballotModel.aggregate([
-      ...base,
-      { $unwind: `$${votesPath}.partyVotes` },
-      {
-        $group: {
-          _id: `$${votesPath}.partyVotes.partyId`,
-          totalVotes: { $sum: `$${votesPath}.partyVotes.votes` },
-          locations: { $addToSet: '$location' },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          partyId: '$_id',
-          totalVotes: 1,
-          locationsCovered: { $size: '$locations' },
-        },
-      },
-      { $sort: { totalVotes: -1 } },
-    ]);
-
-    const [summary, totalTables] = await Promise.all([
-      // Calcular totales usando el path correcto
-      this.ballotModel.aggregate([
+    const facetAgg = await this.ballotModel
+      .aggregate([
         ...base,
         {
-          $group: {
-            _id: null,
-            validVotes: { $sum: `$${votesPath}.validVotes` },
-            nullVotes: { $sum: `$${votesPath}.nullVotes` },
-            blankVotes: { $sum: `$${votesPath}.blankVotes` },
-            totalTables: { $addToSet: '$_id' },
+          $facet: {
+            results: [
+              { $unwind: `$${votesPath}.partyVotes` },
+              {
+                $group: {
+                  _id: `$${votesPath}.partyVotes.partyId`,
+                  totalVotes: { $sum: `$${votesPath}.partyVotes.votes` },
+                  locations: { $addToSet: '$location' },
+                },
+              },
+              {
+                $project: {
+                  _id: 0,
+                  partyId: '$_id',
+                  totalVotes: 1,
+                  locationsCovered: { $size: '$locations' },
+                },
+              },
+              { $sort: { totalVotes: -1 } },
+            ],
+            summary: [
+              {
+                $group: {
+                  _id: null,
+                  validVotes: { $sum: `$${votesPath}.validVotes` },
+                  nullVotes: { $sum: `$${votesPath}.nullVotes` },
+                  blankVotes: { $sum: `$${votesPath}.blankVotes` },
+                  totalTables: { $addToSet: '$tableCode' },
+                },
+              },
+            ],
           },
         },
-      ]),
-      //Calcular total de mesas
-      this.electoralTableModel.aggregate(tableQuery),
-    ]);
+        {
+          $project: {
+            results: 1,
+            summary: {
+              $ifNull: [
+                { $arrayElemAt: ['$summary', 0] },
+                { validVotes: 0, nullVotes: 0, blankVotes: 0, totalTables: [] },
+              ],
+            },
+          },
+        },
+      ])
+      .allowDiskUse(true)
+      .exec();
 
-    const grandTotal = summary[0]
-      ? summary[0].validVotes + summary[0].nullVotes + summary[0].blankVotes
-      : 0;
+    const results = facetAgg[0]?.results ?? [];
+    const summary = facetAgg[0]?.summary ?? {
+      validVotes: 0,
+      nullVotes: 0,
+      blankVotes: 0,
+      totalTables: [],
+    };
 
-    const resultsWithPercentages = results.map((party) => ({
+    const grandTotal =
+      (summary.validVotes || 0) +
+      (summary.nullVotes || 0) +
+      (summary.blankVotes || 0);
+
+    const resultsWithPercentages = results.map((party: any) => ({
       ...party,
       percentage:
-        summary[0]?.validVotes > 0
-          ? ((party.totalVotes / summary[0].validVotes) * 100).toFixed(2)
+        summary.validVotes > 0
+          ? ((party.totalVotes / summary.validVotes) * 100).toFixed(2)
           : '0.00',
     }));
 
-    // TODO: Publicar en cache
+    const totalTables = this.hasAnyLocationFilter(filters)
+      ? await this.electoralTableModel
+          .aggregate(tableQuery)
+          .allowDiskUse(true)
+          .exec()
+      : await this.electoralTableModel.countDocuments({});
 
     return {
       filters,
       results: resultsWithPercentages,
       summary: {
-        validVotes: summary[0]?.validVotes || 0,
-        nullVotes: summary[0]?.nullVotes || 0,
-        blankVotes: summary[0]?.blankVotes || 0,
+        validVotes: summary.validVotes || 0,
+        nullVotes: summary.nullVotes || 0,
+        blankVotes: summary.blankVotes || 0,
         totalVotes: grandTotal,
-        tablesProcessed: summary[0]?.totalTables.length || 0,
-        totalTables: totalTables.length,
+        tablesProcessed: (summary.totalTables || []).length,
+        totalTables: Array.isArray(totalTables)
+          ? totalTables.length
+          : totalTables,
       },
       lastUpdate: new Date(),
     };
@@ -724,5 +1032,60 @@ export class ResultsService {
       circunscripciones: results,
       lastUpdate: new Date(),
     };
+  }
+  async onModuleInit() {
+    const BLOCKING = true;
+
+    const doWarmup = async () => {
+      try {
+        this.logger.log('Warm-up inicial de ResultsService...');
+        const active = await this.electionConfigService
+          .getActiveConfig()
+          .catch(() => null);
+        const electionId = active?.id;
+
+        const p1 = this.getQuickCount(electionId);
+        const p2 = this.getResultsByLocation({
+          electionType: 'presidential',
+          electionId,
+        } as any);
+        const p3 = this.getRegistrationProgress({ electionId } as any);
+        const p4 = this.getSystemStatistics();
+        const p5 = this.getHeatMapData({
+          electionType: 'presidential',
+          locationType: 'department',
+          electionId,
+        });
+
+        await Promise.allSettled([p1, p2, p3, p4, p5]);
+
+        await Promise.allSettled([
+          this.ballotModel.createIndexes(),
+          this.electoralTableModel.createIndexes(),
+          this.ballotModel
+            .aggregate([{ $limit: 1 }])
+            .allowDiskUse(true)
+            .exec(),
+          this.electoralTableModel
+            .aggregate([{ $limit: 1 }])
+            .allowDiskUse(true)
+            .exec(),
+        ]);
+
+        this.logger.log('Warm-up completado');
+      } catch (e) {
+        this.logger.warn(
+          'Warm-up falló (continuamos igual): ' + (e as Error).message,
+        );
+      }
+    };
+
+    if (BLOCKING) {
+      await doWarmup();
+    } else {
+      setTimeout(() => {
+        void doWarmup();
+      }, 0);
+    }
   }
 }

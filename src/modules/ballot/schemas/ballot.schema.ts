@@ -164,6 +164,7 @@ BallotSchema.index({ electionId: 1, 'location.department': 1 });
 BallotSchema.index({ electionId: 1, 'location.province': 1 });
 BallotSchema.index({ electionId: 1, 'location.municipality': 1 });
 BallotSchema.index({ electionId: 1, valuable: 1, tableCode: 1 });
+BallotSchema.index({ status: 1, valuable: 1, electionId: 1, tableCode: 1 });
 
 // Middleware para calcular totalVotes en ambas categorías
 BallotSchema.pre('save', function (next) {

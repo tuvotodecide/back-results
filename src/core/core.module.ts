@@ -25,23 +25,33 @@ import * as redisStore from 'cache-manager-redis-store';
     }),
 
     DatabaseModule,
-    CacheModule.registerAsync({
+    CacheModule.registerAsync <any>({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        store: redisStore as any,
-        host: configService.get<string>('app.redis.host'),
-        port: configService.get<string>('app.redis.port'),
-        password: configService.get<string>('app.redis.password'),
-        ttl: configService.get<string>('app.cache.ttl')
-          ? Number(configService.get<string>('app.cache.ttl'))
-          : undefined,
-        max: configService.get<string>('app.cache.max')
-          ? Number(configService.get<string>('app.cache.max'))
-          : undefined,
-        isGlobal: true,
-      }),
-      inject: [ConfigService],
       isGlobal: true,
+      useFactory: (configService: ConfigService) => {
+        const host = configService.get<string>('app.redis.host');
+        const ttl = configService.get<string>('app.cache.ttl');
+        const max = configService.get<string>('app.cache.max');
+
+        if (!host) {
+          // fallback en memoria
+          return {
+            ttl: ttl ? Number(ttl) : undefined,
+            max: max ? Number(max) : undefined,
+          };
+        }
+
+        // Redis (se activa solo si hay host)
+        return {
+          store: redisStore as any,
+          host,
+          port: Number(configService.get<string>('app.redis.port')),
+          password: configService.get<string>('app.redis.password'), // ← quitado el paréntesis extra
+          ttl: ttl ? Number(ttl) : undefined,
+          max: max ? Number(max) : undefined,
+        };
+      },
+      inject: [ConfigService],
     }),
   ],
   controllers: [HealthController],
