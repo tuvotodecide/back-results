@@ -42,8 +42,14 @@ export class ElectionConfigService {
       // Validar fechas
       this.validateDates(votingStart, votingEnd, resultsStart);
 
-      // Desactivar configuración anterior
-      await this.electionConfigModel.updateMany({}, { isActive: false });
+      // // Desactivar configuración anterior
+      // await this.electionConfigModel.updateMany({}, { isActive: false });
+
+      // Desactivar configuración anterior (solo del mismo type si se envía)
+      const deactivateFilter = createDto.type ? { type: createDto.type } : {};
+      await this.electionConfigModel.updateMany(deactivateFilter, {
+        isActive: false,
+      });
 
       const config = new this.electionConfigModel({
         name: createDto.name,
@@ -72,8 +78,17 @@ export class ElectionConfigService {
   async getActiveConfig(): Promise<ElectionConfigResponseDto | null> {
     const config = await this.electionConfigModel
       .findOne({ isActive: true })
+      .sort({ createdAt: -1 })
       .exec();
     return config ? this.toResponseDto(config) : null;
+  }
+
+  async getActiveConfigs(): Promise<ElectionConfigResponseDto[]> {
+    const configs = await this.electionConfigModel
+      .find({ isActive: true })
+      .sort({ createdAt: -1 })
+      .exec();
+    return configs.map(this.toResponseDto.bind(this));
   }
 
   async findAll(): Promise<ElectionConfigResponseDto[]> {
@@ -132,8 +147,13 @@ export class ElectionConfigService {
     }
 
     // Si se activa, desactivar otras
+    // if (updateDto.isActive === true) {
+    //   await this.electionConfigModel.updateMany({}, { isActive: false });
+    // }
     if (updateDto.isActive === true) {
-      await this.electionConfigModel.updateMany({}, { isActive: false });
+      const typeToUse = updateDto.type ?? config.type ?? null;
+      const filter = typeToUse ? { type: typeToUse } : {};
+      await this.electionConfigModel.updateMany(filter, { isActive: false });
     }
 
     const updatedConfig = await this.electionConfigModel
@@ -224,7 +244,9 @@ export class ElectionConfigService {
       votingEndDate: config.votingEndDate,
       resultsStartDate: config.resultsStartDate,
       // Convertir de vuelta a Bolivia para mostrar
-      votingStartDateBolivia: TimezoneUtil.utcToBoliviaSafe(config.votingStartDate),
+      votingStartDateBolivia: TimezoneUtil.utcToBoliviaSafe(
+        config.votingStartDate,
+      ),
       votingEndDateBolivia: TimezoneUtil.utcToBoliviaSafe(config.votingEndDate),
       resultsStartDateBolivia: TimezoneUtil.utcToBoliviaSafe(
         config.resultsStartDate,

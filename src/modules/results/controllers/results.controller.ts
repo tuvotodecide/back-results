@@ -29,6 +29,7 @@ import {
 } from '../dto/results.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.guard';
+import { PreliminaryResultsGuard } from '@/modules/elections/guards/preliminary-results.guard';
 
 @ApiTags('Resultados')
 @Controller('api/v1/results')
@@ -352,5 +353,80 @@ export class ResultsController {
       ],
       lastUpdate: new Date(),
     };
+  }
+
+  @Get('live/quick-count')
+  @UseGuards(PreliminaryResultsGuard)
+  @CacheTTL(15)
+  @ApiQuery({ name: 'electionId', required: false })
+  async getLiveQuickCount(@Query('electionId') electionId?: string) {
+    return this.resultsService.getQuickCount(electionId, 'live');
+  }
+
+  @Get('live/by-location')
+  @UseGuards(PreliminaryResultsGuard)
+  @CacheTTL(30)
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'deputies'],
+    required: true,
+  })
+  async getLiveByLocation(@Query() filters: ElectionTypeFilterDto) {
+    return this.resultsService.getResultsByLocation({
+      ...filters,
+      mode: 'live',
+    } as any);
+  }
+
+  @Get('live/heat-map')
+  @UseGuards(PreliminaryResultsGuard)
+  @CacheTTL(60)
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'deputies'],
+    required: true,
+  })
+  @ApiQuery({
+    name: 'locationType',
+    enum: ['department', 'municipality', 'province'],
+    required: true,
+  })
+  @ApiQuery({ name: 'department', required: false })
+  @ApiQuery({ name: 'electionId', required: false })
+  async getLiveHeatMap(
+    @Query('electionType') electionType: 'presidential' | 'deputies',
+    @Query('locationType')
+    locationType: 'department' | 'municipality' | 'province',
+    @Query('department') department?: string,
+    @Query('electionId') electionId?: string,
+  ) {
+    return this.resultsService.getHeatMapData({
+      electionType,
+      locationType,
+      department,
+      electionId,
+      mode: 'live',
+    });
+  }
+
+  @Get('live/by-circunscripcion')
+  @UseGuards(PreliminaryResultsGuard)
+  @CacheTTL(60)
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'deputies'],
+    required: true,
+  })
+  @ApiQuery({
+    name: 'circunscripcionType',
+    enum: ['Uninominal', 'Especial'],
+    required: false,
+  })
+  @ApiQuery({ name: 'circunscripcionNumber', type: 'number', required: false })
+  async getLiveByCircunscripcion(@Query() filters: CircunscripcionFilterDto) {
+    return this.resultsService.getResultsByCircunscripcion({
+      ...filters,
+      mode: 'live',
+    } as any);
   }
 }

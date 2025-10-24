@@ -2,18 +2,18 @@ import { Injectable, CanActivate, ForbiddenException, ExecutionContext } from '@
 import { ElectionConfigService } from '../services/election-config.service';
 
 @Injectable()
-export class ResultsPeriodGuard implements CanActivate {
-  constructor(private electionConfigService: ElectionConfigService) {}
+export class PreliminaryResultsGuard implements CanActivate {
+  constructor(private readonly electionConfigService: ElectionConfigService) {}
 
-  async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const req = ctx.switchToHttp().getRequest();
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest();
     const electionId: string | undefined = req.query?.electionId;
 
     const actives = await this.electionConfigService.getActiveConfigs();
     if (!actives?.length) {
       throw new ForbiddenException({
         statusCode: 403,
-        message: 'Acceso denegado: no hay configuración electoral activa',
+        message: 'No hay configuración electoral activa',
         error: 'NO_ELECTION_CONFIG',
       });
     }
@@ -32,7 +32,7 @@ export class ResultsPeriodGuard implements CanActivate {
       if (actives.length > 1) {
         throw new ForbiddenException({
           statusCode: 403,
-          message: 'Hay varias elecciones activas; envíe electionId',
+          message: 'Hay varias elecciones activas; envíe electionId para usar LIVE',
           error: 'NO_ELECTION_CONFIG_FOR_REQUEST',
         });
       }
@@ -40,11 +40,15 @@ export class ResultsPeriodGuard implements CanActivate {
     }
 
     const now = new Date();
-    if (now < new Date(cfg.resultsStartDate)) {
+    const votingStart = new Date(cfg.votingStartDate);
+    const votingEnd = new Date(cfg.votingEndDate);
+    const withinVoting = now >= votingStart && now <= votingEnd;
+
+    if (!(withinVoting || cfg.allowDataModification === true)) {
       throw new ForbiddenException({
         statusCode: 403,
-        message: 'Acceso denegado: resultados no disponibles aún',
-        error: 'RESULTS_NOT_AVAILABLE',
+        message: 'Resultados LIVE solo disponibles durante la jornada electoral',
+        error: 'LIVE_NOT_AVAILABLE',
       });
     }
     return true;

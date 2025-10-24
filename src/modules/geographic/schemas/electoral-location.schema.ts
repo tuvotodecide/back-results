@@ -85,3 +85,7 @@ ElectoralLocationSchema.index({ 'circunscripcion.type': 1 });
 ElectoralLocationSchema.index({ 'circunscripcion.number': 1 });
 ElectoralLocationSchema.index({ geo: '2dsphere' });
 ElectoralLocationSchema.index({ active: 1 });
+ElectoralLocationSchema.index(
+  { electoralSeatId: 1, code: 1 },
+  { unique: true },
+);

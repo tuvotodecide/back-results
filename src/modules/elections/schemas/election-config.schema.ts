@@ -35,6 +35,8 @@ export class ElectionConfig {
       'departamental',
       'municipal',
       'referendum',
+      'congress',
+      'parlacen',
     ],
     required: false,
   })
@@ -50,9 +52,7 @@ export const ElectionConfigSchema =
   SchemaFactory.createForClass(ElectionConfig);
 
 ElectionConfigSchema.index({ isActive: 1 });
-ElectionConfigSchema.index({ votingStartDate: 1, votingEndDate: 1 });
-ElectionConfigSchema.index({ resultsStartDate: 1 });
 ElectionConfigSchema.index(
-  { isActive: 1 },
-  { unique: true, partialFilterExpression: { isActive: true } },
+  { type: 1, isActive: 1 },
+  { unique: true, partialFilterExpression: { isActive: true } }, 
 );

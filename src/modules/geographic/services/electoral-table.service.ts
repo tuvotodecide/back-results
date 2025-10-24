@@ -490,18 +490,10 @@ export class ElectoralTableService {
     if (m.number === null || m.number === undefined || Number(m.number) < 1) {
       return { ok: false, reason: `num_mesa inválido: ${m.number}` };
     }
-    if (
-      m.habilitados === null ||
-      m.habilitados === undefined ||
-      Number(m.habilitados) < 0
-    ) {
+    if (m.habilitados !== undefined && Number(m.habilitados) < 0) {
       return { ok: false, reason: `habilitados inválido: ${m.habilitados}` };
     }
-    if (
-      m.inhabilitados === null ||
-      m.inhabilitados === undefined ||
-      Number(m.inhabilitados) < 0
-    ) {
+    if (m.inhabilitados !== undefined && Number(m.inhabilitados) < 0) {
       return {
         ok: false,
         reason: `inhabilitados inválido: ${m.inhabilitados}`,
@@ -512,9 +504,7 @@ export class ElectoralTableService {
 
   private buildUpdateFromPayload(payload: MesaUpsert) {
     const update: Record<string, any> = {
-      number: Number(payload.number),
-      habilitados: Number(payload.habilitados),
-      inhabilitados: Number(payload.inhabilitados),
+      tableNumber: String(payload.number),
     };
     // Elimina undefined por si acaso
     Object.keys(update).forEach(
@@ -548,13 +538,13 @@ export class ElectoralTableService {
       // Clave primaria por code (y seteamos precinctId/number en insert)
       const doc = await this.electoralTableModel
         .findOneAndUpdate(
-          { code },
+          { tableCode: code },
           {
             $set,
             $setOnInsert: {
-              code,
-              precinctId,
-              number: payload.number,
+              tableCode: code,
+              electoralLocationId: precinctId,
+              tableNumber: String(payload.number),
               active: true,
             },
           },
@@ -566,10 +556,17 @@ export class ElectoralTableService {
       // Sin code: clave por (precinctId, number)
       const doc = await this.electoralTableModel
         .findOneAndUpdate(
-          { precinctId, number: payload.number },
+          {
+            electoralLocationId: precinctId,
+            tableNumber: String(payload.number),
+          },
           {
             $set,
-            $setOnInsert: { precinctId, number: payload.number, active: true },
+            $setOnInsert: {
+              electoralLocationId: precinctId,
+              tableNumber: String(payload.number),
+              active: true,
+            },
           },
           { upsert: true, new: true },
         )
@@ -618,10 +615,15 @@ export class ElectoralTableService {
       const $set = this.buildUpdateFromPayload(m);
       ops.push({
         updateOne: {
-          filter: { code },
+          filter: { tableCode: code },
           update: {
             $set,
-            $setOnInsert: { code, precinctId, number: m.number, active: true },
+            $setOnInsert: {
+              tableCode: code,
+              electoralLocationId: precinctId,
+              tableNumber: String(m.number),
+              active: true,
+            },
           },
           upsert: true,
         },
@@ -633,10 +635,17 @@ export class ElectoralTableService {
       const $set = this.buildUpdateFromPayload(m);
       ops.push({
         updateOne: {
-          filter: { precinctId, number: num },
+          filter: {
+            electoralLocationId: precinctId,
+            tableNumber: String(num),
+          },
           update: {
             $set,
-            $setOnInsert: { precinctId, number: num, active: true },
+            $setOnInsert: {
+              electoralLocationId: precinctId,
+              tableNumber: String(num),
+              active: true,
+            },
           },
           upsert: true,
         },
@@ -654,22 +663,25 @@ export class ElectoralTableService {
     const results: any[] = [];
     if (keysWithCode.length) {
       const docsByCode = await this.electoralTableModel
-        .find({ code: { $in: keysWithCode } })
+        .find({ tableCode: { $in: keysWithCode } })
         .lean();
       results.push(...docsByCode);
     }
     if (numbersNoCode.length) {
       const docsByNum = await this.electoralTableModel
-        .find({ precinctId, number: { $in: numbersNoCode } })
+        .find({
+          electoralLocationId: precinctId,
+          tableNumber: { $in: numbersNoCode.map(String) },
+        })
         .lean();
       results.push(...docsByNum);
     }
 
     const map = new Map<string, any>();
     for (const d of results) {
-      const key = d.code
-        ? String(d.code)
-        : `${String(d.precinctId)}:${Number(d.number)}`;
+      const key = d.tableCode
+        ? String(d.tableCode)
+        : `${String(d.electoralLocationId)}:${String(d.tableNumber)}`;
       map.set(key, d);
     }
     return map;
