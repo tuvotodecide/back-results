@@ -719,15 +719,13 @@ export class ResultsService implements OnModuleInit {
       await this.ballotModel.countDocuments(ballotFilter);
 
     // Progreso por estado
-    const progressByStatus = await this.ballotModel.aggregate([
-      { $match: filters ? ballotFilter : {} },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-        },
-      },
-    ]);
+    const progressByStatus = await this.ballotModel
+      .aggregate([
+        { $match: filters ? ballotFilter : {} },
+        { $group: { _id: '$status', count: { $sum: 1 } } },
+      ])
+      .allowDiskUse(true)
+      .exec();
 
     const statusMap = progressByStatus.reduce((acc, curr) => {
       acc[curr._id] = curr.count;
@@ -760,79 +758,81 @@ export class ResultsService implements OnModuleInit {
    * Este método tampoco se ve afectado ya que solo cuenta actas
    */
   async getSystemStatistics(): Promise<SystemStatisticsResponseDto> {
-    // TODO: Verificar caché
+    const totalBallots = await this.ballotModel.countDocuments();
 
-    const [totalBallots, ballotsbyStatus, departmentCoverage, recentActivity] =
-      await Promise.all([
-        // Total de actas
-        this.ballotModel.countDocuments(),
+    const ballotsbyStatus = await this.ballotModel
+      .aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }])
+      .allowDiskUse(true)
+      .exec();
 
-        // Actas por estado
-        this.ballotModel.aggregate([
-          {
-            $group: {
-              _id: '$status',
-              count: { $sum: 1 },
-            },
+    const departmentCoverage = await this.ballotModel
+      .aggregate([
+        { $match: { status: 'processed' } },
+        {
+          $group: {
+            _id: '$location.department',
+            ballotCount: { $sum: 1 },
+            lastUpdate: { $max: '$updatedAt' },
           },
-        ]),
+        },
+        { $sort: { _id: 1 } },
+      ])
+      .allowDiskUse(true)
+      .exec();
 
-        // Cobertura por departamento
-        this.ballotModel.aggregate([
-          { $match: { status: 'processed' } },
-          {
-            $group: {
-              _id: '$location.department',
-              ballotCount: { $sum: 1 },
-              lastUpdate: { $max: '$updatedAt' },
-            },
+    const recentActivity = await this.ballotModel
+      .aggregate([
+        {
+          $match: {
+            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
           },
-          { $sort: { _id: 1 } },
-        ]),
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: { format: '%Y-%m-%d %H:00', date: '$createdAt' },
+            },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ])
+      .allowDiskUse(true)
+      .exec();
 
-        // Actividad reciente (últimas 24 horas)
-        this.ballotModel.aggregate([
-          {
-            $match: {
-              createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-            },
-          },
-          {
-            $group: {
-              _id: {
-                $dateToString: { format: '%Y-%m-%d %H:00', date: '$createdAt' },
-              },
-              count: { $sum: 1 },
-            },
-          },
-          { $sort: { _id: 1 } },
-        ]),
-      ]);
+    const statusMap = ballotsbyStatus.reduce(
+      (acc, curr) => {
+        acc[curr._id] = curr.count;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
-    const statusMap = ballotsbyStatus.reduce((acc, curr) => {
-      acc[curr._id] = curr.count;
-      return acc;
-    }, {});
+    const byStatus = {
+      pending: statusMap.pending ?? 0,
+      processed: statusMap.processed ?? 0,
+      synced: statusMap.synced ?? 0,
+      error: statusMap.error ?? 0,
+    };
 
     return {
       summary: {
         totalBallots,
-        byStatus: statusMap,
+        byStatus,
         departmentsCovered: departmentCoverage.length,
       },
-      departmentCoverage: departmentCoverage.map((dept) => ({
-        department: dept._id,
-        ballotCount: dept.ballotCount,
-        lastUpdate: dept.lastUpdate,
+      departmentCoverage: departmentCoverage.map((d: any) => ({
+        department: d._id,
+        ballotCount: d.ballotCount,
+        lastUpdate: d.lastUpdate,
       })),
-      recentActivity: recentActivity.map((activity) => ({
-        hour: activity._id,
-        count: activity.count,
+      recentActivity: recentActivity.map((r: any) => ({
+        hour: r._id,
+        count: r.count,
       })),
       lastUpdate: new Date(),
     };
   }
-
   /**
    * Método para obtener mapa de calor
    * para usar la nueva estructura de votos
@@ -866,67 +866,77 @@ export class ResultsService implements OnModuleInit {
         ? 'votes.parties'
         : 'votes.deputies';
 
-    const results = await this.ballotModel.aggregate([
-      ...base,
-      {
-        $group: {
-          _id: groupKey,
-          validVotes: { $sum: `$${votesPath}.validVotes` },
-          nullVotes: { $sum: `$${votesPath}.nullVotes` },
-          blankVotes: { $sum: `$${votesPath}.blankVotes` },
-          partyVotes: { $push: `$${votesPath}.partyVotes` },
+    const results = await this.ballotModel
+      .aggregate([
+        ...base,
+        {
+          $group: {
+            _id: groupKey,
+            validVotes: { $sum: `$${votesPath}.validVotes` },
+            nullVotes: { $sum: `$${votesPath}.nullVotes` },
+            blankVotes: { $sum: `$${votesPath}.blankVotes` },
+            partyVotes: { $push: `$${votesPath}.partyVotes` },
+          },
         },
-      },
-      {
-        $project: {
-          _id: 0,
-          location: '$_id',
-          locationType: params.locationType ?? 'department',
-          validVotes: 1,
-          nullVotes: 1,
-          blankVotes: 1,
-          totalVotes: { $add: ['$validVotes', '$nullVotes', '$blankVotes'] },
-          participationRate: 0,
-          partyPercentages: {
-            $arrayToObject: {
-              $map: {
-                input: {
-                  $reduce: {
-                    input: '$partyVotes',
-                    initialValue: [],
-                    in: { $concatArrays: ['$$value', '$$this'] },
+        {
+          $project: {
+            _id: 0,
+            location: '$_id',
+            locationType: params.locationType ?? 'department',
+            validVotes: 1,
+            nullVotes: 1,
+            blankVotes: 1,
+            totalVotes: { $add: ['$validVotes', '$nullVotes', '$blankVotes'] },
+            participationRate: 0,
+            partyPercentages: {
+              $arrayToObject: {
+                $map: {
+                  input: {
+                    $reduce: {
+                      input: '$partyVotes',
+                      initialValue: [],
+                      in: { $concatArrays: ['$$value', '$$this'] },
+                    },
                   },
-                },
-                as: 'party',
-                in: {
-                  k: '$$party.partyId',
-                  v: {
-                    $cond: [
-                      { $gt: ['$validVotes', 0] },
-                      {
-                        $round: [
-                          {
-                            $multiply: [
-                              { $divide: ['$$party.votes', '$validVotes'] },
-                              100,
-                            ],
-                          },
-                          2,
-                        ],
-                      },
-                      0,
-                    ],
+                  as: 'party',
+                  in: {
+                    k: '$$party.partyId',
+                    v: {
+                      $cond: [
+                        { $gt: ['$validVotes', 0] },
+                        {
+                          $round: [
+                            {
+                              $multiply: [
+                                { $divide: ['$$party.votes', '$validVotes'] },
+                                100,
+                              ],
+                            },
+                            2,
+                          ],
+                        },
+                        0,
+                      ],
+                    },
                   },
                 },
               },
             },
           },
         },
-      },
-      { $sort: { location: 1 } },
-    ]);
+        { $sort: { location: 1 } },
+      ])
+      .allowDiskUse(true)
+      .exec();
+
+    const normalized = (Array.isArray(results) ? results : []).map(
+      (res: any) => ({
+        ...res,
+        partyPercentages: res?.partyPercentages ?? {},
+      }),
+    );
     return {
-      data: results,
+      data: normalized,
       electionType: params.electionType,
       lastUpdate: new Date(),
     };

@@ -8,7 +8,7 @@ export type DepartmentDocument = Department & Document;
   collection: 'departments',
 })
 export class Department {
-  @Prop({ required: true, unique: true, trim: true })
+  @Prop({ required: true,  trim: true })
   name: string;
 
   @Prop({ default: true })

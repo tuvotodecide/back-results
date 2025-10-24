@@ -1,4 +1,4 @@
-// test/utils/mongo.ts
+
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 
@@ -8,13 +8,13 @@ export class InMemoryMongo {
 
   async start() {
     this.server = await MongoMemoryServer.create();
-    this.uri = this.server.getUri();   // ❗ NO conectes aquí con mongoose
+    this.uri = this.server.getUri();  
     return this.uri;
   }
 
   async stop() {
     const conn = mongoose.connection;
-    if (conn.readyState !== 0) {       // 0 = disconnected
+    if (conn.readyState !== 0) {       
       await conn.dropDatabase();
       await conn.close();
     }
@@ -23,7 +23,7 @@ export class InMemoryMongo {
 
   async clear() {
     const conn = mongoose.connection;
-    if (conn.readyState === 1) {       // 1 = connected
+    if (conn.readyState === 1) {     
       const { collections } = conn;
       for (const name of Object.keys(collections)) {
         await collections[name].deleteMany({});

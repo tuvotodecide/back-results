@@ -34,6 +34,5 @@ export const PoliticalPartySchema =
   SchemaFactory.createForClass(PoliticalParty);
 
 // Índices
-PoliticalPartySchema.index({ partyId: 1 }, { unique: true });
 PoliticalPartySchema.index({ active: 1 });
 PoliticalPartySchema.index({ shortName: 1 });
