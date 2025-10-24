@@ -25,11 +25,17 @@ import { ElectoralLocationService } from '../../geographic/services/electoral-lo
 import { ElectoralTableService } from '../../geographic/services/electoral-table.service';
 import { PoliticalPartyService } from '../../political/services/political-party.service';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
+import {
+  ElectoralTable,
+  ElectoralTableDocument,
+} from '@/modules/geographic/schemas/electoral-table.schema';
 
 @Injectable()
 export class BallotService {
   constructor(
     @InjectModel(Ballot.name) private ballotModel: Model<BallotDocument>,
+    @InjectModel(ElectoralTable.name)
+    private electoralTableModel: Model<ElectoralTableDocument>,
     private electoralLocationService: ElectoralLocationService,
     private electoralTableService: ElectoralTableService,
     private politicalPartyService: PoliticalPartyService,
@@ -44,7 +50,7 @@ export class BallotService {
         true,
       );
       const ballotData = this.extractBallotData(ipfsData);
-      await this.validateBallotData(ballotData);
+      await this.validateBallotData(ballotData, electionId);
 
       const locationDetails = await this.getLocationDetails(
         ballotData.locationId,
@@ -84,7 +90,8 @@ export class BallotService {
       const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
 
       const ballotData = this.extractBallotData(ipfsData);
-      await this.validateBallotData(ballotData);
+      const eid = await this.resolveElectionId(createDto.electionId);
+      await this.validateBallotData(ballotData, eid as any);
 
       return true;
     } catch (error) {
@@ -121,14 +128,24 @@ export class BallotService {
       }
       return new Types.ObjectId(electionId);
     }
-    const active = await this.electionConfigService.getActiveConfig();
-    if (active) return new Types.ObjectId(active.id);
-    if (require) {
-      throw new NotFoundException('No hay configuración electoral activa');
-    }
-    return undefined;
-  }
 
+    // Soportar múltiples activas (una por tipo). Si hay >1 activas en total,
+    // exigir electionId explícito para evitar ambigüedad.
+    const actives = await this.electionConfigService.getActiveConfigs();
+    if (actives.length === 0) {
+      if (require) {
+        throw new NotFoundException('No hay configuración electoral activa');
+      }
+      return undefined;
+    }
+    if (actives.length > 1) {
+      // Igual al criterio del PreliminaryResultsGuard
+      throw new BadRequestException(
+        'Hay varias elecciones activas; envíe electionId',
+      );
+    }
+    return new Types.ObjectId(actives[0].id);
+  }
   // private async fetchFromIpfs(ipfsUri: string): Promise<OpenSeaMetadata> {
   //   try {
   //     const response = await fetch(ipfsUri);
@@ -164,8 +181,7 @@ export class BallotService {
             text = await response.text();
             if (text.trim().startsWith('{') || text.trim().startsWith('['))
               break;
-          } catch {
-          }
+          } catch {}
         }
       }
       if (!(text.trim().startsWith('{') || text.trim().startsWith('['))) {
@@ -230,7 +246,10 @@ export class BallotService {
     return ballotData;
   }
 
-  private async validateBallotData(data: BallotDataFromIpfs): Promise<void> {
+  private async validateBallotData(
+    data: BallotDataFromIpfs,
+    electionId?: Types.ObjectId,
+  ): Promise<void> {
     const errors: string[] = [];
 
     // Validar estructura básica
@@ -249,7 +268,7 @@ export class BallotService {
           'presidentes',
         );
         errors.push(...partiesErrors);
-      } 
+      }
 
       // Validar votos de diputados
       if (data.votes.deputies) {
@@ -258,7 +277,7 @@ export class BallotService {
           'diputados',
         );
         errors.push(...deputiesErrors);
-      } 
+      }
     }
 
     // Validar que el recinto electoral existe
@@ -269,13 +288,31 @@ export class BallotService {
     }
 
     try {
+      const table = await this.electoralTableService.findByTableCode(
+        data.tableCode,
+      );
+
+      if (
+        !table ||
+        String(table.electoralLocationId) !== String(data.locationId)
+      ) {
+        throw new Error('mismatch');
+      }
+    } catch {
+      errors.push('TABLE_NOT_FOUND_OR_MISMATCH');
+    }
+
+    try {
       const partyIds = [
         ...(data.votes?.parties?.partyVotes ?? []).map((pv) => pv.partyId),
         ...(data.votes?.deputies?.partyVotes ?? []).map((pv) => pv.partyId),
       ];
       const uniqueIds = Array.from(new Set(partyIds)).filter(Boolean);
       if (uniqueIds.length > 0) {
-        const ok = await this.politicalPartyService.validatePartyIds(uniqueIds);
+        const ok = await this.politicalPartyService.validatePartyIds(
+          uniqueIds,
+          electionId ? String(electionId) : undefined,
+        );
         if (!ok) errors.push('IDs de partido inválidos o inactivos');
       }
     } catch {

@@ -15,6 +15,8 @@ export enum ElectionType {
   DEPARTAMENTAL = 'departamental',
   MUNICIPAL = 'municipal',
   REFERENDUM = 'referendum',
+  CONGRESS = 'congress',
+  PARLACEN = 'parlacen',
 }
 export enum ElectionRound {
   FIRST = 1,
@@ -148,7 +150,7 @@ export class ElectionConfigResponseDto {
   timezone: string;
   createdAt: Date;
   updatedAt: Date;
-    type?: ElectionType;
+  type?: ElectionType;
   round?: ElectionRound;
 }
 

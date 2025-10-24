@@ -9,6 +9,7 @@ import { ElectionConfigController } from './controllers/election-config.controll
 import { VotingPeriodGuard } from './guards/voting-period.guard';
 import { ResultsPeriodGuard } from './guards/results-period.guard';
 import { ElectionConfigGuard } from './guards/election-config.guard';
+import { PreliminaryResultsGuard } from './guards/preliminary-results.guard';
 
 @Module({
   imports: [
@@ -22,12 +23,14 @@ import { ElectionConfigGuard } from './guards/election-config.guard';
     VotingPeriodGuard,
     ResultsPeriodGuard,
     ElectionConfigGuard,
+    PreliminaryResultsGuard,
   ],
   exports: [
     ElectionConfigService,
     VotingPeriodGuard,
     ResultsPeriodGuard,
     ElectionConfigGuard,
+    PreliminaryResultsGuard,
   ],
 })
 export class ElectionsModule {}

@@ -56,11 +56,37 @@ export class ResultsService implements OnModuleInit {
     );
   }
 
+  private parseSingleElectionId(eid?: string): string | undefined {
+    if (!eid) return undefined;
+    const ids = eid
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const valid = ids.filter(Types.ObjectId.isValid);
+    return valid.length === 1 ? valid[0] : undefined;
+  }
+
   private async currentElectionMatch(electionId?: string) {
-    if (electionId) return { electionId: new Types.ObjectId(electionId) };
-    // si quieres por defecto la activa, inyecta ElectionConfigService aquí también
-    const active = await this.electionConfigService.getActiveConfig();
-    return active ? { electionId: new Types.ObjectId(active.id) } : {};
+    if (electionId) {
+      const parts = electionId
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const ids = parts
+        .filter((part) => Types.ObjectId.isValid(part))
+        .map((part) => new Types.ObjectId(part));
+      if (ids.length === 0) return {};
+      return ids.length === 1
+        ? { electionId: ids[0] }
+        : { electionId: { $in: ids } };
+    }
+    const actives = await this.electionConfigService.getActiveConfigs();
+    if (!actives?.length) return {};
+    return {
+      electionId: {
+        $in: actives.map((active) => new Types.ObjectId(active.id)),
+      },
+    };
   }
 
   // private buildLocationTableQuery(filters?: LocationFilterDto) {
@@ -151,6 +177,8 @@ export class ResultsService implements OnModuleInit {
       { $unwind: '$location' },
     ];
 
+    stages.push({ $match: { active: true } });
+
     if (filters?.electoralLocation) {
       stages.push({ $match: { 'location.name': filters.electoralLocation } });
     }
@@ -170,7 +198,6 @@ export class ResultsService implements OnModuleInit {
       stages.push({ $match: { 'seat.name': filters.electoralSeat } });
     }
 
-    // seats → municipalities
     stages.push({
       $lookup: {
         from: 'municipalities',
@@ -185,7 +212,6 @@ export class ResultsService implements OnModuleInit {
       stages.push({ $match: { 'municipality.name': filters.municipality } });
     }
 
-    // municipalities → provinces
     stages.push({
       $lookup: {
         from: 'provinces',
@@ -200,7 +226,6 @@ export class ResultsService implements OnModuleInit {
       stages.push({ $match: { 'province.name': filters.province } });
     }
 
-    // provinces → departments
     stages.push({
       $lookup: {
         from: 'departments',
@@ -217,6 +242,27 @@ export class ResultsService implements OnModuleInit {
     if (filters?.tableCode) {
       stages.push({ $match: { tableCode: filters.tableCode } });
     }
+    // Si llegó exactamente 1 electionId → excluir mesas observadas para ESA elección
+    const oneEid = this.parseSingleElectionId((filters as any)?.electionId);
+    if (oneEid) {
+      stages.push({ $addFields: { observedKey: oneEid } });
+      stages.push({
+        $addFields: {
+          isObservedByElection: {
+            $ifNull: [
+              {
+                $getField: {
+                  input: '$observedByElection',
+                  field: '$observedKey',
+                },
+              },
+              false,
+            ],
+          },
+        },
+      });
+      stages.push({ $match: { isObservedByElection: { $ne: true } } });
+    }
 
     return stages;
   }
@@ -231,22 +277,19 @@ export class ResultsService implements OnModuleInit {
   private async attestedEffectiveBallotsPipeline(
     locationFilters?: LocationFilterDto,
     electionId?: string,
+    mode: 'final' | 'live' = 'final',
   ): Promise<any[]> {
     const eidMatch = await this.currentElectionMatch(electionId);
     const locMatch = this.buildLocationMatch(locationFilters);
 
-    return [
-      // Solo actas listas y marcadas como "cuentan"
-      {
-        $match: {
-          status: { $in: ['processed', 'synced'] },
-          valuable: true,
-          ...eidMatch,
-          ...locMatch,
-        },
-      },
+    const baseMatch: any = {
+      status: { $in: ['processed', 'synced'] },
+      ...eidMatch,
+      ...locMatch,
+    };
 
-      // Caso de atestiguamiento por mesa
+    // Lookup de caso por mesa/elección
+    const attachCase = [
       {
         $lookup: {
           from: 'attestation_cases',
@@ -267,15 +310,10 @@ export class ResultsService implements OnModuleInit {
         },
       },
       { $addFields: { case: { $arrayElemAt: ['$case', 0] } } },
-      // Solo mesas que cuentan: CONSENSUAL, CLOSED o PENDING (VERIFYING no cuenta)
-      {
-        $match: { 'case.status': { $in: ['CONSENSUAL', 'CLOSED', 'PENDING'] } },
-      },
+    ];
 
-      // Solo la versión ganadora del caso
-      { $match: { $expr: { $eq: ['$_id', '$case.winningBallotId'] } } },
-
-      // Vincular mesa y descartar observadas/ inactivas
+    // Lookup mesa y flag de observación POR elección
+    const attachTable = [
       {
         $lookup: {
           from: 'electoral_tables',
@@ -285,8 +323,6 @@ export class ResultsService implements OnModuleInit {
         },
       },
       { $addFields: { table: { $arrayElemAt: ['$table', 0] } } },
-
-      // derive key por elección y marca por-elección
       { $addFields: { observedKey: { $toString: '$electionId' } } },
       {
         $addFields: {
@@ -303,111 +339,47 @@ export class ResultsService implements OnModuleInit {
           },
         },
       },
-      // ahora sí filtra
       { $match: { 'table.active': true, isObservedByElection: { $ne: true } } },
+    ];
 
-      { $sort: { tableCode: 1, version: -1, createdAt: -1 } },
-      { $group: { _id: '$tableCode', doc: { $first: '$$ROOT' } } },
+    if (mode === 'final') {
+      return [
+        { $match: { ...baseMatch, valuable: true } },
+        ...attachCase,
+        { $match: { 'case.status': { $in: ['CONSENSUAL', 'CLOSED'] } } },
+        { $match: { $expr: { $eq: ['$_id', '$case.winningBallotId'] } } },
+        ...attachTable,
+        { $sort: { tableCode: 1, version: -1, createdAt: -1 } },
+        { $group: { _id: '$tableCode', doc: { $first: '$$ROOT' } } },
+        { $replaceRoot: { newRoot: '$doc' } },
+      ];
+    }
+
+    // MODO LIVE:
+    return [
+      { $match: baseMatch },
+      { $sort: { createdAt: -1, version: -1 } },
+      {
+        $group: {
+          _id: '$tableCode',
+          countVersions: { $sum: 1 },
+          doc: { $first: '$$ROOT' },
+        },
+      },
+      { $match: { countVersions: 1 } },
       { $replaceRoot: { newRoot: '$doc' } },
+      ...attachTable,
     ];
   }
 
-  /**
-   * Obtiene el conteo rápido nacional (solo votos presidenciales)
-   */
-  /**
-   * Obtiene el conteo rápido nacional (solo votos presidenciales)
-   * Actualizado para usar la nueva estructura votes.parties
-   */
-  // async getQuickCount(electionId?: string): Promise<QuickCountResponseDto> {
-  //   const base = await this.attestedEffectiveBallotsPipeline(
-  //     undefined,
-  //     electionId,
-  //   );
-
-  //   const results = await this.ballotModel.aggregate([
-  //     ...base,
-  //     {
-  //       // Ahora descomponemos votes.parties.partyVotes en lugar de votes.partyVotes
-  //       $unwind: '$votes.parties.partyVotes',
-  //     },
-  //     {
-  //       $group: {
-  //         _id: '$votes.parties.partyVotes.partyId',
-  //         totalVotes: { $sum: '$votes.parties.partyVotes.votes' },
-  //         departments: { $addToSet: '$location.department' },
-  //       },
-  //     },
-  //     {
-  //       $project: {
-  //         _id: 0,
-  //         partyId: '$_id',
-  //         totalVotes: 1,
-  //         departmentsCovered: { $size: '$departments' },
-  //       },
-  //     },
-  //     {
-  //       $sort: { totalVotes: -1 },
-  //     },
-  //   ]);
-
-  //   // Calcular totales generales usando votes.parties
-  //   const totalValidVotes = await this.ballotModel.aggregate([
-  //     ...base,
-  //     { $group: { _id: null, total: { $sum: '$votes.parties.validVotes' } } },
-  //   ]);
-
-  //   const totalNullVotes = await this.ballotModel.aggregate([
-  //     ...base,
-  //     { $group: { _id: null, total: { $sum: '$votes.parties.nullVotes' } } },
-  //   ]);
-
-  //   const totalBlankVotes = await this.ballotModel.aggregate([
-  //     ...base,
-  //     { $group: { _id: null, total: { $sum: '$votes.parties.blankVotes' } } },
-  //   ]);
-
-  //   const grandTotal =
-  //     (totalValidVotes[0]?.total || 0) +
-  //     (totalNullVotes[0]?.total || 0) +
-  //     (totalBlankVotes[0]?.total || 0);
-
-  //   const denValid = totalValidVotes[0]?.total || 0;
-
-  //   // Agregar porcentajes a cada partido
-  //   const resultsWithPercentages = results.map((party) => ({
-  //     ...party,
-  //     percentage:
-  //       denValid > 0
-  //         ? ((party.totalVotes / denValid) * 100).toFixed(2)
-  //         : '0.00',
-  //   }));
-
-  //   // TODO: Publicar en cache
-
-  //   return {
-  //     results: resultsWithPercentages,
-  //     summary: {
-  //       validVotes: totalValidVotes[0]?.total || 0,
-  //       nullVotes: totalNullVotes[0]?.total || 0,
-  //       blankVotes: totalBlankVotes[0]?.total || 0,
-  //       totalVotes: grandTotal,
-  //       tablesProcessed: await this.ballotModel
-  //         .aggregate([
-  //           ...base,
-  //           { $group: { _id: null, count: { $addToSet: '$tableCode' } } },
-  //           { $project: { _id: 0, tablesProcessed: { $size: '$count' } } },
-  //         ])
-  //         .then((r) => r[0]?.tablesProcessed ?? 0),
-  //     },
-  //     lastUpdate: new Date(),
-  //   };
-  // }
-
-  async getQuickCount(electionId?: string): Promise<QuickCountResponseDto> {
+  async getQuickCount(
+    electionId?: string,
+    mode: 'final' | 'live' = 'final',
+  ): Promise<QuickCountResponseDto> {
     const base = await this.attestedEffectiveBallotsPipeline(
       undefined,
       electionId,
+      mode,
     );
 
     const agg = await this.ballotModel
@@ -594,11 +566,14 @@ export class ResultsService implements OnModuleInit {
   //   };
   // }
   async getResultsByLocation(
-    filters: LocationFilterDto & ElectionTypeFilterDto,
+    filters: (LocationFilterDto & ElectionTypeFilterDto) & {
+      mode?: 'final' | 'live';
+    },
   ): Promise<LocationResultsResponseDto> {
     const base = await this.attestedEffectiveBallotsPipeline(
       filters,
       filters.electionId,
+      filters.mode ?? 'final',
     );
     const tableQuery = this.buildLocationTableQuery(filters);
 
@@ -680,12 +655,14 @@ export class ResultsService implements OnModuleInit {
           : '0.00',
     }));
 
-    const totalTables = this.hasAnyLocationFilter(filters)
-      ? await this.electoralTableModel
-          .aggregate(tableQuery)
-          .allowDiskUse(true)
-          .exec()
-      : await this.electoralTableModel.countDocuments({});
+    const totalTablesAgg = await this.electoralTableModel
+      .aggregate([...tableQuery, { $count: 'n' }])
+      .allowDiskUse(true)
+      .exec();
+    const totalTables =
+      Array.isArray(totalTablesAgg) && totalTablesAgg[0]?.n
+        ? totalTablesAgg[0].n
+        : 0;
 
     return {
       filters,
@@ -696,9 +673,7 @@ export class ResultsService implements OnModuleInit {
         blankVotes: summary.blankVotes || 0,
         totalVotes: grandTotal,
         tablesProcessed: (summary.totalTables || []).length,
-        totalTables: Array.isArray(totalTables)
-          ? totalTables.length
-          : totalTables,
+        totalTables,
       },
       lastUpdate: new Date(),
     };
@@ -721,9 +696,11 @@ export class ResultsService implements OnModuleInit {
       tableFilter['location.municipality'] = filters.municipality;
     if (filters?.province) tableFilter['location.province'] = filters.province;
 
-    // Total de mesas esperadas
-    const totalTables =
-      await this.electoralTableModel.countDocuments(tableFilter);
+    const totalTablesAgg = await this.electoralTableModel
+      .aggregate([...this.buildLocationTableQuery(filters), { $count: 'n' }])
+      .allowDiskUse(true)
+      .exec();
+    const totalTables = totalTablesAgg[0]?.n ?? 0;
 
     // Construir filtro para actas registradas
     const eidMatch = await this.currentElectionMatch(filters?.electionId);
@@ -860,7 +837,13 @@ export class ResultsService implements OnModuleInit {
    * Método para obtener mapa de calor
    * para usar la nueva estructura de votos
    */
-  async getHeatMapData(params: any): Promise<HeatMapResponseDto> {
+  async getHeatMapData(params: {
+    electionType: 'presidential' | 'deputies';
+    locationType: 'department' | 'municipality' | 'province';
+    department?: string;
+    electionId?: string;
+    mode?: 'final' | 'live';
+  }): Promise<HeatMapResponseDto> {
     // TODO: Verificar cache
     const locFilters = params.department
       ? { department: params.department }
@@ -868,6 +851,7 @@ export class ResultsService implements OnModuleInit {
     const base = await this.attestedEffectiveBallotsPipeline(
       locFilters as any,
       params.electionId,
+      params.mode ?? 'final',
     );
     const groupKey =
       params.locationType === 'province'
@@ -887,8 +871,9 @@ export class ResultsService implements OnModuleInit {
       {
         $group: {
           _id: groupKey,
-          totalVotes: { $sum: `$${votesPath}.totalVotes` },
           validVotes: { $sum: `$${votesPath}.validVotes` },
+          nullVotes: { $sum: `$${votesPath}.nullVotes` },
+          blankVotes: { $sum: `$${votesPath}.blankVotes` },
           partyVotes: { $push: `$${votesPath}.partyVotes` },
         },
       },
@@ -897,8 +882,11 @@ export class ResultsService implements OnModuleInit {
           _id: 0,
           location: '$_id',
           locationType: params.locationType ?? 'department',
-          totalVotes: 1,
-          participationRate: 0, // TODO: Implementar cuando tengamos datos del OEP
+          validVotes: 1,
+          nullVotes: 1,
+          blankVotes: 1,
+          totalVotes: { $add: ['$validVotes', '$nullVotes', '$blankVotes'] },
+          participationRate: 0,
           partyPercentages: {
             $arrayToObject: {
               $map: {
@@ -937,7 +925,6 @@ export class ResultsService implements OnModuleInit {
       },
       { $sort: { location: 1 } },
     ]);
-
     return {
       data: results,
       electionType: params.electionType,
@@ -950,12 +937,12 @@ export class ResultsService implements OnModuleInit {
    * util para visualizar resultados por distritos electorales
    */
   async getResultsByCircunscripcion(
-    filters: CircunscripcionFilterDto,
+    filters: CircunscripcionFilterDto & { mode?: 'final' | 'live' },
   ): Promise<CircunscripcionResponseDto> {
-    // TODO: Verificar cache
     const base = await this.attestedEffectiveBallotsPipeline(
       filters,
       filters.electionId,
+      filters.mode ?? 'final',
     );
     // Determinar qué campo usar según el tipo de elección
     const votesPath =
