@@ -26,7 +26,7 @@ const mkModelCtor = () => {
   return fn;
 };
 
-describe('MunicipalityService (unit)', () => {
+describe('MunicipalityService', () => {
   let svc: MunicipalityService;
   const model = mkModelCtor();
   const provSvc = { findOne: jest.fn(), findByDepartment: jest.fn() };
@@ -45,7 +45,7 @@ describe('MunicipalityService (unit)', () => {
     svc = mod.get(MunicipalityService);
   });
 
-  it('MUN-SVC-001 create: verifica provincia y dup -> 409', async () => {
+  it('create: verifica provincia y dup entonces 409', async () => {
     provSvc.findOne.mockResolvedValue({ _id: oid() });
     await expect(svc.create({ name: 'A', provinceId: oid() as any } as any)).resolves.toBeTruthy();
     (model as any).mockImplementationOnce(() => ({
@@ -55,7 +55,7 @@ describe('MunicipalityService (unit)', () => {
       .rejects.toThrow(ConflictException);
   });
 
-  it('MUN-SVC-002 findAll: con departmentId usa ProvinceService.findByDepartment', async () => {
+  it('findAll: con departmentId usa ProvinceService.findByDepartment', async () => {
     provSvc.findByDepartment.mockResolvedValue([{ _id: oid() }]);
     model.find.mockReturnValue(chain([{ name: 'B' }]));
     model.countDocuments.mockReturnValue(chain(1));
@@ -64,23 +64,23 @@ describe('MunicipalityService (unit)', () => {
     expect(provSvc.findByDepartment).toHaveBeenCalled();
   });
 
-  it('MUN-SVC-003 findOne: 404', async () => {
+  it('findOne: 404', async () => {
     model.findById.mockReturnValue(chain(null));
     await expect(svc.findOne('x')).rejects.toThrow(NotFoundException);
   });
 
-  it('MUN-SVC-004 update: dup → 409', async () => {
+  it('update: dup entonces 409', async () => {
     const dup = Object.assign(new Error('dup'), { code: 11000 });
     model.findByIdAndUpdate.mockReturnValue(rejectChain(dup));
     await expect(svc.update('id', { name: 'C' })).rejects.toThrow(ConflictException);
   });
 
-  it('MUN-SVC-005 remove: 404', async () => {
+  it('remove: 404', async () => {
     model.findByIdAndDelete.mockReturnValue(chain(null));
     await expect(svc.remove('id')).rejects.toThrow(NotFoundException);
   });
 
-  it('MUN-SVC-006 ensureByName: maneja carrera', async () => {
+  it('ensureByName: maneja carrera', async () => {
     model.findOne.mockReturnValueOnce(chain(null));
     model.create.mockRejectedValueOnce(Object.assign(new Error('dup'), { code: 11000 }));
     model.findOne.mockReturnValueOnce(chain({ _id: 'M1', name: 'Cercado' }));
@@ -88,7 +88,7 @@ describe('MunicipalityService (unit)', () => {
     expect(out.name).toBe('Cercado');
   });
 
-  it('MUN-SVC-007 bulkEnsureByProvince: bulk + mapa', async () => {
+  it('bulkEnsureByProvince: bulk + mapa', async () => {
     model.bulkWrite.mockResolvedValue({ ok: 1 });
     model.find.mockReturnValue(chain([{ name: 'X' }, { name: 'Y' }]));
     const map = await svc.bulkEnsureByProvince(oid(), ['X', 'Y', 'X']);
@@ -96,7 +96,7 @@ describe('MunicipalityService (unit)', () => {
     expect(map.get('Y')).toBeDefined();
   });
 
-  it('MUN-SVC-008 mapByNames: retorna mapa simple', async () => {
+  it('mapByNames: retorna mapa simple', async () => {
     model.find.mockReturnValue(chain([{ name: 'Tarija' }]));
     const map = await svc.mapByNames(oid(), ['Tarija']);
     expect(map.get('Tarija')).toBeDefined();

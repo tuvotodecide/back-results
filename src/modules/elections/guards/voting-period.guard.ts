@@ -7,7 +7,7 @@ export class VotingPeriodGuard implements CanActivate {
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest();
-    // Puede venir en body (crear acta) o en query
+
     const electionId: string | undefined = req.body?.electionId ?? req.query?.electionId;
 
     const actives = await this.electionConfigService.getActiveConfigs();

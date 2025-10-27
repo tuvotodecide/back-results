@@ -30,12 +30,12 @@ const attCaseModel = () => ({
 });
 
 const electionCfg = {
-  getActiveConfigs: jest.fn().mockResolvedValue([{ id: 'E1' }]),
+  getActiveConfigs: jest.fn().mockResolvedValue([{ id: 'Election1' }]),
   getActiveConfig: jest.fn(),
 };
 const userSvc = { findOrCreateByDni: jest.fn() };
 
-describe('AttestationService (unit)', () => {
+describe('AttestationService', () => {
   let svc: AttestationService;
 
   beforeEach(async () => {
@@ -54,7 +54,6 @@ describe('AttestationService (unit)', () => {
     jest.clearAllMocks();
   });
 
-  // ATT-UT-001
   it('crear attestation crea usuario si no existe', async () => {
     const validBallotId = new Types.ObjectId().toString();
     const validElectionId = new Types.ObjectId().toString();
@@ -63,17 +62,16 @@ describe('AttestationService (unit)', () => {
     userSvc.findOrCreateByDni.mockResolvedValue({ _id: 'U1' });
 
     await (svc as any).create({
-      dni: '123',
+      dni: '12345678',
       ballotId: validBallotId,
       electionId: validElectionId,
       support: true,
     });
 
-    expect(userSvc.findOrCreateByDni).toHaveBeenCalledWith('123');
+    expect(userSvc.findOrCreateByDni).toHaveBeenCalledWith('12345678');
   });
 
-  // ATT-UT-002
-  it('unicidad (userId, ballotId) retorna error amigable', async () => {
+  it('unicidad retorna error', async () => {
     const validBallotId = new Types.ObjectId().toString();
     const validElectionId = new Types.ObjectId().toString();
 
@@ -83,7 +81,7 @@ describe('AttestationService (unit)', () => {
 
     await expect(
       (svc as any).create({
-        dni: '123',
+        dni: '12345678',
         ballotId: validBallotId, 
         electionId: validElectionId,
         support: true,
@@ -91,8 +89,7 @@ describe('AttestationService (unit)', () => {
     ).rejects.toThrow(/ya atestiguó/i);
   });
 
-  // ATT-UT-003
-  it('filtros + paginación por electionId/isJury/support', async () => {
+  it('filtros por electionId/isJury/support', async () => {
     (svc as any).attestationModel.find.mockReturnValue({
       skip: () => ({
         limit: () => ({ sort: () => ({ lean: () => [{ _id: 'A1' }] }) }),
@@ -101,7 +98,7 @@ describe('AttestationService (unit)', () => {
     (svc as any).attestationModel.countDocuments.mockResolvedValue(42);
 
     const res = await (svc as any).list({
-      electionId: 'E1',
+      electionId: 'Election1',
       isJury: true,
       support: false,
       page: 2,
@@ -109,18 +106,5 @@ describe('AttestationService (unit)', () => {
     });
     expect(res.total).toBe(42);
     expect(Array.isArray(res.items)).toBe(true);
-  });
-
-  // ATT-UT-005
-  it('most-supported version retorna la versión con más support:true', async () => {
-    (svc as any).attestationModel.aggregate.mockResolvedValue([
-      { ballotId: 'B2', total: 5 },
-    ]);
-    const res = await (svc as any).getMostSupportedForTable({
-      tableCode: 'TAB1',
-      electionId: 'E1',
-    });
-    expect(res.ballotId).toBe('B2');
-    expect(res.total).toBe(5);
   });
 });

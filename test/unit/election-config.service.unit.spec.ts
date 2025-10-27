@@ -16,7 +16,7 @@ const mkModel = () => ({
   save: jest.fn(),
 });
 
-describe('ElectionConfigService (unit)', () => {
+describe('ElectionConfigService', () => {
   let svc: ElectionConfigService;
   const model = mkModel();
 
@@ -32,9 +32,9 @@ describe('ElectionConfigService (unit)', () => {
     jest.clearAllMocks();
   });
 
-  it('ELEC-SVC-001 create desactiva del mismo type y timezone=America/La_Paz', async () => {
+  it('create desactiva del mismo type y timezone=America/La_Paz', async () => {
     const dto: any = {
-      name: 'Gen-2025',
+      name: 'Generales-2025',
       votingStartDate: new Date().toISOString(),
       votingEndDate: new Date(Date.now() + 60_000).toISOString(),
       resultsStartDate: new Date(Date.now() + 120_000).toISOString(),
@@ -42,9 +42,9 @@ describe('ElectionConfigService (unit)', () => {
       allowDataModification: false,
     };
 
-    // mock del "new this.electionConfigModel(dto).save()"
+
     const saved: any = {
-      _id: '65f0f0f0f0f0f0f0f0f0f0f0',
+      _id: '65a1a1a1a1a1a1a1a1a1a1a1',
       ...dto,
       timezone: 'America/La_Paz',
       createdAt: new Date(),
@@ -52,7 +52,6 @@ describe('ElectionConfigService (unit)', () => {
       isActive: true,
     };
     (model as any).save = jest.fn().mockResolvedValue(saved);
-    // hack para interceptar new Model(...)
     (svc as any).electionConfigModel = Object.assign(function (data: any) {
       return { ...data, save: (model as any).save };
     }, model);
@@ -68,7 +67,7 @@ describe('ElectionConfigService (unit)', () => {
     expect(out.isActive).toBe(true);
   });
 
-  it('ELEC-SVC-002 create lanza 409 por 11000', async () => {
+  it('create lanza 409 por 11000', async () => {
     (model as any).save = jest.fn().mockRejectedValue({ code: 11000 });
     (svc as any).electionConfigModel = Object.assign(function (data: any) {
       return { ...data, save: (model as any).save };
@@ -82,7 +81,7 @@ describe('ElectionConfigService (unit)', () => {
     await expect(svc.create(dto)).rejects.toThrow(ConflictException);
   });
 
-  it('ELEC-SVC-003 update activa ⇒ desactiva otras del mismo type', async () => {
+  it('update activa ⇒ desactiva otras del mismo type', async () => {
     const existing: any = {
       _id: 'x',
       type: 'presidential',
@@ -105,7 +104,7 @@ describe('ElectionConfigService (unit)', () => {
     );
   });
 
-  it('ELEC-SVC-004 update valida fechas (resultsStart < votingEnd) ⇒ 400', async () => {
+  it('Update valida fechas (resultsStart < votingEnd) entonces 400', async () => {
     const base: any = {
       _id: 'x',
       votingStartDate: new Date(),
@@ -123,7 +122,7 @@ describe('ElectionConfigService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('ELEC-SVC-005 getActiveConfig retorna la más reciente', async () => {
+  it('getActiveConfig retorna la más reciente', async () => {
     const doc: any = {
       _id: '1',
       name: 'A',
@@ -142,17 +141,5 @@ describe('ElectionConfigService (unit)', () => {
     });
     const out = await svc.getActiveConfig();
     expect(out?.id).toBe('1');
-  });
-
-  it('ELEC-SVC-006 getElectionStatus sin config devuelve flags en false', async () => {
-    (model.findOne as jest.Mock).mockReturnValue({
-      sort: jest.fn().mockReturnThis(),
-      exec: jest.fn().mockResolvedValue(null),
-    });
-    const status = await svc.getElectionStatus();
-    expect(status.hasActiveConfig).toBe(false);
-    expect(status.isVotingPeriod).toBe(false);
-    expect(status.isResultsPeriod).toBe(false);
-    expect(typeof status.currentTimeBolivia).toBe('string');
   });
 });

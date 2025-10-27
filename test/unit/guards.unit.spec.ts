@@ -21,8 +21,8 @@ describe('Election Guards (unit)', () => {
 
   beforeEach(() => jest.clearAllMocks());
 
-  // VotingPeriodGuard
-  it('GRD-UT-001 VotingPeriodGuard: sin activas → 403 NO_ELECTION_CONFIG', async () => {
+
+  it(' VotingPeriodGuard: sin activas entonces 403 NO_ELECTION_CONFIG', async () => {
     svc.getActiveConfigs.mockResolvedValue([]);
     const g = new VotingPeriodGuard(svc);
     await expect(g.canActivate(mkCtx())).rejects.toThrow(ForbiddenException);
@@ -31,7 +31,7 @@ describe('Election Guards (unit)', () => {
     );
   });
 
-  it('GRD-UT-002 VotingPeriodGuard: varias activas sin electionId → msg exacto', async () => {
+  it('VotingPeriodGuard: varias activas sin electionId entonces msg exacto', async () => {
     svc.getActiveConfigs.mockResolvedValue([
       { id: 'a', votingStartDate: past, votingEndDate: future },
       { id: 'b', votingStartDate: past, votingEndDate: future },
@@ -42,7 +42,7 @@ describe('Election Guards (unit)', () => {
     );
   });
 
-  it('GRD-UT-003 VotingPeriodGuard: fuera de horario sin allowDataModification → 403', async () => {
+  it('VotingPeriodGuard: fuera de horario sin allowDataModification entonces 403', async () => {
     svc.getActiveConfigs.mockResolvedValue([
       {
         id: 'a',
@@ -57,8 +57,7 @@ describe('Election Guards (unit)', () => {
     );
   });
 
-  // ResultsPeriodGuard
-  it('GRD-UT-004 ResultsPeriodGuard: antes de resultsStartDate → 403 RESULTS_NOT_AVAILABLE', async () => {
+  it('GRD-UT-004 ResultsPeriodGuard: antes de resultsStartDate entonces 403 RESULTS_NOT_AVAILABLE', async () => {
     svc.getActiveConfigs.mockResolvedValue([
       { id: 'a', resultsStartDate: future },
     ]);
@@ -68,8 +67,7 @@ describe('Election Guards (unit)', () => {
     );
   });
 
-  // PreliminaryResultsGuard
-  it('GRD-UT-005 PreliminaryResultsGuard: varias activas sin electionId → LIVE msg', async () => {
+  it('PreliminaryResultsGuard: varias activas sin electionId entonces LIVE msg', async () => {
     svc.getActiveConfigs.mockResolvedValue([
       { id: 'a', votingStartDate: past, votingEndDate: future },
       { id: 'b', votingStartDate: past, votingEndDate: future },
@@ -80,14 +78,14 @@ describe('Election Guards (unit)', () => {
     );
   });
 
-  it('GRD-UT-006 PreliminaryResultsGuard: ok dentro de horario', async () => {
+  it('PreliminaryResultsGuard: ok dentro de horario', async () => {
     svc.getActiveConfigs.mockResolvedValue([
       { id: 'a', votingStartDate: past, votingEndDate: future },
     ]);
     const g = new PreliminaryResultsGuard(svc);
     await expect(g.canActivate(mkCtx())).resolves.toBe(true);
   });
-  it('GRD-UT-007 valida contra la config indicada por electionId', async () => {
+  it('valida contra la config indicada por electionId', async () => {
     const past = new Date(Date.now() - 60_000);
     const future = new Date(Date.now() + 60_000);
     svc.getActiveConfigs.mockResolvedValue([

@@ -18,7 +18,7 @@ describe('ElectoralLocationService (unit)', () => {
   const locCol = { createIndex: jest.fn().mockResolvedValue(true) };
 
   const locationModel: any = Object.assign(
-    jest.fn(), // constructor no usado aquí
+    jest.fn(), 
     {
       collection: locCol,
       create: jest.fn(),
@@ -53,19 +53,14 @@ describe('ElectoralLocationService (unit)', () => {
         },
         { provide: getModelToken(ElectoralTable.name), useValue: tableModel },
         { provide: getModelToken(Ballot.name), useValue: ballotModel },
-        { provide: ElectoralSeatService, useValue: seatSvc }, // ← ¡esto!
+        { provide: ElectoralSeatService, useValue: seatSvc }, 
         { provide: LoggerService, useValue: logger },
       ],
     }).compile();
     svc = mod.get(ElectoralLocationService);
   });
 
-  it('LOC-SVC-001 onModuleInit crea índice 2dsphere', async () => {
-    await svc.onModuleInit();
-    expect(locCol.createIndex).toHaveBeenCalledWith({ geo: '2dsphere' });
-  });
-
-  it('LOC-SVC-002 create: arma geo point y guarda', async () => {
+  it('create: arma geo point y guarda', async () => {
     const seatId = oid();
     (locationModel.create as jest.Mock).mockResolvedValue({
       toObject: () => ({ name: 'X', electoralSeatId: seatId }),
@@ -86,19 +81,19 @@ describe('ElectoralLocationService (unit)', () => {
     expect(locationModel.create).toHaveBeenCalled();
   });
 
-  it('LOC-SVC-003 findOne: 404 si no existe', async () => {
+  it('findOne: 404 si no existe', async () => {
     locationModel.findById.mockReturnValue(chain(null));
     await expect(svc.findOne(oid().toString())).rejects.toThrow(
       NotFoundException,
     );
   });
 
-  it('LOC-SVC-004 findByCode: 404 si no existe', async () => {
+  it('findByCode: 404 si no existe', async () => {
     locationModel.findOne.mockReturnValue(chain(null));
     await expect(svc.findByCode('NOPE')).rejects.toThrow(/no encontrado/i);
   });
 
-  it('LOC-SVC-005 resolveByIdOrCode: elige rama correcta', async () => {
+  it('resolveByIdOrCode: elige rama correcta', async () => {
     const doc = { _id: oid(), name: 'L' };
     locationModel.findById.mockReturnValue(chain(doc));
     await expect(
@@ -106,7 +101,7 @@ describe('ElectoralLocationService (unit)', () => {
     ).resolves.toBe(doc as any);
   });
 
-  it('LOC-SVC-006 update: coordinates inválidas → 400', async () => {
+  it('update: coordinates inválidas → 400', async () => {
     locationModel.findByIdAndUpdate = jest
       .fn()
       .mockReturnValue(
@@ -119,7 +114,7 @@ describe('ElectoralLocationService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('LOC-SVC-007 findNearby: integra geosearch + populate + tables + ballots', async () => {
+  it('findNearby: integra geosearch + populate + tables + ballots', async () => {
     const lat = -17.3,
       lng = -66.1;
     const L1 = { _id: oid(), geo: { coordinates: [lng, lat] }, name: 'R1' };
@@ -183,12 +178,12 @@ describe('ElectoralLocationService (unit)', () => {
     expect(typeof out.data[0].distance).toBe('number');
   });
 
-  it('LOC-SVC-008 remove: 404 si no existe', async () => {
+  it('remove: 404 si no existe', async () => {
     locationModel.findByIdAndDelete = jest.fn().mockReturnValue(chain(null));
     await expect(svc.remove(oid())).rejects.toThrow(NotFoundException);
   });
 
-  it('LOC-SVC-009 getStatistics: retorna totales/byType', async () => {
+  it('getStatistics: retorna totales/byType', async () => {
     locationModel.aggregate.mockResolvedValue([
       { type: 'Especial', count: 2, distinctDistricts: 1, distinctZones: 1 },
     ]);

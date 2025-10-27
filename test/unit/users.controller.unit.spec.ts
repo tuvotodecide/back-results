@@ -19,7 +19,7 @@ const mkLogModel = () => ({
 
 
 
-describe('UsersController (unit)', () => {
+describe('UsersController', () => {
   let ctrl: UsersController;
   const svc = mkUsersService();
   const logModel = mkLogModel();
@@ -36,7 +36,7 @@ describe('UsersController (unit)', () => {
     ctrl = mod.get(UsersController);
   });
 
-  it('USR-CTL-001 register: devuelve user shape', async () => {
+  it('register: devuelve user shape', async () => {
     svc.findOrCreateByDni.mockResolvedValue({
       _id: 'U1',
       dni: '123',
@@ -48,7 +48,7 @@ describe('UsersController (unit)', () => {
     expect(out._id).toBe('U1');
   });
 
-  it('USR-CTL-002 getByDni: ok', async () => {
+  it('getByDni: ok', async () => {
     svc.findByDni.mockResolvedValue({
       _id: 'U2',
       dni: '555',
@@ -60,30 +60,30 @@ describe('UsersController (unit)', () => {
     expect(out.dni).toBe('555');
   });
 
-  it('USR-CTL-003 vote-place PATCH: delega en service', async () => {
+  it('vote-place delega en service', async () => {
     svc.updateVotePlaceByDni.mockResolvedValue({ dni: '7', location: null, table: null });
     const out = await ctrl.updateVotePlace('7', {});
     expect(out.dni).toBe('7');
   });
 
-  it('USR-CTL-004 listNotificationsByDni: sin location → lista vacía', async () => {
+  it('listNotificationsByDni: sin location a lista vacía', async () => {
     svc.findOrCreateByDni.mockResolvedValue({ _id: 'U3', dni: '3' });
     const result = await ctrl.listNotificationsByDni('3', 1 as any, 10 as any);
     expect(result.total).toBe(0);
     expect(result.data).toEqual([]);
   });
 
-  it('USR-CTL-005 listNotificationsByDni: con location → pagina y filtra por topic', async () => {
-    svc.findOrCreateByDni.mockResolvedValue({ _id: 'U4', dni: '4', votingLocationId: '507f1f77bcf86cd799439011' });
-    logModel.find.mockReturnValue(chain([{ _id: 'N1', topic: 'loc_507f1f77bcf86cd799439011', text: 'hola' }]));
+  it('listNotificationsByDni: con location a pagina y filtra por topic', async () => {
+    svc.findOrCreateByDni.mockResolvedValue({ _id: 'U4', dni: '4', votingLocationId: '507f1f' });
+    logModel.find.mockReturnValue(chain([{ _id: 'N1', topic: 'loc_507f1f', text: 'hola' }]));
     logModel.countDocuments.mockResolvedValue(1);
 
     const result = await ctrl.listNotificationsByDni('4', 2 as any, 1 as any);
     expect(result.page).toBe(2);
     expect(result.total).toBe(1);
-    expect(logModel.find).toHaveBeenCalledWith({ topic: 'loc_507f1f77bcf86cd799439011' });
+    expect(logModel.find).toHaveBeenCalledWith({ topic: 'loc_507f1f' });
   });
-  it('USR-CTL-006 getVotePlace: delega en service', async () => {
+  it('getVotePlace: delega en service', async () => {
   svc.getVotePlaceByDni.mockResolvedValue({
     userId: 'U9',
     dni: '9',

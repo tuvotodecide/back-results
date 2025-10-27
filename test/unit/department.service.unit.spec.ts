@@ -6,7 +6,7 @@ import { Department } from '@/modules/geographic/schemas/department.schema';
 import { LoggerService } from '@/core/services/logger.service';
 import { chain, rejectChain } from '../utils/chain';
 
-describe('DepartmentService (unit)', () => {
+describe('DepartmentService', () => {
   let svc: DepartmentService;
 
   const mkDeptModelCtor = () => {
@@ -41,7 +41,7 @@ describe('DepartmentService (unit)', () => {
     }).compile();
     svc = mod.get(DepartmentService);
   });
-  it('DEP-SVC-001 create: dup 11000 → 409', async () => {
+  it('crear dup 11000 → 409', async () => {
     const dup = Object.assign(new Error('dup'), { code: 11000 });
 
     model.mockImplementationOnce((doc: any) => ({
@@ -54,7 +54,7 @@ describe('DepartmentService (unit)', () => {
     );
   });
 
-  it('DEP-SVC-002 findAll: aplica filtros y pagina', async () => {
+  it('findAll: aplica filtros', async () => {
     model.find.mockReturnValue(chain([{ name: 'La Paz' }]));
     model.countDocuments.mockReturnValue(chain(1));
     const out = await svc.findAll({
@@ -68,12 +68,12 @@ describe('DepartmentService (unit)', () => {
     expect(out.pagination.total).toBe(1);
   });
 
-  it('DEP-SVC-003 findOne: 404 si no existe', async () => {
+  it('findOne: 404 si no existe', async () => {
     model.findById.mockReturnValue(chain(null));
     await expect(svc.findOne('id')).rejects.toThrow(NotFoundException);
   });
 
-  it('DEP-SVC-004 update: dup 11000 → 409', async () => {
+  it('update: dup 11000 → 409', async () => {
     const dup = Object.assign(new Error('dup'), { code: 11000 });
     model.findByIdAndUpdate.mockReturnValue(rejectChain(dup));
     await expect(svc.update('id', { name: 'X' })).rejects.toThrow(
@@ -81,26 +81,25 @@ describe('DepartmentService (unit)', () => {
     );
   });
 
-  it('DEP-SVC-005 remove: 404 si no existe', async () => {
+  it('remove: 404 si no existe', async () => {
     model.findByIdAndDelete.mockReturnValue(chain(null));
     await expect(svc.remove('id')).rejects.toThrow(NotFoundException);
   });
 
-  it('DEP-SVC-006 ensureByName: crea o re-lee si hay carrera', async () => {
-    // 1) No existe inicialmente
+  it('ensureByName: crea o re-lee si hay carrera', async () => {
     model.findOne.mockReturnValueOnce(chain(null));
-    // 2) create corre pero hay carrera -> dup
+
     model.create.mockRejectedValueOnce(
       Object.assign(new Error('dup'), { code: 11000 }),
     );
-    // 3) Re-lee y encuentra
+
     model.findOne.mockReturnValueOnce(chain({ _id: 'D1', name: 'Santa Cruz' }));
 
     const out = await svc.ensureByName(' Santa   Cruz ');
     expect(out.name).toBe('Santa Cruz');
   });
 
-  it('DEP-SVC-007 bulkEnsure: hace bulk y retorna mapa', async () => {
+  it('bulkEnsure: hace bulk y retorna mapa', async () => {
     model.bulkWrite.mockResolvedValue({ ok: 1 });
     model.find.mockReturnValue(chain([{ name: 'Beni' }, { name: 'Pando' }]));
     const map = await svc.bulkEnsure(['Beni', 'Pando', 'Beni']);

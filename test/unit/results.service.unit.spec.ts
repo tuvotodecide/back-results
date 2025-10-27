@@ -38,7 +38,7 @@ describe('ResultsService (unit)', () => {
     jest.clearAllMocks();
   });
 
-  it('RES-SVC-001 parseSingleElectionId varios casos', () => {
+  it('parseSingleElectionId varios casos', () => {
     const f = (svc as any).parseSingleElectionId.bind(svc);
     expect(f(undefined)).toBeUndefined();
     expect(f('507f1f77bcf86cd799439011')).toBe('507f1f77bcf86cd799439011');
@@ -46,20 +46,20 @@ describe('ResultsService (unit)', () => {
     expect(f('trash')).toBeUndefined();
   });
 
-  it('RES-SVC-002 currentElectionMatch con ids mezcla', async () => {
+  it('currentElectionMatch con ids mezclados', async () => {
     const out = await (svc as any).currentElectionMatch(
       '507f1f77bcf86cd799439011,trash,507f1f77bcf86cd799439012',
     );
     expect(out).toHaveProperty('electionId.$in');
   });
 
-  it('RES-SVC-003 currentElectionMatch sin id y sin activas ⇒ {}', async () => {
+  it('currentElectionMatch sin id y sin activas entonces {}', async () => {
     electionCfg.getActiveConfigs.mockResolvedValue([]);
     const out = await (svc as any).currentElectionMatch();
     expect(out).toEqual({});
   });
 
-  it('RES-SVC-004 getQuickCount calcula porcentajes', async () => {
+  it('getQuickCount calcula porcentajes', async () => {
     (ballotModel.aggregate as jest.Mock).mockReturnValueOnce({
       allowDiskUse: () => ({
         exec: () =>
@@ -89,7 +89,7 @@ describe('ResultsService (unit)', () => {
     expect(out.summary.tablesProcessed).toBe(2);
   });
 
-  it('RES-SVC-005 getQuickCount con 0 válidos', async () => {
+  it('getQuickCount con 0 válidos', async () => {
     (ballotModel.aggregate as jest.Mock).mockReturnValueOnce({
       allowDiskUse: () => ({
         exec: () =>
@@ -112,8 +112,7 @@ describe('ResultsService (unit)', () => {
     expect(out.results[0].percentage).toBe('0.00');
   });
 
-  it('RES-SVC-006 getResultsByLocation usa votesPath y totalTables', async () => {
-    // facet de ballots
+  it('getResultsByLocation usa votesPath y totalTables', async () => {
     (ballotModel.aggregate as jest.Mock).mockReturnValueOnce({
       allowDiskUse: () => ({
         exec: () =>
@@ -132,7 +131,7 @@ describe('ResultsService (unit)', () => {
           ]),
       }),
     });
-    // count de electoral_tables
+
     (tableModel.aggregate as jest.Mock).mockReturnValueOnce({
       allowDiskUse: () => ({ exec: () => Promise.resolve([{ n: 10 }]) }),
     });
@@ -145,18 +144,17 @@ describe('ResultsService (unit)', () => {
     expect(out.results[0].percentage).toBe('100.00');
   });
 
-  it('RES-SVC-007 getRegistrationProgress rellena byStatus y porcentaje', async () => {
-    // totalTables
+  it('getRegistrationProgress rellena byStatus y porcentaje', async () => {
     (tableModel.aggregate as jest.Mock).mockReturnValueOnce({
       allowDiskUse: () => ({ exec: () => Promise.resolve([{ n: 100 }]) }),
     });
-    // registeredBallots
+
     const countDocs = jest.spyOn<any, any>(
       (svc as any).ballotModel,
       'countDocuments',
     );
     countDocs.mockResolvedValueOnce(70);
-    // byStatus
+
     (ballotModel.aggregate as jest.Mock).mockReturnValueOnce({
       allowDiskUse: () => ({
         exec: () => Promise.resolve([{ _id: 'processed', count: 60 }]),
@@ -174,21 +172,17 @@ describe('ResultsService (unit)', () => {
     expect(out.progress.percentage).toBe('70.00');
   });
 
-  it('RES-SVC-008 getSystemStatistics mapea counters', async () => {
-    // Limpia cualquier comportamiento previo de aggregate y countDocuments
+  it('getSystemStatistics mapea counters', async () => {
     (ballotModel.aggregate as jest.Mock).mockReset();
     (ballotModel.countDocuments as jest.Mock).mockReset();
 
-    // 1. total ballots
     (ballotModel as any).countDocuments.mockResolvedValue(1234);
 
-    // 2. Secuencia controlada de aggregates
     let aggregateCallCount = 0;
     (ballotModel.aggregate as jest.Mock).mockImplementation(() => {
       aggregateCallCount++;
 
       if (aggregateCallCount === 1) {
-        // byStatus
         return {
           allowDiskUse: () => ({
             exec: () =>
@@ -199,7 +193,6 @@ describe('ResultsService (unit)', () => {
           }),
         };
       } else if (aggregateCallCount === 2) {
-        // departmentCoverage
         return {
           allowDiskUse: () => ({
             exec: () =>
@@ -213,7 +206,6 @@ describe('ResultsService (unit)', () => {
           }),
         };
       }
-      // recentActivity
       return {
         allowDiskUse: () => ({
           exec: () => Promise.resolve([{ _id: '2025-01-24 10:00', count: 5 }]),
@@ -230,8 +222,7 @@ describe('ResultsService (unit)', () => {
     expect(out.recentActivity[0].hour).toBe('2025-01-24 10:00');
   });
 
-  // RES-SVC-009 (corregido: normalizar partyPercentages vacío)
-  it('RES-SVC-009 getHeatMapData conserva percentages (incluye 0)', async () => {
+  it('getHeatMapData conserva porcentajes (incluye 0)', async () => {
     (ballotModel.aggregate as jest.Mock).mockReturnValueOnce({
       allowDiskUse: () => ({
         exec: () =>
@@ -243,7 +234,7 @@ describe('ResultsService (unit)', () => {
               nullVotes: 0,
               blankVotes: 0,
               totalVotes: 0,
-              partyPercentages: { MAS: 0 }, // ← Mock lo incluye
+              partyPercentages: { MAS: 0 },
             },
           ]),
       }),
@@ -256,13 +247,12 @@ describe('ResultsService (unit)', () => {
 
     const data = Array.isArray(out) ? out : out.data;
 
-    // Verificar que partyPercentages existe y tiene MAS
     expect(data[0].partyPercentages).toBeDefined();
-    expect(data[0].partyPercentages.MAS).toBe(0); // ← Ahora debería pasar
+    expect(data[0].partyPercentages.MAS).toBe(0);
   });
 
-  it('RES-SVC-010 onModuleInit no lanza si no hay config y ejecuta warm-up', async () => {
-    electionCfg.getActiveConfig.mockRejectedValueOnce(new Error('no hay')); // atrapado por try/catch
+  it('onModuleInit no lanza si no hay config y ejecuta warm-up', async () => {
+    electionCfg.getActiveConfig.mockRejectedValueOnce(new Error('no hay'));
     jest.spyOn(svc, 'getQuickCount').mockResolvedValue({} as any);
     jest.spyOn(svc, 'getResultsByLocation').mockResolvedValue({} as any);
     jest.spyOn(svc, 'getRegistrationProgress').mockResolvedValue({} as any);

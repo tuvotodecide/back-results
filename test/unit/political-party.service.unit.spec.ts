@@ -23,7 +23,7 @@ const mkModel = () => ({
   lean: jest.fn().mockReturnThis(),
 });
 
-describe('PoliticalPartyService (unit)', () => {
+describe('PoliticalPartyService', () => {
   let svc: PoliticalPartyService;
   const partyModel = mkModel();
   const electionPartyModel = mkModel();
@@ -44,7 +44,7 @@ describe('PoliticalPartyService (unit)', () => {
     jest.clearAllMocks();
   });
 
-  it('POL-SVC-001 create lanza 409 por 11000', async () => {
+  it('create lanza 409 por 11000', async () => {
     const save = jest.fn().mockRejectedValue({ code: 11000 });
     (svc as any).politicalPartyModel = function (data: any) {
       return { ...data, save };
@@ -59,14 +59,14 @@ describe('PoliticalPartyService (unit)', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('POL-SVC-002 findOne 404 si no existe', async () => {
+  it('findOne 404 si no existe', async () => {
     (partyModel.findById as jest.Mock).mockReturnValue({
       exec: jest.fn().mockResolvedValue(null),
     });
     await expect(svc.findOne('id')).rejects.toThrow(NotFoundException);
   });
 
-  it('POL-SVC-003 update 404 si no existe', async () => {
+  it('update 404 si no existe', async () => {
     (partyModel.findById as jest.Mock).mockReturnValue({
       exec: jest.fn().mockResolvedValue(null),
     });
@@ -75,7 +75,7 @@ describe('PoliticalPartyService (unit)', () => {
     );
   });
 
-  it('POL-SVC-004 update 409 por conflicto', async () => {
+  it('update 409 por conflicto', async () => {
     (partyModel.findById as jest.Mock).mockReturnValue({
       exec: jest.fn().mockResolvedValue({ _id: 'x' }),
     });
@@ -87,14 +87,14 @@ describe('PoliticalPartyService (unit)', () => {
     );
   });
 
-  it('POL-SVC-005 remove 404 si no existe', async () => {
+  it('remove 404 si no existe', async () => {
     (partyModel.deleteOne as jest.Mock).mockReturnValue({
       exec: jest.fn().mockResolvedValue({ deletedCount: 0 }),
     });
     await expect(svc.remove('id')).rejects.toThrow(NotFoundException);
   });
 
-  it('POL-SVC-006 getActiveParties sort por partyId asc', async () => {
+  it('getActiveParties sort por partyId asc', async () => {
     (partyModel.find as jest.Mock).mockReturnValue({
       sort: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue([{ partyId: 'A' }, { partyId: 'B' }]),
@@ -103,7 +103,7 @@ describe('PoliticalPartyService (unit)', () => {
     expect(out[0].partyId).toBe('A');
   });
 
-  it('POL-SVC-007 validatePartyIds global true/false', async () => {
+  it('validatePartyIds global true/false', async () => {
     (partyModel.find as any).mockReturnValue({
       select: jest.fn().mockReturnThis(),
       lean: jest.fn().mockReturnThis(),
@@ -118,7 +118,7 @@ describe('PoliticalPartyService (unit)', () => {
     expect(await svc.validatePartyIds(['A', 'B'])).toBe(false);
   });
 
-  it('POL-SVC-008 validatePartyIds con electionId usa validatePartyIdsForElection', async () => {
+  it(' validatePartyIds con electionId usa validatePartyIdsForElection', async () => {
     const spy = jest
       .spyOn(svc, 'validatePartyIdsForElection' as any)
       .mockResolvedValue(true);
@@ -129,7 +129,7 @@ describe('PoliticalPartyService (unit)', () => {
 
   const eid = '507f1f77bcf86cd799439011';
 
-  it('POL-SVC-009 assignPartiesToElection retorna assigned (modified+upserted)', async () => {
+  it('assignPartiesToElection retorna assigned (modified+upserted)', async () => {
     (electionPartyModel.bulkWrite as jest.Mock).mockResolvedValue({
       modifiedCount: 1,
       upsertedCount: 2,
@@ -138,7 +138,7 @@ describe('PoliticalPartyService (unit)', () => {
     expect(res.assigned).toBe(3);
   });
 
-  it('POL-SVC-010 removePartiesFromElection retorna removed', async () => {
+  it('removePartiesFromElection retorna removed', async () => {
     (electionPartyModel.updateMany as jest.Mock).mockResolvedValue({
       modifiedCount: 4,
     });
@@ -146,7 +146,7 @@ describe('PoliticalPartyService (unit)', () => {
     expect(res.removed).toBe(4);
   });
 
-  it('POL-SVC-011 getElectionParties orden correcto', async () => {
+  it('getElectionParties orden correcto', async () => {
     (electionPartyModel.find as jest.Mock).mockReturnValue({
       sort: jest.fn((o: any) => {
         expect(o).toEqual({ active: -1, ballotNumber: 1, partyId: 1 });
@@ -156,7 +156,7 @@ describe('PoliticalPartyService (unit)', () => {
     await svc.getElectionParties(eid);
   });
 
-  it('POL-SVC-012 updateElectionParty 404 si no existe', async () => {
+  it('updateElectionParty 404 si no existe', async () => {
     (electionPartyModel.findByIdAndUpdate as jest.Mock).mockReturnValue({
       exec: jest.fn().mockResolvedValue(null),
     });

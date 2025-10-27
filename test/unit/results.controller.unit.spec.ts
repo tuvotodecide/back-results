@@ -38,7 +38,7 @@ describe('ResultsController (unit)', () => {
     jest.clearAllMocks();
   });
 
-  it('RES-CTL-001 live/by-location pasa mode:"live"', async () => {
+  it('live/by-location pasa mode:"live"', async () => {
     svc.getResultsByLocation.mockResolvedValue({ ok: true });
     await ctl.getLiveByLocation({ electionType: 'presidential' } as any);
     expect(svc.getResultsByLocation).toHaveBeenCalledWith(
@@ -46,7 +46,7 @@ describe('ResultsController (unit)', () => {
     );
   });
 
-  it('RES-CTL-002 by-location modo por defecto final', async () => {
+  it('by-location modo por defecto final', async () => {
     svc.getResultsByLocation.mockResolvedValue({ ok: true });
     await ctl.getResultsByLocation({ electionType: 'presidential' } as any);
     expect(svc.getResultsByLocation).toHaveBeenCalledWith(
@@ -54,7 +54,7 @@ describe('ResultsController (unit)', () => {
     );
   });
 
-  it('RES-CTL-003 live/heat-map pasa mode:"live"', async () => {
+  it('live/heat-map pasa mode:"live"', async () => {
     svc.getHeatMapData.mockResolvedValue({ ok: true });
     await ctl.getLiveHeatMap('presidential', 'department', 'La Paz', 'id');
     expect(svc.getHeatMapData).toHaveBeenCalledWith(
@@ -62,7 +62,7 @@ describe('ResultsController (unit)', () => {
     );
   });
 
-  it('RES-CTL-004 live/quick-count llama service con live', async () => {
+  it('live/quick-count llama service con live', async () => {
     svc.getQuickCount.mockResolvedValue({ ok: true });
     await ctl.getLiveQuickCount('id');
     expect(svc.getQuickCount).toHaveBeenCalledWith('id', 'live');

@@ -31,7 +31,7 @@ const mkModelCtor = () => {
   return fn;
 };
 
-describe('ElectoralTableService (unit)', () => {
+describe('ElectoralTableService', () => {
   let svc: ElectoralTableService;
   const model = mkModelCtor();
   const locationSvc = { findOne: jest.fn() };
@@ -50,7 +50,7 @@ describe('ElectoralTableService (unit)', () => {
     svc = mod.get(ElectoralTableService);
   });
 
-  it('TAB-SVC-001 create: exige recinto válido', async () => {
+  it('create: exige recinto válido', async () => {
     locationSvc.findOne.mockResolvedValue({ _id: oid() });
     const out: any = await svc.create({
       tableNumber: '1',
@@ -62,7 +62,7 @@ describe('ElectoralTableService (unit)', () => {
     expect(model).toHaveBeenCalled();
   });
 
-  it('TAB-SVC-002 create: conflicto por duplicado tableCode', async () => {
+  it('create: conflicto por duplicado tableCode', async () => {
     locationSvc.findOne.mockResolvedValue({ _id: oid() });
     (model as any).mockImplementationOnce(() => ({
       save: jest.fn().mockRejectedValue(
@@ -81,14 +81,14 @@ describe('ElectoralTableService (unit)', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('TAB-SVC-003 findByTableCode: 404 si no existe', async () => {
+  it(' findByTableCode: 404 si no existe', async () => {
     model.findOne.mockReturnValue(chain(null));
     await expect(svc.findByTableCode('NOPE')).rejects.toThrow(
       NotFoundException,
     );
   });
 
-  it('TAB-SVC-004 resolveByIdOrCode: elige rama por tableId', async () => {
+  it('resolveByIdOrCode: elige rama por tableId', async () => {
     const t = { _id: oid(), tableNumber: '1' };
     model.findById.mockReturnValue(chain(t));
     await expect(
@@ -96,7 +96,7 @@ describe('ElectoralTableService (unit)', () => {
     ).resolves.toBe(t as any);
   });
 
-  it('TAB-SVC-005 findWithRecords: arma pipeline y filtra por electionId', async () => {
+  it('findWithRecords: arma pipeline y filtra por electionId', async () => {
     model.aggregate.mockResolvedValue([
       { tableNumber: '1', tableCode: 'T-1', ballots: 2 },
     ]);
@@ -104,11 +104,11 @@ describe('ElectoralTableService (unit)', () => {
     expect(r.count).toBe(1);
   });
 
-  it('TAB-SVC-006 ensureByCodeOrPrecinctAndNumber: con code upsert por tableCode', async () => {
+  it('ensureByCodeOrPrecinctAndNumber: con code upsert por tableCode', async () => {
     (model.findOneAndUpdate as any) = jest
       .fn()
       .mockReturnValue(chain({ _id: oid(), tableCode: 'C', tableNumber: '5' }));
-    // @ts-ignore acceso directo a método privado
+    // @ts-ignore
     const out = await svc.ensureByCodeOrPrecinctAndNumber(oid(), {
       code: 'C',
       number: 5,
@@ -118,7 +118,7 @@ describe('ElectoralTableService (unit)', () => {
     expect(out.tableCode).toBe('C');
   });
 
-  it('TAB-SVC-007 ensureByCodeOrPrecinctAndNumber: sin code upsert por (precinct, number)', async () => {
+  it('ensureByCodeOrPrecinctAndNumber: sin code upsert por (precinct, number)', async () => {
     (model.findOneAndUpdate as any) = jest
       .fn()
       .mockReturnValue(chain({ _id: oid(), tableNumber: '7' }));
@@ -130,7 +130,7 @@ describe('ElectoralTableService (unit)', () => {
     expect(out.tableNumber).toBe('7');
   });
 
-  it('TAB-SVC-008 bulkUpsertByPrecinct: dedup + retorna mapa', async () => {
+  it('bulkUpsertByPrecinct: dedup + retorna mapa', async () => {
     model.bulkWrite.mockResolvedValue({ ok: 1 });
     model.find
       .mockReturnValueOnce(chain([{ _id: oid(), tableCode: 'A' }]))
@@ -140,20 +140,20 @@ describe('ElectoralTableService (unit)', () => {
     const map = await svc.bulkUpsertByPrecinct(oid(), [
       { code: 'A', number: 1, habilitados: 0, inhabilitados: 0 },
       { number: 2, habilitados: 0, inhabilitados: 0 },
-      { number: 2, habilitados: 0, inhabilitados: 0 }, // duplicada, debe dedup
+      { number: 2, habilitados: 0, inhabilitados: 0 }, 
     ]);
     expect(map.get('A')).toBeDefined();
     expect([...map.keys()].some((k) => k.includes(':2'))).toBe(true);
   });
 
-  it('TAB-SVC-009 findOne: 404 si no existe', async () => {
+  it('findOne: 404 si no existe', async () => {
     model.findById.mockReturnValue(chain(null));
     await expect(svc.findOne(oid().toString())).rejects.toThrow(
       NotFoundException,
     );
   });
 
-  it('TAB-SVC-010 getStatistics: devuelve summary por aggregate', async () => {
+  it('getStatistics: devuelve summary por aggregate', async () => {
     model.aggregate.mockResolvedValue([
       { totalTables: 10, totalLocations: 5, avgTablesPerLocation: 2 },
     ]);
@@ -164,7 +164,7 @@ describe('ElectoralTableService (unit)', () => {
     expect(out.totalLocationsWithTables).toBe(2);
   });
 
-  it('TAB-SVC-011 findByElectoralLocation: verifica que llame a LocationService.findOne', async () => {
+  it('findByElectoralLocation: verifica que llame a LocationService.findOne', async () => {
     locationSvc.findOne.mockResolvedValue({ _id: oid() });
     model.find.mockReturnValue(chain([{ _id: oid(), tableNumber: '1' }]));
     const res = await svc.findByElectoralLocation(oid().toString());
@@ -172,7 +172,7 @@ describe('ElectoralTableService (unit)', () => {
     expect(locationSvc.findOne).toHaveBeenCalled();
   });
 
-  it('TAB-SVC-012 update: dup 11000 en tableCode → 409', async () => {
+  it(' update: dup 11000 en tableCode entonces 409', async () => {
     const dup = Object.assign(new Error('tableCode'), {
       code: 11000,
       message: 'tableCode',
@@ -183,7 +183,7 @@ describe('ElectoralTableService (unit)', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('TAB-SVC-013 activate/deactivate: 404 si no existe', async () => {
+  it('activate/deactivate: 404 si no existe', async () => {
     model.findByIdAndUpdate.mockReturnValueOnce(chain(null));
     await expect(svc.activate(oid().toString())).rejects.toThrow(
       NotFoundException,
@@ -194,7 +194,7 @@ describe('ElectoralTableService (unit)', () => {
     );
   });
 
-  it('TAB-SVC-014 countTotal/countByLocation: delega en count', async () => {
+  it('countTotal/countByLocation: delega en count', async () => {
     model.countDocuments.mockReturnValue(chain(3));
     const total = await svc.countTotal();
     expect(total).toBe(3);
@@ -202,7 +202,7 @@ describe('ElectoralTableService (unit)', () => {
     expect(byLoc).toBe(3);
   });
 
-  it('TAB-SVC-015 validateMesaPayload: cases inválidos → reason', () => {
+  it('validateMesaPayload: cases inválidos entonces reason', () => {
     // @ts-ignore acceso privado
     expect(
       svc.validateMesaPayload({

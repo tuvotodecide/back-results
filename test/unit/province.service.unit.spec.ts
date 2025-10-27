@@ -45,7 +45,7 @@ describe('ProvinceService (unit)', () => {
     svc = mod.get(ProvinceService);
   });
 
-  it('PROV-SVC-001 create: verifica department y crea, dup -> 409', async () => {
+  it('create: verifica department y crea, dup -> 409', async () => {
     deptSvc.findOne.mockResolvedValue({ _id: oid() });
     const out:any = await svc.create({ name: 'X', departmentId: oid() as any } as any);
     expect(out._id).toBeDefined();
@@ -57,30 +57,30 @@ describe('ProvinceService (unit)', () => {
       .rejects.toThrow(ConflictException);
   });
 
-  it('PROV-SVC-002 findAll: pagina y filtra', async () => {
+  it('findAll: pagina y filtra', async () => {
     model.find.mockReturnValue(chain([{ name: 'Y' }]));
     model.countDocuments.mockReturnValue(chain(1));
     const r = await svc.findAll({ page: 1, limit: 10, search: 'Y', active: 'true' } as any);
     expect(r.pagination.total).toBe(1);
   });
 
-  it('PROV-SVC-003 findOne: 404 si no existe', async () => {
+  it('findOne: 404 si no existe', async () => {
     model.findById.mockReturnValue(chain(null));
     await expect(svc.findOne('nope')).rejects.toThrow(NotFoundException);
   });
 
-  it('PROV-SVC-004 update: dup 11000 → 409', async () => {
+  it('update: dup 11000 entonces 409', async () => {
     const dup = Object.assign(new Error('dup'), { code: 11000 });
     model.findByIdAndUpdate.mockReturnValue(rejectChain(dup));
     await expect(svc.update(oid().toString(), { name: 'Z' })).rejects.toThrow(ConflictException);
   });
 
-  it('PROV-SVC-005 remove: 404 si no existe', async () => {
+  it('remove: 404 si no existe', async () => {
     model.findByIdAndDelete.mockReturnValue(chain(null));
     await expect(svc.remove(oid())).rejects.toThrow(NotFoundException);
   });
 
-  it('PROV-SVC-006 ensureByName: maneja carrera (dup) y re-lee', async () => {
+  it('ensureByName: maneja carrera (dup) y re-lee', async () => {
     model.findOne
       .mockReturnValueOnce(chain(null)) // no existe
       .mockReturnValueOnce(chain({ _id: 'P1', name: 'Tarija' })); // re-lee

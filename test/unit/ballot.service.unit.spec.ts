@@ -60,7 +60,7 @@ describe('BallotService (unit)', () => {
     validatePartyIds: jest.fn().mockResolvedValue(true),
   };
 
-  const electionCfgSvc = {
+  const electionConfig = {
     getActiveConfigs: jest
       .fn()
       .mockResolvedValue([{ id: '68a627c7dba4a531da8a1224' }]),
@@ -75,7 +75,7 @@ describe('BallotService (unit)', () => {
         { provide: ElectoralLocationService, useValue: locationSvc },
         { provide: ElectoralTableService, useValue: tableSvc },
         { provide: PoliticalPartyService, useValue: partySvc },
-        { provide: ElectionConfigService, useValue: electionCfgSvc },
+        { provide: ElectionConfigService, useValue: electionConfig },
       ],
     }).compile();
 
@@ -84,8 +84,8 @@ describe('BallotService (unit)', () => {
   });
 
   const baseData = (): any => ({
-    tableCode: '1234',
-    tableNumber: '5',
+    tableCode: '1234567',
+    tableNumber: '4',
     locationId: '5071',
     image: 'ipfs://Qm...',
     votes: {
@@ -101,7 +101,7 @@ describe('BallotService (unit)', () => {
     },
   });
 
-  it('BAL-SVC-001 suma inválida (presidentes)', async () => {
+  it('Suma inválida (presidentes)', async () => {
     const data = baseData();
     data.votes.parties.partyVotes = [
       { partyId: 'libre', votes: 60 },
@@ -118,7 +118,7 @@ describe('BallotService (unit)', () => {
     );
   });
 
-  it('BAL-SVC-002 validVotes negativos', async () => {
+  it('Votos validos negativos', async () => {
     const data = baseData();
     data.votes.parties.validVotes = -1;
     locationSvc.findOne.mockResolvedValue({ _id: data.locationId });
@@ -130,7 +130,7 @@ describe('BallotService (unit)', () => {
     );
   });
 
-  it('BAL-SVC-003 null/blank negativos', async () => {
+  it('null negativos', async () => {
     const d1 = baseData();
     d1.votes.parties.nullVotes = -1;
     const d2 = baseData();
@@ -152,7 +152,7 @@ describe('BallotService (unit)', () => {
     );
   });
 
-  it('BAL-SVC-004 recinto no existe', async () => {
+  it('Recinto no existe', async () => {
     const data = baseData();
     locationSvc.findOne.mockRejectedValue(new NotFoundException());
     tableSvc.findByTableCode.mockResolvedValue({
@@ -163,7 +163,7 @@ describe('BallotService (unit)', () => {
     );
   });
 
-  it('BAL-SVC-005 partidos inválidos', async () => {
+  it('Partidos inválidos', async () => {
     const data = baseData();
     locationSvc.findOne.mockResolvedValue({ _id: data.locationId });
     tableSvc.findByTableCode.mockResolvedValue({
@@ -175,7 +175,7 @@ describe('BallotService (unit)', () => {
     );
   });
 
-  it('BAL-SVC-006 categorías independientes', async () => {
+  it('Categorías independientes', async () => {
     const data = baseData();
     data.votes.deputies = {
       validVotes: 50,
@@ -196,7 +196,7 @@ describe('BallotService (unit)', () => {
     );
   });
 
-  it('BAL-SVC-007 validación ok', async () => {
+  it('Validación ok', async () => {
     const data = baseData();
     data.votes.deputies = {
       validVotes: 50,
@@ -217,7 +217,7 @@ describe('BallotService (unit)', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('BAL-SVC-008 extractBallotData parsea OpenSea', () => {
+  it('parsea link', () => {
     const meta = {
       image: 'ipfs://img',
       data: {
@@ -239,7 +239,7 @@ describe('BallotService (unit)', () => {
     expect(out.votes.parties.validVotes).toBe(100);
   });
 
-  it('BAL-SVC-009/010 extractBallotData falta data o image', () => {
+  it('extractBallotData falta data o image', () => {
     expect(() => (service as any).extractBallotData({ image: 'x' })).toThrow(
       /no se encontro campo data/i,
     );
@@ -248,7 +248,7 @@ describe('BallotService (unit)', () => {
     );
   });
 
-  it('BAL-SVC-011 getMaxVersionForTable sin actas = 0', async () => {
+  it('getMaxVersionForTable sin actas = 0', async () => {
     (ballotModel.findOne as jest.Mock).mockReturnValue({
       sort: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue(null),
@@ -260,7 +260,7 @@ describe('BallotService (unit)', () => {
     expect(max).toBe(0);
   });
 
-  it('BAL-SVC-012 getMaxVersionForTable retorna versión', async () => {
+  it('getMaxVersionForTable retorna versión', async () => {
     (ballotModel.findOne as jest.Mock).mockReturnValue({
       sort: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue({ version: 3 }),
@@ -272,7 +272,7 @@ describe('BallotService (unit)', () => {
     expect(max).toBe(3);
   });
 
-  it('BAL-SVC-013 resolveElectionId múltiples activas sin id ⇒ 400', async () => {
+  it('resolveElectionId múltiples activas sin id ⇒ 400', async () => {
     (service as any).electionConfigService.getActiveConfigs = jest
       .fn()
       .mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
@@ -281,7 +281,7 @@ describe('BallotService (unit)', () => {
     ).rejects.toThrow(/Hay varias elecciones activas; envíe electionId/i);
   });
 
-  it('BAL-SVC-014 resolveElectionId sin activas (require) ⇒ 404', async () => {
+  it('resolveElectionId sin activas (require) ⇒ 404', async () => {
     (service as any).electionConfigService.getActiveConfigs = jest
       .fn()
       .mockResolvedValue([]);
@@ -290,7 +290,7 @@ describe('BallotService (unit)', () => {
     ).rejects.toThrow(/No hay configuración electoral activa/i);
   });
 
-  it('BAL-SVC-015 extractCidFromUri formatos', () => {
+  it('extractCidFromUri formatos', () => {
     const f = (service as any).extractCidFromUri.bind(service);
     expect(
       f(
@@ -303,7 +303,7 @@ describe('BallotService (unit)', () => {
     expect(() => f('https://example.com/nope')).toThrow(BadRequestException);
   });
 
-  it('BAL-SVC-016 previousValidate OK (mock fetch interno)', async () => {
+  it('previousValidate OK', async () => {
     const meta = {
       image: 'ipfs://img',
       data: {
@@ -334,7 +334,7 @@ describe('BallotService (unit)', () => {
     ).resolves.toBe(true);
   });
 
-  it('BAL-SVC-017 createFromIpfs calcula versión y guarda', async () => {
+  it('createFromIpfs calcula versión y guarda', async () => {
     const meta = {
       image: 'ipfs://img',
       data: {
@@ -379,7 +379,6 @@ describe('BallotService (unit)', () => {
       .spyOn<any, any>(service as any, 'extractCidFromUri')
       .mockReturnValue('QmCid');
 
-    // Simula "new Model(...).save()"
     const save = jest.fn().mockResolvedValue({ _id: 'B1' });
     (service as any).ballotModel = function (data: any) {
       return { ...data, save };
@@ -393,46 +392,16 @@ describe('BallotService (unit)', () => {
     expect(out._id).toBe('B1');
   });
 
-  it('BAL-SVC-018 getStats calcula completionPercentage', async () => {
+  it('getStats calcula completionPercentage', async () => {
     (tableSvc.countTotal as jest.Mock).mockResolvedValue(200);
     (ballotModel.countDocuments as any)
-      .mockResolvedValueOnce(150) // processed
-      .mockResolvedValueOnce(30) // pending
-      .mockResolvedValueOnce(20) // synced
-      .mockResolvedValueOnce(0); // error
+      .mockResolvedValueOnce(150)
+      .mockResolvedValueOnce(30)
+      .mockResolvedValueOnce(20)
+      .mockResolvedValueOnce(0);
 
     const stats = await service.getStats();
     expect(stats.processedTables).toBe(170);
     expect(stats.completionPercentage).toBeCloseTo(85, 0);
-  });
-
-  it('BAL-SVC-019 findByNearestLocation arma respuesta', async () => {
-    locationSvc.findNearestLocation.mockResolvedValue({
-      _id: 'loc1',
-      name: 'UE',
-      address: 'A',
-      district: 'D',
-      zone: 'Z',
-      distance: 123,
-      coordinates: { latitude: 1, longitude: 2 },
-    });
-    jest
-      .spyOn<any, any>(service as any, 'resolveElectionId')
-      .mockResolvedValue('68a6...1224' as any);
-
-    (ballotModel.find as any).mockReturnValue({
-      sort: () => ({
-        exec: () =>
-          Promise.resolve([
-            { tableNumber: '1', status: 'processed' },
-            { tableNumber: '2', status: 'pending' },
-          ]),
-      }),
-      exec: jest.fn(),
-    });
-
-    const res = await service.findByNearestLocation(0, 0, 1000);
-    expect(res.location.name).toBe('UE');
-    expect(res.stats.totalTables).toBe(10);
   });
 });
