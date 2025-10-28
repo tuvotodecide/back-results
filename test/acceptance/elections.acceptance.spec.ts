@@ -19,7 +19,7 @@ import { BallotService } from '../../src/modules/ballot/services/ballot.service'
 // Helper Mongo en memoria (usa tu clase ya existente)
 import { InMemoryMongo } from '../utils/mongo';
 
-describe('Aceptación: Elections / Guards (HTTP caja negra)', () => {
+describe('Aceptación: Elections / Guards', () => {
   let app: INestApplication;
   const mongo = new InMemoryMongo();
 

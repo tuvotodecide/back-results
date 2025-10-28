@@ -77,7 +77,7 @@ class PoliticalPartyServiceMock {
   }
 }
 
-describe('Aceptación: Ballots (HTTP caja negra)', () => {
+describe('Aceptación: Ballots', () => {
   let app: INestApplication;
   const mongo = new InMemoryMongo();
   const baseUrl = '/api/v1/ballots';

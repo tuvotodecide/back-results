@@ -8,7 +8,7 @@ import { PoliticalModule } from '../../src/modules/political/political.module';
 
 import { InMemoryMongo } from '../utils/mongo';
 
-describe('Aceptación: PoliticalParties (HTTP caja negra)', () => {
+describe('Aceptación: PoliticalParties', () => {
   let app: INestApplication;
   const mongo = new InMemoryMongo();
   const baseUrl = '/api/v1/political-parties';
