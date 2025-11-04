@@ -14,9 +14,11 @@ import { ApiKeyGuard } from './core/guards/api-key.guard';
 import { APP_GUARD } from '@nestjs/core';
 import { FirebaseModule } from './core/firebase/firebase.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
     CoreModule,
     ElectionsModule,

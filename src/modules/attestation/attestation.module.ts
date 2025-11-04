@@ -11,7 +11,14 @@ import {
 import { ElectionsModule } from '../elections/elections.module';
 import { AttestationResolverService } from './services/attestation-resolver.service';
 import { UsersModule } from '../users/users.module';
-import { ElectoralTable, ElectoralTableSchema } from '../geographic/schemas/electoral-table.schema';
+import {
+  ElectoralTable,
+  ElectoralTableSchema,
+} from '../geographic/schemas/electoral-table.schema';
+import { OracleResolverService } from './services/oracle-resolver.service';
+import { LocksService } from './services/locks.services';
+import { ResolverRunsService } from './services/resolver-runs.service';
+import { LockSchema } from './schemas/lock.schema';
 
 @Module({
   imports: [
@@ -20,12 +27,19 @@ import { ElectoralTable, ElectoralTableSchema } from '../geographic/schemas/elec
       { name: Ballot.name, schema: BallotSchema },
       { name: AttestationCase.name, schema: AttestationCaseSchema },
       { name: ElectoralTable.name, schema: ElectoralTableSchema },
+      { name: 'Lock', schema: LockSchema, collection: 'locks' },
     ]),
     ElectionsModule,
-     UsersModule,
+    UsersModule,
   ],
   controllers: [AttestationController],
-  providers: [AttestationService, AttestationResolverService],
+  providers: [
+    AttestationService,
+    AttestationResolverService,
+    OracleResolverService,
+    LocksService,
+    ResolverRunsService,
+  ],
   exports: [AttestationService],
 })
 export class AttestationModule {}
