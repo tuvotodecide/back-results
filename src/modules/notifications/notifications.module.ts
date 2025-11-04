@@ -15,6 +15,8 @@ import {
 import { UserNotificationsController } from './controllers/user-notifications.controller';
 
 import { GeographicModule } from '@/modules/geographic/geographic.module';
+import { InternalPushController } from './controllers/internal-push.controller';
+import { DirectPushService } from './services/direct-push.service';
 
 @Module({
   imports: [
@@ -29,8 +31,9 @@ import { GeographicModule } from '@/modules/geographic/geographic.module';
     AnnouncementsController,
     NotificationLogsController,
     UserNotificationsController,
+    InternalPushController,
   ],
-  providers: [TopicMessagingService],
-  exports: [TopicMessagingService],
+  providers: [TopicMessagingService, DirectPushService],
+  exports: [TopicMessagingService, DirectPushService],
 })
 export class NotificationsModule {}

@@ -251,9 +251,18 @@ export class ResultsService implements OnModuleInit {
           isObservedByElection: {
             $ifNull: [
               {
-                $getField: {
-                  input: '$observedByElection',
-                  field: '$observedKey',
+                $first: {
+                  $map: {
+                    input: {
+                      $filter: {
+                        input: { $objectToArray: '$observedByElection' },
+                        as: 'kv',
+                        cond: { $eq: ['$$kv.k', '$observedKey'] },
+                      },
+                    },
+                    as: 'kv2',
+                    in: '$$kv2.v',
+                  },
                 },
               },
               false,
@@ -263,7 +272,6 @@ export class ResultsService implements OnModuleInit {
       });
       stages.push({ $match: { isObservedByElection: { $ne: true } } });
     }
-
     return stages;
   }
 
@@ -329,9 +337,18 @@ export class ResultsService implements OnModuleInit {
           isObservedByElection: {
             $ifNull: [
               {
-                $getField: {
-                  input: '$table.observedByElection',
-                  field: '$observedKey',
+                $first: {
+                  $map: {
+                    input: {
+                      $filter: {
+                        input: { $objectToArray: '$table.observedByElection' },
+                        as: 'kv',
+                        cond: { $eq: ['$$kv.k', '$observedKey'] },
+                      },
+                    },
+                    as: 'kv2',
+                    in: '$$kv2.v',
+                  },
                 },
               },
               false,
@@ -721,7 +738,7 @@ export class ResultsService implements OnModuleInit {
     // Progreso por estado
     const progressByStatus = await this.ballotModel
       .aggregate([
-        { $match: filters ? ballotFilter : {} },
+        { $match: ballotFilter },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ])
       .allowDiskUse(true)
@@ -879,6 +896,17 @@ export class ResultsService implements OnModuleInit {
           },
         },
         {
+          $addFields: {
+            flatPartyVotes: {
+              $reduce: {
+                input: '$partyVotes',
+                initialValue: [],
+                in: { $concatArrays: ['$$value', '$$this'] },
+              },
+            },
+          },
+        },
+        {
           $project: {
             _id: 0,
             location: '$_id',
@@ -887,20 +915,23 @@ export class ResultsService implements OnModuleInit {
             nullVotes: 1,
             blankVotes: 1,
             totalVotes: { $add: ['$validVotes', '$nullVotes', '$blankVotes'] },
-            participationRate: 0,
             partyPercentages: {
               $arrayToObject: {
                 $map: {
                   input: {
-                    $reduce: {
-                      input: '$partyVotes',
-                      initialValue: [],
-                      in: { $concatArrays: ['$$value', '$$this'] },
-                    },
+                    $setUnion: [
+                      {
+                        $map: {
+                          input: '$flatPartyVotes',
+                          as: 'p',
+                          in: '$$p.partyId',
+                        },
+                      },
+                    ],
                   },
-                  as: 'party',
+                  as: 'pid',
                   in: {
-                    k: '$$party.partyId',
+                    k: '$$pid',
                     v: {
                       $cond: [
                         { $gt: ['$validVotes', 0] },
@@ -908,7 +939,28 @@ export class ResultsService implements OnModuleInit {
                           $round: [
                             {
                               $multiply: [
-                                { $divide: ['$$party.votes', '$validVotes'] },
+                                {
+                                  $divide: [
+                                    {
+                                      $sum: {
+                                        $map: {
+                                          input: {
+                                            $filter: {
+                                              input: '$flatPartyVotes',
+                                              as: 'pp',
+                                              cond: {
+                                                $eq: ['$$pp.partyId', '$$pid'],
+                                              },
+                                            },
+                                          },
+                                          as: 'pp2',
+                                          in: '$$pp2.votes',
+                                        },
+                                      },
+                                    },
+                                    '$validVotes',
+                                  ],
+                                },
                                 100,
                               ],
                             },
@@ -989,6 +1041,17 @@ export class ResultsService implements OnModuleInit {
         },
       },
       {
+        $addFields: {
+          flatPartyVotes: {
+            $reduce: {
+              input: '$partyVotes',
+              initialValue: [],
+              in: { $concatArrays: ['$$value', '$$this'] },
+            },
+          },
+        },
+      },
+      {
         $project: {
           _id: 0,
           circunscripcion: '$_id',
@@ -996,27 +1059,41 @@ export class ResultsService implements OnModuleInit {
           nullVotes: 1,
           blankVotes: 1,
           totalVotes: { $add: ['$validVotes', '$nullVotes', '$blankVotes'] },
+          tablesCount: 1,
           partyResults: {
             $map: {
               input: {
                 $setUnion: [
                   {
-                    $reduce: {
-                      input: '$partyVotes',
-                      initialValue: [],
-                      in: { $concatArrays: ['$$value', '$$this'] },
+                    $map: {
+                      input: '$flatPartyVotes',
+                      as: 'p',
+                      in: '$$p.partyId',
                     },
                   },
                 ],
               },
-              as: 'party',
+              as: 'pid',
               in: {
-                partyId: '$$party.partyId',
-                votes: '$$party.votes',
+                partyId: '$$pid',
+                votes: {
+                  $sum: {
+                    $map: {
+                      input: {
+                        $filter: {
+                          input: '$flatPartyVotes',
+                          as: 'pp',
+                          cond: { $eq: ['$$pp.partyId', '$$pid'] },
+                        },
+                      },
+                      as: 'pp2',
+                      in: '$$pp2.votes',
+                    },
+                  },
+                },
               },
             },
           },
-          tablesCount: 1,
         },
       },
       { $sort: { 'circunscripcion.circunscripcionNumber': 1 } },
