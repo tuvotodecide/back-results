@@ -245,7 +245,9 @@ export class UsersService {
     contractAddress: string;
   }> {
     const privateKey = process.env.NFT_PARTICIPATION_PRIVATE_KEY;
-    const chainKey = process.env.CHAIN || 'arbitrum-sepolia';
+    const chainKey = 
+    // process.env.CHAINA || 
+    'arbitrum';
 
     if (!privateKey) {
       throw new InternalServerErrorException(

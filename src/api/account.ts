@@ -16,8 +16,9 @@ if (!RAW_FACTORY_ADDRESS) {
   throw new Error('FACTORY_ADDRESS no está configurado');
 }
 const FACTORY_ADDR = RAW_FACTORY_ADDRESS as Address;
-const CHAIN_KEY = (process.env.CHAINA ||
-  'arbitrum-sepolia') as keyof typeof availableNetworks;
+const CHAIN_KEY = (
+  // process.env.CHAINA ||
+  'arbitrum') as keyof typeof availableNetworks;
 
 export function getReadAccountContract(chain, address) {
   const client = createPublicClient({
