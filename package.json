@@ -45,8 +45,11 @@
     "ethers": "^6.15.0",
     "firebase-admin": "^13.5.0",
     "mongoose": "^8.19.1",
+    "permissionless": "^0.2.47",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "viem": "^2.38.6",
+    "ox": "0.8.9"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

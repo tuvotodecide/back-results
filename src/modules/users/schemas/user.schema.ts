@@ -19,6 +19,28 @@ export class User {
 
   @Prop({ type: Types.ObjectId, ref: 'ElectoralTable', default: null })
   votingTableId?: Types.ObjectId | null;
+
+  @Prop({
+    type: [
+      {
+        imageUrl: { type: String, required: true },
+        txHash: { type: String, required: true },
+        chainId: { type: Number, required: true },
+        contractAddress: { type: String, required: true },
+        electionId: { type: String, required: false },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    default: [],
+  })
+  participationCertificates?: {
+    imageUrl: string;
+    txHash: string;
+    chainId: number;
+    contractAddress: string;
+    electionId?: string | null;
+    createdAt: Date;
+  }[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -25,6 +25,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
+import { AttestParticipationDto, AttestParticipationResponseDto, ParticipationCertificateDto } from '../dto/attest-participation.dto';
 
 @ApiTags('Users')
 @Controller('api/v1/users')
@@ -143,5 +144,47 @@ export class UsersController {
       limit: Number(limit),
       totalPages: Math.ceil(total / Number(limit)),
     };
+  }
+  @Post(':dni/participation-nft')
+  @ApiOperation({
+    summary:
+      'Emitir NFT de participación para un usuario (attest) y registrar el certificado',
+    description:
+      'Recibe DNI (path), account e imageUrl (body). Hace safeMint y guarda el certificado (sin address) asociado al usuario.',
+  })
+  @ApiParam({ name: 'dni' })
+  @ApiBody({ type: AttestParticipationDto })
+  @ApiResponse({ status: 201, type: AttestParticipationResponseDto })
+  async attestParticipationNft(
+    @Param('dni') dni: string,
+    @Body() dto: AttestParticipationDto,
+  ): Promise<AttestParticipationResponseDto> {
+    return this.usersService.attestParticipationNft(dni, dto);
+  }
+
+  @Get(':dni/participation-certificates')
+  @ApiOperation({
+    summary: 'Listar certificados de participación (NFTs) por DNI',
+  })
+  @ApiParam({ name: 'dni' })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      properties: {
+        userId: { type: 'string' },
+        dni: { type: 'string' },
+        certificates: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/ParticipationCertificateDto' },
+        },
+      },
+    },
+  })
+  async listParticipationCertificates(@Param('dni') dni: string): Promise<{
+    userId: string;
+    dni: string;
+    certificates: ParticipationCertificateDto[];
+  }> {
+    return this.usersService.listParticipationCertificatesByDni(dni) as any;
   }
 }

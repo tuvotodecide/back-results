@@ -1,10 +1,28 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from '../schemas/user.schema';
 import { ElectoralTable } from '@/modules/geographic/schemas/electoral-table.schema';
 import { ElectoralLocation } from '@/modules/geographic/schemas/electoral-location.schema';
-import { UpdateVotePlaceDto, VotePlaceResponseDto } from '../dto/update-vote-place.dto';
+import {
+  UpdateVotePlaceDto,
+  VotePlaceResponseDto,
+} from '../dto/update-vote-place.dto';
+import {
+  AttestParticipationDto,
+  AttestParticipationResponseDto,
+} from '../dto/attest-participation.dto';
+
+// 👇 NUEVO: usamos tu stack AA existente
+import { encodeFunctionData } from 'viem';
+import participationAbi from '@/abi/participation.json';
+import { availableNetworks } from '@/api/params';
+import { executeOperation } from '@/api/account';
 
 @Injectable()
 export class UsersService {
@@ -165,6 +183,106 @@ export class UsersService {
             tableNumber: (fresh.votingTableId as any).tableNumber,
           }
         : null,
+    };
+  }
+
+  async attestParticipationNft(
+    dni: string,
+    dto: AttestParticipationDto,
+  ): Promise<AttestParticipationResponseDto> {
+    if (!dni) throw new BadRequestException('DNI requerido');
+
+    const user = await this.findOrCreateByDni(dni);
+
+    const { txHash, chainId, contractAddress } =
+      await this.executeParticipationOperation(dto.account, dto.imageUrl);
+
+    await this.userModel.updateOne(
+      { _id: user._id },
+      {
+        $push: {
+          participationCertificates: {
+            imageUrl: dto.imageUrl,
+            txHash,
+            chainId,
+            contractAddress,
+            electionId: dto.electionId ?? null,
+            createdAt: new Date(),
+          },
+        },
+      },
+    );
+
+    return {
+      userId: user._id.toString(),
+      dni: user.dni,
+      imageUrl: dto.imageUrl,
+      txHash,
+      chainId,
+      contractAddress,
+      electionId: dto.electionId ?? null,
+    };
+  }
+
+  async listParticipationCertificatesByDni(dni: string) {
+    if (!dni) throw new BadRequestException('DNI requerido');
+
+    const user = await this.findOrCreateByDni(dni);
+
+    return {
+      userId: user._id.toString(),
+      dni: user.dni,
+      certificates: user.participationCertificates ?? [],
+    };
+  }
+
+  private async executeParticipationOperation(
+    accountAddress: string,
+    imageUrl: string,
+  ): Promise<{
+    txHash: string;
+    chainId: number;
+    contractAddress: string;
+  }> {
+    const privateKey = process.env.NFT_PARTICIPATION_PRIVATE_KEY;
+    const chainKey = process.env.CHAIN || 'arbitrum-sepolia';
+
+    if (!privateKey) {
+      throw new InternalServerErrorException(
+        'NFT_PARTICIPATION_PRIVATE_KEY no configurado',
+      );
+    }
+
+    const network = (availableNetworks as any)[chainKey];
+    if (!network || !network.participationNft) {
+      throw new InternalServerErrorException(
+        `Red o participationNft no configurados para ${chainKey}`,
+      );
+    }
+
+
+    const callData = {
+      to: network.participationNft as `0x${string}`,
+      value: BigInt(0),
+      data: encodeFunctionData({
+        abi: participationAbi as any,
+        functionName: 'safeMint',
+        args: [accountAddress as `0x${string}`, imageUrl],
+      }),
+    };
+
+
+    const { receipt } = await executeOperation(
+      privateKey,
+      accountAddress,
+      chainKey, 
+      callData,
+    );
+
+    return {
+      txHash: receipt.transactionHash as string,
+      chainId: network.chain.id,
+      contractAddress: network.participationNft,
     };
   }
 }
