@@ -25,7 +25,11 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
-import { AttestParticipationDto, AttestParticipationResponseDto, ParticipationCertificateDto } from '../dto/attest-participation.dto';
+import {
+  AttestParticipationDto,
+  AttestParticipationResponseDto,
+  ParticipationCertificateDto,
+} from '../dto/attest-participation.dto';
 
 @ApiTags('Users')
 @Controller('api/v1/users')
@@ -159,7 +163,35 @@ export class UsersController {
     @Param('dni') dni: string,
     @Body() dto: AttestParticipationDto,
   ): Promise<AttestParticipationResponseDto> {
-    return this.usersService.attestParticipationNft(dni, dto);
+    const result = await this.usersService.attestParticipationNft(dni, dto);
+    try {
+      const user = await this.usersService.findOrCreateByDni(dni);
+      const locId = (user as any)?.votingLocationId?.toString();
+
+      if (locId) {
+        const topic = `loc_${String(locId).replace(/[^A-Za-z0-9_-]/g, '')}`;
+
+        await this.logModel.create({
+          topic,
+          title: 'Certificado de participación emitido',
+          body: 'Tu certificado de participación ya está disponible.',
+          data: {
+            type: 'participation_certificate',
+            dni: user.dni,
+            userId: user._id.toString(),
+            electionId: result.electionId,
+            imageUrl: result.imageUrl,
+            txHash: result.txHash,
+            chainId: result.chainId,
+            contractAddress: result.contractAddress,
+          },
+        });
+      }
+    } catch (e) {
+      // no romper el flujo si falla el log
+    }
+
+    return result;
   }
 
   @Get(':dni/participation-certificates')

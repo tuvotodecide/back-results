@@ -18,7 +18,6 @@ import {
   AttestParticipationResponseDto,
 } from '../dto/attest-participation.dto';
 
-// 👇 NUEVO: usamos tu stack AA existente
 import { encodeFunctionData } from 'viem';
 import participationAbi from '@/abi/participation.json';
 import { availableNetworks } from '@/api/params';
@@ -245,9 +244,7 @@ export class UsersService {
     contractAddress: string;
   }> {
     const privateKey = process.env.NFT_PARTICIPATION_PRIVATE_KEY;
-    const chainKey = 
-    // process.env.CHAINA || 
-    'arbitrum';
+    const chainKey = process.env.CHAINA;
 
     if (!privateKey) {
       throw new InternalServerErrorException(
@@ -255,13 +252,12 @@ export class UsersService {
       );
     }
 
-    const network = (availableNetworks as any)[chainKey];
+    const network = (availableNetworks as any)[chainKey ?? ''];
     if (!network || !network.participationNft) {
       throw new InternalServerErrorException(
         `Red o participationNft no configurados para ${chainKey}`,
       );
     }
-
 
     const callData = {
       to: network.participationNft as `0x${string}`,
@@ -273,11 +269,10 @@ export class UsersService {
       }),
     };
 
-
     const { receipt } = await executeOperation(
       privateKey,
       accountAddress,
-      chainKey, 
+      chainKey,
       callData,
     );
 

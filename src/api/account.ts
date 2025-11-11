@@ -17,8 +17,7 @@ if (!RAW_FACTORY_ADDRESS) {
 }
 const FACTORY_ADDR = RAW_FACTORY_ADDRESS as Address;
 const CHAIN_KEY = (
-  // process.env.CHAINA ||
-  'arbitrum') as keyof typeof availableNetworks;
+  process.env.CHAINA ) as keyof typeof availableNetworks;
 
 export function getReadAccountContract(chain, address) {
   const client = createPublicClient({
