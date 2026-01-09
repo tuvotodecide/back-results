@@ -6,7 +6,7 @@ import { User } from '@/modules/users/schemas/user.schema';
 import { UserNotification } from '../schemas/user-notification.schema';
 
 @ApiTags('User Notifications')
-@Controller('api/v1/users/:dni/notifications')
+@Controller('api/v1/users/:dni/user-notifications')
 export class UserNotificationsController {
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,

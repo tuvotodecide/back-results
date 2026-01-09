@@ -30,6 +30,7 @@ type AttestationLean<TUser = Types.ObjectId> = {
   ballotId: Types.ObjectId;
   isJury: boolean;
   userId: TUser;
+  electionId?: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -284,6 +285,24 @@ export class AttestationService {
     if (typeof isJury === 'boolean') filter.isJury = isJury;
     if (typeof support === 'boolean') filter.support = support;
 
+    const certificates = (user as any).participationCertificates ?? [];
+
+    const getCertificateUrlForElection = (eid?: Types.ObjectId) => {
+      if (!eid) return undefined;
+      const eidStr = eid.toString();
+
+      const matches = certificates.filter(
+        (c: any) => c.electionId && String(c.electionId) === eidStr,
+      );
+      if (!matches.length) return undefined;
+
+      matches.sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+      return matches[0].imageUrl as string;
+    };
+
     const eid = await this.resolveElectionId(electionId, false);
 
     if (!eid) {
@@ -293,7 +312,7 @@ export class AttestationService {
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
-          .select('support ballotId isJury createdAt updatedAt')
+          .select('support ballotId isJury createdAt updatedAt electionId')
           .lean<AttestationLean[]>()
           .exec(),
         this.attestationModel.countDocuments(filter),
@@ -301,7 +320,11 @@ export class AttestationService {
       return {
         user: { id: user._id.toString(), dni: user.dni },
         data: data.map((attestation) =>
-          this.mapToResponseDto(attestation, user.dni),
+          this.mapToResponseDto(attestation, user.dni, {
+            certificateUrl: getCertificateUrlForElection(
+              attestation.electionId as Types.ObjectId | undefined,
+            ),
+          }),
         ),
         total,
         page,
@@ -371,10 +394,14 @@ export class AttestationService {
             ballotId: a.ballotId,
             isJury: a.isJury,
             userId: user._id,
+            electionId: eid,
             createdAt: a.createdAt,
             updatedAt: a.updatedAt,
           } as any,
           user.dni,
+          {
+            certificateUrl: getCertificateUrlForElection(eid),
+          },
         ),
       ),
       total,
@@ -1122,6 +1149,7 @@ export class AttestationService {
   private mapToResponseDto(
     attestation: AttestationLean<Types.ObjectId | PopulatedUserRef>,
     dni: string,
+    opts?: { certificateUrl?: string },
   ): AttestationResponseDto {
     const ballot = attestation.ballotId as any;
     const ballotId =
@@ -1134,6 +1162,10 @@ export class AttestationService {
       ballotId,
       dni,
       isJury: attestation.isJury,
+      electionId: attestation.electionId
+        ? (attestation.electionId as Types.ObjectId).toString()
+        : undefined,
+      certificateUrl: opts?.certificateUrl,
       createdAt: attestation.createdAt,
       updatedAt: attestation.updatedAt,
     };

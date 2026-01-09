@@ -25,6 +25,11 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
+import {
+  AttestParticipationDto,
+  AttestParticipationResponseDto,
+  ParticipationCertificateDto,
+} from '../dto/attest-participation.dto';
 
 @ApiTags('Users')
 @Controller('api/v1/users')
@@ -103,7 +108,8 @@ export class UsersController {
 
   @Get(':dni/notifications')
   @ApiOperation({
-    summary: 'Notificaciones del usuario por DNI (topic del recinto elegido)',
+    summary:
+      'Notificaciones del usuario por DNI (topic del recinto y fallback por usuario)',
   })
   @ApiParam({ name: 'dni' })
   @ApiResponse({ status: 200, description: 'Lista paginada' })
@@ -114,26 +120,24 @@ export class UsersController {
   ) {
     const user = await this.usersService.findOrCreateByDni(dni);
     const locId = (user as any)?.votingLocationId?.toString();
-    if (!locId) {
-      return {
-        data: [],
-        total: 0,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: 0,
-      };
+
+    const topics: string[] = [];
+    if (locId) {
+      const safeLoc = String(locId).replace(/[^A-Za-z0-9_-]/g, '');
+      topics.push(`loc_${safeLoc}`);
     }
-    const topic = `loc_${String(locId).replace(/[^A-Za-z0-9_-]/g, '')}`;
+    topics.push(`user_${user._id.toString()}`);
 
     const skip = (Number(page) - 1) * Number(limit);
+
     const [data, total] = await Promise.all([
       this.logModel
-        .find({ topic })
-        .sort({ createdAt: -1 })
+        .find({ topic: { $in: topics } })
+        .sort({ createdAt: -1, _id: -1 }) // _id como respaldo
         .skip(skip)
         .limit(Number(limit))
         .lean(),
-      this.logModel.countDocuments({ topic }),
+      this.logModel.countDocuments({ topic: { $in: topics } }),
     ]);
 
     return {
@@ -143,5 +147,101 @@ export class UsersController {
       limit: Number(limit),
       totalPages: Math.ceil(total / Number(limit)),
     };
+  }
+  @Post(':dni/participation-nft')
+  @ApiOperation({
+    summary:
+      'Emitir NFT de participación para un usuario (attest) y registrar el certificado',
+    description:
+      'Recibe DNI (path), account e imageUrl (body). Hace safeMint y guarda el certificado (sin address) asociado al usuario.',
+  })
+  @ApiParam({ name: 'dni' })
+  @ApiBody({ type: AttestParticipationDto })
+  @ApiResponse({ status: 201, type: AttestParticipationResponseDto })
+  async attestParticipationNft(
+    @Param('dni') dni: string,
+    @Body() dto: AttestParticipationDto,
+  ): Promise<AttestParticipationResponseDto> {
+    const result = await this.usersService.attestParticipationNft(dni, dto);
+
+    try {
+      const user = await this.usersService.findOrCreateByDni(dni);
+      const locId = (user as any)?.votingLocationId?.toString();
+
+      const topics: string[] = [];
+      if (locId) {
+        const safeLoc = String(locId).replace(/[^A-Za-z0-9_-]/g, '');
+        topics.push(`loc_${safeLoc}`);
+      }
+      // Fallback SIEMPRE: topic por usuario
+      topics.push(`user_${user._id.toString()}`);
+
+      const payload = {
+        title: 'Certificado de participación emitido',
+        body: 'Tu certificado de participación ya está disponible.',
+        data: {
+          type: 'participation_certificate',
+          dni: user.dni,
+          userId: user._id.toString(),
+          electionId: result.electionId ?? '',
+          imageUrl: result.imageUrl,
+          txHash: result.txHash,
+          chainId: result.chainId,
+          contractAddress: result.contractAddress,
+          screen: 'SuccessScreen',
+          routeParams: JSON.stringify({
+            certificateData: {
+              imageUrl: result.imageUrl,
+            },
+            nftData: {
+              nftUrl: result.imageUrl,
+            },
+          }),
+        },
+      };
+
+      await Promise.all(
+        topics.map((topic) =>
+          this.logModel.create({
+            type: 'generic', // 👈 requerido
+            topic,
+            title: payload.title,
+            body: payload.body,
+            data: payload.data,
+            status: 'SENT', // 👈 requerido
+          }),
+        ),
+      );
+    } catch (e) {
+      // no romper el flujo si falla el log
+    }
+
+    return result;
+  }
+
+  @Get(':dni/participation-certificates')
+  @ApiOperation({
+    summary: 'Listar certificados de participación (NFTs) por DNI',
+  })
+  @ApiParam({ name: 'dni' })
+  @ApiResponse({
+    status: 200,
+    schema: {
+      properties: {
+        userId: { type: 'string' },
+        dni: { type: 'string' },
+        certificates: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/ParticipationCertificateDto' },
+        },
+      },
+    },
+  })
+  async listParticipationCertificates(@Param('dni') dni: string): Promise<{
+    userId: string;
+    dni: string;
+    certificates: ParticipationCertificateDto[];
+  }> {
+    return this.usersService.listParticipationCertificatesByDni(dni) as any;
   }
 }

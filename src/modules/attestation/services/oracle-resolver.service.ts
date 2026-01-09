@@ -188,6 +188,7 @@ export class OracleResolverService {
 
   /** ID compuesto que espera tu contrato (ajústalo si tu ABI usa solo tableCode) */
   private createContractId(tableCode: string, electionId: string): string {
+     this.logger.log(`${tableCode}-${electionId}`);
     return `${tableCode}-${electionId}`;
   }
 

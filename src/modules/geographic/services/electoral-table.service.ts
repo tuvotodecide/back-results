@@ -257,6 +257,7 @@ export class ElectoralTableService {
       createdAt: tableObj.createdAt,
       updatedAt: tableObj.updatedAt,
       __v: tableObj.__v,
+      electoralLocationId: location?._id,
       electoralLocation: location
         ? {
             _id: location._id,

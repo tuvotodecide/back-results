@@ -68,6 +68,16 @@ export class AttestationResponseDto {
 
   @ApiProperty({ description: 'DNI del usuario' }) dni: string;
 
+  @ApiProperty({ required: false, description: 'ID de la elección' })
+  electionId?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'URL del certificado de participación asociado a este atestiguamiento',
+  })
+  certificateUrl?: string;
+
   @ApiProperty()
   createdAt: Date;
 

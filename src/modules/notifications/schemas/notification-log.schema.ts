@@ -1,4 +1,3 @@
-
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
@@ -23,12 +22,12 @@ export class NotificationLog {
   @Prop({ required: true, enum: ['SENT', 'FAILED'] })
   status: 'SENT' | 'FAILED';
 
-  @Prop() messageId?: string; 
+  @Prop() messageId?: string;
   @Prop() error?: string;
 }
 
-
-export const NotificationLogSchema = SchemaFactory.createForClass(NotificationLog);
+export const NotificationLogSchema =
+  SchemaFactory.createForClass(NotificationLog);
 NotificationLogSchema.index({ locationId: 1, createdAt: -1 });
 NotificationLogSchema.index({ topic: 1, createdAt: -1 });
-NotificationLogSchema.index({ type: 1, createdAt: -1 });
+NotificationLogSchema.index({ topic: 1, createdAt: -1, _id: -1 });

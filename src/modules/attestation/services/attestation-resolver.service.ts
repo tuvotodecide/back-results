@@ -65,7 +65,15 @@ export class AttestationResolverService {
       }
 
       if (this.useBlockchain) {
-        await this.resolvePendingOnChain();
+        const activeElectionId = status.config?.id;
+        if (!activeElectionId) {
+          this.logger.warn(
+            'hasActiveConfig=true pero no hay config.id; no se resuelve on-chain',
+          );
+          return;
+        }
+
+        await this.resolvePendingOnChain(activeElectionId);
       } else {
         await this.resolvePendingOffChain();
       }
@@ -80,73 +88,129 @@ export class AttestationResolverService {
    * 2. Lee resultados del contrato
    * 3. Guarda en BD
    */
-  private async resolvePendingOnChain() {
-    this.logger.log('Iniciando resolución ON-CHAIN...');
+  // private async resolvePendingOnChain(activeElectionId: string) {
+  //   this.logger.log('Iniciando resolución ON-CHAIN...');
+  //   this.logger.log(
+  //     `LOCK_OWNER en runtime: ${this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`}`,
+  //   );
+  //   const pendingCases = await this.getPendingCases(); // {electionId, tableCode} mezclados
+  //   if (pendingCases.length === 0) {
+  //     this.logger.log('No hay casos pendientes de resolución');
+  //     return;
+  //   }
+
+  //   // 1) Agrupar por elección
+  //   const groups = new Map<
+  //     string,
+  //     Array<{ tableCode: string; electionId: string }>
+  //   >();
+  //   for (const item of pendingCases) {
+  //     if (!groups.has(item.electionId)) groups.set(item.electionId, []);
+  //     groups.get(item.electionId)!.push(item);
+  //   }
+
+  //   // 2) Ordenar grupos por resultsStartDate (si no está, ordenar por electionId)
+  //   const actives = await this.electionConfigService
+  //     .getActiveConfigs()
+  //     .catch(() => []);
+  //   const byDate = Array.from(groups.entries())
+  //     .map(([electionId, items]) => {
+  //       const cfg = actives?.find((c: any) => c.id === electionId);
+  //       const key = cfg?.resultsStartDate
+  //         ? new Date(cfg.resultsStartDate).getTime()
+  //         : Number.MAX_SAFE_INTEGER;
+  //       return { electionId, items, key };
+  //     })
+  //     .sort(
+  //       (a, b) => a.key - b.key || a.electionId.localeCompare(b.electionId),
+  //     );
+
+  //   // 3) Procesar elección por elección
+  //   const owner =
+  //     this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`;
+  //   for (const { electionId, items } of byDate) {
+  //     const ok = await this.locks.tryAcquire(
+  //       `resolve:${electionId}`,
+  //       owner,
+  //       this.LOCK_TTL_SECONDS,
+  //     );
+  //     if (!ok) {
+  //       const k = `resolve:${electionId}`;
+  //       const peek = await this.locks.peek(k);
+  //       this.logger.warn(
+  //         `Diagnóstico lock ${k} -> owner=${peek?.owner} expiresAt=${peek?.expiresAt?.toISOString?.()}`,
+  //       );
+  //       continue;
+  //     }
+  //     try {
+  //       await this.processElectionSlices(electionId, items);
+  //     } catch (e) {
+  //       this.logger.error(`Fallo procesando elección ${electionId}`, e);
+  //       await this.runs.save(electionId, { lastError: String(e) });
+  //     } finally {
+  //       await this.locks
+  //         .release(`resolve:${electionId}`, owner)
+  //         .catch(() => {});
+  //     }
+  //   }
+
+  //   this.logger.log('Proceso de resolución ON-CHAIN completado');
+  // }
+
+  private async resolvePendingOnChain(activeElectionId: string) {
     this.logger.log(
-      `LOCK_OWNER en runtime: ${this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`}`,
+      `Iniciando resolución ON-CHAIN para electionId=${activeElectionId}...`,
     );
-    const pendingCases = await this.getPendingCases(); // {electionId, tableCode} mezclados
+
+    this.logger.log(
+      `LOCK_OWNER en runtime: ${
+        this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`
+      }`,
+    );
+
+    // 🔹 SOLO casos de la elección activa
+    const pendingCases = await this.getPendingCases(activeElectionId);
+
     if (pendingCases.length === 0) {
-      this.logger.log('No hay casos pendientes de resolución');
+      this.logger.log(
+        `No hay casos pendientes de resolución para electionId=${activeElectionId}`,
+      );
       return;
     }
 
-    // 1) Agrupar por elección
-    const groups = new Map<
-      string,
-      Array<{ tableCode: string; electionId: string }>
-    >();
-    for (const item of pendingCases) {
-      if (!groups.has(item.electionId)) groups.set(item.electionId, []);
-      groups.get(item.electionId)!.push(item);
-    }
-
-    // 2) Ordenar grupos por resultsStartDate (si no está, ordenar por electionId)
-    const actives = await this.electionConfigService
-      .getActiveConfigs()
-      .catch(() => []);
-    const byDate = Array.from(groups.entries())
-      .map(([electionId, items]) => {
-        const cfg = actives?.find((c: any) => c.id === electionId);
-        const key = cfg?.resultsStartDate
-          ? new Date(cfg.resultsStartDate).getTime()
-          : Number.MAX_SAFE_INTEGER;
-        return { electionId, items, key };
-      })
-      .sort(
-        (a, b) => a.key - b.key || a.electionId.localeCompare(b.electionId),
-      );
-
-    // 3) Procesar elección por elección
     const owner =
       this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`;
-    for (const { electionId, items } of byDate) {
-      const ok = await this.locks.tryAcquire(
-        `resolve:${electionId}`,
-        owner,
-        this.LOCK_TTL_SECONDS,
+
+    const ok = await this.locks.tryAcquire(
+      `resolve:${activeElectionId}`,
+      owner,
+      this.LOCK_TTL_SECONDS,
+    );
+
+    if (!ok) {
+      const k = `resolve:${activeElectionId}`;
+      const peek = await this.locks.peek(k);
+      this.logger.warn(
+        `Diagnóstico lock ${k} -> owner=${peek?.owner} expiresAt=${peek?.expiresAt?.toISOString?.()}`,
       );
-      if (!ok) {
-        const k = `resolve:${electionId}`;
-        const peek = await this.locks.peek(k);
-        this.logger.warn(
-          `Diagnóstico lock ${k} -> owner=${peek?.owner} expiresAt=${peek?.expiresAt?.toISOString?.()}`,
-        );
-        continue;
-      }
-      try {
-        await this.processElectionSlices(electionId, items);
-      } catch (e) {
-        this.logger.error(`Fallo procesando elección ${electionId}`, e);
-        await this.runs.save(electionId, { lastError: String(e) });
-      } finally {
-        await this.locks
-          .release(`resolve:${electionId}`, owner)
-          .catch(() => {});
-      }
+      return;
     }
 
-    this.logger.log('Proceso de resolución ON-CHAIN completado');
+    try {
+      // Procesamos SÓLO la elección activa
+      await this.processElectionSlices(activeElectionId, pendingCases);
+    } catch (e) {
+      this.logger.error(`Fallo procesando elección ${activeElectionId}`, e);
+      await this.runs.save(activeElectionId, { lastError: String(e) });
+    } finally {
+      await this.locks
+        .release(`resolve:${activeElectionId}`, owner)
+        .catch(() => {});
+    }
+
+    this.logger.log(
+      `Proceso de resolución ON-CHAIN completado para electionId=${activeElectionId}`,
+    );
   }
 
   /**
@@ -192,27 +256,47 @@ export class AttestationResolverService {
   /**
    * Obtiene casos pendientes de resolución
    */
-  private async getPendingCases(): Promise<
-    Array<{ tableCode: string; electionId: string }>
-  > {
+  private async getPendingCases(
+    electionIdFilter?: string,
+  ): Promise<Array<{ tableCode: string; electionId: string }>> {
+    const pipeline: any[] = [
+      {
+        $lookup: {
+          from: 'ballots',
+          localField: 'ballotId',
+          foreignField: '_id',
+          as: 'ballot',
+        },
+      },
+      { $unwind: '$ballot' },
+    ];
+
+    // 🔹 Si viene electionId, filtramos solo esa elección
+    if (electionIdFilter && Types.ObjectId.isValid(electionIdFilter)) {
+      pipeline.push({
+        $match: {
+          'ballot.electionId': new Types.ObjectId(electionIdFilter),
+        },
+      });
+    }
+
+    pipeline.push(
+      {
+        $group: {
+          _id: { eid: '$ballot.electionId', t: '$ballot.tableCode' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          electionId: '$_id.eid',
+          tableCode: '$_id.t',
+        },
+      },
+    );
+
     const results: Array<{ electionId: Types.ObjectId; tableCode: string }> =
-      await this.attModel.aggregate([
-        {
-          $lookup: {
-            from: 'ballots',
-            localField: 'ballotId',
-            foreignField: '_id',
-            as: 'ballot',
-          },
-        },
-        { $unwind: '$ballot' },
-        {
-          $group: {
-            _id: { eid: '$ballot.electionId', t: '$ballot.tableCode' },
-          },
-        },
-        { $project: { _id: 0, electionId: '$_id.eid', tableCode: '$_id.t' } },
-      ]);
+      await this.attModel.aggregate(pipeline).exec();
 
     const pending: Array<{ tableCode: string; electionId: string }> = [];
 
@@ -538,35 +622,44 @@ export class AttestationResolverService {
   ) {
     // Recalcula siempre los pendientes de ESTA elección (idempotente)
     const recompute = async () => {
-      const all = await this.getPendingCases();
-      return all.filter((x) => x.electionId === electionId);
+      return this.getPendingCases(electionId);
     };
 
-    // Utilidad segura para epoch seconds "ahora".
+    // Utilidad para epoch seconds "ahora".
     const nowSec = () => Math.floor(Date.now() / 1000);
 
     while (true) {
       const pend = await recompute();
       if (pend.length === 0) break;
 
-      // 1) Tomar un slice pequeño (tu límite por env)
-      const batch = pend.slice(0, this.MAX_RESOLVES_PER_SLICE);
-
-      // 2) Cerrar ventana ON-CHAIN para esta elección (si el contrato lo exige)
+      // ⚠️ Leer una sola vez la ventana on-chain para esta elección (global al contrato)
+      let attestEndSec = 0;
       try {
-        // Si tu OracleResolverService ya no necesita esto, no pasa nada: se ignora.
-        await this.oracleResolver.setActiveTimeClose(electionId);
-      } catch (e) {
+        attestEndSec = await this.oracleResolver.getAttestEnd();
+      } catch (err) {
         this.logger.warn(
-          `No se pudo cerrar ventana para ${electionId}: ${String(e)}`,
+          `No se pudo leer attestEnd para election ${electionId}: ${String(err)}`,
         );
       }
 
-      // 3) Prefiltrar según el ESTADO ON-CHAIN de cada mesa
+      // Si el contrato dice que todavía estamos antes del fin de atestiguamiento,
+      // NO intentamos resolver nada todavía. El cron lo reintentará luego.
+      if (attestEndSec && attestEndSec > nowSec()) {
+        this.logger.debug(
+          `⏳ Too soon para election ${electionId} (attestEnd=${attestEndSec}, now=${nowSec()})`,
+        );
+        break;
+      }
+
+      // 1) Tomar un slice pequeño (tu límite por env)
+      const batch = pend.slice(0, this.MAX_RESOLVES_PER_SLICE);
+
+      // 2) Prefiltrar según el ESTADO ON-CHAIN de cada mesa
       const ready: Array<{ tableCode: string; electionId: string }> = [];
+
       for (const { tableCode } of batch) {
         try {
-          const info: any = await this.oracleResolver.getAttestationInfo(
+          const info = await this.oracleResolver.getAttestationInfo(
             tableCode,
             electionId,
           );
@@ -577,31 +670,23 @@ export class AttestationResolverService {
             continue;
           }
 
-          // Heurísticas genéricas (sin cambiar nombres tuyos):
-          // - Si el contrato expone "attestEnd": solo resolver cuando attestEnd <= now.
-          // - Si ya hay resultado final (finalResult != 0) o estado final, no resolver; solo sincronizar.
-          const attestEndSec = await this.oracleResolver.getAttestEnd();
           const hasWinner =
             !!info.finalResult && info.finalResult.toString() !== '0';
 
-          // Si el contrato expone un status numérico, puedes mapearlo a string con tu mapper:
-          // const stateStr = this.oracleResolver.mapContractStatusToString(info.status);
+          const stateStr = this.oracleResolver.mapContractStatusToString(
+            info.status,
+          );
 
-          // Demasiado pronto: saltar
-          if (attestEndSec && attestEndSec > nowSec()) {
-            this.logger.debug(
-              `⏳ Too soon ${tableCode}-${electionId} (attestEnd=${attestEndSec}, now=${nowSec()})`,
-            );
-            continue;
-          }
-
-          // Ya cerrado/resuelto en cadena: sincronizar y saltar
-          if (hasWinner /* || stateStr === 'CLOSED' etc. */) {
+          // Si ya hay resultado final en contrato, solo sincronizamos a BD
+          if (
+            hasWinner ||
+            ['PENDING', 'VERIFYING', 'CONSENSUAL', 'CLOSED'].includes(stateStr)
+          ) {
             await this.syncFromContract(electionId, tableCode);
             continue;
           }
 
-          // Listo para resolver
+          // Sigue sin resolver en contrato -> la incluimos en el batch de resolve()
           ready.push({ tableCode, electionId });
         } catch (err) {
           this.logger.warn(
@@ -610,17 +695,12 @@ export class AttestationResolverService {
         }
       }
 
-      if (ready.length === 0) {
-        // Reabrir ventana si se cerró arriba (opcional)
-        try {
-          await this.oracleResolver.setActiveTimeOpen(electionId);
-        } catch {}
-        // No había nada resolvible; continuar al siguiente ciclo por si cambia el estado.
-        await new Promise((r) => setTimeout(r, this.SLICE_PAUSE_MS));
-        continue;
+      if (!ready.length) {
+        // No había nada resolvible para esta elección en este tick
+        break;
       }
 
-      // 4) Enviar on-chain SOLO lo resolvible
+      // 3) Enviar on-chain SOLO lo que realmente necesita resolve()
       const txResult = await this.oracleResolver.resolveAttestations(ready);
       if (!txResult.success) {
         this.logger.error(
@@ -628,25 +708,17 @@ export class AttestationResolverService {
           txResult.error,
         );
         await this.runs.save(electionId, { lastError: String(txResult.error) });
-        // Reabrir (opcional) y salir del ciclo para reintentar en el próximo cron
-        try {
-          await this.oracleResolver.setActiveTimeOpen(electionId);
-        } catch {}
+        // Salimos; el próximo cron lo reintentará
         break;
       }
 
-      // 5) Sincronizar resultados del contrato para este batch (idempotente)
+      // 4) Sincronizar resultados del contrato para este batch (idempotente)
       for (const { tableCode } of ready) {
         await this.syncFromContract(electionId, tableCode);
       }
       await this.runs.save(electionId, { lastError: null });
 
-      // 6) Reabrir ventana si la cerraste
-      try {
-        await this.oracleResolver.setActiveTimeOpen(electionId);
-      } catch {}
-
-      // 7) Pausa corta para no saturar bundler/RPC
+      // 5) Pausa corta para no saturar RPC
       await new Promise((r) => setTimeout(r, this.SLICE_PAUSE_MS));
     }
   }

@@ -15,7 +15,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/main",
+    "start:prod": "node dist/src/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest -c ./jest.config.ts",
     "test:unit": "jest -c ./jest.config.ts --runInBand --testPathPattern=test/unit/",
@@ -48,10 +48,11 @@
     "ethers": "^6.15.0",
     "firebase-admin": "^13.5.0",
     "mongoose": "^8.19.1",
-    "permissionless": "^0.2.57",
+    "permissionless": "^0.2.47",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "viem": "^2.38.5"
+    "viem": "^2.38.6",
+    "ox": "0.8.9"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

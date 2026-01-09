@@ -29,6 +29,7 @@ import {
   ElectoralTable,
   ElectoralTableDocument,
 } from '@/modules/geographic/schemas/electoral-table.schema';
+import { LoggerService } from '../../../core/services/logger.service';
 
 @Injectable()
 export class BallotService {
@@ -40,6 +41,7 @@ export class BallotService {
     private electoralTableService: ElectoralTableService,
     private politicalPartyService: PoliticalPartyService,
     private electionConfigService: ElectionConfigService,
+    private logger: LoggerService,
   ) {}
 
   async createFromIpfs(createDto: CreateBallotFromIpfsDto): Promise<Ballot> {
@@ -311,7 +313,8 @@ export class BallotService {
       if (uniqueIds.length > 0) {
         const ok = await this.politicalPartyService.validatePartyIds(
           uniqueIds,
-          electionId ? String(electionId) : undefined,
+          //TO-DO asignar un electionId a cada partido
+          // electionId ? String(electionId) : undefined,
         );
         if (!ok) errors.push('IDs de partido inválidos o inactivos');
       }
