@@ -38,4 +38,14 @@ export default registerAs('app', () => ({
       .map((s) => s.trim())
       .filter(Boolean),
   },
+
+  zkAuth: {
+    zkAuthTtl: parseInt(process.env.ZK_AUTH_API_KEY_TTL || '86400', 10), // 24 hours
+    callbackUrl: process.env.ZK_AUTH_CALLBACK_URL,
+    audience: process.env.VERIFIER_DID,
+    rpcUrl: process.env.ZK_AUTH_RPC_URL,
+    network: process.env.ZK_AUTH_NETWORK,
+    stateContract: process.env.ZK_AUTH_STATE_CONTRACT,
+    ipfsGatewayUrl: process.env.IPFS_GATEWAY_URL || 'https://ipfs.io',
+  }
 }));

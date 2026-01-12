@@ -25,6 +25,7 @@ import {
   AttestationResponseDto,
 } from '../dto/attestation.dto';
 import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guard';
+import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
 
 @ApiTags('Attestations')
 @Controller('api/v1/attestations')
@@ -32,7 +33,7 @@ export class AttestationController {
   constructor(private readonly attestationService: AttestationService) {}
 
   @Post()
-  @UseGuards(VotingPeriodGuard)
+  @UseGuards(VotingPeriodGuard, ZkAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Crear múltiples attestations',

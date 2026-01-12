@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.13.0",
+    "@iden3/js-iden3-auth": "^1.12.2",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/cache-manager": "^3.0.1",
     "@nestjs/common": "^11.0.1",
@@ -45,11 +46,11 @@
     "ethers": "^6.15.0",
     "firebase-admin": "^13.5.0",
     "mongoose": "^8.19.1",
+    "ox": "0.8.9",
     "permissionless": "^0.2.47",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "viem": "^2.38.6",
-    "ox": "0.8.9"
+    "viem": "^2.38.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
