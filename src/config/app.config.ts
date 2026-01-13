@@ -38,4 +38,17 @@ export default registerAs('app', () => ({
       .map((s) => s.trim())
       .filter(Boolean),
   },
+  mail: {
+    logoUrl: process.env.EMAIL_LOGO_URL || '',
+    verificationBaseUrl: process.env.EMAIL_VERIFICATION_BASE_URL || '',
+    verificationTokenTTLHours: parseInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS || '24', 10),
+    passwordResetBaseUrl: process.env.PASSWORD_RESET_BASE_URL || '',
+    passwordResetTokenTTLHours: parseInt(process.env.PASSWORD_RESET_TOKEN_TTL_HOURS || '2', 10),
+    smtp: {
+      region: process.env.SES_REGION || 'us-east-1',
+      accessKeyId: process.env.SES_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.SES_SECRET_ACCESS_KEY || '',
+      from: process.env.SES_FROM_MAIL || 'noreply@example.com',
+    },
+  },
 }));

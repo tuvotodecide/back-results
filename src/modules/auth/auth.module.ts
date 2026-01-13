@@ -7,6 +7,7 @@ import { Department, DepartmentSchema } from '../geographic/schemas/department.s
 import { Municipality, MunicipalitySchema } from '../geographic/schemas/municipality.schema';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { ConfigService } from '@nestjs/config';
       }),
       inject: [ConfigService],
     }),
+    MailModule,
   ],
   controllers: [AuthController],
   providers: [AuthService],

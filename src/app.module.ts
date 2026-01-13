@@ -16,11 +16,22 @@ import { FirebaseModule } from './core/firebase/firebase.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './modules/auth/auth.module';
+import { MailModule } from './modules/mail/mail.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'assets'),
+      serveStaticOptions: {
+        redirect: false,
+        fallthrough: false,
+      },
+      serveRoot: '/assets',
+    }),
     CoreModule,
     ElectionsModule,
     GeographicModule,
@@ -32,6 +43,7 @@ import { AuthModule } from './modules/auth/auth.module';
     FirebaseModule,
     NotificationsModule,
     AuthModule,
+    MailModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ApiKeyGuard }],

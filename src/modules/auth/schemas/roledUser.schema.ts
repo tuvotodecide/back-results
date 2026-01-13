@@ -13,6 +13,18 @@ export class RoledUser {
   @Prop({ default: false })
   active: boolean;
 
+  @Prop({ default: null })
+  verificationToken?: string;
+
+  @Prop({ type: Date, default: null })
+  verificationTokenExpiresAt?: Date;
+
+  @Prop({ default: null })
+  passwordResetToken?: string;
+
+  @Prop({ type: Date, default: null })
+  passwordResetTokenExpiresAt?: Date;
+
   createdAt: Date;
   updatedAt: Date;
 
@@ -43,3 +55,5 @@ export const RoledUserSchema = SchemaFactory.createForClass(RoledUser);
 RoledUserSchema.index({ dni: 1 }, { unique: true });
 RoledUserSchema.index({ email: 1 }, { unique: true });
 RoledUserSchema.index({ active: 1 });
+RoledUserSchema.index({ verificationToken: 1 });
+RoledUserSchema.index({ passwordResetToken: 1 });
