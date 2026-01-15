@@ -217,4 +217,36 @@ export class AuthService {
       return `${baseUrl}${separator}token=${token}`;
     }
   }
+
+  async createRoledUser(dto: RegisterRoledUserDto): Promise<RoledUserDocument> {
+    const payload: Partial<RoledUser> = {
+      dni: dto.dni,
+      email: dto.email,
+      name: dto.name,
+      password: bcrypt.hashSync(dto.password, 10),
+      role: dto.votingDepartmentId ? 'GOVERNOR' : 'MAYOR',
+      votingDepartmentId: dto.votingDepartmentId
+        ? new Types.ObjectId(dto.votingDepartmentId)
+        : null,
+      votingMunicipalityId: dto.votingMunicipalityId
+        ? new Types.ObjectId(dto.votingMunicipalityId)
+        : null,
+      active: true,
+    };
+
+    let user: RoledUserDocument | undefined;
+    try {
+      user = await this.roledUserModel.create(payload);
+      return user;
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        throw new BadRequestException('Usuario ya registrado para el DNI o correo electrónico proporcionado');
+      }
+      throw error;
+    }
+  }
+
+  async deleteRoledUserByEmail(email: string): Promise<void> {
+    await this.roledUserModel.deleteOne({ email });
+  }
 }

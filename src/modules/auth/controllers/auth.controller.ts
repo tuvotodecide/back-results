@@ -1,5 +1,5 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, Request, UseGuards } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AuthService } from '../services/auth.service';
 import {
   RegisterRoledUserDto,
@@ -73,6 +73,27 @@ export class AuthController {
   @ApiResponse({ status: 200, type: ProfileResponseDto })
   getProfile(@Request() req) {
     return req.user;
+  }
+
+  @Post('test/roleduser')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Registrar un usuario de prueba activo' })
+  @ApiBody({ type: RegisterRoledUserDto })
+  @ApiResponse({ status: 201, type: RoledUserResponseDto })
+  async createRoleUser(
+    @Body() dto: RegisterRoledUserDto,
+  ): Promise<RoledUserResponseDto> {
+    const user = await this.authService.createRoledUser(dto);
+    return this.toResponse(user);
+  }
+
+  @Delete('test/roleduser/:email')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Eliminar un usuario de prueba por correo electrónico' })
+  @ApiParam({ name: 'email', required: true, description: 'Correo electrónico del usuario a eliminar' })
+  @ApiResponse({ status: 204 })
+  async deleteRoleUser(@Param('email') email: string): Promise<void> {
+    await this.authService.deleteRoledUserByEmail(email);
   }
 
   private toResponse(user: RoledUserDocument): RoledUserResponseDto {
