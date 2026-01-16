@@ -21,6 +21,8 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { ContractsModule } from './modules/contracts/contracts.module';
+import { MocksModule } from './modules/mocks/mocks.module';
+import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
 
 @Module({
   imports: [
@@ -47,6 +49,8 @@ import { ContractsModule } from './modules/contracts/contracts.module';
     AuthModule,
     MailModule,
     ContractsModule,
+    MocksModule,
+    ZkAuthModule,
   ],
   controllers: [AppController],
   providers: [

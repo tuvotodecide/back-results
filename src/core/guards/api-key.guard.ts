@@ -29,6 +29,23 @@ export class ApiKeyGuard implements CanActivate {
     // Only open GET.
     if (req.method === 'GET') return true;
 
+    // Allow pinning mock endpoints without API key.
+    if (
+      req.path === '/api/v1/pinning/pinFileToIPFS' ||
+      req.path === '/api/v1/pinning/pinJSONToIPFS'
+    ) return true;
+
+    // Allow requesting new ZK auth API keys.
+    if (
+      req.path === '/api/v1/zk-auth/request' ||
+      req.path === '/api/v1/zk-auth/callback'
+    ) return true;
+
+    // Endpoints replaced by ZK Auth.
+    if (
+      req.path === '/api/v1/attestations'
+    ) return true;
+
     if (this.allowedKeys.length === 0) {
       throw new ForbiddenException('API key no configurada en el servidor');
     }

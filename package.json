@@ -33,6 +33,7 @@
   "dependencies": {
     "@aws-sdk/client-ses": "^3.967.0",
     "@google/genai": "^1.13.0",
+    "@iden3/js-iden3-auth": "^1.12.2",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/cache-manager": "^3.0.1",
     "@nestjs/common": "^11.0.1",
