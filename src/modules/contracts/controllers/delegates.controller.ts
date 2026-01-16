@@ -31,7 +31,6 @@ export class DelegatesController {
 
 
   @Post('upload-csv')
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Cargar lista oficial de delegados desde CSV (Superadmin)',
@@ -74,7 +73,6 @@ export class DelegatesController {
    * Agregar un delegado manualmente
    */
   @Post()
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Agregar un delegado manualmente (Superadmin)',
@@ -177,7 +175,6 @@ export class DelegatesController {
    * Remover un delegado de un contrato
    */
   @Delete()
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Remover un delegado de un contrato (Superadmin)',

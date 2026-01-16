@@ -20,6 +20,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
+import { ContractsModule } from './modules/contracts/contracts.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
     NotificationsModule,
     AuthModule,
     MailModule,
+    ContractsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -32,7 +32,7 @@ export class ContractsController {
    * UC1: Aprobar o rechazar registro de Alcalde/Gobernador
    */
   @Post('users/:userId/approve')
-  @UseGuards(JwtAuthGuard)
+
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Aprobar o rechazar un usuario con rol (Superadmin)',
@@ -95,7 +95,6 @@ export class ContractsController {
    * Crear un nuevo contrato
    */
   @Post()
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Crear un contrato territorial (Superadmin)',
@@ -221,7 +220,6 @@ export class ContractsController {
    * Obtener contrato de un cliente
    */
   @Get('client/:clientId')
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Obtener contrato activo de un cliente' })
   async getClientContract(
@@ -265,7 +263,6 @@ export class ContractsController {
    * Desactivar un contrato
    */
   @Patch(':contractId/deactivate')
-  @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un contrato' })
   async deactivate(@Param('contractId') contractId: string) {

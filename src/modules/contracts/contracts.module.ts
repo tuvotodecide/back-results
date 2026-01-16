@@ -7,10 +7,23 @@ import { DelegatesService } from './services/delegates.service';
 import { ContractsController } from './controllers/contracts.controller';
 import { DelegatesController } from './controllers/delegates.controller';
 import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
-import { Department, DepartmentSchema } from '../geographic/schemas/department.schema';
-import { Municipality, MunicipalitySchema } from '../geographic/schemas/municipality.schema';
+import {
+  Department,
+  DepartmentSchema,
+} from '../geographic/schemas/department.schema';
+import {
+  Municipality,
+  MunicipalitySchema,
+} from '../geographic/schemas/municipality.schema';
 import { UsersModule } from '../users/users.module';
 import { AuthModule } from '../auth/auth.module';
+import {
+  Attestation,
+  AttestationSchema,
+} from '../attestation/schemas/attestation.schema';
+import { Ballot, BallotSchema } from '../ballot/schemas/ballot.schema';
+import { ClientReportsService } from './services/client-reports.service';
+import { ClientReportsController } from './controllers/client-reports.controller';
 
 @Module({
   imports: [
@@ -20,12 +33,18 @@ import { AuthModule } from '../auth/auth.module';
       { name: RoledUser.name, schema: RoledUserSchema },
       { name: Department.name, schema: DepartmentSchema },
       { name: Municipality.name, schema: MunicipalitySchema },
+      { name: Attestation.name, schema: AttestationSchema },
+      { name: Ballot.name, schema: BallotSchema },
     ]),
     UsersModule,
     AuthModule,
   ],
-  controllers: [ContractsController, DelegatesController],
-  providers: [ContractsService, DelegatesService],
+  controllers: [
+    ContractsController,
+    DelegatesController,
+    ClientReportsController,
+  ],
+  providers: [ContractsService, DelegatesService, ClientReportsService],
   exports: [ContractsService, DelegatesService],
 })
 export class ContractsModule {}

@@ -19,6 +19,7 @@ import { OracleResolverService } from './services/oracle-resolver.service';
 import { LocksService } from './services/locks.services';
 import { ResolverRunsService } from './services/resolver-runs.service';
 import { LockSchema } from './schemas/lock.schema';
+import { ContractsModule } from '../contracts/contracts.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { LockSchema } from './schemas/lock.schema';
     ]),
     ElectionsModule,
     UsersModule,
+    ContractsModule,
   ],
   controllers: [AttestationController],
   providers: [

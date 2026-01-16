@@ -23,6 +23,8 @@ import {
 import { AttestationCase } from '../schemas/attestation-case.schema';
 import { UsersService } from '@/modules/users/services/users.service';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
+import { DelegatesService } from '@/modules/contracts/services/delegates.service';
+import { ContractsService } from '@/modules/contracts/services/contracts.service';
 
 type PopulatedUserRef = { _id: Types.ObjectId; dni: string };
 type AttestationLean<TUser = Types.ObjectId> = {
@@ -36,6 +38,15 @@ type AttestationLean<TUser = Types.ObjectId> = {
   updatedAt: Date;
 };
 
+type MatchingContract = {
+  contract: any;
+  auth: {
+    contractId: string;
+    clientId: string;
+    clientRole: 'MAYOR' | 'GOVERNOR';
+  };
+};
+
 @Injectable()
 export class AttestationService {
   constructor(
@@ -47,7 +58,92 @@ export class AttestationService {
     private caseModel: Model<AttestationCase>,
     private usersService: UsersService,
     private electionConfigService: ElectionConfigService,
+    private delegatesService: DelegatesService,
+    private contractsService: ContractsService,
   ) {}
+
+  private async validateAgainstDelegateList(
+    dni: string,
+    electionId: string,
+    ballotLocation: any,
+  ): Promise<{
+    isValid: boolean;
+    validForContractId?: Types.ObjectId;
+    selectedContractId?: Types.ObjectId;
+    contractInfo?: {
+      clientRole: string;
+      territoryName: string;
+    };
+  }> {
+    // Obtener contratos activos para este DNI
+    const authorizedContracts =
+      await this.delegatesService.getAuthorizedContracts(dni);
+
+    if (authorizedContracts.length === 0) {
+      // No está en ninguna lista oficial
+      return { isValid: false };
+    }
+
+    // Filtrar contratos que coincidan con la ubicación del ballot
+    const matchingContracts: MatchingContract[] = [];
+    for (const auth of authorizedContracts) {
+      const contract = await this.contractsService.getClientContract(
+        auth.clientId,
+        electionId,
+      );
+
+      if (!contract || !contract.active) continue;
+
+      // Verificar si el ballot está dentro del territorio del contrato
+      const isInTerritory = this.isBallotInContractTerritory(
+        ballotLocation,
+        contract,
+      );
+
+      if (isInTerritory) {
+        matchingContracts.push({
+          contract,
+          auth,
+        });
+      }
+    }
+
+    if (matchingContracts.length === 0) {
+      // Está en listas pero ninguna cubre este territorio
+      return { isValid: false };
+    }
+
+    // Si solo hay un contrato o no seleccionó, usar el primero
+    const primary = matchingContracts[0];
+    return {
+      isValid: true,
+      validForContractId: primary.contract._id as Types.ObjectId,
+      contractInfo: {
+        clientRole: primary.contract.clientRole,
+        territoryName:
+          primary.contract.municipalityName ||
+          primary.contract.departmentName ||
+          '',
+      },
+    };
+  }
+
+  private isBallotInContractTerritory(
+    ballotLocation: any,
+    contract: any,
+  ): boolean {
+    if (contract.municipalityId) {
+      // Contrato a nivel municipio (Alcalde)
+      return ballotLocation.municipality === contract.municipalityName;
+    }
+
+    if (contract.departmentId) {
+      // Contrato a nivel departamento (Gobernador)
+      return ballotLocation.department === contract.departmentName;
+    }
+
+    return false;
+  }
 
   async validateTerritorialAccess(
     departmentName?: string,
@@ -166,12 +262,23 @@ export class AttestationService {
           attestationData.dni,
         );
         const ballot = await this.getBallotOrThrow(attestationData.ballotId);
+        const ballotFull = await this.ballotModel.findById(ballot._id).lean();
+
+        const validation = await this.validateAgainstDelegateList(
+          attestationData.dni,
+          ballot.electionId.toString(),
+          ballotFull?.location,
+        );
+
         const attestation = new this.attestationModel({
           electionId: ballot.electionId,
           support: attestationData.support,
           ballotId: new Types.ObjectId(attestationData.ballotId),
           isJury: attestationData.isJury,
           userId: user._id as Types.ObjectId,
+          isValidForClientReport: validation.isValid,
+          validForContractId: validation.validForContractId || null,
+
         });
         try {
           const savedAttestation = await attestation.save();
