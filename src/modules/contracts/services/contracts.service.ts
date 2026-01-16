@@ -1,4 +1,3 @@
-
 import {
   Injectable,
   BadRequestException,
@@ -8,7 +7,10 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Contract, ContractDocument } from '../schemas/contract.schema';
-import { RoledUser, RoledUserDocument } from '../../auth/schemas/roledUser.schema';
+import {
+  RoledUser,
+  RoledUserDocument,
+} from '../../auth/schemas/roledUser.schema';
 import { Department } from '../../geographic/schemas/department.schema';
 import { Municipality } from '../../geographic/schemas/municipality.schema';
 
@@ -16,9 +18,11 @@ import { Municipality } from '../../geographic/schemas/municipality.schema';
 export class ContractsService {
   constructor(
     @InjectModel(Contract.name) private contractModel: Model<ContractDocument>,
-    @InjectModel(RoledUser.name) private roledUserModel: Model<RoledUserDocument>,
+    @InjectModel(RoledUser.name)
+    private roledUserModel: Model<RoledUserDocument>,
     @InjectModel(Department.name) private departmentModel: Model<Department>,
-    @InjectModel(Municipality.name) private municipalityModel: Model<Municipality>,
+    @InjectModel(Municipality.name)
+    private municipalityModel: Model<Municipality>,
   ) {}
 
   /**
@@ -193,5 +197,26 @@ export class ContractsService {
     if (result.matchedCount === 0) {
       throw new NotFoundException('Contrato no encontrado');
     }
+  }
+
+  async getMyContract(params: { userId: string; electionId: string }): Promise<{
+    hasContract: boolean;
+    contract: ContractDocument | null;
+  }> {
+    const contract = await this.contractModel
+      .findOne({
+        clientId: new Types.ObjectId(params.userId),
+        electionId: new Types.ObjectId(params.electionId),
+        active: true,
+      })
+      .populate('departmentId', 'name')
+      .populate('municipalityId', 'name')
+      .exec();
+
+    if (!contract) {
+      return { hasContract: false, contract: null };
+    }
+
+    return { hasContract: true, contract };
   }
 }

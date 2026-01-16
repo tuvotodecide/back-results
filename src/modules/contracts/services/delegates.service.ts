@@ -9,7 +9,7 @@ import { Model, Types } from 'mongoose';
 import { Delegate, DelegateDocument } from '../schemas/delegate.schema';
 import { Contract } from '../schemas/contract.schema';
 import { UsersService } from '../../users/services/users.service';
-import * as Papa from 'papaparse';
+import Papa from 'papaparse';
 
 @Injectable()
 export class DelegatesService {

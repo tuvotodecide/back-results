@@ -52,10 +52,10 @@ import { ContractsModule } from './modules/contracts/contracts.module';
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: ApiKeyGuard },
-    {
-      provide: APP_GUARD,
-      useClass: JwtAuthGuard,
-    },
+    // {
+    //   provide: APP_GUARD,
+    //   useClass: JwtAuthGuard,
+    // },
   ],
 })
 export class AppModule {}
