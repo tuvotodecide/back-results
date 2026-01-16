@@ -1,0 +1,31 @@
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Contract, ContractSchema } from './schemas/contract.schema';
+import { Delegate, DelegateSchema } from './schemas/delegate.schema';
+import { ContractsService } from './services/contracts.service';
+import { DelegatesService } from './services/delegates.service';
+import { ContractsController } from './controllers/contracts.controller';
+import { DelegatesController } from './controllers/delegates.controller';
+import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
+import { Department, DepartmentSchema } from '../geographic/schemas/department.schema';
+import { Municipality, MunicipalitySchema } from '../geographic/schemas/municipality.schema';
+import { UsersModule } from '../users/users.module';
+import { AuthModule } from '../auth/auth.module';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([
+      { name: Contract.name, schema: ContractSchema },
+      { name: Delegate.name, schema: DelegateSchema },
+      { name: RoledUser.name, schema: RoledUserSchema },
+      { name: Department.name, schema: DepartmentSchema },
+      { name: Municipality.name, schema: MunicipalitySchema },
+    ]),
+    UsersModule,
+    AuthModule,
+  ],
+  controllers: [ContractsController, DelegatesController],
+  providers: [ContractsService, DelegatesService],
+  exports: [ContractsService, DelegatesService],
+})
+export class ContractsModule {}
