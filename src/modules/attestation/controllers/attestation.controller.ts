@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,6 +20,8 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { AttestationService } from '../services/attestation.service';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
+import { Public } from '@/core/decorators/public.decorator';
 import {
   CreateAttestationBulkDto,
   BulkAttestationResponseDto,
@@ -59,6 +62,8 @@ export class AttestationController {
   }
 
   @Get()
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'Obtener attestations con filtros y paginación',
     description: 'Lista todas las attestations con opciones de filtrado',
@@ -104,6 +109,7 @@ export class AttestationController {
     @Query('isJury') isJury?: string,
     @Query('support') support?: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ): Promise<{
     data: AttestationResponseDto[];
     total: number;
@@ -123,10 +129,15 @@ export class AttestationController {
       isJuryBoolean,
       supportBoolean,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 
   @Get('ballot/:ballotId')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'Obtener attestations por ballot',
     description: 'Obtiene todas las attestations de un ballot específico',
@@ -146,11 +157,19 @@ export class AttestationController {
   })
   async findByBallot(
     @Param('ballotId') ballotId: string,
+    @Request() req?,
   ): Promise<AttestationResponseDto[]> {
-    return this.attestationService.findByBallot(ballotId);
+    return this.attestationService.findByBallot(
+      ballotId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
+    );
   }
 
   @Get('most-supported/:tableCode')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'Obtener la versión más apoyada de un acta',
     description:
@@ -172,6 +191,7 @@ export class AttestationController {
   async getMostSupportedVersion(
     @Param('tableCode') tableCode: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ): Promise<{
     ballotId: string;
     version: number;
@@ -181,10 +201,15 @@ export class AttestationController {
     return this.attestationService.getMostSupportedVersion(
       tableCode,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 
   @Get('cases')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'Listar casos de atestiguamiento (mesas)',
     description:
@@ -210,6 +235,7 @@ export class AttestationController {
     @Query('province') province?: string,
     @Query('municipality') municipality?: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ) {
     return this.attestationService.listCases(
       Number(page),
@@ -219,18 +245,30 @@ export class AttestationController {
       province,
       municipality,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 
   @Get('cases/:tableCode')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Detalle de un caso por mesa' })
   @ApiParam({ name: 'tableCode' })
   @ApiQuery({ name: 'electionId', required: false })
   async getCaseDetail(
     @Param('tableCode') tableCode: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ) {
-    return this.attestationService.getCaseDetail(tableCode, electionId);
+    return this.attestationService.getCaseDetail(
+      tableCode,
+      electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
+    );
   }
 
   @Delete(':id')
@@ -260,6 +298,8 @@ export class AttestationController {
   }
 
   @Get('by-user/:dni')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Listar atestiguamientos por DNI' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 10 })
@@ -273,6 +313,7 @@ export class AttestationController {
     @Query('isJury') isJury?: string,
     @Query('support') support?: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ) {
     const isJuryBoolean =
       isJury === 'true' ? true : isJury === 'false' ? false : undefined;
@@ -286,10 +327,15 @@ export class AttestationController {
       isJuryBoolean,
       supportBoolean,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 
   @Get('by-department/:departmentName')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'ballots atestiguadas por departamento (por nombre)',
     description:
@@ -339,6 +385,7 @@ export class AttestationController {
     @Query('limit') limit = 200,
     @Query('support') support?: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ): Promise<{
     data: any[];
     total: number;
@@ -355,10 +402,15 @@ export class AttestationController {
       Number(limit),
       supportBoolean,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 
   @Get('by-department-id/:departmentId')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'ballots atestiguadas por ID de departamento (departmentId)',
     description:
@@ -404,6 +456,7 @@ export class AttestationController {
     @Query('limit') limit = 200,
     @Query('support') support?: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ): Promise<{
     data: any[];
     total: number;
@@ -420,10 +473,15 @@ export class AttestationController {
       Number(limit),
       supportBoolean,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 
   @Get('by-province-id/:provinceId')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'ballots atestiguadas por ID de provincia (provinceId)',
     description:
@@ -469,6 +527,7 @@ export class AttestationController {
     @Query('limit') limit = 200,
     @Query('support') support?: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ): Promise<{
     data: any[];
     total: number;
@@ -485,10 +544,15 @@ export class AttestationController {
       Number(limit),
       supportBoolean,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 
   @Get('by-municipality-id/:municipalityId')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'ballots atestiguadas por ID de municipio (municipalityId)',
     description:
@@ -534,6 +598,7 @@ export class AttestationController {
     @Query('limit') limit = 200,
     @Query('support') support?: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ): Promise<{
     data: any[];
     total: number;
@@ -550,6 +615,9 @@ export class AttestationController {
       Number(limit),
       supportBoolean,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 }

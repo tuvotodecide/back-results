@@ -5,6 +5,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -47,6 +48,91 @@ export class AttestationService {
     private usersService: UsersService,
     private electionConfigService: ElectionConfigService,
   ) {}
+
+  async validateTerritorialAccess(
+    departmentName?: string,
+    departmentId?: string,
+    provinceId?: string,
+    municipalityId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ): Promise<void> {
+    // Si no hay usuario autenticado (público), permitir acceso
+    if (!userRole) {
+      return;
+    }
+
+    // Validaciones para GOVERNOR
+    if (userRole === 'GOVERNOR' && userDepartmentId) {
+      // Si se está filtrando por nombre de departamento, validar que coincida
+      if (departmentName) {
+        const dept = await this.ballotModel
+          .findOne({
+            'location.department': departmentName,
+          })
+          .populate('location.department')
+          .exec();
+
+        if (dept && dept.location?.department) {
+          const deptId = (dept.location.department as any)._id?.toString();
+          if (deptId !== userDepartmentId) {
+            throw new ForbiddenException(
+              'No puede acceder a datos de otro departamento',
+            );
+          }
+        }
+      }
+
+      // Si se filtra por provincia, validar que pertenezca al departamento
+      if (provinceId) {
+        const { ProvinceService } = await import(
+          '@/modules/geographic/services/province.service'
+        );
+        // Inyectar dependencia o usar directamente el modelo
+        const province = await this.ballotModel.db
+          .collection('provinces')
+          .findOne({
+            _id: new Types.ObjectId(provinceId),
+          });
+
+        if (province?.departmentId?.toString() !== userDepartmentId) {
+          throw new ForbiddenException(
+            'No puede acceder a provincias de otro departamento',
+          );
+        }
+      }
+
+      // Si se filtra por municipio, validar que pertenezca al departamento
+      if (municipalityId) {
+        const municipality = await this.ballotModel.db
+          .collection('municipalities')
+          .findOne({
+            _id: new Types.ObjectId(municipalityId),
+          });
+
+        if (municipality) {
+          const province = await this.ballotModel.db
+            .collection('provinces')
+            .findOne({
+              _id: municipality.provinceId,
+            });
+
+          if (province?.departmentId?.toString() !== userDepartmentId) {
+            throw new ForbiddenException(
+              'No puede acceder a municipios de otro departamento',
+            );
+          }
+        }
+      }
+    }
+
+    // Validaciones para MAYOR
+    if (userRole === 'MAYOR' && userMunicipalityId) {
+      // Mayor no puede filtrar por departamento o provincia (ya validado en guard)
+      // Solo validar que si filtra por electoral seat o location, pertenezcan a su municipio
+    }
+  }
 
   /**
    * Crear múltiples attestations de forma bulk
@@ -123,7 +209,12 @@ export class AttestationService {
 
   //Obtener todas las attestations de un ballot específico
 
-  async findByBallot(ballotId: string): Promise<AttestationResponseDto[]> {
+  async findByBallot(
+    ballotId: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ): Promise<AttestationResponseDto[]> {
     if (!Types.ObjectId.isValid(ballotId)) {
       throw new BadRequestException('ID de ballot inválido');
     }
@@ -149,6 +240,9 @@ export class AttestationService {
     isJury?: boolean,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: AttestationResponseDto[];
     total: number;
@@ -278,6 +372,9 @@ export class AttestationService {
     isJury?: boolean,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ) {
     const user = await this.usersService.findByDni(dni);
     const skip = (page - 1) * limit;
@@ -429,6 +526,9 @@ export class AttestationService {
   async getMostSupportedVersion(
     tableCode: string,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     ballotId: string;
     version: number;
@@ -489,6 +589,9 @@ export class AttestationService {
     province?: string,
     municipality?: string,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ) {
     const skip = (page - 1) * limit;
 
@@ -585,7 +688,13 @@ export class AttestationService {
     };
   }
   // Detalle de un caso por mesa (conteos por acta y por rol)
-  async getCaseDetail(tableCode: string, electionId?: string) {
+  async getCaseDetail(
+    tableCode: string,
+    electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ) {
     const eid = await this.resolveElectionId(electionId);
     const ballots = await this.ballotModel
       .find({ tableCode, ...(eid ? { electionId: eid } : {}) })
@@ -641,6 +750,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -746,6 +858,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -868,6 +983,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -988,6 +1106,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;

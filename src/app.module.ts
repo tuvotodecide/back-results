@@ -19,6 +19,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { MailModule } from './modules/mail/mail.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
+import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -46,6 +47,13 @@ import { join } from 'path';
     MailModule,
   ],
   controllers: [AppController],
-  providers: [AppService, { provide: APP_GUARD, useClass: ApiKeyGuard }],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ApiKeyGuard },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule {}
