@@ -1,5 +1,5 @@
-import { SendEmailCommand, SendTemplatedEmailCommand, SESClient } from '@aws-sdk/client-ses';
-import { Body, Injectable, Logger } from '@nestjs/common';
+import { SendEmailCommand, SESClient } from '@aws-sdk/client-ses';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { readFileSync } from 'fs';
 import path from 'path';

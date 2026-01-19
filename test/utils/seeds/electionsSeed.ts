@@ -1,4 +1,4 @@
-import { Connection } from "mongoose";
+import { Connection, Types } from "mongoose";
 
 export async function seedElectionConfigWith(conn: Connection, electionKey: string) {
   const election = electionConfigsSeed.get(electionKey);
@@ -9,10 +9,11 @@ export async function seedElectionConfigWith(conn: Connection, electionKey: stri
   return await conn.collection('election_configs').insertOne(election);
 }
 
-const electionConfigsSeed = new Map<string, any>([
+export const electionConfigsSeed = new Map<string, any>([
   [
     'activeElection',
     {
+      "_id": new Types.ObjectId(),
       "name": "Elecciones Generales 2025",
       "votingStartDate": new Date(new Date().setDate(new Date().getDate() - 1)),
       "votingEndDate": new Date(new Date().setDate(new Date().getDate() + 1)),
@@ -27,6 +28,7 @@ const electionConfigsSeed = new Map<string, any>([
   [
     'pastElection',
     {
+      "_id": new Types.ObjectId(),
       "name": "Elecciones Generales 2024",
       "votingStartDate": new Date(new Date().setDate(new Date().getDate() - 10)),
       "votingEndDate": new Date(new Date().setDate(new Date().getDate() - 9)),

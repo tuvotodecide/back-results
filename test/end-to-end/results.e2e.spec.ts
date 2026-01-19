@@ -15,7 +15,7 @@ import { ElectionConfig, ElectionConfigSchema } from '../../src/modules/election
 import { ElectionConfigService } from '../../src/modules/elections/services/election-config.service';
 import { ResultsPeriodGuard } from '../../src/modules/elections/guards/results-period.guard';
 import { PreliminaryResultsGuard } from '../../src/modules/elections/guards/preliminary-results.guard';
-import { seedUsers } from '../utils/seeds/usersSeed';
+import { seedContracts, seedUsers } from '../utils/seeds/usersSeed';
 import { seedLocations } from '../utils/seeds/locationsSeed';
 import { seedElectionConfigWith } from '../utils/seeds/electionsSeed';
 import { seedAttestation } from '../utils/seeds/attestationsSeed';
@@ -32,11 +32,13 @@ import { AttestationController } from '@/modules/attestation/controllers/attesta
 import { AttestationModule } from '@/modules/attestation/attestation.module';
 import { BallotModule } from '@/modules/ballot/ballot.module';
 import { LoggerService } from '@/core/services/logger.service';
+import { ContractsModule } from '@/modules/contracts/contracts.module';
 
 jest.setTimeout(60_000);
 
 describe('Results E2E (role filtering)', () => {
 	const resultsByLocationUrl = '/api/v1/client-results/by-location';
+	const resultsLive = '/api/v1/client-results/live/by-location';
 	const searchByTableUrl = '/api/v1/attestations/cases/';
 	const searchByImageUrl = '/api/v1/ballots/';
 
@@ -46,6 +48,7 @@ describe('Results E2E (role filtering)', () => {
 	let mongoUri: string;
 	let conn: Connection;
 
+	let users: Map<string, any>;
 	let laPazToken: string;
 	let cbbaMayorToken: string;
 
@@ -84,8 +87,13 @@ describe('Results E2E (role filtering)', () => {
 				},
 				AttestationModule,
 				BallotModule,
+				ContractsModule,
 			],
-			controllers: [ResultsController, AuthController, AttestationController],
+			controllers: [
+				ResultsController,
+				AuthController,
+				AttestationController,
+			],
 			providers: [
 				AuthService,
 				{
@@ -109,7 +117,7 @@ describe('Results E2E (role filtering)', () => {
 		conn = moduleRef.get<Connection>(getConnectionToken());
 
 		await seedLocations(conn);
-		const users = await seedUsers(conn);
+		users = await seedUsers(conn);
 		const governorLaPaz = users.get('governorLaPaz');
 		let res = await request(app.getHttpServer())
 			.post('/api/v1/auth/login')
@@ -139,17 +147,6 @@ describe('Results E2E (role filtering)', () => {
 		await mongod?.stop();
 	});
 
-	it('denies quick-count when no election config', async () => {
-		await conn.collection('election_configs').deleteMany({});
-
-		const res = await request(app.getHttpServer())
-			.get(resultsByLocationUrl)
-			.auth(laPazToken, { type: 'bearer' })
-			.expect(403);
-
-		expect(res.body?.error).toBe('NO_ELECTION_CONFIG');
-	});
-
 	it('denies results when no election config', async () => {
 		await conn.collection('election_configs').deleteMany({});
 
@@ -170,10 +167,13 @@ describe('Results E2E (role filtering)', () => {
 		let laPazBallotId: string;
 		let cbbaBallotId: string;
 		let quillacolloBallotId: string;
+		let cbbaBallot: any
 
 		beforeAll(async () => {
 			const election = await seedElectionConfigWith(conn, 'pastElection');
 			electionId = election.insertedId.toHexString();
+
+			await seedContracts(conn, users, 'pastElection');
 
 			const laPazAtt = await seedAttestation(conn, electionId, 'La Paz', 'Achocalla', { 'MAS': 60, 'CC': 40 });
 			laPazTableCode = laPazAtt.ballot.tableCode;
@@ -182,6 +182,7 @@ describe('Results E2E (role filtering)', () => {
 			const cbbaAtt = await seedAttestation(conn, electionId, 'Cochabamba', 'Cochabamba', { 'MAS': 120, 'CC': 80 });
 			cbbaTableCode = cbbaAtt.ballot.tableCode;
 			cbbaBallotId = cbbaAtt.ballot._id.toString();
+			cbbaBallot = cbbaAtt.ballot;
 
 			const quillacolloAtt = await seedAttestation(conn, electionId, 'Cochabamba', 'Quillacollo', { 'MAS': 10, 'CC': 10 });
 			quillacolloTableCode = quillacolloAtt.ballot.tableCode;
@@ -198,7 +199,19 @@ describe('Results E2E (role filtering)', () => {
 		it('with La Paz governor, returns only La Paz results', async () => {
 			const res = await request(app.getHttpServer())
 				.get(resultsByLocationUrl)
-				.query({ electionId: electionId, electionType: 'presidential', department: 'La Paz' })
+				.query({ electionId: electionId, electionType: 'presidential' })
+				.auth(laPazToken, { type: 'bearer' })
+				.expect(200);
+			
+			expect(res.body?.summary).toBeDefined();
+			expect(res.body.summary.validVotes).toEqual(100);
+			expect(res.body.summary.tablesProcessed).toEqual(1);
+		});
+
+		it('with La Paz governor, returns La Paz sub-filter results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsByLocationUrl)
+				.query({ electionId: electionId, electionType: 'presidential', municipality: 'Achocalla' })
 				.auth(laPazToken, { type: 'bearer' })
 				.expect(200);
 			
@@ -240,7 +253,19 @@ describe('Results E2E (role filtering)', () => {
 		it('with Cbba mayor, returns only Cochabamba municipality results', async () => {
 			const res = await request(app.getHttpServer())
 				.get(resultsByLocationUrl)
-				.query({ electionId: electionId, electionType: 'presidential', municipality: 'Cochabamba' })
+				.query({ electionId: electionId, electionType: 'presidential' })
+				.auth(cbbaMayorToken, { type: 'bearer' })
+				.expect(200);
+			
+			expect(res.body?.summary).toBeDefined();
+			expect(res.body.summary.validVotes).toEqual(200);
+			expect(res.body.summary.tablesProcessed).toEqual(1);
+		});
+
+		it('with Cbba mayor, returns Cochabamba municipality sub-filter results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsByLocationUrl)
+				.query({ electionId: electionId, electionType: 'presidential', electoralSeat: cbbaBallot.location.electoralSeat })
 				.auth(cbbaMayorToken, { type: 'bearer' })
 				.expect(200);
 			
@@ -362,4 +387,145 @@ describe('Results E2E (role filtering)', () => {
 		});
 	});
 
+	describe('Live results by location', () => {
+		let electionId: string;
+		let cbbaBallot: any;
+
+		beforeAll(async () => {
+			const election = await seedElectionConfigWith(conn, 'activeElection');
+			electionId = election.insertedId.toHexString();
+
+			await seedContracts(conn, users, 'activeElection');
+			await seedAttestation(conn, electionId, 'La Paz', 'Achocalla', { 'MAS': 60, 'CC': 40 });
+			const cbbaAtt = await seedAttestation(conn, electionId, 'Cochabamba', 'Cochabamba', { 'MAS': 120, 'CC': 80 });
+			cbbaBallot = cbbaAtt.ballot;
+
+			await seedAttestation(conn, electionId, 'Cochabamba', 'Quillacollo', { 'MAS': 10, 'CC': 10 });
+		});
+
+		afterAll(async () => {
+			await conn.collection('election_configs').deleteMany({});
+			await conn.collection('attestations').deleteMany({});
+			await conn.collection('ballots').deleteMany({});
+			await conn.collection('attestation_cases').deleteMany({});
+		});
+
+		it('with La Paz governor, returns only La Paz results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential' })
+				.auth(laPazToken, { type: 'bearer' })
+				.expect(200);
+			
+			expect(res.body?.summary).toBeDefined();
+			expect(res.body.summary.validVotes).toEqual(100);
+			expect(res.body.summary.tablesProcessed).toEqual(1);
+		});
+
+		it('with La Paz governor, returns La Paz sub-filter results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', municipality: 'Achocalla' })
+				.auth(laPazToken, { type: 'bearer' })
+				.expect(200);
+			
+			expect(res.body?.summary).toBeDefined();
+			expect(res.body.summary.validVotes).toEqual(100);
+			expect(res.body.summary.tablesProcessed).toEqual(1);
+		});
+
+		it('with La Paz governor, denies access to Cochabamba results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', department: 'Cochabamba' })
+				.auth(laPazToken, { type: 'bearer' })
+				.expect(403);
+			
+			expect(res.body?.error).toBe('Forbidden');
+		});
+
+		it('with La Paz governor, denies access to provinces in Cochabamba', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', province: 'Cercado' })
+				.auth(laPazToken, { type: 'bearer' })
+				.expect(403);
+			
+			expect(res.body?.error).toBe('Forbidden');
+		});
+
+		it('with La Paz governor, denies access to municipalities in Cochabamba', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', municipality: 'Cochabamba' })
+				.auth(laPazToken, { type: 'bearer' })
+				.expect(403);
+			
+			expect(res.body?.error).toBe('Forbidden');
+		});
+
+		it('with Cbba mayor, returns only Cochabamba municipality results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential' })
+				.auth(cbbaMayorToken, { type: 'bearer' })
+				.expect(200);
+			
+			expect(res.body?.summary).toBeDefined();
+			expect(res.body.summary.validVotes).toEqual(200);
+			expect(res.body.summary.tablesProcessed).toEqual(1);
+		});
+
+		it('with Cbba mayor, returns Cochabamba municipality sub-filter results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', electoralSeat: cbbaBallot.location.electoralSeat })
+				.auth(cbbaMayorToken, { type: 'bearer' })
+				.expect(200);
+			
+			expect(res.body?.summary).toBeDefined();
+			expect(res.body.summary.validVotes).toEqual(200);
+			expect(res.body.summary.tablesProcessed).toEqual(1);
+		});
+
+		it('with Cbba mayor, denies access to Quillacollo results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', municipality: 'Quillacollo' })
+				.auth(cbbaMayorToken, { type: 'bearer' })
+				.expect(403);
+			
+			expect(res.body?.error).toBe('Forbidden');
+		});
+
+		it('with Cbba mayor, denies access to Quillacollo electoral seat results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', electoralSeat: 'Bella Vista' })
+				.auth(cbbaMayorToken, { type: 'bearer' })
+				.expect(403);
+			
+			expect(res.body?.error).toBe('Forbidden');
+		});
+
+		it('with Cbba mayor, denies access to Cochabamba department results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', department: 'Cochabamba' })
+				.auth(cbbaMayorToken, { type: 'bearer' })
+				.expect(403);
+			
+			expect(res.body?.error).toBe('Forbidden');
+		});
+
+		it('with Cbba mayor, denies access to Murillo-La Paz province results', async () => {
+			const res = await request(app.getHttpServer())
+				.get(resultsLive)
+				.query({ electionId: electionId, electionType: 'presidential', province: 'Murillo' })
+				.auth(cbbaMayorToken, { type: 'bearer' })
+				.expect(403);
+			
+			expect(res.body?.error).toBe('Forbidden');
+		});
+	});
 });
