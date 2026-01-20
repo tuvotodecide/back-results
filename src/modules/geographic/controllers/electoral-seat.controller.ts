@@ -24,6 +24,7 @@ import {
 import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Types } from 'mongoose';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-seats')
@@ -47,6 +48,7 @@ export class ElectoralSeatController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Listar todos los asientos electorales' })
   @ApiQuery({
     name: 'municipalityId',
@@ -79,6 +81,7 @@ export class ElectoralSeatController {
   }
 
   @Get('statistics')
+  @Public()
   @ApiOperation({ summary: 'Obtener estadísticas de asientos electorales' })
   @ApiResponse({
     status: 200,
@@ -89,6 +92,7 @@ export class ElectoralSeatController {
   }
 
   @Get('by-municipality/:municipalityId')
+  @Public()
   @ApiOperation({ summary: 'Obtener asientos electorales por municipio' })
   @ApiResponse({ status: 200, description: 'Asientos electorales encontrados' })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })
@@ -97,6 +101,7 @@ export class ElectoralSeatController {
   }
 
   @Get('by-province/:provinceId')
+  @Public()
   @ApiOperation({ summary: 'Obtener asientos electorales por provincia' })
   @ApiResponse({ status: 200, description: 'Asientos electorales encontrados' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })
@@ -105,6 +110,7 @@ export class ElectoralSeatController {
   }
 
   @Get('by-department/:departmentId')
+  @Public()
   @ApiOperation({ summary: 'Obtener asientos electorales por departamento' })
   @ApiResponse({ status: 200, description: 'Asientos electorales encontrados' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
@@ -113,6 +119,7 @@ export class ElectoralSeatController {
   }
 
   @Get('id-loc/:idLoc')
+  @Public()
   @ApiOperation({
     summary: 'Obtener un asiento electoral por ID de localización',
   })
@@ -123,6 +130,7 @@ export class ElectoralSeatController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Obtener un asiento electoral por ID' })
   @ApiResponse({ status: 200, description: 'Asiento electoral encontrado' })
   @ApiResponse({ status: 404, description: 'Asiento electoral no encontrado' })

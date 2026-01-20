@@ -10,7 +10,6 @@ import { ResultsModule } from './modules/results/results.module';
 import { ElectionsModule } from './modules/elections/elections.module';
 import { AttestationModule } from './modules/attestation/attestation.module';
 import { UsersModule } from './modules/users/users.module';
-import { ApiKeyGuard } from './core/guards/api-key.guard';
 import { APP_GUARD } from '@nestjs/core';
 import { FirebaseModule } from './core/firebase/firebase.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -55,7 +54,7 @@ import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
   controllers: [AppController],
   providers: [
     AppService,
-    { provide: APP_GUARD, useClass: ApiKeyGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
     // {
     //   provide: APP_GUARD,
     //   useClass: JwtAuthGuard,

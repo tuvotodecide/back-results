@@ -7,8 +7,8 @@ export default registerAs('app', () => ({
 
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/electoral_db',
-    username: process.env.MONGODB_USERNAME,
-    password: process.env.MONGODB_PASSWORD,
+    // username: process.env.MONGODB_USERNAME ?? '',
+    // password: process.env.MONGODB_PASSWORD ?? '',
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
@@ -21,7 +21,7 @@ export default registerAs('app', () => ({
   },
 
   cors: {
-    origins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+    origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
@@ -31,13 +31,7 @@ export default registerAs('app', () => ({
     ttl: parseInt(process.env.CACHE_TTL || '300', 10),
     max: parseInt(process.env.CACHE_MAX || '100', 10),
   },
-  apiKey: {
-    header: process.env.API_KEY_HEADER || 'x-api-key',
-    keys: (process.env.API_KEYS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  },
+
   mail: {
     logoUrl: process.env.EMAIL_LOGO_URL || '',
     verificationBaseUrl: process.env.EMAIL_VERIFICATION_BASE_URL || '',

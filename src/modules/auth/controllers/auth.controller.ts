@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { ProfileResponseDto, SignInDto, SignInResponseDto } from '../dto/sign-in.dto';
 import { MessageResponseDto, RequestPasswordResetDto, ResetPasswordDto } from '../dto/password-reset.dto';
 import { RoledUserDocument } from '../schemas/roledUser.schema';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Auth')
 @Controller('api/v1/auth')
@@ -16,6 +17,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @Public()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Registrar un usuario con rol' })
   @ApiBody({ type: RegisterRoledUserDto })
@@ -28,6 +30,7 @@ export class AuthController {
   }
 
   @Get('verify-email')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verificar el correo electrónico de un usuario' })
   @ApiQuery({ name: 'token', required: true, description: 'Token de verificación enviado por correo electrónico' })
@@ -38,6 +41,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Iniciar sesión de un usuario' })
   @ApiResponse({ status: 200, type: SignInResponseDto })
@@ -46,6 +50,7 @@ export class AuthController {
   }
 
   @Post('forgot-password')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Solicitar restablecimiento de contraseña por correo' })
   @ApiBody({ type: RequestPasswordResetDto })
@@ -58,6 +63,7 @@ export class AuthController {
   }
 
   @Post('reset-password')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Restablecer contraseña con token enviado por correo' })
   @ApiBody({ type: ResetPasswordDto })

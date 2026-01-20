@@ -27,6 +27,7 @@ import {
 } from '../dto/electoral-location.dto';
 import { LocationQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-locations')
@@ -47,6 +48,7 @@ export class ElectoralLocationController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Listar todos los recintos electorales' })
   @ApiResponse({
     status: 200,
@@ -57,6 +59,7 @@ export class ElectoralLocationController {
   }
 
   @Get('statistics')
+  @Public()
   @ApiOperation({ summary: 'Obtener estadísticas de recintos electorales' })
   @ApiResponse({
     status: 200,
@@ -67,6 +70,7 @@ export class ElectoralLocationController {
   }
 
   @Get('nearby')
+  @Public()
   @ApiOperation({ summary: 'Buscar recintos cercanos a una ubicación' })
   @ApiQuery({ name: 'lat', description: 'Latitud' })
   @ApiQuery({ name: 'lng', description: 'Longitud' })
@@ -88,6 +92,7 @@ export class ElectoralLocationController {
   }
 
   @Get('circunscripcion/:type')
+  @Public()
   @ApiOperation({ summary: 'Buscar recintos por tipo de circunscripción' })
   @ApiQuery({
     name: 'number',
@@ -106,6 +111,7 @@ export class ElectoralLocationController {
   }
 
   @Get('code/:code')
+  @Public()
   @ApiOperation({ summary: 'Obtener un recinto por código' })
   @ApiResponse({ status: 200, description: 'Recinto encontrado' })
   @ApiResponse({ status: 404, description: 'Recinto no encontrado' })
@@ -114,6 +120,7 @@ export class ElectoralLocationController {
   }
 
   @Get('by-electoral-seat/:electoralSeatId')
+  @Public()
   @ApiOperation({ summary: 'Obtener recintos por asiento electoral' })
   @ApiResponse({ status: 200, description: 'Recintos encontrados' })
   @ApiResponse({ status: 404, description: 'Asiento electoral no encontrado' })
@@ -122,6 +129,7 @@ export class ElectoralLocationController {
   }
 
   @Get(':id/tables')
+  @Public()
   @ApiOperation({
     summary: 'Obtener un recinto electoral con sus mesas',
     description:
@@ -142,6 +150,7 @@ export class ElectoralLocationController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Obtener un recinto electoral por ID' })
   @ApiResponse({ status: 200, description: 'Recinto encontrado' })
   @ApiResponse({ status: 404, description: 'Recinto no encontrado' })

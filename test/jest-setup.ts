@@ -1,4 +1,8 @@
 import 'reflect-metadata';
+import { config as loadEnv } from 'dotenv';
+
+// Load environment variables for tests so modules that read process.env have defaults.
+loadEnv();
 
 const g: any = globalThis as any;
 if (!g.fetch) {

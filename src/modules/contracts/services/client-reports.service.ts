@@ -78,6 +78,7 @@ export class ClientReportsService {
         {
           $project: {
             dni: '$user.dni',
+            ballotId: '$ballot._id',
             tableCode: '$ballot.tableCode',
             location: '$ballot.location',
             createdAt: 1,
@@ -134,10 +135,7 @@ export class ClientReportsService {
         } else {
           delegate.against++;
         }
-        if (
-          !delegate.lastActivity ||
-          att.createdAt > delegate.lastActivity
-        ) {
+        if (!delegate.lastActivity || att.createdAt > delegate.lastActivity) {
           delegate.lastActivity = att.createdAt;
         }
       }
@@ -167,8 +165,7 @@ export class ClientReportsService {
     const locationMap = new Map();
 
     attestations.forEach((att) => {
-      const locName =
-        att.location?.electoralLocationName || 'Sin ubicación';
+      const locName = att.location?.electoralLocationName || 'Sin ubicación';
       if (!locationMap.has(locName)) {
         locationMap.set(locName, {
           location: locName,
@@ -219,7 +216,8 @@ export class ClientReportsService {
         tableMap.set(tableCode, {
           tableCode,
           location: att.location?.electoralLocationName,
-          delegates: new Set(),
+          delegates: new Set<string>(),
+          ballotIds: new Set<string>(),
           totalAttestations: 0,
           support: 0,
           against: 0,
@@ -229,6 +227,7 @@ export class ClientReportsService {
       }
       const table = tableMap.get(tableCode);
       table.delegates.add(att.dni);
+       if (att.ballotId) table.ballotIds.add(String(att.ballotId));
       table.totalAttestations++;
       if (att.support) {
         table.support++;
@@ -362,15 +361,17 @@ export class ClientReportsService {
       summary: {
         totalDelegatesAuthorized: totalDelegates,
         activeDelegates: activeDelegates.length,
-        participationRate: totalDelegates > 0
-          ? ((activeDelegates.length / totalDelegates) * 100).toFixed(2) + '%'
-          : '0%',
+        participationRate:
+          totalDelegates > 0
+            ? ((activeDelegates.length / totalDelegates) * 100).toFixed(2) + '%'
+            : '0%',
         totalAttestations,
         uniqueTablesAttested: uniqueTables[0]?.total || 0,
         uniqueLocationsAttested: uniqueLocations[0]?.total || 0,
-        avgAttestationsPerDelegate: activeDelegates.length > 0
-          ? (totalAttestations / activeDelegates.length).toFixed(2)
-          : '0',
+        avgAttestationsPerDelegate:
+          activeDelegates.length > 0
+            ? (totalAttestations / activeDelegates.length).toFixed(2)
+            : '0',
       },
     };
   }
