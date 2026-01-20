@@ -2,7 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
 export type RoledUserDocument = RoledUser & Document & { _id: Types.ObjectId };
-export const userRoles = ['MAYOR', 'GOVERNOR'] as const;
+export const userRoles = ['MAYOR', 'GOVERNOR', 'ADMIN'] as const;
 export type UserRole = typeof userRoles[number];
 
 @Schema({ timestamps: true, collection: 'roled_users' })
@@ -38,7 +38,7 @@ export class RoledUser {
   password: string;
 
   @Prop({
-    enum: ['MAYOR', 'GOVERNOR'],
+    enum: ['MAYOR', 'GOVERNOR', 'ADMIN'],
     required: true,
   })
   role: UserRole;

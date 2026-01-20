@@ -5,11 +5,11 @@ import {
   RegisterRoledUserDto,
   RoledUserResponseDto,
 } from '../dto/register-roled-user.dto';
-import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { ProfileResponseDto, SignInDto, SignInResponseDto } from '../dto/sign-in.dto';
 import { MessageResponseDto, RequestPasswordResetDto, ResetPasswordDto } from '../dto/password-reset.dto';
 import { RoledUserDocument } from '../schemas/roledUser.schema';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Auth')
 @Controller('api/v1/auth')
@@ -74,7 +74,6 @@ export class AuthController {
   }
 
   @Get('profile')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Obtener el perfil del usuario autenticado' })
   @ApiResponse({ status: 200, type: ProfileResponseDto })
   getProfile(@Request() req) {
@@ -82,6 +81,7 @@ export class AuthController {
   }
 
   @Post('test/roleduser')
+  @UseGuards(AdminOnlyGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Registrar un usuario de prueba activo' })
   @ApiBody({ type: RegisterRoledUserDto })
@@ -94,6 +94,7 @@ export class AuthController {
   }
 
   @Delete('test/roleduser/:email')
+  @UseGuards(AdminOnlyGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Eliminar un usuario de prueba por correo electrónico' })
   @ApiParam({ name: 'email', required: true, description: 'Correo electrónico del usuario a eliminar' })
