@@ -23,6 +23,7 @@ import { ProvinceService } from '../services/province.service';
 import { CreateProvinceDto, UpdateProvinceDto } from '../dto/province.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/provinces')
@@ -43,6 +44,7 @@ export class ProvinceController {
   }
 
   @Get() //compare
+  @Public()
   @ApiOperation({ summary: 'Listar todas las provincias' })
   @ApiQuery({
     name: 'departmentId',
@@ -60,6 +62,7 @@ export class ProvinceController {
   }
 
   @Get('by-department/:departmentId')
+  @Public()
   @ApiOperation({ summary: 'Obtener provincias por departamento' })
   @ApiResponse({ status: 200, description: 'Provincias encontradas' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
@@ -71,6 +74,7 @@ export class ProvinceController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Obtener una provincia por ID' })
   @ApiResponse({ status: 200, description: 'Provincia encontrada' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })

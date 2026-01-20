@@ -30,6 +30,7 @@ import {
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.guard';
 import { PreliminaryResultsGuard } from '@/modules/elections/guards/preliminary-results.guard';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Resultados')
 @Controller('api/v1/results')
@@ -39,6 +40,7 @@ export class ResultsController {
 
   @ApiQuery({ name: 'electionId', required: false })
   @Get('quick-count')
+  @Public()
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(30) // Cache por 30 segundos
   @ApiOperation({
@@ -59,6 +61,7 @@ export class ResultsController {
 
   @ApiQuery({ name: 'electionId', required: false })
   @Get('by-location')
+  @Public()
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
@@ -94,6 +97,7 @@ export class ResultsController {
 
   @ApiQuery({ name: 'electionId', required: false })
   @Get('registration-progress')
+  @Public()
   @CacheTTL(30) // Cache por 30 segundos
   @ApiOperation({
     summary: 'Obtener progreso de registro de actas',
@@ -115,6 +119,7 @@ export class ResultsController {
 
   @ApiQuery({ name: 'electionId', required: false })
   @Get('by-circunscripcion')
+  @Public()
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
@@ -154,6 +159,7 @@ export class ResultsController {
 
   @ApiQuery({ name: 'electionId', required: false })
   @Get('heat-map')
+  @Public()
   @UseGuards(ResultsPeriodGuard)
   @CacheTTL(120) // Cache por 2 minutos
   @ApiOperation({
@@ -199,6 +205,7 @@ export class ResultsController {
   }
 
   @Get('statistics')
+  @Public()
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @CacheTTL(60) // Cache por 60 segundos
@@ -221,6 +228,7 @@ export class ResultsController {
   }
 
   @Get('summary/:partyId')
+  @Public()
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resumen por partido político',
@@ -356,6 +364,7 @@ export class ResultsController {
   }
 
   @Get('live/quick-count')
+  @Public()
   @UseGuards(PreliminaryResultsGuard)
   @CacheTTL(15)
   @ApiQuery({ name: 'electionId', required: false })
@@ -379,6 +388,7 @@ export class ResultsController {
   }
 
   @Get('live/heat-map')
+  @Public()
   @UseGuards(PreliminaryResultsGuard)
   @CacheTTL(60)
   @ApiQuery({
@@ -410,6 +420,7 @@ export class ResultsController {
   }
 
   @Get('live/by-circunscripcion')
+  @Public()
   @UseGuards(PreliminaryResultsGuard)
   @CacheTTL(60)
   @ApiQuery({

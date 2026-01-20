@@ -1,11 +1,5 @@
 // src/modules/contracts/controllers/client-reports.controller.ts
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-  Request,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -129,8 +123,7 @@ export class ClientReportsController {
         id: contract._id.toString(),
         role: contract.clientRole,
         territory: {
-          type:
-            contract.clientRole === 'MAYOR' ? 'municipality' : 'department',
+          type: contract.clientRole === 'MAYOR' ? 'municipality' : 'department',
           departmentId: contract.departmentId?.toString(),
           departmentName: contract.departmentName,
           municipalityId: contract.municipalityId?.toString(),
@@ -164,10 +157,62 @@ export class ClientReportsController {
   ) {
     const contract = req.contract;
 
-
     return {
       message: 'Ver endpoint /api/v1/delegates/contract/:contractId',
       contractId: contract._id.toString(),
+    };
+  }
+
+  @Get('my-active-contract')
+  @ApiOperation({
+    summary: 'Obtener mi contrato activo (simplificado)',
+    description: 'Devuelve electionId, territorio y si tiene contrato válido',
+  })
+  @ApiQuery({ name: 'electionId', required: false })
+  @ApiResponse({ status: 200 })
+  async getMyActiveContract(
+    @Query('electionId') electionId?: string,
+    @Request() req?: any,
+  ) {
+    const userId = req.user?.sub;
+
+    if (!userId) {
+      return { hasContract: false, contract: null };
+    }
+
+    //
+    let contract;
+    if (electionId) {
+      contract = await this.contractsService.getClientContract(
+        userId,
+        electionId,
+      );
+    } else {
+      const contracts = await this.contractsService.findActiveContracts({
+        clientId: userId,
+      });
+      contract = contracts[0] || null;
+    }
+
+    if (!contract) {
+      return { hasContract: false, contract: null };
+    }
+
+    return {
+      hasContract: true,
+      contract: {
+        id: contract._id.toString(),
+        electionId: contract.electionId.toString(),
+        role: contract.clientRole,
+        territory: {
+          type: contract.clientRole === 'MAYOR' ? 'municipality' : 'department',
+          departmentId: contract.departmentId?.toString(),
+          departmentName: contract.departmentName,
+          municipalityId: contract.municipalityId?.toString(),
+          municipalityName: contract.municipalityName,
+        },
+        active: contract.active,
+      },
     };
   }
 }

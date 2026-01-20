@@ -20,6 +20,7 @@ import { LocksService } from './services/locks.services';
 import { ResolverRunsService } from './services/resolver-runs.service';
 import { LockSchema } from './schemas/lock.schema';
 import { ContractsModule } from '../contracts/contracts.module';
+import { ZkAuthModule } from '../zk-auth/zk-auth.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ContractsModule } from '../contracts/contracts.module';
     ElectionsModule,
     UsersModule,
     ContractsModule,
+    ZkAuthModule,
   ],
   controllers: [AttestationController],
   providers: [

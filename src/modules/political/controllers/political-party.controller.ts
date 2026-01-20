@@ -24,6 +24,7 @@ import {
   PoliticalPartyQueryDto,
 } from '../dto/political-party.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Partidos')
 @Controller('api/v1/political-parties')
@@ -47,6 +48,7 @@ export class PoliticalPartyController {
   }
 
   @Get()
+  // @Public()
   @ApiOperation({ summary: 'Listar todos los partidos políticos' })
   @ApiResponse({
     status: 200,
@@ -57,6 +59,7 @@ export class PoliticalPartyController {
   }
 
   @Get('active')
+  @Public()
   @ApiOperation({ summary: 'Listar solo partidos políticos activos' })
   @ApiResponse({
     status: 200,
@@ -67,6 +70,7 @@ export class PoliticalPartyController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Obtener un partido político por ID' })
   @ApiParam({
     name: 'id',
@@ -85,6 +89,7 @@ export class PoliticalPartyController {
   }
 
   @Get('by-party-id/:partyId')
+  @Public()
   @ApiOperation({ summary: 'Obtener un partido político por partyId' })
   @ApiParam({
     name: 'partyId',

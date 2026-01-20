@@ -10,7 +10,6 @@ import { ResultsModule } from './modules/results/results.module';
 import { ElectionsModule } from './modules/elections/elections.module';
 import { AttestationModule } from './modules/attestation/attestation.module';
 import { UsersModule } from './modules/users/users.module';
-import { ApiKeyGuard } from './core/guards/api-key.guard';
 import { APP_GUARD } from '@nestjs/core';
 import { FirebaseModule } from './core/firebase/firebase.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
@@ -21,6 +20,8 @@ import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { ContractsModule } from './modules/contracts/contracts.module';
+import { MocksModule } from './modules/mocks/mocks.module';
+import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
 
 @Module({
   imports: [
@@ -47,11 +48,13 @@ import { ContractsModule } from './modules/contracts/contracts.module';
     AuthModule,
     MailModule,
     ContractsModule,
+    MocksModule,
+    ZkAuthModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
-    { provide: APP_GUARD, useClass: ApiKeyGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
     // {
     //   provide: APP_GUARD,
     //   useClass: JwtAuthGuard,

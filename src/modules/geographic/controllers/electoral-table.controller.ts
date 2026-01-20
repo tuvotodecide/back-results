@@ -25,6 +25,7 @@ import {
   ElectoralTableQueryDto,
 } from '../dto/electoral-table.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-tables')
@@ -48,6 +49,7 @@ export class ElectoralTableController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Listar todas las mesas electorales' })
   @ApiResponse({
     status: 200,
@@ -58,6 +60,7 @@ export class ElectoralTableController {
   }
 
   @Get('attested-only')
+  @Public()
   @ApiOperation({ summary: 'Listar las mesas con actas' })
   @ApiQuery({ name: 'electionId', required: false })
   @ApiResponse({
@@ -69,6 +72,7 @@ export class ElectoralTableController {
   }
 
   @Get('statistics')
+  @Public()
   @ApiOperation({ summary: 'Obtener estadísticas de mesas electorales' })
   @ApiResponse({
     status: 200,
@@ -79,6 +83,7 @@ export class ElectoralTableController {
   }
 
   @Get('by-location/:electoralLocationId')
+  @Public()
   @ApiOperation({ summary: 'Obtener mesas por recinto electoral' })
   @ApiParam({
     name: 'electoralLocationId',
@@ -102,6 +107,7 @@ export class ElectoralTableController {
   }
 
   @Get('table-code/:tableCode')
+  @Public()
   @ApiOperation({ summary: 'Obtener una mesa por código' })
   @ApiParam({
     name: 'tableCode',
@@ -115,6 +121,7 @@ export class ElectoralTableController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Obtener una mesa electoral por ID' })
   @ApiResponse({ status: 200, description: 'Mesa encontrada' })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })

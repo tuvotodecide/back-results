@@ -28,7 +28,6 @@ import { ResultsModule } from '../results/results.module';
 import { ClientResultsController } from './controllers/client-results.controller';
 import { ClientResultsService } from './services/client-results.service';
 import { ElectionsModule } from '../elections/elections.module';
-import { ResultsPeriodGuard } from '../elections/guards/results-period.guard';
 
 @Module({
   imports: [
@@ -57,7 +56,6 @@ import { ResultsPeriodGuard } from '../elections/guards/results-period.guard';
     DelegatesService,
     ClientReportsService,
     ClientResultsService,
-    ResultsPeriodGuard
   ],
   exports: [ContractsService, DelegatesService],
 })

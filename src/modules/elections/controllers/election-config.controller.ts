@@ -23,6 +23,7 @@ import {
   ElectionStatusResponseDto,
 } from '../dto/election-config.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Configuración Electoral')
 @Controller('api/v1/elections/config')
@@ -57,6 +58,7 @@ export class ElectionConfigController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({
     summary: 'Listar todas las configuraciones electorales',
     description:
@@ -72,6 +74,7 @@ export class ElectionConfigController {
   }
 
   @Get('active')
+  @Public()
   @ApiOperation({
     summary: 'Obtener configuración electoral activa',
     description: 'Retorna la configuración electoral actualmente activa.',
@@ -90,6 +93,7 @@ export class ElectionConfigController {
   }
 
   @Get('status')
+  @Public()
   @ApiOperation({
     summary: 'Obtener estado actual de las elecciones',
     description:
@@ -105,6 +109,7 @@ export class ElectionConfigController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({
     summary: 'Obtener configuración electoral por ID',
   })

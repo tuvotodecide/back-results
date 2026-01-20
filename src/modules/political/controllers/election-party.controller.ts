@@ -5,6 +5,7 @@ import {
   RemoveElectionPartiesBulkDto,
   UpdateElectionPartyDto,
 } from '../dto/election-party.dto';
+import { Public } from '@/core/decorators/public.decorator';
 
 @Controller('political/election-parties')
 export class ElectionPartyController {
@@ -21,6 +22,7 @@ export class ElectionPartyController {
   }
 
   @Get('by-election/:electionId')
+  @Public()
   getByElection(@Param('electionId') electionId: string) {
     return this.partyService.getElectionParties(electionId);
   }
