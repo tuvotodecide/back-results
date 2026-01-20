@@ -28,7 +28,7 @@ export class PinataMockController {
   @ApiOperation({ summary: 'Mock Pinata pinJSONToIPFS response' })
   pinJSONToIPFS() {
     return {
-      IpfsHash: 'QmdSRDscgSYaDCAeeCPMjLrfG15XdTKJC8MwioSq9t8f5B',
+      IpfsHash: 'QmYxUyQNTU4PSGZQ3SvtLXibUQ2gRSFsS2eCHpVPPgVdXe',
       PinSize: 9876,
       Timestamp: new Date().toISOString(),
       isDuplicate: false,
