@@ -7,8 +7,8 @@ export default registerAs('app', () => ({
 
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/electoral_db',
-    // username: process.env.MONGODB_USERNAME ?? '',
-    // password: process.env.MONGODB_PASSWORD ?? '',
+    username: process.env.MONGODB_USERNAME ?? '',
+    password: process.env.MONGODB_PASSWORD ?? '',
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
