@@ -145,8 +145,12 @@ export class AuthService {
   async requestPasswordReset(dto: RequestPasswordResetDto): Promise<void> {
     const user = await this.roledUserModel.findOne({ email: dto.email });
 
-    if (!user || !user.active) {
-      return;
+    if (!user || user.verificationToken) {
+      throw new UnauthorizedException('El correo electrónico no ha sido verificado');
+    }
+
+    if (!user.active) {
+      throw new UnauthorizedException('El usuario no está activo');
     }
 
     const resetToken = randomBytes(32).toString('hex');

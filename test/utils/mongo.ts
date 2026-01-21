@@ -1,4 +1,10 @@
 
+import { Department, DepartmentSchema } from '@/modules/geographic/schemas/department.schema';
+import { ElectoralLocation, ElectoralLocationSchema } from '@/modules/geographic/schemas/electoral-location.schema';
+import { ElectoralSeat, ElectoralSeatSchema } from '@/modules/geographic/schemas/electoral-seat.schema';
+import { ElectoralTable, ElectoralTableSchema } from '@/modules/geographic/schemas/electoral-table.schema';
+import { Municipality, MunicipalitySchema } from '@/modules/geographic/schemas/municipality.schema';
+import { Province, ProvinceSchema } from '@/modules/geographic/schemas/province.schema';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 
@@ -31,3 +37,13 @@ export class InMemoryMongo {
     }
   }
 }
+
+// Useful for tests that require location data, make seeding faster
+export const mongoLocationFeatures = [
+  { name: Department.name, schema: DepartmentSchema  },
+  { name: Province.name, schema: ProvinceSchema  },
+  { name: Municipality.name, schema: MunicipalitySchema },
+  { name: ElectoralSeat.name, schema: ElectoralSeatSchema },
+  { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
+  { name: ElectoralTable.name, schema: ElectoralTableSchema },
+];

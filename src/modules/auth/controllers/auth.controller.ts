@@ -10,6 +10,7 @@ import { MessageResponseDto, RequestPasswordResetDto, ResetPasswordDto } from '.
 import { RoledUserDocument } from '../schemas/roledUser.schema';
 import { Public } from '@/core/decorators/public.decorator';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { VerifyEmailDto } from '../dto/verify-email.dto';
 
 @ApiTags('Auth')
 @Controller('api/v1/auth')
@@ -35,8 +36,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Verificar el correo electrónico de un usuario' })
   @ApiQuery({ name: 'token', required: true, description: 'Token de verificación enviado por correo electrónico' })
   @ApiResponse({ status: 200, type: RoledUserResponseDto })
-  async verifyEmail(@Query('token') token: string): Promise<RoledUserResponseDto> {
-    const user = await this.authService.verifyEmail(token);
+  async verifyEmail(@Query() query: VerifyEmailDto): Promise<RoledUserResponseDto> {
+    const user = await this.authService.verifyEmail(query.token);
     return this.toResponse(user);
   }
 

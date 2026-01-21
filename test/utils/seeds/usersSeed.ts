@@ -13,7 +13,7 @@ export async function seedUsers(conn: Connection) {
 
 export async function seedContracts(conn: Connection, users: Map<string, any>, electionKey: string) {
   const contracts = contractsSeed(users, electionKey);
-  await conn.collection('contracts').insertMany(contracts);
+  return await conn.collection('contracts').insertMany(contracts);
 }
 
 // all user's password are 'secret123'
@@ -86,6 +86,40 @@ export const usersSeed = async (laPazId?: Types.ObjectId, cbbaId?: Types.ObjectI
         "role": "MAYOR",
         "votingDepartmentId": null,
         "votingMunicipalityId": cbbaId,
+      }
+    ],[
+      'adminUser',
+      {
+        "_id": new Types.ObjectId("507f1f77bcf86cd799439015"),
+        "dni": "5",
+        "active": true,
+        "verificationToken": null,
+        "verificationTokenExpiresAt": null,
+        "passwordResetToken": null,
+        "passwordResetTokenExpiresAt": null,
+        "email": "admin@example.com",
+        "name": "Admin User",
+        "password": "$2b$10$YR43oUJ.897w6HOUH4nMkeJkWfg0FHxthUT.oygCzejA4BTTJZdlu",
+        "role": "ADMIN",
+        "votingDepartmentId": null,
+        "votingMunicipalityId": null,
+      }
+    ],[
+      'withoutContract',
+      {
+        "_id": new Types.ObjectId("507f1f77bcf86cd799439016"),
+        "dni": "6",
+        "active": true,
+        "verificationToken": null,
+        "verificationTokenExpiresAt": null,
+        "passwordResetToken": null,
+        "passwordResetTokenExpiresAt": null,
+        "email": "nocontract@example.com",
+        "name": "No Contract User",
+        "password": "$2b$10$YR43oUJ.897w6HOUH4nMkeJkWfg0FHxthUT.oygCzejA4BTTJZdlu",
+        "role": "GOVERNOR",
+        "votingDepartmentId": null,
+        "votingMunicipalityId": null,
       }
     ]
   ]);

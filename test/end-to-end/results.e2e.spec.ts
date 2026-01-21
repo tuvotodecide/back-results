@@ -10,7 +10,6 @@ import { ResultsController } from '../../src/modules/results/controllers/results
 import { ResultsService } from '../../src/modules/results/services/results.service';
 
 import { Ballot, BallotSchema } from '../../src/modules/ballot/schemas/ballot.schema';
-import { ElectoralTable, ElectoralTableSchema } from '../../src/modules/geographic/schemas/electoral-table.schema';
 import { ElectionConfig, ElectionConfigSchema } from '../../src/modules/elections/schemas/election-config.schema';
 import { ElectionConfigService } from '../../src/modules/elections/services/election-config.service';
 import { ResultsPeriodGuard } from '../../src/modules/elections/guards/results-period.guard';
@@ -22,17 +21,14 @@ import { seedAttestation } from '../utils/seeds/attestationsSeed';
 import { AuthController } from '@/modules/auth/controllers/auth.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RoledUser, RoledUserSchema } from '@/modules/auth/schemas/roledUser.schema';
-import { Department, DepartmentSchema } from '@/modules/geographic/schemas/department.schema';
-import { Municipality, MunicipalitySchema } from '@/modules/geographic/schemas/municipality.schema';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthService } from '@/modules/auth/services/auth.service';
 import { MailService } from '@/modules/mail/mail.service';
 import appConfig from '@/config/app.config';
-import { AttestationController } from '@/modules/attestation/controllers/attestation.controller';
-import { AttestationModule } from '@/modules/attestation/attestation.module';
 import { BallotModule } from '@/modules/ballot/ballot.module';
 import { LoggerService } from '@/core/services/logger.service';
 import { ContractsModule } from '@/modules/contracts/contracts.module';
+import { mongoLocationFeatures } from '../utils/mongo';
 
 jest.setTimeout(60_000);
 
@@ -63,11 +59,9 @@ describe('Results E2E (role filtering)', () => {
 				MongooseModule.forRoot(mongoUri),
 				MongooseModule.forFeature([
 					{ name: RoledUser.name, schema: RoledUserSchema },
-					{ name: Department.name, schema: DepartmentSchema  },
-					{ name: Municipality.name, schema: MunicipalitySchema },
 					{ name: Ballot.name, schema: BallotSchema },
-					{ name: ElectoralTable.name, schema: ElectoralTableSchema },
 					{ name: ElectionConfig.name, schema: ElectionConfigSchema },
+					...mongoLocationFeatures,
 				]),
 				JwtModule.registerAsync({
 					global: true,
@@ -85,14 +79,12 @@ describe('Results E2E (role filtering)', () => {
 					exports: [LoggerService],
 					module: class LoggerModule {},
 				},
-				AttestationModule,
 				BallotModule,
 				ContractsModule,
 			],
 			controllers: [
 				ResultsController,
 				AuthController,
-				AttestationController,
 			],
 			providers: [
 				AuthService,
