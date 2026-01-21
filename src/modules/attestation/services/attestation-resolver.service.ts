@@ -8,10 +8,21 @@ import { Ballot } from '../../ballot/schemas/ballot.schema';
 import { AttestationCase } from '../schemas/attestation-case.schema';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 import { ElectoralTable } from '@/modules/geographic/schemas/electoral-table.schema';
+import { OracleResolverService } from './oracle-resolver.service';
+import { ConfigService } from '@nestjs/config';
+import { LocksService } from './locks.services';
+import { ResolverRunsService } from './resolver-runs.service';
 
 @Injectable()
 export class AttestationResolverService {
   private readonly logger = new Logger(AttestationResolverService.name);
+  private readonly useBlockchain: boolean;
+  private MAX_RESOLVES_PER_SLICE = Number(
+    process.env.MAX_RESOLVES_PER_SLICE ?? 20,
+  );
+  private SLICE_PAUSE_MS = Number(process.env.SLICE_PAUSE_MS ?? 3000);
+  private LOCK_TTL_SECONDS = Number(process.env.LOCK_TTL_SECONDS ?? 120);
+  private isRunning = false;
 
   constructor(
     @InjectModel(Attestation.name) private attModel: Model<Attestation>,
@@ -21,20 +32,195 @@ export class AttestationResolverService {
     @InjectModel(ElectoralTable.name)
     private electoralTableModel: Model<ElectoralTable>,
     private electionConfigService: ElectionConfigService,
-  ) {}
+    private oracleResolver: OracleResolverService,
+    private configService: ConfigService,
+    private locks: LocksService,
+    private runs: ResolverRunsService,
+  ) {
+    this.useBlockchain =
+      this.configService.get('USE_BLOCKCHAIN_RESOLVER') === 'true';
+    this.logger.log(
+      `🔧 Modo de resolución: ${this.useBlockchain ? 'ON-CHAIN ' : 'OFF-CHAIN '}`,
+    );
+  }
 
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron(CronExpression.EVERY_MINUTE)
   async resolvePending() {
-    const status = await this.electionConfigService.getElectionStatus();
-    // No resolvemos hasta que acabe el período de votación (y haya config activa)
-    if (!status.hasActiveConfig || status.isVotingPeriod) {
-      this.logger.debug(
-        'Aún en período de votación o sin config activa. No se resuelve.',
+    if (this.isRunning) {
+      this.logger.warn(
+        'resolvePending aún está ejecutándose, se omite este tick de cron',
       );
       return;
     }
 
-    // Mesas con atestiguamientos
+    this.isRunning = true;
+    try {
+      const status = await this.electionConfigService.getElectionStatus();
+      // No resolvemos hasta que acabe el período de votación (y haya config activa)
+      if (!status.hasActiveConfig || status.isVotingPeriod) {
+        this.logger.debug(
+          'Aún en período de votación o sin config activa. No se resuelve.',
+        );
+        return;
+      }
+
+      if (this.useBlockchain) {
+        const activeElectionId = status.config?.id;
+        if (!activeElectionId) {
+          this.logger.warn(
+            'hasActiveConfig=true pero no hay config.id; no se resuelve on-chain',
+          );
+          return;
+        }
+
+        await this.resolvePendingOnChain(activeElectionId);
+      } else {
+        await this.resolvePendingOffChain();
+      }
+    } finally {
+      this.isRunning = false;
+    }
+  }
+
+  /**
+   * FLUJO ON-CHAIN
+   * 1. Envía al contrato
+   * 2. Lee resultados del contrato
+   * 3. Guarda en BD
+   */
+  // private async resolvePendingOnChain(activeElectionId: string) {
+  //   this.logger.log('Iniciando resolución ON-CHAIN...');
+  //   this.logger.log(
+  //     `LOCK_OWNER en runtime: ${this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`}`,
+  //   );
+  //   const pendingCases = await this.getPendingCases(); // {electionId, tableCode} mezclados
+  //   if (pendingCases.length === 0) {
+  //     this.logger.log('No hay casos pendientes de resolución');
+  //     return;
+  //   }
+
+  //   // 1) Agrupar por elección
+  //   const groups = new Map<
+  //     string,
+  //     Array<{ tableCode: string; electionId: string }>
+  //   >();
+  //   for (const item of pendingCases) {
+  //     if (!groups.has(item.electionId)) groups.set(item.electionId, []);
+  //     groups.get(item.electionId)!.push(item);
+  //   }
+
+  //   // 2) Ordenar grupos por resultsStartDate (si no está, ordenar por electionId)
+  //   const actives = await this.electionConfigService
+  //     .getActiveConfigs()
+  //     .catch(() => []);
+  //   const byDate = Array.from(groups.entries())
+  //     .map(([electionId, items]) => {
+  //       const cfg = actives?.find((c: any) => c.id === electionId);
+  //       const key = cfg?.resultsStartDate
+  //         ? new Date(cfg.resultsStartDate).getTime()
+  //         : Number.MAX_SAFE_INTEGER;
+  //       return { electionId, items, key };
+  //     })
+  //     .sort(
+  //       (a, b) => a.key - b.key || a.electionId.localeCompare(b.electionId),
+  //     );
+
+  //   // 3) Procesar elección por elección
+  //   const owner =
+  //     this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`;
+  //   for (const { electionId, items } of byDate) {
+  //     const ok = await this.locks.tryAcquire(
+  //       `resolve:${electionId}`,
+  //       owner,
+  //       this.LOCK_TTL_SECONDS,
+  //     );
+  //     if (!ok) {
+  //       const k = `resolve:${electionId}`;
+  //       const peek = await this.locks.peek(k);
+  //       this.logger.warn(
+  //         `Diagnóstico lock ${k} -> owner=${peek?.owner} expiresAt=${peek?.expiresAt?.toISOString?.()}`,
+  //       );
+  //       continue;
+  //     }
+  //     try {
+  //       await this.processElectionSlices(electionId, items);
+  //     } catch (e) {
+  //       this.logger.error(`Fallo procesando elección ${electionId}`, e);
+  //       await this.runs.save(electionId, { lastError: String(e) });
+  //     } finally {
+  //       await this.locks
+  //         .release(`resolve:${electionId}`, owner)
+  //         .catch(() => {});
+  //     }
+  //   }
+
+  //   this.logger.log('Proceso de resolución ON-CHAIN completado');
+  // }
+
+  private async resolvePendingOnChain(activeElectionId: string) {
+    this.logger.log(
+      `Iniciando resolución ON-CHAIN para electionId=${activeElectionId}...`,
+    );
+
+    this.logger.log(
+      `LOCK_OWNER en runtime: ${
+        this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`
+      }`,
+    );
+
+    // 🔹 SOLO casos de la elección activa
+    const pendingCases = await this.getPendingCases(activeElectionId);
+
+    if (pendingCases.length === 0) {
+      this.logger.log(
+        `No hay casos pendientes de resolución para electionId=${activeElectionId}`,
+      );
+      return;
+    }
+
+    const owner =
+      this.configService.get('LOCK_OWNER') || `back-results:${process.pid}`;
+
+    const ok = await this.locks.tryAcquire(
+      `resolve:${activeElectionId}`,
+      owner,
+      this.LOCK_TTL_SECONDS,
+    );
+
+    if (!ok) {
+      const k = `resolve:${activeElectionId}`;
+      const peek = await this.locks.peek(k);
+      this.logger.warn(
+        `Diagnóstico lock ${k} -> owner=${peek?.owner} expiresAt=${peek?.expiresAt?.toISOString?.()}`,
+      );
+      return;
+    }
+
+    try {
+      // Procesamos SÓLO la elección activa
+      await this.processElectionSlices(activeElectionId, pendingCases);
+    } catch (e) {
+      this.logger.error(`Fallo procesando elección ${activeElectionId}`, e);
+      await this.runs.save(activeElectionId, { lastError: String(e) });
+    } finally {
+      await this.locks
+        .release(`resolve:${activeElectionId}`, owner)
+        .catch(() => {});
+    }
+
+    this.logger.log(
+      `Proceso de resolución ON-CHAIN completado para electionId=${activeElectionId}`,
+    );
+  }
+
+  /**
+   *  FLUJO OFF-CHAIN (Tests)
+   * 1. Calcula localmente
+   * 2. Guarda en BD
+   */
+  private async resolvePendingOffChain() {
+    this.logger.log('Iniciando resolución OFF-CHAIN (modo tests)...');
+
     const tableCodes: Array<{ electionId: Types.ObjectId; tableCode: string }> =
       await this.attModel.aggregate([
         {
@@ -54,6 +240,8 @@ export class AttestationResolverService {
         { $project: { _id: 0, electionId: '$_id.eid', tableCode: '$_id.t' } },
       ]);
 
+    this.logger.log(`Resolviendo ${tableCodes.length} mesas off-chain...`);
+
     for (const { electionId, tableCode } of tableCodes) {
       const existing = await this.caseModel
         .findOne({ electionId, tableCode })
@@ -61,8 +249,149 @@ export class AttestationResolverService {
       if (existing && existing.status) continue;
       await this.resolveCase(electionId, tableCode);
     }
+
+    this.logger.log('Proceso de resolución OFF-CHAIN completado');
   }
 
+  /**
+   * Obtiene casos pendientes de resolución
+   */
+  private async getPendingCases(
+    electionIdFilter?: string,
+  ): Promise<Array<{ tableCode: string; electionId: string }>> {
+    const pipeline: any[] = [
+      {
+        $lookup: {
+          from: 'ballots',
+          localField: 'ballotId',
+          foreignField: '_id',
+          as: 'ballot',
+        },
+      },
+      { $unwind: '$ballot' },
+    ];
+
+    // 🔹 Si viene electionId, filtramos solo esa elección
+    if (electionIdFilter && Types.ObjectId.isValid(electionIdFilter)) {
+      pipeline.push({
+        $match: {
+          'ballot.electionId': new Types.ObjectId(electionIdFilter),
+        },
+      });
+    }
+
+    pipeline.push(
+      {
+        $group: {
+          _id: { eid: '$ballot.electionId', t: '$ballot.tableCode' },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          electionId: '$_id.eid',
+          tableCode: '$_id.t',
+        },
+      },
+    );
+
+    const results: Array<{ electionId: Types.ObjectId; tableCode: string }> =
+      await this.attModel.aggregate(pipeline).exec();
+
+    const pending: Array<{ tableCode: string; electionId: string }> = [];
+
+    for (const item of results) {
+      const existing = await this.caseModel
+        .findOne({ electionId: item.electionId, tableCode: item.tableCode })
+        .exec();
+
+      if (
+        !existing ||
+        !existing.status ||
+        !['CONSENSUAL', 'CLOSED'].includes(existing.status)
+      ) {
+        pending.push({
+          tableCode: item.tableCode,
+          electionId: item.electionId.toString(),
+        });
+      }
+    }
+
+    return pending;
+  }
+
+  /**
+   * Lee el resultado del contrato y lo sincroniza con la BD
+   */
+  private async syncFromContract(electionId: string, tableCode: string) {
+    try {
+      const contractResult = await this.oracleResolver.getAttestationInfo(
+        tableCode,
+        electionId,
+      );
+
+      if (!contractResult) {
+        this.logger.warn(
+          `No se pudo leer resultado de ${tableCode}-${electionId}`,
+        );
+        return;
+      }
+
+      const status = this.oracleResolver.mapContractStatusToString(
+        contractResult.status,
+      );
+
+      const recordId = contractResult.finalResult.toString();
+      let winningBallotId: Types.ObjectId | undefined;
+
+      if (recordId !== '0') {
+        const winningBallot = await this.ballotModel
+          .findOne({
+            electionId: new Types.ObjectId(electionId),
+            tableCode,
+            recordId,
+          })
+          .exec();
+
+        if (winningBallot) {
+          winningBallotId = winningBallot._id as Types.ObjectId;
+          this.logger.log(
+            `Ganador encontrado: ballot ${winningBallotId} (recordId: ${recordId})`,
+          );
+        } else {
+          this.logger.warn(
+            `No se encontró ballot con recordId ${recordId} para ${tableCode}`,
+          );
+        }
+      }
+
+      await this.upsertCase(
+        new Types.ObjectId(electionId),
+        tableCode,
+        status,
+        winningBallotId,
+        {
+          source: 'on-chain',
+          contractStatus: contractResult.status,
+          recordId,
+          syncedAt: new Date(),
+        },
+      );
+
+      this.logger.log(
+        `Sincronizado ${tableCode}-${electionId}: ${status} ${winningBallotId ? `(ganador: ${winningBallotId})` : '(sin ganador)'}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error sincronizando ${tableCode}-${electionId}:`,
+        error,
+      );
+    }
+  }
+
+  /**
+   * 💻 Resuelve un caso OFF-CHAIN (lógica local)
+   */
   private async resolveCase(electionId: Types.ObjectId, tableCode: string) {
     const ballots = await this.ballotModel
       .find({ electionId, tableCode })
@@ -79,6 +408,7 @@ export class AttestationResolverService {
     if (attestations.length === 0) {
       await this.upsertCase(electionId, tableCode, 'VERIFYING', undefined, {
         reason: 'Sin apoyos',
+        source: 'off-chain',
       });
       return;
     }
@@ -97,7 +427,7 @@ export class AttestationResolverService {
 
     let status: 'VERIFYING' | 'PENDING' | 'CONSENSUAL' | 'CLOSED' = 'VERIFYING';
     let winningBallotId: Types.ObjectId | undefined;
-    const summary = { perBallot, reason: '' };
+    const summary = { perBallot, reason: '', source: 'off-chain' };
 
     const maxUsers = supportedBallots.length
       ? Math.max(...supportedBallots.map((id) => perBallot[id].users))
@@ -136,7 +466,6 @@ export class AttestationResolverService {
       }
       const value = perBallot[only];
       if (value.juries >= 1 || value.users >= 3) {
-        // Unanimidad suficiente: cierra
         status = 'CLOSED';
         winningBallotId = new Types.ObjectId(only);
         summary.reason = 'Unanimidad (≥1 jurado o ≥3 usuarios)';
@@ -144,7 +473,6 @@ export class AttestationResolverService {
         value.juries === 0 &&
         (value.users === 1 || value.users === 2)
       ) {
-        // 1–2 usuarios sin jurados -> PENDING
         status = 'PENDING';
         winningBallotId = new Types.ObjectId(only);
         summary.reason = '1–2 usuarios sin jurados';
@@ -191,7 +519,6 @@ export class AttestationResolverService {
     }
 
     // --- Caso: HAY jurados
-    // Regla: empate en jurados => VERIFYING (sin importar usuarios)
     if (juryLeaders.length > 1) {
       status = 'VERIFYING';
       summary.reason = 'Empate en jurados';
@@ -201,19 +528,16 @@ export class AttestationResolverService {
 
     const juryWinner = juryLeaders[0];
 
-    // Regla: empate en usuarios
     if (userLeaders.length > 1) {
       if (
         userLeaders.includes(juryWinner) &&
         perBallot[juryWinner].juries > 0
       ) {
-        // Si la mayoría de jurados está entre las empatadas de usuarios => CONSENSUAL
         status = 'CONSENSUAL';
         winningBallotId = new Types.ObjectId(juryWinner);
         summary.reason =
           'Empate de usuarios; decide mayoría de jurados (incluida en el empate)';
       } else {
-        // Si la mayoría de jurados NO está entre las empatadas => VERIFYING
         status = 'VERIFYING';
         summary.reason = 'Empate de usuarios; jurados favorecen otra acta';
       }
@@ -227,7 +551,7 @@ export class AttestationResolverService {
       return;
     }
 
-    const userWinner = userLeaders[0]; // único porque no hubo empate
+    const userWinner = userLeaders[0];
 
     if (userWinner !== juryWinner) {
       status = 'VERIFYING';
@@ -249,6 +573,9 @@ export class AttestationResolverService {
     );
   }
 
+  /**
+   * Guarda/actualiza el caso en BD
+   */
   private async upsertCase(
     electionId: Types.ObjectId,
     tableCode: string,
@@ -270,7 +597,6 @@ export class AttestationResolverService {
       },
       { upsert: true },
     );
-    // Asegurar que SOLO el ganador quede como valuable=true (para que cuente)
     await this.ballotModel.updateMany(
       { electionId, tableCode },
       { $set: { valuable: false } },
@@ -285,8 +611,115 @@ export class AttestationResolverService {
     const observedKey = `observedByElection.${electionId.toString()}`;
     await this.electoralTableModel.updateOne(
       { tableCode },
-      { $set: { [observedKey]: status === 'VERIFYING' } }, 
+      { $set: { [observedKey]: status === 'VERIFYING' } },
       { upsert: false },
     );
+  }
+
+  private async processElectionSlices(
+    electionId: string,
+    items: Array<{ tableCode: string; electionId: string }>,
+  ) {
+    // Recalcula siempre los pendientes de ESTA elección (idempotente)
+    const recompute = async () => {
+      return this.getPendingCases(electionId);
+    };
+
+    // Utilidad para epoch seconds "ahora".
+    const nowSec = () => Math.floor(Date.now() / 1000);
+
+    while (true) {
+      const pend = await recompute();
+      if (pend.length === 0) break;
+
+      // ⚠️ Leer una sola vez la ventana on-chain para esta elección (global al contrato)
+      let attestEndSec = 0;
+      try {
+        attestEndSec = await this.oracleResolver.getAttestEnd();
+      } catch (err) {
+        this.logger.warn(
+          `No se pudo leer attestEnd para election ${electionId}: ${String(err)}`,
+        );
+      }
+
+      // Si el contrato dice que todavía estamos antes del fin de atestiguamiento,
+      // NO intentamos resolver nada todavía. El cron lo reintentará luego.
+      if (attestEndSec && attestEndSec > nowSec()) {
+        this.logger.debug(
+          `⏳ Too soon para election ${electionId} (attestEnd=${attestEndSec}, now=${nowSec()})`,
+        );
+        break;
+      }
+
+      // 1) Tomar un slice pequeño (tu límite por env)
+      const batch = pend.slice(0, this.MAX_RESOLVES_PER_SLICE);
+
+      // 2) Prefiltrar según el ESTADO ON-CHAIN de cada mesa
+      const ready: Array<{ tableCode: string; electionId: string }> = [];
+
+      for (const { tableCode } of batch) {
+        try {
+          const info = await this.oracleResolver.getAttestationInfo(
+            tableCode,
+            electionId,
+          );
+          if (!info) {
+            this.logger.debug(
+              `Sin info ON-CHAIN para ${tableCode}-${electionId}, se omite`,
+            );
+            continue;
+          }
+
+          const hasWinner =
+            !!info.finalResult && info.finalResult.toString() !== '0';
+
+          const stateStr = this.oracleResolver.mapContractStatusToString(
+            info.status,
+          );
+
+          // Si ya hay resultado final en contrato, solo sincronizamos a BD
+          if (
+            hasWinner ||
+            ['PENDING', 'VERIFYING', 'CONSENSUAL', 'CLOSED'].includes(stateStr)
+          ) {
+            await this.syncFromContract(electionId, tableCode);
+            continue;
+          }
+
+          // Sigue sin resolver en contrato -> la incluimos en el batch de resolve()
+          ready.push({ tableCode, electionId });
+        } catch (err) {
+          this.logger.warn(
+            `No se pudo pre-chequear ${tableCode}-${electionId}: ${String(err)}`,
+          );
+        }
+      }
+
+      if (!ready.length) {
+        // No había nada resolvible para esta elección en este tick
+        break;
+      }
+
+      // 3) Enviar on-chain SOLO lo que realmente necesita resolve()
+      const txResult = await this.oracleResolver.resolveAttestations(ready);
+      if (!txResult.success) {
+        this.logger.error(
+          `Error enviando batch on-chain en ${electionId}:`,
+          txResult.error,
+        );
+        await this.runs.save(electionId, { lastError: String(txResult.error) });
+        // Salimos; el próximo cron lo reintentará
+        break;
+      }
+
+      // 4) Sincronizar resultados del contrato para este batch (idempotente)
+      for (const { tableCode } of ready) {
+        await this.syncFromContract(electionId, tableCode);
+      }
+      await this.runs.save(electionId, { lastError: null });
+
+      // 5) Pausa corta para no saturar RPC
+      await new Promise((r) => setTimeout(r, this.SLICE_PAUSE_MS));
+    }
   }
 }

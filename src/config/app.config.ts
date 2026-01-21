@@ -7,8 +7,8 @@ export default registerAs('app', () => ({
 
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/electoral_db',
-    username: process.env.MONGODB_USERNAME,
-    password: process.env.MONGODB_PASSWORD,
+    // username: process.env.MONGODB_USERNAME ?? '',
+    // password: process.env.MONGODB_PASSWORD ?? '',
   },
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
@@ -21,7 +21,7 @@ export default registerAs('app', () => ({
   },
 
   cors: {
-    origins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
+    origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
@@ -31,11 +31,28 @@ export default registerAs('app', () => ({
     ttl: parseInt(process.env.CACHE_TTL || '300', 10),
     max: parseInt(process.env.CACHE_MAX || '100', 10),
   },
-  apiKey: {
-    header: process.env.API_KEY_HEADER || 'x-api-key',
-    keys: (process.env.API_KEYS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
+
+  mail: {
+    logoUrl: process.env.EMAIL_LOGO_URL || '',
+    verificationBaseUrl: process.env.EMAIL_VERIFICATION_BASE_URL || '',
+    verificationTokenTTLHours: parseInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS || '24', 10),
+    passwordResetBaseUrl: process.env.PASSWORD_RESET_BASE_URL || '',
+    passwordResetTokenTTLHours: parseInt(process.env.PASSWORD_RESET_TOKEN_TTL_HOURS || '2', 10),
+    smtp: {
+      region: process.env.SES_REGION || 'us-east-1',
+      accessKeyId: process.env.SES_ACCESS_KEY_ID || '',
+      secretAccessKey: process.env.SES_SECRET_ACCESS_KEY || '',
+      from: process.env.SES_FROM_MAIL || 'noreply@example.com',
+    },
   },
+
+  zkAuth: {
+    zkAuthTtl: parseInt(process.env.ZK_AUTH_API_KEY_TTL || '86400', 10), // 24 hours
+    callbackUrl: process.env.ZK_AUTH_CALLBACK_URL,
+    audience: process.env.VERIFIER_DID,
+    rpcUrl: process.env.ZK_AUTH_RPC_URL,
+    network: process.env.ZK_AUTH_NETWORK,
+    stateContract: process.env.ZK_AUTH_STATE_CONTRACT,
+    ipfsGatewayUrl: process.env.IPFS_GATEWAY_URL || 'https://ipfs.io',
+  }
 }));

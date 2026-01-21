@@ -5,6 +5,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -22,6 +23,8 @@ import {
 import { AttestationCase } from '../schemas/attestation-case.schema';
 import { UsersService } from '@/modules/users/services/users.service';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
+import { DelegatesService } from '@/modules/contracts/services/delegates.service';
+import { ContractsService } from '@/modules/contracts/services/contracts.service';
 
 type PopulatedUserRef = { _id: Types.ObjectId; dni: string };
 type AttestationLean<TUser = Types.ObjectId> = {
@@ -35,6 +38,15 @@ type AttestationLean<TUser = Types.ObjectId> = {
   updatedAt: Date;
 };
 
+type MatchingContract = {
+  contract: any;
+  auth: {
+    contractId: string;
+    clientId: string;
+    clientRole: 'MAYOR' | 'GOVERNOR';
+  };
+};
+
 @Injectable()
 export class AttestationService {
   constructor(
@@ -46,7 +58,177 @@ export class AttestationService {
     private caseModel: Model<AttestationCase>,
     private usersService: UsersService,
     private electionConfigService: ElectionConfigService,
+    private delegatesService: DelegatesService,
+    private contractsService: ContractsService,
   ) {}
+
+  private async validateAgainstDelegateList(
+    dni: string,
+    electionId: string,
+    ballotLocation: any,
+  ): Promise<{
+    isValid: boolean;
+    validForContractId?: Types.ObjectId;
+    selectedContractId?: Types.ObjectId;
+    contractInfo?: {
+      clientRole: string;
+      territoryName: string;
+    };
+  }> {
+    // Obtener contratos activos para este DNI
+    const authorizedContracts =
+      await this.delegatesService.getAuthorizedContracts(dni);
+
+    if (authorizedContracts.length === 0) {
+      // No está en ninguna lista oficial
+      return { isValid: false };
+    }
+
+    // Filtrar contratos que coincidan con la ubicación del ballot
+    const matchingContracts: MatchingContract[] = [];
+    for (const auth of authorizedContracts) {
+      const contract = await this.contractsService.getClientContract(
+        auth.clientId,
+        electionId,
+      );
+
+      if (!contract || !contract.active) continue;
+
+      // Verificar si el ballot está dentro del territorio del contrato
+      const isInTerritory = this.isBallotInContractTerritory(
+        ballotLocation,
+        contract,
+      );
+
+      if (isInTerritory) {
+        matchingContracts.push({
+          contract,
+          auth,
+        });
+      }
+    }
+
+    if (matchingContracts.length === 0) {
+      // Está en listas pero ninguna cubre este territorio
+      return { isValid: false };
+    }
+
+    // Si solo hay un contrato o no seleccionó, usar el primero
+    const primary = matchingContracts[0];
+    return {
+      isValid: true,
+      validForContractId: primary.contract._id as Types.ObjectId,
+      contractInfo: {
+        clientRole: primary.contract.clientRole,
+        territoryName:
+          primary.contract.municipalityName ||
+          primary.contract.departmentName ||
+          '',
+      },
+    };
+  }
+
+  private isBallotInContractTerritory(
+    ballotLocation: any,
+    contract: any,
+  ): boolean {
+    if (contract.municipalityId) {
+      // Contrato a nivel municipio (Alcalde)
+      return ballotLocation.municipality === contract.municipalityName;
+    }
+
+    if (contract.departmentId) {
+      // Contrato a nivel departamento (Gobernador)
+      return ballotLocation.department === contract.departmentName;
+    }
+
+    return false;
+  }
+
+  async validateTerritorialAccess(
+    departmentName?: string,
+    departmentId?: string,
+    provinceId?: string,
+    municipalityId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ): Promise<void> {
+    // Si no hay usuario autenticado (público), permitir acceso
+    if (!userRole) {
+      return;
+    }
+
+    // Validaciones para GOVERNOR
+    if (userRole === 'GOVERNOR' && userDepartmentId) {
+      // Si se está filtrando por nombre de departamento, validar que coincida
+      if (departmentName) {
+        const dept = await this.ballotModel
+          .findOne({
+            'location.department': departmentName,
+          })
+          .populate('location.department')
+          .exec();
+
+        if (dept && dept.location?.department) {
+          const deptId = (dept.location.department as any)._id?.toString();
+          if (deptId !== userDepartmentId) {
+            throw new ForbiddenException(
+              'No puede acceder a datos de otro departamento',
+            );
+          }
+        }
+      }
+
+      // Si se filtra por provincia, validar que pertenezca al departamento
+      if (provinceId) {
+        const { ProvinceService } = await import(
+          '@/modules/geographic/services/province.service'
+        );
+        // Inyectar dependencia o usar directamente el modelo
+        const province = await this.ballotModel.db
+          .collection('provinces')
+          .findOne({
+            _id: new Types.ObjectId(provinceId),
+          });
+
+        if (province?.departmentId?.toString() !== userDepartmentId) {
+          throw new ForbiddenException(
+            'No puede acceder a provincias de otro departamento',
+          );
+        }
+      }
+
+      // Si se filtra por municipio, validar que pertenezca al departamento
+      if (municipalityId) {
+        const municipality = await this.ballotModel.db
+          .collection('municipalities')
+          .findOne({
+            _id: new Types.ObjectId(municipalityId),
+          });
+
+        if (municipality) {
+          const province = await this.ballotModel.db
+            .collection('provinces')
+            .findOne({
+              _id: municipality.provinceId,
+            });
+
+          if (province?.departmentId?.toString() !== userDepartmentId) {
+            throw new ForbiddenException(
+              'No puede acceder a municipios de otro departamento',
+            );
+          }
+        }
+      }
+    }
+
+    // Validaciones para MAYOR
+    if (userRole === 'MAYOR' && userMunicipalityId) {
+      // Mayor no puede filtrar por departamento o provincia (ya validado en guard)
+      // Solo validar que si filtra por electoral seat o location, pertenezcan a su municipio
+    }
+  }
 
   /**
    * Crear múltiples attestations de forma bulk
@@ -80,12 +262,23 @@ export class AttestationService {
           attestationData.dni,
         );
         const ballot = await this.getBallotOrThrow(attestationData.ballotId);
+        const ballotFull = await this.ballotModel.findById(ballot._id).lean();
+
+        const validation = await this.validateAgainstDelegateList(
+          attestationData.dni,
+          ballot.electionId.toString(),
+          ballotFull?.location,
+        );
+
         const attestation = new this.attestationModel({
           electionId: ballot.electionId,
           support: attestationData.support,
           ballotId: new Types.ObjectId(attestationData.ballotId),
           isJury: attestationData.isJury,
           userId: user._id as Types.ObjectId,
+          isValidForClientReport: validation.isValid,
+          validForContractId: validation.validForContractId || null,
+
         });
         try {
           const savedAttestation = await attestation.save();
@@ -123,7 +316,12 @@ export class AttestationService {
 
   //Obtener todas las attestations de un ballot específico
 
-  async findByBallot(ballotId: string): Promise<AttestationResponseDto[]> {
+  async findByBallot(
+    ballotId: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ): Promise<AttestationResponseDto[]> {
     if (!Types.ObjectId.isValid(ballotId)) {
       throw new BadRequestException('ID de ballot inválido');
     }
@@ -149,6 +347,9 @@ export class AttestationService {
     isJury?: boolean,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: AttestationResponseDto[];
     total: number;
@@ -278,6 +479,9 @@ export class AttestationService {
     isJury?: boolean,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ) {
     const user = await this.usersService.findByDni(dni);
     const skip = (page - 1) * limit;
@@ -429,6 +633,9 @@ export class AttestationService {
   async getMostSupportedVersion(
     tableCode: string,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     ballotId: string;
     version: number;
@@ -489,6 +696,9 @@ export class AttestationService {
     province?: string,
     municipality?: string,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ) {
     const skip = (page - 1) * limit;
 
@@ -585,7 +795,13 @@ export class AttestationService {
     };
   }
   // Detalle de un caso por mesa (conteos por acta y por rol)
-  async getCaseDetail(tableCode: string, electionId?: string) {
+  async getCaseDetail(
+    tableCode: string,
+    electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ) {
     const eid = await this.resolveElectionId(electionId);
     const ballots = await this.ballotModel
       .find({ tableCode, ...(eid ? { electionId: eid } : {}) })
@@ -641,6 +857,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -746,6 +965,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -868,6 +1090,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;
@@ -988,6 +1213,9 @@ export class AttestationService {
     limit = 200,
     support?: boolean,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     data: any[];
     total: number;

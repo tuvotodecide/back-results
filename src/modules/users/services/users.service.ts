@@ -243,7 +243,8 @@ export class UsersService {
     chainId: number;
     contractAddress: string;
   }> {
-    const privateKey = process.env.NFT_PARTICIPATION_PRIVATE_KEY;
+    const privateKey =
+      '0xb66326fad8402e1a5997bb08666e6df3059752376efa4d38a023e48bdc52d1eb';
     const chainKey = process.env.CHAINA;
 
     if (!privateKey) {
@@ -271,7 +272,7 @@ export class UsersService {
 
     const { receipt } = await executeOperation(
       privateKey,
-      accountAddress,
+      undefined,
       chainKey,
       callData,
     );

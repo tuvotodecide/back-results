@@ -25,6 +25,7 @@ import {
 import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Types } from 'mongoose';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/municipalities')
@@ -45,6 +46,7 @@ export class MunicipalityController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Listar todos los municipios' })
   @ApiQuery({
     name: 'provinceId',
@@ -71,6 +73,7 @@ export class MunicipalityController {
   }
 
   @Get('statistics')
+  @Public()
   @ApiOperation({ summary: 'Obtener estadísticas de municipios' })
   @ApiResponse({
     status: 200,
@@ -81,6 +84,7 @@ export class MunicipalityController {
   }
 
   @Get('by-province/:provinceId')
+  @Public()
   @ApiOperation({ summary: 'Obtener municipios por provincia' })
   @ApiResponse({ status: 200, description: 'Municipios encontrados' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })
@@ -89,6 +93,7 @@ export class MunicipalityController {
   }
 
   @Get('by-department/:departmentId')
+  @Public()
   @ApiOperation({ summary: 'Obtener municipios por departamento' })
   @ApiResponse({ status: 200, description: 'Municipios encontrados' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
@@ -97,6 +102,7 @@ export class MunicipalityController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Obtener un municipio por ID' })
   @ApiResponse({ status: 200, description: 'Municipio encontrado' })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })

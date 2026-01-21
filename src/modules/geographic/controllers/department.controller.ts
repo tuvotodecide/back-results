@@ -22,6 +22,7 @@ import {
 } from '../dto/department.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/departments')
@@ -37,6 +38,7 @@ export class DepartmentController {
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Listar todos los departamentos' })
   @ApiResponse({
     status: 200,
@@ -47,6 +49,7 @@ export class DepartmentController {
   }
 
   @Get(':id')
+  @Public()
   @ApiOperation({ summary: 'Obtener un departamento por ID' })
   @ApiResponse({ status: 200, description: 'Departamento encontrado' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })

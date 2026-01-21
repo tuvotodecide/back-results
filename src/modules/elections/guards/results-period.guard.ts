@@ -1,4 +1,9 @@
-import { Injectable, CanActivate, ForbiddenException, ExecutionContext } from '@nestjs/common';
+import {
+  Injectable,
+  CanActivate,
+  ForbiddenException,
+  ExecutionContext,
+} from '@nestjs/common';
 import { ElectionConfigService } from '../services/election-config.service';
 
 @Injectable()
@@ -7,8 +12,11 @@ export class ResultsPeriodGuard implements CanActivate {
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest();
-    const electionId: string | undefined = req.query?.electionId;
-
+    const electionId =
+      req.query?.electionId ??
+      req.body?.electionId ??
+      req.params?.electionId ??
+      req.headers['x-election-id'];
     const actives = await this.electionConfigService.getActiveConfigs();
     if (!actives?.length) {
       throw new ForbiddenException({

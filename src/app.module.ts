@@ -10,14 +10,31 @@ import { ResultsModule } from './modules/results/results.module';
 import { ElectionsModule } from './modules/elections/elections.module';
 import { AttestationModule } from './modules/attestation/attestation.module';
 import { UsersModule } from './modules/users/users.module';
-import { ApiKeyGuard } from './core/guards/api-key.guard';
 import { APP_GUARD } from '@nestjs/core';
 import { FirebaseModule } from './core/firebase/firebase.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ConfigModule } from '@nestjs/config';
+import { AuthModule } from './modules/auth/auth.module';
+import { MailModule } from './modules/mail/mail.module';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
+import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
+import { ContractsModule } from './modules/contracts/contracts.module';
+import { MocksModule } from './modules/mocks/mocks.module';
+import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'assets'),
+      serveStaticOptions: {
+        redirect: false,
+        fallthrough: false,
+      },
+      serveRoot: '/assets',
+    }),
     CoreModule,
     ElectionsModule,
     GeographicModule,
@@ -28,8 +45,20 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     AttestationModule,
     FirebaseModule,
     NotificationsModule,
+    AuthModule,
+    MailModule,
+    ContractsModule,
+    MocksModule,
+    ZkAuthModule,
   ],
   controllers: [AppController],
-  providers: [AppService, { provide: APP_GUARD, useClass: ApiKeyGuard }],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // {
+    //   provide: APP_GUARD,
+    //   useClass: JwtAuthGuard,
+    // },
+  ],
 })
 export class AppModule {}

@@ -43,7 +43,23 @@ export class BallotService {
     private electionConfigService: ElectionConfigService,
     private logger: LoggerService,
   ) {}
+  private async getDepartmentNameById(departmentId: string): Promise<string> {
+    const dept = await this.ballotModel.db
+      .collection('departments')
+      .findOne({ _id: new Types.ObjectId(departmentId) });
+    if (!dept) throw new BadRequestException('Departamento no encontrado');
+    return dept.name;
+  }
 
+  private async getMunicipalityNameById(
+    municipalityId: string,
+  ): Promise<string> {
+    const mun = await this.ballotModel.db
+      .collection('municipalities')
+      .findOne({ _id: new Types.ObjectId(municipalityId) });
+    if (!mun) throw new BadRequestException('Municipio no encontrado');
+    return mun.name;
+  }
   async createFromIpfs(createDto: CreateBallotFromIpfsDto): Promise<Ballot> {
     try {
       const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
@@ -383,10 +399,27 @@ export class BallotService {
   /**
    * Obtener todas las versiones de un acta por tableCode
    */
-  async findVersionsByTableCode(tableCode: string, electionId?: string) {
+  async findVersionsByTableCode(
+    tableCode: string,
+    electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ) {
     const eid = await this.resolveElectionId(electionId, true);
+    const filter: any = { electionId: eid, tableCode };
+
+    if (userDepartmentId && userRole === 'GOVERNOR') {
+      const deptName = await this.getDepartmentNameById(userDepartmentId);
+      filter['location.department'] = deptName;
+    }
+
+    if (userMunicipalityId && userRole === 'MAYOR') {
+      const munName = await this.getMunicipalityNameById(userMunicipalityId);
+      filter['location.municipality'] = munName;
+    }
     return this.ballotModel
-      .find({ electionId: eid, tableCode })
+      .find(filter)
       .sort({ version: -1, createdAt: -1 })
       .populate('electoralLocationId', 'name code address')
       .exec();
@@ -435,13 +468,27 @@ export class BallotService {
     throw new BadRequestException('No se pudo extraer CID de la URI');
   }
 
-  async findAll(query: BallotQueryDto): Promise<{
+  async findAll(
+    query: BallotQueryDto,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ): Promise<{
     data: Ballot[];
     total: number;
     page: number;
     pages: number;
   }> {
     const filter: any = {};
+    if (userDepartmentId && userRole === 'GOVERNOR') {
+      const deptName = await this.getDepartmentNameById(userDepartmentId);
+      filter['location.department'] = deptName;
+    }
+
+    if (userMunicipalityId && userRole === 'MAYOR') {
+      const munName = await this.getMunicipalityNameById(userMunicipalityId);
+      filter['location.municipality'] = munName;
+    }
 
     if (query.status) {
       filter.status = query.status;
@@ -487,15 +534,34 @@ export class BallotService {
     };
   }
 
-  async getStats(electionId?: string): Promise<BallotStatsDto> {
-    const totalTables = await this.electoralTableService.countTotal();
-    const eid = await this.resolveElectionId(electionId); // filtra si hay
+  async getStats(
+    electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ): Promise<BallotStatsDto> {
+    const territorialFilter: any = {};
+
+    if (userDepartmentId && userRole === 'GOVERNOR') {
+      const deptName = await this.getDepartmentNameById(userDepartmentId);
+      territorialFilter['location.department'] = deptName;
+    }
+
+    if (userMunicipalityId && userRole === 'MAYOR') {
+      const munName = await this.getMunicipalityNameById(userMunicipalityId);
+      territorialFilter['location.municipality'] = munName;
+    }
+
+    const eid = await this.resolveElectionId(electionId);
     const eidFilter = eid ? { electionId: eid } : {};
+
+    const baseFilter = { ...eidFilter, ...territorialFilter };
+    const totalTables = await this.electoralTableService.countTotal();
     const [processed, pending, synced, error] = await Promise.all([
-      this.ballotModel.countDocuments({ ...eidFilter, status: 'processed' }),
-      this.ballotModel.countDocuments({ ...eidFilter, status: 'pending' }),
-      this.ballotModel.countDocuments({ ...eidFilter, status: 'synced' }),
-      this.ballotModel.countDocuments({ ...eidFilter, status: 'error' }),
+      this.ballotModel.countDocuments({ ...baseFilter, status: 'processed' }),
+      this.ballotModel.countDocuments({ ...baseFilter, status: 'pending' }),
+      this.ballotModel.countDocuments({ ...baseFilter, status: 'synced' }),
+      this.ballotModel.countDocuments({ ...baseFilter, status: 'error' }),
     ]);
 
     const processedTotal = processed + synced;
@@ -514,7 +580,23 @@ export class BallotService {
     };
   }
 
-  async findOne(id: string): Promise<Ballot> {
+  async findOne(
+    id: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ): Promise<Ballot> {
+    const filter: any = { _id: id };
+
+    if (userDepartmentId && userRole === 'GOVERNOR') {
+      const deptName = await this.getDepartmentNameById(userDepartmentId);
+      filter['location.department'] = deptName;
+    }
+
+    if (userMunicipalityId && userRole === 'MAYOR') {
+      const munName = await this.getMunicipalityNameById(userMunicipalityId);
+      filter['location.municipality'] = munName;
+    }
     const ballot = await this.ballotModel.findById(id).exec();
     if (!ballot) {
       throw new NotFoundException('Acta no encontrada');
@@ -522,11 +604,27 @@ export class BallotService {
     return ballot;
   }
 
-  async findByTableCode(tableCode: string, electionId?: string) {
+  async findByTableCode(
+    tableCode: string,
+    electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
+  ) {
     const eid = await this.resolveElectionId(electionId, true);
-    const ballots = await this.ballotModel
-      .find({ electionId: eid, tableCode })
-      .exec();
+
+    const filter: any = { electionId: eid, tableCode };
+
+    if (userDepartmentId && userRole === 'GOVERNOR') {
+      const deptName = await this.getDepartmentNameById(userDepartmentId);
+      filter['location.department'] = deptName;
+    }
+
+    if (userMunicipalityId && userRole === 'MAYOR') {
+      const munName = await this.getMunicipalityNameById(userMunicipalityId);
+      filter['location.municipality'] = munName;
+    }
+    const ballots = await this.ballotModel.find(filter).exec();
     if (!ballots?.length) throw new NotFoundException('Acta no encontrada');
     return ballots;
   }
@@ -536,6 +634,9 @@ export class BallotService {
     longitude: number,
     maxDistance: number = 5000,
     electionId?: string,
+    userDepartmentId?: string,
+    userMunicipalityId?: string,
+    userRole?: string,
   ): Promise<{
     location: any;
     ballots: Ballot[];
@@ -556,14 +657,27 @@ export class BallotService {
     }
 
     const eid = await this.resolveElectionId(electionId, true);
+    const filter: any = {
+      electoralLocationId: nearestLocation._id.toString(),
+      electionId: eid,
+    };
+
+    if (userDepartmentId && userRole === 'GOVERNOR') {
+      const deptName = await this.getDepartmentNameById(userDepartmentId);
+      filter['location.department'] = deptName;
+    }
+
+    if (userMunicipalityId && userRole === 'MAYOR') {
+      const munName = await this.getMunicipalityNameById(userMunicipalityId);
+      filter['location.municipality'] = munName;
+    }
     const ballots = await this.ballotModel
-      .find({
-        electoralLocationId: nearestLocation._id.toString(),
-        electionId: eid,
-      })
+      .find(filter)
       .sort({ tableNumber: 1 })
       .exec();
-
+    if (!ballots.length && (userDepartmentId || userMunicipalityId)) {
+      throw new NotFoundException('No tiene acceso a actas de este recinto');
+    }
     const totalTables = await this.electoralTableService.countByLocation(
       nearestLocation._id.toString(),
     );

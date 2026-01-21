@@ -7,6 +7,7 @@ import {
   Param,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -28,6 +29,8 @@ import {
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guard';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Actas')
 @Controller('api/v1/ballots')
@@ -36,8 +39,6 @@ export class BallotController {
 
   @Post('from-ipfs')
   @UseGuards(VotingPeriodGuard)
-  //   @UseGuards(JwtAuthGuard)
-  //   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Crear acta desde IPFS',
     description:
@@ -61,40 +62,42 @@ export class BallotController {
 
   @Post('validate-ballot-data')
   @UseGuards(VotingPeriodGuard)
-  //   @UseGuards(JwtAuthGuard)
-  //   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Crear acta desde IPFS',
-    description:
-      'Recibe una URI de IPFS, extrae los datos y crea el acta electoral',
+    summary: 'Validar datos de acta desde IPFS',
+    description: 'Recibe una URI de IPFS y valida que los datos sean correctos',
   })
   @ApiResponse({
     status: 201,
-    description: 'Acta creada exitosamente',
+    description: 'Datos válidos',
   })
   @ApiResponse({
     status: 400,
     description: 'Datos inválidos o error de validación',
-  })
-  @ApiResponse({
-    status: 409,
-    description: 'El acta ya existe para esta mesa',
   })
   validateBallotData(@Body() createDto: CreateBallotFromIpfsDto) {
     return this.ballotService.previousValidate(createDto);
   }
 
   @Get()
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Listar actas electorales' })
   @ApiResponse({
     status: 200,
     description: 'Lista de actas obtenida exitosamente',
   })
-  findAll(@Query() query: BallotQueryDto) {
-    return this.ballotService.findAll(query);
+  findAll(@Query() query: BallotQueryDto, @Request() req) {
+    return this.ballotService.findAll(
+      query,
+      req.userDepartmentId,
+      req.userMunicipalityId,
+      req.userRole,
+    );
   }
 
   @Get('stats')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'Obtener estadísticas de actas',
     description:
@@ -106,11 +109,18 @@ export class BallotController {
     type: BallotStatsDto,
   })
   @ApiQuery({ name: 'electionId', required: false })
-  getStats(@Query('electionId') electionId?: string) {
-    return this.ballotService.getStats(electionId);
+  getStats(@Query('electionId') electionId?: string, @Request() req?) {
+    return this.ballotService.getStats(
+      electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
+    );
   }
 
   @Get('versions/:tableCode')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener versiones de actas' })
   @ApiParam({
     name: 'tableCode',
@@ -127,11 +137,20 @@ export class BallotController {
   getBallotVersions(
     @Param('tableCode') tableCode: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ) {
-    return this.ballotService.findVersionsByTableCode(tableCode, electionId);
+    return this.ballotService.findVersionsByTableCode(
+      tableCode,
+      electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
+    );
   }
 
   @Get(':id')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener un acta por ID' })
   @ApiParam({
     name: 'id',
@@ -145,11 +164,18 @@ export class BallotController {
     status: 404,
     description: 'Acta no encontrada',
   })
-  findOne(@Param('id', new ParseObjectIdPipe()) id: string) {
-    return this.ballotService.findOne(id);
+  findOne(@Param('id', new ParseObjectIdPipe()) id: string, @Request() req) {
+    return this.ballotService.findOne(
+      id,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
+    );
   }
 
   @Get('by-table/:tableCode')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener acta por código de mesa' })
   @ApiParam({
     name: 'tableCode',
@@ -166,11 +192,20 @@ export class BallotController {
   findByTableCode(
     @Param('tableCode') tableCode: string,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ) {
-    return this.ballotService.findByTableCode(tableCode, electionId);
+    return this.ballotService.findByTableCode(
+      tableCode,
+      electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
+    );
   }
 
   @Post('by-location')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'Obtener actas del recinto más cercano',
     description:
@@ -190,12 +225,16 @@ export class BallotController {
   findByNearestLocation(
     @Body() locationDto: LocationByCoordinatesDto,
     @Query('electionId') electionId?: string,
+    @Request() req?,
   ) {
     return this.ballotService.findByNearestLocation(
       locationDto.latitude,
       locationDto.longitude,
       locationDto.maxDistance,
       electionId,
+      req?.userDepartmentId,
+      req?.userMunicipalityId,
+      req?.userRole,
     );
   }
 }

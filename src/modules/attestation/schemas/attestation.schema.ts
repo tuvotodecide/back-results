@@ -24,6 +24,12 @@ export class Attestation {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'Contract', default: null })
+  validForContractId?: Types.ObjectId | null;
+
+  @Prop({ default: false })
+  isValidForClientReport: boolean;
+
   createdAt: Date;
   updatedAt: Date;
 }

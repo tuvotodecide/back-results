@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificación de correo</title>
+</head>
+<body style="margin:0; padding:0; background:#f5f6fb; font-family: Arial, sans-serif; color:#1f2a44;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f6fb; padding:24px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                    <tr>
+                        <td style="background:#459151; padding:24px 0; text-align:center;">
+                            <img src="<%= logoUrl %>" alt="Logo" style="width:64px; height:64px; margin:0 auto; border-radius: 50%; background:#ffffff; display:flex; align-items:center; justify-content:center;">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:28px 40px 12px 40px; text-align:left;">
+                            <h1 style="margin:0 0 12px 0; font-size:28px; font-weight:700; color:#1f2a44;">!Casi Listo, <%= name %>¡</h1>
+                            <p style="margin:0 0 12px 0; font-size:16px; line-height:1.6;">Verifica tu correo para activar tu solicitud.</p>
+                            <p style="margin:0 0 12px 0; font-size:16px; line-height:1.6;">
+                                Tu cuenta ha sido creada y está en estado Pendiente. Por favor, confirma tu correo electrónico presionando en el enlace a continuación. El enlace expira en 24 horas.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td align="center" style="padding:8px 40px 28px 40px;">
+                            <a href="<%= verificationLink %>" target="_blank" style="display:inline-block; background:#459151; color:#ffffff; text-decoration:none; font-size:16px; font-weight:700; padding:14px 26px; border-radius:6px;">Verifica tu correo</a>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding:0 40px 28px 40px;">
+                            <hr style="border:none; border-top:1px solid #eceff4; margin:12px 0 20px 0;">
+                            <p style="margin:0 0 6px 0; font-size:12px; color:#6b7280; text-align:center;">Tu Voto Decide</p>
+                            <p style="margin:0; font-size:12px; color:#6b7280; text-align:center;">
+                                <a href="https://tuvotodecide.com/es/policy" target="_blank" style="color:#459151; text-decoration:none; font-weight:600;">Política de privacidad</a>
+                                <span style="color:#d1d5db; margin:0 6px;">|</span>
+                                <a href="mailto:info@tuvotodecide.com" target="_blank" style="color:#459151; text-decoration:none; font-weight:600;">Correo de contacto</a>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

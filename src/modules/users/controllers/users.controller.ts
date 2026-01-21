@@ -108,7 +108,8 @@ export class UsersController {
 
   @Get(':dni/notifications')
   @ApiOperation({
-    summary: 'Notificaciones del usuario por DNI (topic del recinto elegido)',
+    summary:
+      'Notificaciones del usuario por DNI (topic del recinto y fallback por usuario)',
   })
   @ApiParam({ name: 'dni' })
   @ApiResponse({ status: 200, description: 'Lista paginada' })
@@ -119,26 +120,24 @@ export class UsersController {
   ) {
     const user = await this.usersService.findOrCreateByDni(dni);
     const locId = (user as any)?.votingLocationId?.toString();
-    if (!locId) {
-      return {
-        data: [],
-        total: 0,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: 0,
-      };
+
+    const topics: string[] = [];
+    if (locId) {
+      const safeLoc = String(locId).replace(/[^A-Za-z0-9_-]/g, '');
+      topics.push(`loc_${safeLoc}`);
     }
-    const topic = `loc_${String(locId).replace(/[^A-Za-z0-9_-]/g, '')}`;
+    topics.push(`user_${user._id.toString()}`);
 
     const skip = (Number(page) - 1) * Number(limit);
+
     const [data, total] = await Promise.all([
       this.logModel
-        .find({ topic })
-        .sort({ createdAt: -1 })
+        .find({ topic: { $in: topics } })
+        .sort({ createdAt: -1, _id: -1 }) // _id como respaldo
         .skip(skip)
         .limit(Number(limit))
         .lean(),
-      this.logModel.countDocuments({ topic }),
+      this.logModel.countDocuments({ topic: { $in: topics } }),
     ]);
 
     return {
@@ -164,29 +163,55 @@ export class UsersController {
     @Body() dto: AttestParticipationDto,
   ): Promise<AttestParticipationResponseDto> {
     const result = await this.usersService.attestParticipationNft(dni, dto);
+
     try {
       const user = await this.usersService.findOrCreateByDni(dni);
       const locId = (user as any)?.votingLocationId?.toString();
 
+      const topics: string[] = [];
       if (locId) {
-        const topic = `loc_${String(locId).replace(/[^A-Za-z0-9_-]/g, '')}`;
-
-        await this.logModel.create({
-          topic,
-          title: 'Certificado de participación emitido',
-          body: 'Tu certificado de participación ya está disponible.',
-          data: {
-            type: 'participation_certificate',
-            dni: user.dni,
-            userId: user._id.toString(),
-            electionId: result.electionId,
-            imageUrl: result.imageUrl,
-            txHash: result.txHash,
-            chainId: result.chainId,
-            contractAddress: result.contractAddress,
-          },
-        });
+        const safeLoc = String(locId).replace(/[^A-Za-z0-9_-]/g, '');
+        topics.push(`loc_${safeLoc}`);
       }
+      // Fallback SIEMPRE: topic por usuario
+      topics.push(`user_${user._id.toString()}`);
+
+      const payload = {
+        title: 'Certificado de participación emitido',
+        body: 'Tu certificado de participación ya está disponible.',
+        data: {
+          type: 'participation_certificate',
+          dni: user.dni,
+          userId: user._id.toString(),
+          electionId: result.electionId ?? '',
+          imageUrl: result.imageUrl,
+          txHash: result.txHash,
+          chainId: result.chainId,
+          contractAddress: result.contractAddress,
+          screen: 'SuccessScreen',
+          routeParams: JSON.stringify({
+            certificateData: {
+              imageUrl: result.imageUrl,
+            },
+            nftData: {
+              nftUrl: result.imageUrl,
+            },
+          }),
+        },
+      };
+
+      await Promise.all(
+        topics.map((topic) =>
+          this.logModel.create({
+            type: 'generic', // 👈 requerido
+            topic,
+            title: payload.title,
+            body: payload.body,
+            data: payload.data,
+            status: 'SENT', // 👈 requerido
+          }),
+        ),
+      );
     } catch (e) {
       // no romper el flujo si falla el log
     }
