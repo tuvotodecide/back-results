@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Patch,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -30,6 +31,8 @@ import {
   AttestParticipationResponseDto,
   ParticipationCertificateDto,
 } from '../dto/attest-participation.dto';
+import { Public } from '@/core/decorators/public.decorator';
+import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
 
 @ApiTags('Users')
 @Controller('api/v1/users')
@@ -148,7 +151,10 @@ export class UsersController {
       totalPages: Math.ceil(total / Number(limit)),
     };
   }
+
   @Post(':dni/participation-nft')
+  @Public()
+  @UseGuards(ZkAuthGuard)
   @ApiOperation({
     summary:
       'Emitir NFT de participación para un usuario (attest) y registrar el certificado',

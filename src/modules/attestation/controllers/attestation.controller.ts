@@ -36,6 +36,7 @@ export class AttestationController {
   constructor(private readonly attestationService: AttestationService) {}
 
   @Post()
+  @Public()
   @UseGuards(VotingPeriodGuard, ZkAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({

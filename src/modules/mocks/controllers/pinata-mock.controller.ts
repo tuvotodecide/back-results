@@ -1,3 +1,4 @@
+import { Public } from '@/core/decorators/public.decorator';
 import {
   Controller,
   Get,
@@ -12,6 +13,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 @Controller('api/v1/pinning')
 export class PinataMockController {
   @Post('pinFileToIPFS')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mock Pinata pinFileToIPFS response' })
   pinFileToIPFS() {
@@ -24,6 +26,7 @@ export class PinataMockController {
   }
 
   @Post('pinJSONToIPFS')
+  @Public()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mock Pinata pinJSONToIPFS response' })
   pinJSONToIPFS() {
@@ -40,6 +43,7 @@ export class PinataMockController {
 @Controller('api/v1/data')
 export class PinataDataMockController {
   @Get('pinList')
+  @Public()
   @ApiOperation({ summary: 'Mock Pinata pinList response' })
   pinList(@Query('hashContains') hashContains: string) {
     const ipfsPinHash = hashContains.trim();
