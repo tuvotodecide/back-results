@@ -31,6 +31,7 @@ import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guar
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
 import { Public } from '@/core/decorators/public.decorator';
+import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
 
 @ApiTags('Actas')
 @Controller('api/v1/ballots')
@@ -38,7 +39,8 @@ export class BallotController {
   constructor(private readonly ballotService: BallotService) {}
 
   @Post('from-ipfs')
-  @UseGuards(VotingPeriodGuard)
+  @Public()
+  @UseGuards(VotingPeriodGuard, ZkAuthGuard)
   @ApiOperation({
     summary: 'Crear acta desde IPFS',
     description:
@@ -61,7 +63,8 @@ export class BallotController {
   }
 
   @Post('validate-ballot-data')
-  @UseGuards(VotingPeriodGuard)
+  @Public()
+  @UseGuards(VotingPeriodGuard, ZkAuthGuard)
   @ApiOperation({
     summary: 'Validar datos de acta desde IPFS',
     description: 'Recibe una URI de IPFS y valida que los datos sean correctos',

@@ -223,6 +223,174 @@ export class ContractsService {
 
     return { hasContract: true, contract };
   }
+  /**
+   * Obtener todas las elecciones donde el usuario tiene contratos (activos o inactivos)
+   */
+  async getMyElections(userId: string): Promise<
+    Array<{
+      electionId: string;
+      electionName: string;
+      electionType?: string;
+      round?: number;
+      isActive: boolean;
+      contracts: Array<{
+        contractId: string;
+        active: boolean;
+        clientRole: string;
+        territory: {
+          departmentId?: string;
+          departmentName?: string;
+          municipalityId?: string;
+          municipalityName?: string;
+        };
+        startDate: Date;
+        endDate?: Date;
+      }>;
+    }>
+  > {
+    // Buscar TODOS los contratos del usuario (activos e inactivos)
+    const contracts = await this.contractModel
+      .find({
+        clientId: new Types.ObjectId(userId),
+      })
+      .populate('electionId')
+      .populate('departmentId', 'name')
+      .populate('municipalityId', 'name')
+      .sort({ createdAt: -1 })
+      .exec();
+
+    if (!contracts || contracts.length === 0) {
+      return [];
+    }
+
+    // Agrupar contratos por elección
+    const electionMap = new Map<
+      string,
+      {
+        electionId: string;
+        electionName: string;
+        electionType?: string;
+        round?: number;
+        isActive: boolean;
+        contracts: Array<any>;
+      }
+    >();
+
+    for (const contract of contracts) {
+      const election = contract.electionId as any;
+      const electionId = election._id.toString();
+
+      if (!electionMap.has(electionId)) {
+        electionMap.set(electionId, {
+          electionId,
+          electionName: election.name,
+          electionType: election.type,
+          round: election.round,
+          isActive: election.isActive,
+          contracts: [],
+        });
+      }
+
+      electionMap.get(electionId)!.contracts.push({
+        contractId: contract._id.toString(),
+        active: contract.active,
+        clientRole: contract.clientRole,
+        territory: {
+          departmentId: contract.departmentId?.toString(),
+          departmentName:
+            (contract.departmentId as any)?.name || contract.departmentName,
+          municipalityId: contract.municipalityId?.toString(),
+          municipalityName:
+            (contract.municipalityId as any)?.name || contract.municipalityName,
+        },
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+      });
+    }
+
+    return Array.from(electionMap.values());
+  }
+
+  /**
+   * Obtener el historial completo de contratos de un usuario
+   */
+  async getContractHistory(
+    userId: string,
+    filters?: {
+      active?: boolean;
+      electionId?: string;
+    },
+  ): Promise<
+    Array<{
+      contractId: string;
+      active: boolean;
+      clientRole: string;
+      territory: {
+        departmentId?: string;
+        departmentName?: string;
+        municipalityId?: string;
+        municipalityName?: string;
+      };
+      election: {
+        electionId: string;
+        electionName: string;
+        electionType?: string;
+        round?: number;
+        isActive: boolean;
+      };
+      startDate: Date;
+      endDate?: Date;
+      createdAt: Date;
+    }>
+  > {
+    const query: any = {
+      clientId: new Types.ObjectId(userId),
+    };
+
+    if (filters?.active !== undefined) {
+      query.active = filters.active;
+    }
+
+    if (filters?.electionId) {
+      query.electionId = new Types.ObjectId(filters.electionId);
+    }
+
+    const contracts = await this.contractModel
+      .find(query)
+      .populate('electionId')
+      .populate('departmentId', 'name')
+      .populate('municipalityId', 'name')
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return contracts.map((contract) => {
+      const election = contract.electionId as any;
+      return {
+        contractId: contract._id.toString(),
+        active: contract.active,
+        clientRole: contract.clientRole,
+        territory: {
+          departmentId: contract.departmentId?.toString(),
+          departmentName:
+            (contract.departmentId as any)?.name || contract.departmentName,
+          municipalityId: contract.municipalityId?.toString(),
+          municipalityName:
+            (contract.municipalityId as any)?.name || contract.municipalityName,
+        },
+        election: {
+          electionId: election._id.toString(),
+          electionName: election.name,
+          electionType: election.type,
+          round: election.round,
+          isActive: election.isActive,
+        },
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        createdAt: contract.createdAt,
+      };
+    });
+  }
+
   async checkAttestationAvailability(
     latitude: number,
     longitude: number,

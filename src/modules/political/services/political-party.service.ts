@@ -20,6 +20,8 @@ import {
   ElectionPartyDocument,
 } from '../schemas/election-party-schema';
 import { UpdateElectionPartyDto } from '../dto/election-party.dto';
+import { Department } from '../../geographic/schemas/department.schema';
+import { Municipality } from '../../geographic/schemas/municipality.schema';
 
 @Injectable()
 export class PoliticalPartyService {
@@ -28,6 +30,10 @@ export class PoliticalPartyService {
     private politicalPartyModel: Model<PoliticalPartyDocument>,
     @InjectModel(ElectionParty.name)
     private electionPartyModel: Model<ElectionPartyDocument>,
+    @InjectModel(Department.name)
+    private departmentModel: Model<Department>,
+    @InjectModel(Municipality.name)
+    private municipalityModel: Model<Municipality>,
   ) {}
 
   async create(createDto: CreatePoliticalPartyDto): Promise<PoliticalParty> {
@@ -137,15 +143,53 @@ export class PoliticalPartyService {
   }
 
   // Habilitar varios partidos (arrays) para una elección
-  async assignPartiesToElection(electionId: string, partyIds: string[]) {
+  // Con filtrado territorial opcional
+  async assignPartiesToElection(
+    electionId: string,
+    partyIds: string[],
+    departmentId?: string,
+    municipalityId?: string,
+  ) {
     const eid = new Types.ObjectId(electionId);
+
+    // Resolver nombres de territorios si se proporcionan
+    let departmentOid: Types.ObjectId | null = null;
+    let municipalityOid: Types.ObjectId | null = null;
+    let departmentName: string | null = null;
+    let municipalityName: string | null = null;
+
+    if (departmentId) {
+      const dept = await this.departmentModel.findById(departmentId).exec();
+      if (dept) {
+        departmentOid = new Types.ObjectId(departmentId);
+        departmentName = dept.name;
+      }
+    }
+
+    if (municipalityId) {
+      const muni = await this.municipalityModel.findById(municipalityId).exec();
+      if (muni) {
+        municipalityOid = new Types.ObjectId(municipalityId);
+        municipalityName = muni.name;
+      }
+    }
+
     const ops = (partyIds ?? []).filter(Boolean).map((pid) => ({
       updateOne: {
-        filter: { electionId: eid, partyId: pid },
+        filter: {
+          electionId: eid,
+          partyId: pid,
+          departmentId: departmentOid,
+          municipalityId: municipalityOid,
+        },
         update: {
           $setOnInsert: {
             electionId: eid,
             partyId: pid,
+            departmentId: departmentOid,
+            municipalityId: municipalityOid,
+            departmentName: departmentName,
+            municipalityName: municipalityName,
             createdAt: new Date(),
           },
           $set: { active: true, updatedAt: new Date() },
@@ -153,6 +197,7 @@ export class PoliticalPartyService {
         upsert: true,
       },
     }));
+
     if (!ops.length) return { assigned: 0 };
     const res = await this.electionPartyModel.bulkWrite(ops);
     const modified = res.modifiedCount ?? 0;
@@ -161,12 +206,30 @@ export class PoliticalPartyService {
   }
 
   // Deshabilitar varios partidos para una elección
-  async removePartiesFromElection(electionId: string, partyIds: string[]) {
+  // Con filtrado territorial opcional
+  async removePartiesFromElection(
+    electionId: string,
+    partyIds: string[],
+    departmentId?: string,
+    municipalityId?: string,
+  ) {
     const eid = new Types.ObjectId(electionId);
-    const r = await this.electionPartyModel.updateMany(
-      { electionId: eid, partyId: { $in: partyIds } },
-      { $set: { active: false, updatedAt: new Date() } },
-    );
+    const filter: any = {
+      electionId: eid,
+      partyId: { $in: partyIds },
+    };
+
+    // Agregar filtros territoriales si se proporcionan
+    if (departmentId) {
+      filter.departmentId = new Types.ObjectId(departmentId);
+    }
+    if (municipalityId) {
+      filter.municipalityId = new Types.ObjectId(municipalityId);
+    }
+
+    const r = await this.electionPartyModel.updateMany(filter, {
+      $set: { active: false, updatedAt: new Date() },
+    });
     return { removed: r.modifiedCount ?? 0 };
   }
 
@@ -189,10 +252,12 @@ export class PoliticalPartyService {
     return updated;
   }
 
-  // Validación CLAVE: que los partyIds estén habilitados para ESA elección
+  // Validación CLAVE: que los partyIds estén habilitados para ESA elección y territorio
   async validatePartyIdsForElection(
     electionId: string | Types.ObjectId,
     partyIds: string[],
+    departmentId?: string | Types.ObjectId,
+    municipalityId?: string | Types.ObjectId,
   ): Promise<boolean> {
     const eid =
       typeof electionId === 'string'
@@ -200,11 +265,80 @@ export class PoliticalPartyService {
         : electionId;
     const clean = Array.from(new Set((partyIds ?? []).filter(Boolean)));
     if (clean.length === 0) return true;
-    const count = await this.electionPartyModel.countDocuments({
+
+    // Construir filtro con validación territorial
+    const filter: any = {
       electionId: eid,
       partyId: { $in: clean },
       active: true,
-    });
+    };
+
+    // Lógica territorial:
+    // 1. Si el ballot tiene municipalityId, buscar partidos con ese municipalityId O sin territorio (nacionales)
+    // 2. Si el ballot tiene departmentId (sin municipalityId), buscar partidos con ese departmentId O sin territorio
+    // 3. Si no tiene territorio, solo buscar partidos nacionales (sin territorio)
+
+    if (municipalityId) {
+      const munOid =
+        typeof municipalityId === 'string'
+          ? new Types.ObjectId(municipalityId)
+          : municipalityId;
+      filter.$or = [
+        { municipalityId: munOid },
+        { departmentId: null, municipalityId: null }, // Partidos nacionales
+      ];
+    } else if (departmentId) {
+      const deptOid =
+        typeof departmentId === 'string'
+          ? new Types.ObjectId(departmentId)
+          : departmentId;
+      filter.$or = [
+        { departmentId: deptOid, municipalityId: null },
+        { departmentId: null, municipalityId: null }, // Partidos nacionales
+      ];
+    } else {
+      // Sin territorio especificado, solo partidos nacionales
+      filter.departmentId = null;
+      filter.municipalityId = null;
+    }
+
+    const count = await this.electionPartyModel.countDocuments(filter);
     return count === clean.length;
+  }
+
+  // Obtener partidos habilitados para un territorio específico
+  async getPartiesForTerritory(
+    electionId: string,
+    departmentId?: string,
+    municipalityId?: string,
+  ): Promise<ElectionPartyDocument[]> {
+    const eid = new Types.ObjectId(electionId);
+    const filter: any = {
+      electionId: eid,
+      active: true,
+    };
+
+    // Misma lógica que validatePartyIdsForElection
+    if (municipalityId) {
+      const munOid = new Types.ObjectId(municipalityId);
+      filter.$or = [
+        { municipalityId: munOid },
+        { departmentId: null, municipalityId: null },
+      ];
+    } else if (departmentId) {
+      const deptOid = new Types.ObjectId(departmentId);
+      filter.$or = [
+        { departmentId: deptOid, municipalityId: null },
+        { departmentId: null, municipalityId: null },
+      ];
+    } else {
+      filter.departmentId = null;
+      filter.municipalityId = null;
+    }
+
+    return this.electionPartyModel
+      .find(filter)
+      .sort({ ballotNumber: 1, partyId: 1 })
+      .exec();
   }
 }

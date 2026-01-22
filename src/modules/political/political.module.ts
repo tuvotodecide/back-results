@@ -8,10 +8,12 @@ import { PoliticalPartyController } from './controllers/political-party.controll
 import { PoliticalPartyService } from './services/political-party.service';
 import { ElectionPartyController } from './controllers/election-party.controller';
 import { ElectionParty, ElectionPartySchema } from './schemas/election-party-schema';
+import { GeographicModule } from '../geographic/geographic.module';
 
 
 @Module({
   imports: [
+    GeographicModule,
     MongooseModule.forFeature([
       { name: PoliticalParty.name, schema: PoliticalPartySchema },
       { name: ElectionParty.name, schema: ElectionPartySchema },

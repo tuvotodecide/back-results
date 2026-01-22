@@ -320,22 +320,56 @@ export class BallotService {
       errors.push('TABLE_NOT_FOUND_OR_MISMATCH');
     }
 
+    // Validar partidos con filtrado territorial
     try {
       const partyIds = [
         ...(data.votes?.parties?.partyVotes ?? []).map((pv) => pv.partyId),
         ...(data.votes?.deputies?.partyVotes ?? []).map((pv) => pv.partyId),
       ];
       const uniqueIds = Array.from(new Set(partyIds)).filter(Boolean);
-      if (uniqueIds.length > 0) {
-        const ok = await this.politicalPartyService.validatePartyIds(
-          uniqueIds,
-          //TO-DO asignar un electionId a cada partido
-          // electionId ? String(electionId) : undefined,
-        );
+
+      if (uniqueIds.length > 0 && electionId) {
+        // Obtener detalles de la ubicación para validación territorial
+        const location =
+          await this.electoralLocationService.findOneWithHierarchy(
+            data.locationId,
+          );
+
+        const departmentId = location.department?._id
+          ? String(location.department._id)
+          : undefined;
+        const municipalityId = location.municipality?._id
+          ? String(location.municipality._id)
+          : undefined;
+
+        // Validar que los partidos estén habilitados para esta elección Y territorio
+        const ok =
+          await this.politicalPartyService.validatePartyIdsForElection(
+            electionId,
+            uniqueIds,
+            departmentId,
+            municipalityId,
+          );
+
+        if (!ok) {
+          const territoryName = municipalityId
+            ? `municipio ${location.municipality?.name}`
+            : departmentId
+              ? `departamento ${location.department?.name}`
+              : 'nivel nacional';
+          errors.push(
+            `Uno o más partidos no están habilitados para esta elección en ${territoryName}`,
+          );
+        }
+      } else if (uniqueIds.length > 0 && !electionId) {
+        // Fallback: validar solo que los partidos existan (sin elección específica)
+        const ok = await this.politicalPartyService.validatePartyIds(uniqueIds);
         if (!ok) errors.push('IDs de partido inválidos o inactivos');
       }
-    } catch {
-      errors.push('Error validando IDs de partido');
+    } catch (error) {
+      errors.push(
+        `Error validando IDs de partido: ${error.message || 'desconocido'}`,
+      );
     }
 
     if (errors.length > 0) {

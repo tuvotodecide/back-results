@@ -29,8 +29,6 @@ import {
 } from '../dto/attestation.dto';
 import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guard';
 import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
-import { AttestationAvailabilityGuard } from '@/core/guards/attestation-availability.guard';
-import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Attestations')
 @Controller('api/v1/attestations')
@@ -38,9 +36,8 @@ export class AttestationController {
   constructor(private readonly attestationService: AttestationService) {}
 
   @Post()
-  @UseGuards(VotingPeriodGuard, ZkAuthGuard, 
-    // AttestationAvailabilityGuard
-  )
+  @Public()
+  @UseGuards(VotingPeriodGuard, ZkAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary: 'Crear múltiples attestations',
@@ -277,7 +274,6 @@ export class AttestationController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminOnlyGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Eliminar una attestation',

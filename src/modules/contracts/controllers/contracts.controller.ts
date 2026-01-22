@@ -297,6 +297,85 @@ export class ContractsController {
     return { message: 'Contrato desactivado exitosamente' };
   }
 
+  /**
+   * Obtener mis elecciones (donde tengo contratos)
+   */
+  @Get('my-elections')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Obtener elecciones donde tengo contratos (activos o inactivos)',
+    description: `
+      Retorna todas las elecciones donde el usuario tiene contratos.
+      Útil para que usuarios con rol MAYOR/GOVERNOR vean solo sus elecciones relevantes.
+      Incluye tanto elecciones activas como históricas.
+    `,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de elecciones con contratos del usuario',
+  })
+  async getMyElections(@Request() req: any) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Usuario no identificado');
+    }
+
+    return this.contractsService.getMyElections(userId);
+  }
+
+  /**
+   * Obtener historial de contratos
+   */
+  @Get('my-history')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Obtener historial completo de contratos del usuario',
+    description: `
+      Retorna todos los contratos del usuario (activos e inactivos).
+      Permite filtrar por estado (active) y por elección específica (electionId).
+    `,
+  })
+  @ApiQuery({
+    name: 'active',
+    required: false,
+    type: Boolean,
+    description: 'Filtrar por estado activo/inactivo',
+  })
+  @ApiQuery({
+    name: 'electionId',
+    required: false,
+    type: String,
+    description: 'Filtrar por elección específica',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Historial de contratos del usuario',
+  })
+  async getMyContractHistory(
+    @Request() req: any,
+    @Query('active') active?: string,
+    @Query('electionId') electionId?: string,
+  ) {
+    const userId = req.user?.sub;
+    if (!userId) {
+      throw new BadRequestException('Usuario no identificado');
+    }
+
+    const filters: any = {};
+
+    if (active !== undefined) {
+      filters.active = active === 'true';
+    }
+
+    if (electionId) {
+      filters.electionId = electionId;
+    }
+
+    return this.contractsService.getContractHistory(userId, filters);
+  }
+
   @Get('check-attestation-availability')
   @Public()
   @ApiOperation({
@@ -306,7 +385,7 @@ export class ContractsController {
       - Ubicación del usuario (recinto electoral cercano)
       - Contratos activos en ese territorio
       - Configuraciones electorales activas
-      
+
       Retorna las elecciones disponibles con información del territorio.
     `,
   })
