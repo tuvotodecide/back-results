@@ -75,6 +75,7 @@ import { Ballot, BallotSchema } from '../ballot/schemas/ballot.schema';
     ElectoralSeatService,
     ElectoralLocationService,
     ElectoralTableService,
+    MongooseModule
   ],
 })
 export class GeographicModule {}

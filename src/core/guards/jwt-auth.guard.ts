@@ -22,12 +22,27 @@ export class JwtAuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
+    const request = context.switchToHttp().getRequest();
+    const token = this.extractTokenFromHeader(request);
+
+    // Si es ruta pública
     if (isPublic) {
+      // pero NO lanzar excepción si falla o no existe
+      if (token) {
+        try {
+          const payload = await this.jwtService.verifyAsync(token);
+          if (payload.active) {
+            request['user'] = payload;
+          }
+        } catch {
+          // Token inválido en ruta pública: continuar sin usuario
+          request['user'] = undefined;
+        }
+      }
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const token = this.extractTokenFromHeader(request);
+    // Si NO es ruta pública, requerir autenticación
     if (!token) {
       throw new UnauthorizedException();
     }

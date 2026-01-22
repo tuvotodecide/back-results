@@ -28,6 +28,8 @@ import {
 import { LocationQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-locations')
@@ -48,6 +50,7 @@ export class ElectoralLocationController {
   }
 
   @Get()
+  @UseGuards(TerritorialScopeGuard)
   @Public()
   @ApiOperation({ summary: 'Listar todos los recintos electorales' })
   @ApiResponse({
@@ -160,6 +163,7 @@ export class ElectoralLocationController {
 
   @Patch(':id')
   // @UseGuards(JwtAuthGuard)
+  @UseGuards(AdminOnlyGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar un recinto electoral' })
   @ApiResponse({ status: 200, description: 'Recinto actualizado exitosamente' })
@@ -172,6 +176,7 @@ export class ElectoralLocationController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar un recinto electoral' })

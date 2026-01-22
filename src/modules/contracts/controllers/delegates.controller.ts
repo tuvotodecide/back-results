@@ -23,15 +23,16 @@ import {
   RemoveDelegateDto,
 } from '../dto/delegates.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Delegates')
 @Controller('api/v1/delegates')
 export class DelegatesController {
   constructor(private readonly delegatesService: DelegatesService) {}
 
-
   @Post('upload-csv')
   @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Cargar lista oficial de delegados desde CSV (Superadmin)',
     description:
@@ -74,6 +75,7 @@ export class DelegatesController {
    */
   @Post()
   @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Agregar un delegado manualmente (Superadmin)',
   })
@@ -104,7 +106,7 @@ export class DelegatesController {
    * Listar delegados de un contrato
    */
   @Get('contract/:contractId')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminOnlyGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Listar delegados de un contrato' })
   @ApiResponse({
@@ -157,14 +159,15 @@ export class DelegatesController {
     @Query('contractId') contractId?: string,
   ) {
     if (contractId) {
-      const isAuthorized =
-        await this.delegatesService.isAuthorizedForContract(dni, contractId);
+      const isAuthorized = await this.delegatesService.isAuthorizedForContract(
+        dni,
+        contractId,
+      );
       return { isAuthorized, contractId };
     }
 
     // Sin contractId, devolver todos los contratos del delegado
-    const contracts =
-      await this.delegatesService.getAuthorizedContracts(dni);
+    const contracts = await this.delegatesService.getAuthorizedContracts(dni);
     return {
       isAuthorized: contracts.length > 0,
       contracts,
@@ -176,6 +179,7 @@ export class DelegatesController {
    */
   @Delete()
   @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Remover un delegado de un contrato (Superadmin)',
   })
@@ -205,8 +209,7 @@ export class DelegatesController {
     description: 'Lista de contratos autorizados',
   })
   async getAuthorizedContracts(@Param('dni') dni: string) {
-    const contracts =
-      await this.delegatesService.getAuthorizedContracts(dni);
+    const contracts = await this.delegatesService.getAuthorizedContracts(dni);
 
     return {
       dni,

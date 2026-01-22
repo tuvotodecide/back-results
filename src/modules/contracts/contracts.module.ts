@@ -28,6 +28,8 @@ import { ResultsModule } from '../results/results.module';
 import { ClientResultsController } from './controllers/client-results.controller';
 import { ClientResultsService } from './services/client-results.service';
 import { ElectionsModule } from '../elections/elections.module';
+import { GeographicModule } from '../geographic/geographic.module';
+import { AttestationAvailabilityGuard } from '@/core/guards/attestation-availability.guard';
 
 @Module({
   imports: [
@@ -43,7 +45,8 @@ import { ElectionsModule } from '../elections/elections.module';
     UsersModule,
     AuthModule,
     ResultsModule,
-    ElectionsModule
+    ElectionsModule,
+    GeographicModule,
   ],
   controllers: [
     ContractsController,
@@ -54,9 +57,10 @@ import { ElectionsModule } from '../elections/elections.module';
   providers: [
     ContractsService,
     DelegatesService,
+    AttestationAvailabilityGuard,
     ClientReportsService,
     ClientResultsService,
   ],
-  exports: [ContractsService, DelegatesService],
+  exports: [ContractsService, DelegatesService, AttestationAvailabilityGuard],
 })
 export class ContractsModule {}

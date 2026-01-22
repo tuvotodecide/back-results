@@ -9,31 +9,52 @@ import {
   Query,
   UseGuards,
   Request,
+  BadRequestException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiBody,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { ContractsService } from '../services/contracts.service';
-import { CreateContractDto, ApproveUserDto, CheckCoverageDto } from '../dto/contracts.dto';
+import {
+  CreateContractDto,
+  ApproveUserDto,
+  CheckCoverageDto,
+  CheckAttestationAvailabilityDto,
+} from '../dto/contracts.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { AuthService } from '../../auth/services/auth.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { RoledUser, RoledUserDocument } from '../../auth/schemas/roledUser.schema';
+import {
+  RoledUser,
+  RoledUserDocument,
+} from '../../auth/schemas/roledUser.schema';
+import { ElectoralLocationService } from '@/modules/geographic/services/electoral-location.service';
+import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Contracts')
 @Controller('api/v1/contracts')
 export class ContractsController {
   constructor(
     private readonly contractsService: ContractsService,
+    private readonly electoralLocationService: ElectoralLocationService,
     private readonly authService: AuthService,
-    @InjectModel(RoledUser.name) private roledUserModel: Model<RoledUserDocument>,
+    @InjectModel(RoledUser.name)
+    private roledUserModel: Model<RoledUserDocument>,
   ) {}
 
   /**
    * UC1: Aprobar o rechazar registro de Alcalde/Gobernador
    */
   @Post('users/:userId/approve')
-
   @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Aprobar o rechazar un usuario con rol (Superadmin)',
     description:
@@ -96,6 +117,7 @@ export class ContractsController {
    */
   @Post()
   @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Crear un contrato territorial (Superadmin)',
     description:
@@ -135,6 +157,10 @@ export class ContractsController {
   @Get()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
+  @ApiQuery({ name: 'clientId', required: false, type: String })
+  @ApiQuery({ name: 'electionId', required: false, type: String })
+  @ApiQuery({ name: 'departmentId', required: false, type: String })
+  @ApiQuery({ name: 'municipalityId', required: false, type: String })
   @ApiOperation({ summary: 'Listar contratos activos' })
   async list(
     @Query('clientId') clientId?: string,
@@ -263,10 +289,77 @@ export class ContractsController {
    * Desactivar un contrato
    */
   @Patch(':contractId/deactivate')
+  @UseGuards(AdminOnlyGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un contrato' })
   async deactivate(@Param('contractId') contractId: string) {
     await this.contractsService.deactivate(contractId);
     return { message: 'Contrato desactivado exitosamente' };
+  }
+
+  @Get('check-attestation-availability')
+  @Public()
+  @ApiOperation({
+    summary: 'Verificar disponibilidad de atestiguamiento por ubicación',
+    description: `
+      Verifica qué elecciones están disponibles para atestiguar basándose en:
+      - Ubicación del usuario (recinto electoral cercano)
+      - Contratos activos en ese territorio
+      - Configuraciones electorales activas
+      
+      Retorna las elecciones disponibles con información del territorio.
+    `,
+  })
+  @ApiQuery({
+    name: 'latitude',
+    required: true,
+    type: Number,
+    example: -16.5,
+    description: 'Latitud del usuario',
+  })
+  @ApiQuery({
+    name: 'longitude',
+    required: true,
+    type: Number,
+    example: -68.15,
+    description: 'Longitud del usuario',
+  })
+  @ApiQuery({
+    name: 'maxDistance',
+    required: false,
+    type: Number,
+    example: 10000,
+    description: 'Distancia máxima en metros (default: 10000)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Disponibilidad verificada',
+  })
+  async checkAttestationAvailability(
+    @Query('latitude') latitude: string,
+    @Query('longitude') longitude: string,
+    @Query('maxDistance') maxDistance?: string,
+  ) {
+    // Convertir a números
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    const maxDist = maxDistance ? parseFloat(maxDistance) : 10000;
+
+    // Validar que sean números válidos
+    if (isNaN(lat) || isNaN(lng)) {
+      throw new BadRequestException(
+        'latitude y longitude deben ser números válidos',
+      );
+    }
+
+    if (maxDistance && isNaN(maxDist)) {
+      throw new BadRequestException('maxDistance debe ser un número válido');
+    }
+
+    return this.contractsService.checkAttestationAvailability(
+      lat,
+      lng,
+      maxDist,
+    );
   }
 }
