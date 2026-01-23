@@ -13,7 +13,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { AnyObject, Connection, InsertManyResult } from "mongoose";
 import request from 'supertest';
-import { seedContracts, seedUsers } from '../utils/seeds/usersSeed';
+import { seedAdmin, seedContracts, seedUsers } from '../utils/seeds/usersSeed';
 import { testActiveContract, testDelegateObject, testDelegatesCsv, testDelegatesCsv2, testUser } from "../utils/testing-data";
 import { seedLocations } from "../utils/seeds/locationsSeed";
 import appConfig from "@/config/app.config";
@@ -25,6 +25,18 @@ import { APP_GUARD } from "@nestjs/core";
 import { JwtAuthGuard } from "@/core/guards/jwt-auth.guard";
 import Papa from "papaparse";
 import { seedElectionConfigWith } from "../utils/seeds/electionsSeed";
+
+// Avoid loading the real zk-auth module (pulls ESM deps) during tests
+jest.mock("@/modules/zk-auth/zk-auth.module", () => ({
+  ZkAuthModule: class {},
+}));
+
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 
 const MailMockService = {
   sendEmail: jest.fn(),
@@ -74,7 +86,6 @@ describe('Auth E2E testing + contracts and delegates', () => {
         }),
         TestLoggerModule,
         ContractsModule,
-
       ],
       controllers: [AuthController],
       providers: [
@@ -116,7 +127,9 @@ describe('Auth E2E testing + contracts and delegates', () => {
 
     laPazToken = res.body!.accessToken;
     
-    const admin = users.get('adminUser');
+    const admin = await seedAdmin(conn);
+    if (!admin) throw new Error('Admin user not seeded properly');
+
     res = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({

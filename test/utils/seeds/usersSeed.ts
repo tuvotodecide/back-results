@@ -1,5 +1,6 @@
 import { Connection, Types } from "mongoose";
 import { electionConfigsSeed } from "./electionsSeed";
+import { RoledUser } from "@/modules/auth/schemas/roledUser.schema";
 
 export async function seedUsers(conn: Connection) {
   const lapaz = await conn.collection('departments').findOne({ name: 'La Paz' });
@@ -9,6 +10,26 @@ export async function seedUsers(conn: Connection) {
   await conn.collection('roled_users').insertMany(Array.from(users.values()));
 
   return users;
+}
+
+export async function seedAdmin(conn: Connection) {
+  const admin = {
+    "dni": "5",
+    "active": true,
+    "verificationToken": null,
+    "verificationTokenExpiresAt": null,
+    "passwordResetToken": null,
+    "passwordResetTokenExpiresAt": null,
+    "email": "admin@example.com",
+    "name": "Admin User",
+    "password": "$2b$10$YR43oUJ.897w6HOUH4nMkeJkWfg0FHxthUT.oygCzejA4BTTJZdlu",
+    "role": "ADMIN",
+    "votingDepartmentId": null,
+    "votingMunicipalityId": null,
+  };
+
+  const inserted = await conn.collection('roled_users').insertOne(admin);
+  return conn.collection<RoledUser>('roled_users').findOne({ _id: inserted.insertedId });
 }
 
 export async function seedContracts(conn: Connection, users: Map<string, any>, electionKey: string) {
@@ -86,23 +107,6 @@ export const usersSeed = async (laPazId?: Types.ObjectId, cbbaId?: Types.ObjectI
         "role": "MAYOR",
         "votingDepartmentId": null,
         "votingMunicipalityId": cbbaId,
-      }
-    ],[
-      'adminUser',
-      {
-        "_id": new Types.ObjectId("507f1f77bcf86cd799439015"),
-        "dni": "5",
-        "active": true,
-        "verificationToken": null,
-        "verificationTokenExpiresAt": null,
-        "passwordResetToken": null,
-        "passwordResetTokenExpiresAt": null,
-        "email": "admin@example.com",
-        "name": "Admin User",
-        "password": "$2b$10$YR43oUJ.897w6HOUH4nMkeJkWfg0FHxthUT.oygCzejA4BTTJZdlu",
-        "role": "ADMIN",
-        "votingDepartmentId": null,
-        "votingMunicipalityId": null,
       }
     ],[
       'withoutContract',

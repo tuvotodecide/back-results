@@ -32,6 +32,17 @@ import { mongoLocationFeatures } from '../utils/mongo';
 
 jest.setTimeout(60_000);
 
+// Avoid loading the real zk-auth module (pulls ESM deps) during tests
+jest.mock("@/modules/zk-auth/zk-auth.module", () => ({
+  ZkAuthModule: class {},
+}));
+
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 describe('Results E2E (role filtering)', () => {
 	const resultsByLocationUrl = '/api/v1/client-results/by-location';
 	const resultsLive = '/api/v1/client-results/live/by-location';
