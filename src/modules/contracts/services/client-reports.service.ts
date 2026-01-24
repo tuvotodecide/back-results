@@ -93,9 +93,9 @@ export class ClientReportsService {
       case 'delegate':
         return this.groupByDelegate(attestations, delegates);
       case 'location':
-        return this.groupByLocation(attestations);
+        return this.groupByLocation(attestations, delegates);
       case 'table':
-        return this.groupByTable(attestations);
+        return this.groupByTable(attestations, delegates);
       default:
         return this.groupByDelegate(attestations, delegates);
     }
@@ -161,7 +161,20 @@ export class ClientReportsService {
   /**
    * Agrupar por ubicación (recinto)
    */
-  private groupByLocation(attestations: any[]) {
+  private groupByLocation(attestations: any[], delegates?: any[]) {
+    // Crear mapa de delegados para obtener nombres
+    const delegateInfoMap = new Map<string, any>();
+    if (delegates) {
+      delegates.forEach((d) => {
+        delegateInfoMap.set(d.dni, {
+          dni: d.dni,
+          name: d.name || 'Sin nombre',
+          phone: d.phone,
+          email: d.email,
+        });
+      });
+    }
+
     const locationMap = new Map();
 
     attestations.forEach((att) => {
@@ -171,7 +184,7 @@ export class ClientReportsService {
           location: locName,
           department: att.location?.department,
           municipality: att.location?.municipality,
-          delegates: new Set(),
+          delegateDetails: new Map<string, any>(),
           tables: new Set(),
           totalAttestations: 0,
           support: 0,
@@ -179,7 +192,20 @@ export class ClientReportsService {
         });
       }
       const loc = locationMap.get(locName);
-      loc.delegates.add(att.dni);
+
+      // Agregar o actualizar delegado
+      if (!loc.delegateDetails.has(att.dni)) {
+        const info = delegateInfoMap.get(att.dni) || { dni: att.dni };
+        loc.delegateDetails.set(att.dni, {
+          dni: att.dni,
+          name: info.name || 'Sin nombre',
+          phone: info.phone || null,
+          email: info.email || null,
+          attestationsCount: 0,
+        });
+      }
+      loc.delegateDetails.get(att.dni).attestationsCount++;
+
       loc.tables.add(att.tableCode);
       loc.totalAttestations++;
       if (att.support) {
@@ -190,10 +216,15 @@ export class ClientReportsService {
     });
 
     const result = Array.from(locationMap.values()).map((loc) => ({
-      ...loc,
-      delegatesCount: loc.delegates.size,
+      location: loc.location,
+      department: loc.department,
+      municipality: loc.municipality,
+      totalAttestations: loc.totalAttestations,
+      support: loc.support,
+      against: loc.against,
+      delegatesCount: loc.delegateDetails.size,
       tablesCount: loc.tables.size,
-      delegates: Array.from(loc.delegates),
+      delegates: Array.from(loc.delegateDetails.values()),
       tables: Array.from(loc.tables),
     }));
 
@@ -207,7 +238,20 @@ export class ClientReportsService {
   /**
    * Agrupar por mesa
    */
-  private groupByTable(attestations: any[]) {
+  private groupByTable(attestations: any[], delegates?: any[]) {
+    // Crear mapa de delegados para obtener nombres
+    const delegateInfoMap = new Map<string, any>();
+    if (delegates) {
+      delegates.forEach((d) => {
+        delegateInfoMap.set(d.dni, {
+          dni: d.dni,
+          name: d.name || 'Sin nombre',
+          phone: d.phone,
+          email: d.email,
+        });
+      });
+    }
+
     const tableMap = new Map();
 
     attestations.forEach((att) => {
@@ -216,8 +260,10 @@ export class ClientReportsService {
         tableMap.set(tableCode, {
           tableCode,
           location: att.location?.electoralLocationName,
-          delegates: new Set<string>(),
-          ballotIds: new Set<string>(),
+          municipality: att.location?.municipality,
+          department: att.location?.department,
+          ballotId: att.ballotId?.toString() || null,
+          attestationDetails: [],
           totalAttestations: 0,
           support: 0,
           against: 0,
@@ -226,8 +272,19 @@ export class ClientReportsService {
         });
       }
       const table = tableMap.get(tableCode);
-      table.delegates.add(att.dni);
-       if (att.ballotId) table.ballotIds.add(String(att.ballotId));
+
+      // Agregar detalle del atestiguamiento
+      const delegateInfo = delegateInfoMap.get(att.dni) || { dni: att.dni };
+      table.attestationDetails.push({
+        dni: att.dni,
+        delegateName: delegateInfo.name || 'Sin nombre',
+        delegatePhone: delegateInfo.phone || null,
+        delegateEmail: delegateInfo.email || null,
+        support: att.support,
+        attestedAt: att.createdAt,
+        ballotId: att.ballotId?.toString() || null,
+      });
+
       table.totalAttestations++;
       if (att.support) {
         table.support++;
@@ -242,11 +299,35 @@ export class ClientReportsService {
       }
     });
 
-    const result = Array.from(tableMap.values()).map((table) => ({
-      ...table,
-      delegatesCount: table.delegates.size,
-      delegates: Array.from(table.delegates),
-    }));
+    const result = Array.from(tableMap.values()).map((table) => {
+      // Extraer DNIs únicos de delegados
+      const uniqueDelegates = [
+        ...new Map(
+          table.attestationDetails.map((a: any) => [a.dni, a]),
+        ).values(),
+      ].map((a: any) => ({
+        dni: a.dni,
+        name: a.delegateName,
+        phone: a.delegatePhone,
+        email: a.delegateEmail,
+      }));
+
+      return {
+        tableCode: table.tableCode,
+        location: table.location,
+        municipality: table.municipality,
+        department: table.department,
+        ballotId: table.ballotId,
+        totalAttestations: table.totalAttestations,
+        support: table.support,
+        against: table.against,
+        firstAttestation: table.firstAttestation,
+        lastAttestation: table.lastAttestation,
+        delegatesCount: uniqueDelegates.length,
+        delegates: uniqueDelegates,
+        attestationDetails: table.attestationDetails,
+      };
+    });
 
     return {
       groupBy: 'table',

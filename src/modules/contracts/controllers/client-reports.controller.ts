@@ -1,5 +1,12 @@
 // src/modules/contracts/controllers/client-reports.controller.ts
-import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  Request,
+  BadRequestException,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -33,9 +40,14 @@ export class ClientReportsController {
   @ApiOperation({
     summary: 'Reporte de actividad de delegados (Alcalde/Gobernador)',
     description:
-      'Muestra qué delegados realizaron atestiguamientos y en qué mesas/recintos',
+      'Muestra qué delegados realizaron atestiguamientos y en qué mesas/recintos. SUPERADMIN puede pasar contractId directamente.',
   })
   @ApiQuery({ name: 'electionId', required: true })
+  @ApiQuery({
+    name: 'contractId',
+    required: false,
+    description: 'ID del contrato (solo para SUPERADMIN)',
+  })
   @ApiQuery({
     name: 'groupBy',
     enum: ['delegate', 'location', 'table'],
@@ -47,14 +59,26 @@ export class ClientReportsController {
   })
   async getDelegateActivity(
     @Query('electionId') electionId: string,
+    @Query('contractId') contractIdParam: string,
     @Query('groupBy') groupBy: 'delegate' | 'location' | 'table' = 'delegate',
     @Request() req: any,
   ) {
-    // El guard ya validó y guardó el contrato en req.contract
-    const contract = req.contract;
+    // Para MAYOR/GOVERNOR el guard asigna req.contract
+    // Para SUPERADMIN se debe pasar contractId como parámetro
+    let contractId: string;
+
+    if (req.contract) {
+      contractId = req.contract._id.toString();
+    } else if (contractIdParam) {
+      contractId = contractIdParam;
+    } else {
+      throw new BadRequestException(
+        'contractId es requerido para usuarios SUPERADMIN',
+      );
+    }
 
     return this.clientReportsService.getDelegateActivityReport({
-      contractId: contract._id.toString(),
+      contractId,
       electionId,
       groupBy,
     });
@@ -67,21 +91,37 @@ export class ClientReportsController {
   @ApiOperation({
     summary: 'Resumen ejecutivo del operativo (Alcalde/Gobernador)',
     description:
-      'Métricas clave: delegados activos, mesas cubiertas, cobertura territorial',
+      'Métricas clave: delegados activos, mesas cubiertas, cobertura territorial. SUPERADMIN puede pasar contractId directamente.',
   })
   @ApiQuery({ name: 'electionId', required: true })
+  @ApiQuery({
+    name: 'contractId',
+    required: false,
+    description: 'ID del contrato (solo para SUPERADMIN)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Resumen ejecutivo generado exitosamente',
   })
   async getExecutiveSummary(
     @Query('electionId') electionId: string,
+    @Query('contractId') contractIdParam: string,
     @Request() req: any,
   ) {
-    const contract = req.contract;
+    let contractId: string;
+
+    if (req.contract) {
+      contractId = req.contract._id.toString();
+    } else if (contractIdParam) {
+      contractId = contractIdParam;
+    } else {
+      throw new BadRequestException(
+        'contractId es requerido para usuarios SUPERADMIN',
+      );
+    }
 
     return this.clientReportsService.getExecutiveSummary({
-      contractId: contract._id.toString(),
+      contractId,
       electionId,
     });
   }
@@ -117,6 +157,10 @@ export class ClientReportsController {
       };
     }
 
+    // Después del populate, los campos son objetos
+    const dept = contract.departmentId as any;
+    const muni = contract.municipalityId as any;
+
     return {
       hasContract: true,
       contract: {
@@ -124,10 +168,10 @@ export class ClientReportsController {
         role: contract.clientRole,
         territory: {
           type: contract.clientRole === 'MAYOR' ? 'municipality' : 'department',
-          departmentId: contract.departmentId?.toString(),
-          departmentName: contract.departmentName,
-          municipalityId: contract.municipalityId?.toString(),
-          municipalityName: contract.municipalityName,
+          departmentId: dept?._id?.toString() || dept?.toString() || null,
+          departmentName: dept?.name || contract.departmentName,
+          municipalityId: muni?._id?.toString() || muni?.toString() || null,
+          municipalityName: muni?.name || contract.municipalityName,
         },
         period: {
           startDate: contract.startDate,
@@ -144,22 +188,39 @@ export class ClientReportsController {
   @Get('my-delegates')
   @ApiOperation({
     summary: 'Listar mis delegados autorizados',
-    description: 'Lista oficial de delegados para este cliente',
+    description:
+      'Lista oficial de delegados para este cliente. SUPERADMIN puede pasar contractId directamente.',
   })
   @ApiQuery({ name: 'electionId', required: true })
+  @ApiQuery({
+    name: 'contractId',
+    required: false,
+    description: 'ID del contrato (solo para SUPERADMIN)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Lista de delegados',
   })
   async getMyDelegates(
     @Query('electionId') electionId: string,
+    @Query('contractId') contractIdParam: string,
     @Request() req: any,
   ) {
-    const contract = req.contract;
+    let contractId: string;
+
+    if (req.contract) {
+      contractId = req.contract._id.toString();
+    } else if (contractIdParam) {
+      contractId = contractIdParam;
+    } else {
+      throw new BadRequestException(
+        'contractId es requerido para usuarios SUPERADMIN',
+      );
+    }
 
     return {
       message: 'Ver endpoint /api/v1/delegates/contract/:contractId',
-      contractId: contract._id.toString(),
+      contractId,
     };
   }
 
@@ -198,6 +259,10 @@ export class ClientReportsController {
       return { hasContract: false, contract: null };
     }
 
+    // Después del populate, los campos son objetos
+    const dept = contract.departmentId as any;
+    const muni = contract.municipalityId as any;
+
     return {
       hasContract: true,
       contract: {
@@ -206,10 +271,10 @@ export class ClientReportsController {
         role: contract.clientRole,
         territory: {
           type: contract.clientRole === 'MAYOR' ? 'municipality' : 'department',
-          departmentId: contract.departmentId?.toString(),
-          departmentName: contract.departmentName,
-          municipalityId: contract.municipalityId?.toString(),
-          municipalityName: contract.municipalityName,
+          departmentId: dept?._id?.toString() || dept?.toString() || null,
+          departmentName: dept?.name || contract.departmentName,
+          municipalityId: muni?._id?.toString() || muni?.toString() || null,
+          municipalityName: muni?.name || contract.municipalityName,
         },
         active: contract.active,
       },

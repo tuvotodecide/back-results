@@ -176,21 +176,30 @@ export class ContractsController {
     });
 
     return {
-      data: contracts.map((c) => ({
-        id: c._id.toString(),
-        clientId: c.clientId.toString(),
-        clientRole: c.clientRole,
-        territory: {
-          departmentId: c.departmentId?.toString(),
-          departmentName: c.departmentName,
-          municipalityId: c.municipalityId?.toString(),
-          municipalityName: c.municipalityName,
-        },
-        electionId: c.electionId.toString(),
-        active: c.active,
-        startDate: c.startDate,
-        endDate: c.endDate,
-      })),
+      data: contracts.map((c) => {
+        const client = c.clientId as any;
+        const dept = c.departmentId as any;
+        const muni = c.municipalityId as any;
+
+        return {
+          id: c._id.toString(),
+          clientId: client?._id?.toString() || client?.toString(),
+          client: client?._id
+            ? { name: client.name, email: client.email, role: client.role }
+            : undefined,
+          clientRole: c.clientRole,
+          territory: {
+            departmentId: dept?._id?.toString() || dept?.toString() || null,
+            departmentName: dept?.name || c.departmentName,
+            municipalityId: muni?._id?.toString() || muni?.toString() || null,
+            municipalityName: muni?.name || c.municipalityName,
+          },
+          electionId: c.electionId.toString(),
+          active: c.active,
+          startDate: c.startDate,
+          endDate: c.endDate,
+        };
+      }),
       total: contracts.length,
     };
   }
@@ -268,15 +277,19 @@ export class ContractsController {
       };
     }
 
+    // Después del populate, los campos son objetos
+    const dept = contract.departmentId as any;
+    const muni = contract.municipalityId as any;
+
     return {
       hasContract: true,
       contract: {
         id: contract._id.toString(),
         territory: {
-          departmentId: contract.departmentId?.toString(),
-          departmentName: contract.departmentName,
-          municipalityId: contract.municipalityId?.toString(),
-          municipalityName: contract.municipalityName,
+          departmentId: dept?._id?.toString() || dept?.toString() || null,
+          departmentName: dept?.name || contract.departmentName,
+          municipalityId: muni?._id?.toString() || muni?.toString() || null,
+          municipalityName: muni?.name || contract.municipalityName,
         },
         active: contract.active,
         startDate: contract.startDate,

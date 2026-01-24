@@ -25,6 +25,8 @@ import { Municipality } from '../../geographic/schemas/municipality.schema';
 
 @Injectable()
 export class PoliticalPartyService {
+  private readonly partyIdCollation = { locale: 'en', strength: 2 };
+
   constructor(
     @InjectModel(PoliticalParty.name)
     private politicalPartyModel: Model<PoliticalPartyDocument>,
@@ -136,6 +138,7 @@ export class PoliticalPartyService {
     const parties = await this.politicalPartyModel
       .find({ partyId: { $in: clean }, active: true })
       .select({ _id: 0, partyId: 1 })
+      .collation(this.partyIdCollation)
       .lean()
       .exec();
 
@@ -195,6 +198,7 @@ export class PoliticalPartyService {
           $set: { active: true, updatedAt: new Date() },
         },
         upsert: true,
+        collation: this.partyIdCollation,
       },
     }));
 
@@ -227,9 +231,11 @@ export class PoliticalPartyService {
       filter.municipalityId = new Types.ObjectId(municipalityId);
     }
 
-    const r = await this.electionPartyModel.updateMany(filter, {
-      $set: { active: false, updatedAt: new Date() },
-    });
+    const r = await this.electionPartyModel.updateMany(
+      filter,
+      { $set: { active: false, updatedAt: new Date() } },
+      { collation: this.partyIdCollation },
+    );
     return { removed: r.modifiedCount ?? 0 };
   }
 
@@ -302,7 +308,9 @@ export class PoliticalPartyService {
       filter.municipalityId = null;
     }
 
-    const count = await this.electionPartyModel.countDocuments(filter);
+    const count = await this.electionPartyModel
+      .countDocuments(filter)
+      .collation(this.partyIdCollation);
     return count === clean.length;
   }
 
