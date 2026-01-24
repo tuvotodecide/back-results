@@ -8,6 +8,7 @@ import {
   Param,
   Delete,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,6 +26,8 @@ import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Types } from 'mongoose';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-seats')
@@ -49,6 +52,7 @@ export class ElectoralSeatController {
 
   @Get()
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Listar todos los asientos electorales' })
   @ApiQuery({
     name: 'municipalityId',
@@ -93,6 +97,7 @@ export class ElectoralSeatController {
 
   @Get('by-municipality/:municipalityId')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener asientos electorales por municipio' })
   @ApiResponse({ status: 200, description: 'Asientos electorales encontrados' })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })
@@ -102,6 +107,7 @@ export class ElectoralSeatController {
 
   @Get('by-province/:provinceId')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener asientos electorales por provincia' })
   @ApiResponse({ status: 200, description: 'Asientos electorales encontrados' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })
@@ -111,6 +117,7 @@ export class ElectoralSeatController {
 
   @Get('by-department/:departmentId')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener asientos electorales por departamento' })
   @ApiResponse({ status: 200, description: 'Asientos electorales encontrados' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
@@ -120,6 +127,7 @@ export class ElectoralSeatController {
 
   @Get('id-loc/:idLoc')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({
     summary: 'Obtener un asiento electoral por ID de localización',
   })
@@ -131,6 +139,7 @@ export class ElectoralSeatController {
 
   @Get(':id')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener un asiento electoral por ID' })
   @ApiResponse({ status: 200, description: 'Asiento electoral encontrado' })
   @ApiResponse({ status: 404, description: 'Asiento electoral no encontrado' })
@@ -139,6 +148,7 @@ export class ElectoralSeatController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar un asiento electoral' })
@@ -155,6 +165,7 @@ export class ElectoralSeatController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar un asiento electoral' })
@@ -168,6 +179,7 @@ export class ElectoralSeatController {
   }
 
   @Patch(':id/activate')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar un asiento electoral' })
@@ -176,6 +188,7 @@ export class ElectoralSeatController {
   }
 
   @Patch(':id/deactivate')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un asiento electoral' })

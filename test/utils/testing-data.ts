@@ -1,3 +1,5 @@
+import { OpenSeaMetadata } from "@/modules/ballot/dto/ballot.dto";
+
 export const testUser = {
   "dni": "491852378",
   "email": "user@example.com",
@@ -30,3 +32,35 @@ export const testActiveContract = {
   "startDate": new Date(new Date().setDate(new Date().getDate() - 1)),
   "endDate": new Date(new Date().setDate(new Date().getDate() + 1))
 }
+
+export function getMockOpenSeaMetadata(
+  tableCode: string,
+  tableNumber: string,
+  locationId: string,
+  parties: string[]
+): OpenSeaMetadata {
+  return {
+    name: 'Test Ballot',
+    description: 'Test description',
+    image: 'https://example.com/image.png',
+    attributes: [],
+    data: {
+      tableCode: tableCode,
+      tableNumber: tableNumber,
+      locationId: locationId,
+      image: 'https://example.com/image.png',
+      votes: {
+        parties: {
+          validVotes: parties.length * 50,
+          nullVotes: 5,
+          blankVotes: 2,
+          partyVotes: parties.map((partyId) => ({
+            partyId,
+            votes: 50,
+          })),
+          totalVotes: parties.length * 50 + 7,
+        }
+      }
+    }
+  };
+};

@@ -21,6 +21,7 @@ import { ResolverRunsService } from './services/resolver-runs.service';
 import { LockSchema } from './schemas/lock.schema';
 import { ContractsModule } from '../contracts/contracts.module';
 import { ZkAuthModule } from '../zk-auth/zk-auth.module';
+import { GeographicModule } from '../geographic/geographic.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { ZkAuthModule } from '../zk-auth/zk-auth.module';
     UsersModule,
     ContractsModule,
     ZkAuthModule,
+    GeographicModule
   ],
   controllers: [AttestationController],
   providers: [

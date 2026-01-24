@@ -248,7 +248,7 @@ export class OracleResolverService {
         return { success: true, hash: hashes[hashes.length - 1], hashes };
       }
     } catch (err: any) {
-      this.logger.error('❌ Error al resolver atestiguamientos on-chain:', err);
+      this.logger.error('Error al resolver atestiguamientos on-chain:', err);
       return { success: false, error: err?.message ?? String(err) };
     }
   }

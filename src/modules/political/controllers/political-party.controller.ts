@@ -25,6 +25,7 @@ import {
 } from '../dto/political-party.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Partidos')
 @Controller('api/v1/political-parties')
@@ -32,6 +33,7 @@ export class PoliticalPartyController {
   constructor(private readonly politicalPartyService: PoliticalPartyService) {}
 
   @Post()
+   @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Crear un nuevo partido político' })
@@ -108,6 +110,7 @@ export class PoliticalPartyController {
   }
 
   @Patch(':id')
+   @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar un partido político' })
@@ -131,6 +134,7 @@ export class PoliticalPartyController {
   }
 
   @Delete(':id')
+   @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar un partido político' })

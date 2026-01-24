@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Contract } from '../schemas/contract.schema';
 
 /**
@@ -44,8 +44,8 @@ export class TerritorialRestrictionGuard implements CanActivate {
 
     const contract = await this.contractModel
       .findOne({
-        clientId: user.sub,
-        electionId,
+        clientId: new Types.ObjectId(user.sub as string),
+        electionId: new Types.ObjectId(electionId as string),
         active: true,
       })
       .lean();

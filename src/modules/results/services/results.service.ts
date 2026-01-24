@@ -41,6 +41,17 @@ export class ResultsService implements OnModuleInit {
     if (filters.electoralLocation)
       match['location.electoralLocationName'] = filters.electoralLocation;
     if (filters.tableCode) match['tableCode'] = filters.tableCode;
+    if (filters.departmentId) {
+      match['location.departmentId'] = new Types.ObjectId(filters.departmentId);
+    }
+    if (filters.provinceId) {
+      match['location.provinceId'] = new Types.ObjectId(filters.provinceId);
+    }
+    if (filters.municipalityId) {
+      match['location.municipalityId'] = new Types.ObjectId(
+        filters.municipalityId,
+      );
+    }
     return match;
   }
 
@@ -208,6 +219,14 @@ export class ResultsService implements OnModuleInit {
     });
     stages.push({ $unwind: '$municipality' });
 
+    if (filters?.municipalityId) {
+      stages.push({
+        $match: {
+          'municipality._id': new Types.ObjectId(filters.municipalityId),
+        },
+      });
+    }
+
     if (filters?.municipality) {
       stages.push({ $match: { 'municipality.name': filters.municipality } });
     }
@@ -235,6 +254,14 @@ export class ResultsService implements OnModuleInit {
       },
     });
     stages.push({ $unwind: '$department' });
+
+    if (filters?.departmentId) {
+      stages.push({
+        $match: {
+          'department._id': new Types.ObjectId(filters.departmentId),
+        },
+      });
+    }
 
     if (filters?.department) {
       stages.push({ $match: { 'department.name': filters.department } });

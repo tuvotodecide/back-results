@@ -65,3 +65,18 @@ export class CheckCoverageDto {
   @IsOptional()
   municipalityId?: string;
 }
+
+export class CheckAttestationAvailabilityDto {
+  @ApiProperty({ description: 'Latitud del usuario', example: -16.5 })
+  latitude: number;
+
+  @ApiProperty({ description: 'Longitud del usuario', example: -68.15 })
+  longitude: number;
+
+  @ApiProperty({ 
+    description: 'Distancia máxima en metros', 
+    example: 10000,
+    required: false 
+  })
+  maxDistance?: number;
+}

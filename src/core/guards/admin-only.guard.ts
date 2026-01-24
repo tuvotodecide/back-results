@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -9,32 +10,33 @@ import { Request } from 'express';
 
 @Injectable()
 export class AdminOnlyGuard implements CanActivate {
-  constructor(
-    private jwtService: JwtService,
-  ) {}
+  constructor(private jwtService: JwtService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const token = this.extractTokenFromHeader(request);
     if (!token) {
-      throw new UnauthorizedException();
+      throw new UnauthorizedException('Missing token');
     }
+    let payload: any;
     try {
-      // 💡 Here the JWT secret key that's used for verifying the payload
-      // is the key that was passsed in the JwtModule
-      const payload = await this.jwtService.verifyAsync(token);
-      if (!payload.active) {
-        throw new UnauthorizedException('Usuario inactivo');
-      }
-      if (payload.role !== 'ADMIN') {
-        throw new UnauthorizedException('Acceso denegado: solo administradores');
-      }
-      // 💡 We're assigning the payload to the request object here
-      // so that we can access it in our route handlers
-      request['user'] = payload;
+      payload = await this.jwtService.verifyAsync(token);
     } catch {
-      throw new UnauthorizedException();
+      throw new UnauthorizedException('Invalid token');
     }
+
+    if (!payload?.active) {
+      throw new UnauthorizedException('Usuario inactivo');
+    }
+
+    if (payload?.role !== 'ADMIN') {
+      // Aquí debe ser 403, no 400
+      throw new UnauthorizedException('Unauthorized');
+      // throw new ForbiddenException('Admin role required');      
+
+    }
+
+    request['user'] = payload;
     return true;
   }
 
