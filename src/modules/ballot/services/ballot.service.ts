@@ -108,8 +108,9 @@ export class BallotService {
       const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
 
       const ballotData = this.extractBallotData(ipfsData);
-      const eid = await this.resolveElectionId(createDto.electionId);
-      await this.validateBallotData(ballotData, eid as any);
+      // ✅ CORREGIDO: electionId ahora es requerido
+      const eid = await this.resolveElectionId(createDto.electionId, true);
+      await this.validateBallotData(ballotData, eid);
 
       return true;
     } catch (error) {

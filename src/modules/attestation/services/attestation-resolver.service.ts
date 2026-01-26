@@ -55,31 +55,102 @@ export class AttestationResolverService {
 
     this.isRunning = true;
     try {
-      const status = await this.electionConfigService.getElectionStatus();
-      // No resolvemos hasta que acabe el período de votación (y haya config activa)
-      if (!status.hasActiveConfig || status.isVotingPeriod) {
-        this.logger.debug(
-          'Aún en período de votación o sin config activa. No se resuelve.',
-        );
+      // ✅ CORREGIDO: Obtener TODAS las elecciones activas
+      const activeConfigs =
+        await this.electionConfigService.getActiveConfigs();
+
+      if (!activeConfigs || activeConfigs.length === 0) {
+        this.logger.debug('No hay configuraciones electorales activas.');
         return;
       }
 
-      if (this.useBlockchain) {
-        const activeElectionId = status.config?.id;
-        if (!activeElectionId) {
-          this.logger.warn(
-            'hasActiveConfig=true pero no hay config.id; no se resuelve on-chain',
+      this.logger.log(
+        `📊 Procesando ${activeConfigs.length} elección(es) activa(s)`,
+      );
+
+      // Procesar cada elección activa
+      for (const config of activeConfigs) {
+        const now = new Date();
+        const votingEnd = new Date(config.votingEndDate);
+        const resultsStart = new Date(config.resultsStartDate);
+
+        // Verificar si esta elección específica está en período de resultados
+        const isVotingPeriod = now <= votingEnd;
+        const isResultsPeriod = now >= resultsStart;
+
+        if (isVotingPeriod) {
+          this.logger.debug(
+            `⏳ Elección ${config.id} (${config.name}): Aún en período de votación`,
           );
-          return;
+          continue;
         }
 
-        await this.resolvePendingOnChain(activeElectionId);
-      } else {
-        await this.resolvePendingOffChain();
+        if (!isResultsPeriod) {
+          this.logger.debug(
+            `⏳ Elección ${config.id} (${config.name}): Esperando período de resultados`,
+          );
+          continue;
+        }
+
+        this.logger.log(
+          `✅ Elección ${config.id} (${config.name}): Iniciando resolución`,
+        );
+
+        if (this.useBlockchain) {
+          await this.resolvePendingOnChain(config.id);
+        } else {
+          await this.resolvePendingOffChainForElection(config.id);
+        }
       }
+    } catch (error) {
+      this.logger.error('Error en resolvePending:', error);
     } finally {
       this.isRunning = false;
     }
+  }
+
+  /**
+   * Versión de resolución OFF-CHAIN para una elección específica
+   */
+  private async resolvePendingOffChainForElection(electionId: string) {
+    this.logger.log(
+      `Iniciando resolución OFF-CHAIN para elección ${electionId}...`,
+    );
+
+    const eid = new Types.ObjectId(electionId);
+
+    const tableCodes: Array<{ tableCode: string }> = await this.attModel
+      .aggregate([
+        {
+          $lookup: {
+            from: 'ballots',
+            localField: 'ballotId',
+            foreignField: '_id',
+            as: 'ballot',
+          },
+        },
+        { $unwind: '$ballot' },
+        { $match: { 'ballot.electionId': eid } },
+        { $group: { _id: '$ballot.tableCode' } },
+        { $project: { _id: 0, tableCode: '$_id' } },
+      ])
+      .exec();
+
+    this.logger.log(
+      `Resolviendo ${tableCodes.length} mesas off-chain para elección ${electionId}...`,
+    );
+
+    for (const { tableCode } of tableCodes) {
+      const existing = await this.caseModel
+        .findOne({ electionId: eid, tableCode })
+        .exec();
+      if (existing && existing.status) continue;
+      await this.resolveCase(eid, tableCode);
+    }
+
+    this.logger.log(
+      `Proceso de resolución OFF-CHAIN completado para elección ${electionId}`,
+    );
   }
 
   /**
