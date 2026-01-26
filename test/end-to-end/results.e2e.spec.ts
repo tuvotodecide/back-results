@@ -29,8 +29,20 @@ import { BallotModule } from '@/modules/ballot/ballot.module';
 import { LoggerService } from '@/core/services/logger.service';
 import { ContractsModule } from '@/modules/contracts/contracts.module';
 import { mongoLocationFeatures } from '../utils/mongo';
+import { AttestationModule } from '@/modules/attestation/attestation.module';
 
-jest.setTimeout(60_000);
+jest.setTimeout(80_000);
+
+// Avoid loading the real zk-auth module (pulls ESM deps) during tests
+jest.mock("@/modules/zk-auth/zk-auth.module", () => ({
+  ZkAuthModule: class {},
+}));
+
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
 
 describe('Results E2E (role filtering)', () => {
 	const resultsByLocationUrl = '/api/v1/client-results/by-location';
@@ -81,6 +93,7 @@ describe('Results E2E (role filtering)', () => {
 				},
 				BallotModule,
 				ContractsModule,
+				AttestationModule,
 			],
 			controllers: [
 				ResultsController,

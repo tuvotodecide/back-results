@@ -153,7 +153,7 @@ export class BallotController {
 
   @Get(':id')
   @Public()
-  @UseGuards(TerritorialScopeGuard)
+  @UseGuards(JwtAuthGuard, TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener un acta por ID' })
   @ApiParam({
     name: 'id',

@@ -803,9 +803,29 @@ export class AttestationService {
     userRole?: string,
   ) {
     const eid = await this.resolveElectionId(electionId);
-    const ballots = await this.ballotModel
-      .find({ tableCode, ...(eid ? { electionId: eid } : {}) })
-      .lean();
+
+    // Construir filtro con restricción territorial
+    const filter: any = { tableCode, ...(eid ? { electionId: eid } : {}) };
+
+    if (userDepartmentId && userRole === 'GOVERNOR') {
+      const dept = await this.ballotModel.db
+        .collection('departments')
+        .findOne({ _id: new Types.ObjectId(userDepartmentId) });
+      if (dept?.name) {
+        filter['location.department'] = dept.name;
+      }
+    }
+
+    if (userMunicipalityId && userRole === 'MAYOR') {
+      const mun = await this.ballotModel.db
+        .collection('municipalities')
+        .findOne({ _id: new Types.ObjectId(userMunicipalityId) });
+      if (mun?.name) {
+        filter['location.municipality'] = mun.name;
+      }
+    }
+
+    const ballots = await this.ballotModel.find(filter).lean();
     if (ballots.length === 0) {
       throw new NotFoundException('No hay actas para esa mesa');
     }

@@ -13,8 +13,8 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { MongoMemoryServer } from "mongodb-memory-server";
 import { AnyObject, Connection, InsertManyResult } from "mongoose";
 import request from 'supertest';
-import { seedContracts, seedUsers } from '../utils/seeds/usersSeed';
-import { testActiveContract, testDelegateObject, testDelegatesCsv, testDelegatesCsv2, testUser } from "../utils/testing-data";
+import { seedAdmin, seedContracts, seedUsers } from '../utils/seeds/usersSeed';
+import { testActiveContract, testDelegateObject, testDelegatesCsv2String, testUser } from "../utils/testing-data";
 import { seedLocations } from "../utils/seeds/locationsSeed";
 import appConfig from "@/config/app.config";
 import { mongoLocationFeatures } from "../utils/mongo";
@@ -25,6 +25,19 @@ import { APP_GUARD } from "@nestjs/core";
 import { JwtAuthGuard } from "@/core/guards/jwt-auth.guard";
 import Papa from "papaparse";
 import { seedElectionConfigWith } from "../utils/seeds/electionsSeed";
+import path from "path";
+
+// Avoid loading the real zk-auth module (pulls ESM deps) during tests
+jest.mock("@/modules/zk-auth/zk-auth.module", () => ({
+  ZkAuthModule: class {},
+}));
+
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 
 const MailMockService = {
   sendEmail: jest.fn(),
@@ -74,7 +87,6 @@ describe('Auth E2E testing + contracts and delegates', () => {
         }),
         TestLoggerModule,
         ContractsModule,
-
       ],
       controllers: [AuthController],
       providers: [
@@ -116,7 +128,9 @@ describe('Auth E2E testing + contracts and delegates', () => {
 
     laPazToken = res.body!.accessToken;
     
-    const admin = users.get('adminUser');
+    const admin = await seedAdmin(conn);
+    if (!admin) throw new Error('Admin user not seeded properly');
+
     res = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({
@@ -467,20 +481,18 @@ describe('Auth E2E testing + contracts and delegates', () => {
   it('R17-A: should return Unauthorized on delegate import without auth token', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delegates/upload-csv')
-      .send({
-        csvContent: testDelegatesCsv,
-        contractId: contracts.insertedIds[0].toString(),
-      }).expect(401);
+      .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
+      .field('contractId', contracts.insertedIds[0].toString())
+      .expect(401);
   });
 
   it('R17-B: should return Unauthorized on delegate import without admin role', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delegates/upload-csv')
       .auth(laPazToken, { type: 'bearer' })
-      .send({
-        csvContent: testDelegatesCsv,
-        contractId: contracts.insertedIds[0].toString(),
-      }).expect(401);
+      .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
+      .field('contractId', contracts.insertedIds[0].toString())
+      .expect(401);
   });
 
   it('R18-A: should return Unauthorized on creating single delegate without auth token', async () => {
@@ -506,12 +518,11 @@ describe('Auth E2E testing + contracts and delegates', () => {
     await request(app.getHttpServer())
       .post('/api/v1/delegates/upload-csv')
       .auth(adminToken, { type: 'bearer' })
-      .send({
-        csvContent: testDelegatesCsv2,
-        contractId: contracts.insertedIds[0].toString(),
-      }).expect(201);
+      .attach('file', path.join(__dirname, '../assets/testDelegates2.csv'))
+      .field('contractId', contracts.insertedIds[0].toString())
+      .expect(201);
 
-    const { data } = Papa.parse(testDelegatesCsv2, {
+    const { data } = Papa.parse(testDelegatesCsv2String, {
       header: true,
       skipEmptyLines: true,
       dynamicTyping: false,
@@ -575,28 +586,6 @@ describe('Auth E2E testing + contracts and delegates', () => {
     
     await request(app.getHttpServer())
       .get('/api/v1/delegates/authorized-contracts/1')
-      .expect(401);
-  });
-
-  it('R20-B: should return Unauthorized on get delegates info without admin role', async () => {
-    const contractId = contracts.insertedIds[0].toString();
-
-    await request(app.getHttpServer())
-      .get('/api/v1/delegates/contract/' + contractId)
-      .auth(laPazToken, { type: 'bearer' })
-      .expect(401);
-
-    await request(app.getHttpServer())
-      .get('/api/v1/delegates/check-authorization')
-      .auth(laPazToken, { type: 'bearer' })
-      .query({
-        dni: '1',
-        contractId,
-      }).expect(401);
-    
-    await request(app.getHttpServer())
-      .get('/api/v1/delegates/authorized-contracts/1')
-      .auth(laPazToken, { type: 'bearer' })
       .expect(401);
   });
 

@@ -12,17 +12,20 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { Connection, Types } from "mongoose";
 import { TestLoggerModule } from "../utils/module-helpers";
 import { seedLocations } from "../utils/seeds/locationsSeed";
-import { seedContracts, seedUsers } from "../utils/seeds/usersSeed";
+import { seedAdmin, seedContracts, seedUsers } from "../utils/seeds/usersSeed";
 import { seedElectionConfigWith } from "../utils/seeds/electionsSeed";
 import { seedDelegates } from "../utils/seeds/delegatesSeed";
 import { CacheModule } from '@nestjs/cache-manager';
 import { Delegate } from "@/modules/contracts/schemas/delegate.schema";
 import { INestApplication } from "@nestjs/common";
 import { getMockOpenSeaMetadata } from "../utils/testing-data";
-import { seedParties } from "../utils/seeds/partiesSeed";
+import { PartiesSeedInput, seedParties } from "../utils/seeds/partiesSeed";
 import { ElectoralTable } from "@/modules/geographic/schemas/electoral-table.schema";
 import { Department } from "@/modules/geographic/schemas/department.schema";
 import { Province } from "@/modules/geographic/schemas/province.schema";
+import { login } from "../utils/location-helpers";
+import { APP_GUARD } from "@nestjs/core";
+import { JwtAuthGuard } from "@/core/guards/jwt-auth.guard";
 
 var mockZkAuthGuard = {
   canActivate: jest.fn().mockResolvedValue(true),
@@ -51,7 +54,17 @@ describe('Delegates pariticipation end-to-end tests', () => {
   let activeElectionId: string;
 
   let delegates: DelegateWithId[];
-  const parties = ['party1', 'party2', 'party3'];
+  const parties: PartiesSeedInput = {
+    codes: ['party1', 'party2', 'party3'],
+    assignedLoc: 'La Paz',
+    locType: 'department',
+  };
+
+  const cbbaParties: PartiesSeedInput = {
+    codes: ['cbba1', 'cbba2', 'cbba3'],
+    assignedLoc: 'Cochabamba',
+    locType: 'municipality',
+  };
 
   beforeAll(async () => {
     mongod = await MongoMemoryServer.create();
@@ -68,6 +81,9 @@ describe('Delegates pariticipation end-to-end tests', () => {
         ContractsModule,
         BallotModule,
       ],
+      providers: [
+        { provide: APP_GUARD, useClass: JwtAuthGuard },
+      ]
     }).compile();
 
     app = moduleRef.createNestApplication();
@@ -80,24 +96,20 @@ describe('Delegates pariticipation end-to-end tests', () => {
     await seedLocations(conn);
 
     users = await seedUsers(conn);
+    const adminUser = await seedAdmin(conn);
+    if (!adminUser) throw new Error('Admin user not seeded properly');
+
     const activeElection = await seedElectionConfigWith(conn, 'activeElection');
     activeElectionId = activeElection.insertedId.toString();
 
     await seedParties(conn, parties, activeElection.insertedId);
+    await seedParties(conn, cbbaParties, activeElection.insertedId);
 
     const contracts = await seedContracts(conn, users, 'activeElection');
-    delegates = await seedDelegates(conn, contracts.insertedIds[0]);
+    delegates = await seedDelegates(conn, contracts.insertedIds[0], adminUser._id);
 
     const governorLaPaz = users.get('governorLaPaz');
-    let res = await request(appHttpServer)
-      .post('/api/v1/auth/login')
-      .send({
-        email: governorLaPaz.email,
-        password: 'secret123',
-      })
-      .expect(200);
-
-    laPazToken = res.body?.accessToken;
+    laPazToken = await login(appHttpServer, governorLaPaz.email, 'secret123');
   });
 
   afterAll(async () => {
@@ -116,9 +128,11 @@ describe('Delegates pariticipation end-to-end tests', () => {
       tableCode = table!.tableCode;
       tableNumber = table!.tableNumber;
 
+      const mockIpfs = getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties.codes);
+
       // Mock IPFS fetching
       jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
-        getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties)
+        mockIpfs
       );
     });
 
@@ -127,14 +141,14 @@ describe('Delegates pariticipation end-to-end tests', () => {
       await conn.collection('attestations').deleteMany({});
     });
 
-    const uploadAttestation = async (recordId: string, delegate: DelegateWithId, version: number) => {
+    const uploadAttestation = async (recordId: string, delegate: DelegateWithId, version: number, tableCod: string = tableCode) => {
       const ballot = await request(appHttpServer)
         .post('/api/v1/ballots/from-ipfs')
         .send({
           ipfsUri: 'https://ipfs.io/ipfs/' + recordId + 'ballot',
           recordId,
           electionId: activeElectionId,
-          tableIdIpfs: tableCode,
+          tableIdIpfs: tableCod,
           version,
         }).expect(201);
 
@@ -169,25 +183,25 @@ describe('Delegates pariticipation end-to-end tests', () => {
       expect(attestation.body.errors).toHaveLength(0);
     };
 
-    const checkLiveResults = async (validVotes: number) => {
+    const checkLiveResults = async (validVotes: number, token: string = laPazToken) => {
       const res = await request(appHttpServer)
         .get(`/api/v1/client-results/live/by-location`)
         .query({
           electionId: activeElectionId,
           electionType: 'presidential',
-        }).auth(laPazToken, { type: 'bearer' })
+        }).auth(token, { type: 'bearer' })
 				.expect(200);
       
       expect(res.body).toHaveProperty('summary');
       expect(res.body.summary).toHaveProperty('validVotes', validVotes);
     }
 
-    const checkPartipation = async (activeDelegates: number, dnis: string[]) => {
+    const checkPartipation = async (activeDelegates: number, dnis: string[], token: string = laPazToken) => {
       const res = await request(appHttpServer)
         .get(`/api/v1/client-reports/delegate-activity`)
         .query({
           electionId: activeElectionId,
-        }).auth(laPazToken, { type: 'bearer' })
+        }).auth(token, { type: 'bearer' })
         .expect(200);
       
       expect(res.body).toHaveProperty('activeDelegates', activeDelegates);
@@ -228,6 +242,46 @@ describe('Delegates pariticipation end-to-end tests', () => {
       await attestRecord(ballotId, '10');
       await checkLiveResults(150);
       await checkPartipation(2, [delegates[0].dni, delegates[1].dni]);
+    });
+
+    it('P9: should return unauthorized on get particiation report without auth token', async () => {
+      await request(appHttpServer)
+        .get(`/api/v1/client-reports/delegate-activity`)
+        .query({
+          electionId: activeElectionId,
+        })
+        .expect(401);
+    });
+
+    it('P10: uploading on external table, should not count on participation', async () => {
+      // Use a different table by changing the mocked IPFS data, location from Cochabamba municipality
+      const otherLocationId = (await conn.collection('electoral_locations').findOne({ name: 'Colegio San Antonio De Pucara' }))!._id.toString();
+      const otherTable = await conn.collection<ElectoralTable>('electoral_tables').findOne({ electoralLocationId: new Types.ObjectId(otherLocationId) });
+      const otherTableCode = otherTable!.tableCode;
+      const otherTableNumber = otherTable!.tableNumber;
+
+      // Mock IPFS fetching
+      jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
+        getMockOpenSeaMetadata(otherTableCode, otherTableNumber, otherLocationId, cbbaParties.codes)
+      );
+
+      await uploadAttestation('recordA', delegates[0], 1, otherTableCode);
+      
+      // login as Cbba mayor
+      const mayorCbba = users.get('mayorCbba');
+      const cbbaToken = await login(appHttpServer, mayorCbba.email, 'secret123');
+
+      // Check live results in Cochabamba - should count
+      await checkLiveResults(150, cbbaToken);
+
+      // Should not count on La Paz or Cbba delegate participation
+      await checkPartipation(0, [], laPazToken);
+      await checkPartipation(0, [], cbbaToken);
+
+      // after: restore original mock
+      jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
+        getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties.codes)
+      );
     });
   });
 
@@ -273,6 +327,4 @@ describe('Delegates pariticipation end-to-end tests', () => {
         .expect(403);
     });
   });
-
-
 });

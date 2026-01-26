@@ -55,55 +55,62 @@ export class ClientResultsController {
     // req.user viene del JwtAuthGuard y contiene { sub: userId, dni, role, ... }
     const userId = req.user?.sub;
 
-    if (
-      q.department ||
-      q.municipality ||
-      q.province ||
-      q.electoralSeat ||
-      q.electoralLocation ||
-      q.tableCode
-    ) {
+    // Bloquear cambio de territorio principal (department siempre viene del contrato)
+    if (q.department) {
       throw new ForbiddenException(
-        'No puede especificar filtros geográficos. El territorio está determinado por su contrato.',
+        'No puede especificar department. El territorio está determinado por su contrato.',
       );
     }
+
+    // Permitir sub-filtros: municipality, province, electoralSeat, electoralLocation, tableCode
+    // El servicio validará que estén dentro del territorio del contrato
 
     return this.clientResultsService.getResultsRestrictedToMyContract(
       {
         electionType: q.electionType,
         electionId: q.electionId,
         mode: 'final',
+        // Pasar sub-filtros opcionales
+        province: q.province,
+        municipality: q.municipality,
+        electoralSeat: q.electoralSeat,
+        electoralLocation: q.electoralLocation,
+        tableCode: q.tableCode,
       },
       userId,
     );
   }
   @Get('live/by-location')
-@UseGuards(JwtAuthGuard, PreliminaryResultsGuard)  
-async getClientLiveResultsByLocation(
-  @Query() q: ElectionTypeFilterDto,
-  @Request() req: any,
-) {
-  const userId = req.user?.sub;
-
-  if (
-    q.department ||
-    q.municipality ||
-    q.province ||
-    q.electoralSeat ||
-    q.electoralLocation ||
-    q.tableCode
+  @UseGuards(JwtAuthGuard, PreliminaryResultsGuard)
+  async getClientLiveResultsByLocation(
+    @Query() q: ElectionTypeFilterDto,
+    @Request() req: any,
   ) {
-    throw new ForbiddenException(
-      'No puede especificar filtros geográficos. El territorio está determinado por su contrato.'
+    const userId = req.user?.sub;
+
+    // Bloquear cambio de territorio principal (department siempre viene del contrato)
+    if (q.department) {
+      throw new ForbiddenException(
+        'No puede especificar department. El territorio está determinado por su contrato.',
+      );
+    }
+
+    // Permitir sub-filtros: municipality, province, electoralSeat, electoralLocation, tableCode
+    // El servicio validará que estén dentro del territorio del contrato
+
+    return this.clientResultsService.getResultsRestrictedToMyContract(
+      {
+        electionType: q.electionType,
+        electionId: q.electionId,
+        mode: 'live',
+        // Pasar sub-filtros opcionales
+        province: q.province,
+        municipality: q.municipality,
+        electoralSeat: q.electoralSeat,
+        electoralLocation: q.electoralLocation,
+        tableCode: q.tableCode,
+      },
+      userId,
     );
   }
-
-  return this.clientResultsService.getResultsRestrictedToMyContract(
-    {
-      electionType: q.electionType,
-      electionId: q.electionId,
-      mode: 'live',  // ← LIVE
-    },
-    userId,
-  );
-}}
+}

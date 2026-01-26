@@ -9,7 +9,7 @@ const delegatesSeed = [
   { dni: '453763475', name: 'Delegate Seed Three', phone: '12345678', email: 'delegate.seed3@mail.com' }
 ];
 
-export async function seedDelegates(conn: Connection, contractId: Types.ObjectId) {
+export async function seedDelegates(conn: Connection, contractId: Types.ObjectId, adminId: Types.ObjectId) {
 	const contract = await conn.collection<Contract>('contracts').findOne({ _id: contractId });
 	if (!contract) {
 		throw new Error(`Contract with ID ${contractId} not found for seeding delegates.`);
@@ -35,9 +35,9 @@ export async function seedDelegates(conn: Connection, contractId: Types.ObjectId
 				{
 					contractId,
 					addedAt: new Date(),
-					clientId: users.insertedIds[index],
+					clientId: contract.clientId,
 					clientRole: contract.clientRole,
-					addedBy: users.insertedIds[index],
+					addedBy: adminId,
 				}
 			],
 		})),
