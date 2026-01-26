@@ -26,10 +26,14 @@ export class CreateBallotFromIpfsDto {
   @IsString()
   recordId: string;
 
-  @ApiProperty({ description: 'Filtrar por elección', required: false })
-  @IsOptional()
+  @ApiProperty({
+    description: 'ID de la elección (REQUERIDO para evitar conflictos entre elecciones)',
+    example: '674f8a2b3c4d5e6f7a8b9c0d',
+    required: true,
+  })
+  @IsNotEmpty({ message: 'electionId es requerido para identificar la elección' })
   @IsString()
-  electionId?: string;
+  electionId: string;
 
   @ApiProperty({
     description: 'ID de la mesa en IPFS',
