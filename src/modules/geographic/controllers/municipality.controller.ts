@@ -26,6 +26,8 @@ import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Types } from 'mongoose';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/municipalities')
@@ -47,6 +49,7 @@ export class MunicipalityController {
 
   @Get()
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Listar todos los municipios' })
   @ApiQuery({
     name: 'provinceId',
@@ -85,6 +88,7 @@ export class MunicipalityController {
 
   @Get('by-province/:provinceId')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener municipios por provincia' })
   @ApiResponse({ status: 200, description: 'Municipios encontrados' })
   @ApiResponse({ status: 404, description: 'Provincia no encontrada' })
@@ -94,6 +98,7 @@ export class MunicipalityController {
 
   @Get('by-department/:departmentId')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener municipios por departamento' })
   @ApiResponse({ status: 200, description: 'Municipios encontrados' })
   @ApiResponse({ status: 404, description: 'Departamento no encontrado' })
@@ -103,6 +108,7 @@ export class MunicipalityController {
 
   @Get(':id')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener un municipio por ID' })
   @ApiResponse({ status: 200, description: 'Municipio encontrado' })
   @ApiResponse({ status: 404, description: 'Municipio no encontrado' })
@@ -111,6 +117,7 @@ export class MunicipalityController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar un municipio' })
@@ -127,6 +134,7 @@ export class MunicipalityController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar un municipio' })
@@ -137,6 +145,7 @@ export class MunicipalityController {
   }
 
   @Patch(':id/activate')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar un municipio' })
@@ -145,6 +154,7 @@ export class MunicipalityController {
   }
 
   @Patch(':id/deactivate')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar un municipio' })

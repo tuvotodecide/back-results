@@ -61,3 +61,5 @@ global-bundle.pem
 #data files
 consolidadoRecintosElectorales.json
 missing_415_tables.json
+
+.claude/

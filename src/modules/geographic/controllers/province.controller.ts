@@ -24,6 +24,8 @@ import { CreateProvinceDto, UpdateProvinceDto } from '../dto/province.dto';
 import { GeographicQueryDto } from '../dto/query.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/provinces')
@@ -45,6 +47,7 @@ export class ProvinceController {
 
   @Get() //compare
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Listar todas las provincias' })
   @ApiQuery({
     name: 'departmentId',
@@ -62,6 +65,7 @@ export class ProvinceController {
   }
 
   @Get('by-department/:departmentId')
+  @UseGuards(TerritorialScopeGuard)
   @Public()
   @ApiOperation({ summary: 'Obtener provincias por departamento' })
   @ApiResponse({ status: 200, description: 'Provincias encontradas' })
@@ -74,6 +78,7 @@ export class ProvinceController {
   }
 
   @Get(':id')
+  @UseGuards(TerritorialScopeGuard)
   @Public()
   @ApiOperation({ summary: 'Obtener una provincia por ID' })
   @ApiResponse({ status: 200, description: 'Provincia encontrada' })
@@ -83,6 +88,7 @@ export class ProvinceController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar una provincia' })
@@ -99,6 +105,7 @@ export class ProvinceController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar una provincia' })

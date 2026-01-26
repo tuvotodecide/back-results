@@ -31,6 +31,7 @@ import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.guard';
 import { PreliminaryResultsGuard } from '@/modules/elections/guards/preliminary-results.guard';
 import { Public } from '@/core/decorators/public.decorator';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
 
 @ApiTags('Resultados')
 @Controller('api/v1/results')
@@ -62,7 +63,7 @@ export class ResultsController {
   @ApiQuery({ name: 'electionId', required: false })
   @Get('by-location')
   @Public()
-  @UseGuards(ResultsPeriodGuard)
+  @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resultados por ubicación',
@@ -97,6 +98,7 @@ export class ResultsController {
 
   @ApiQuery({ name: 'electionId', required: false })
   @Get('registration-progress')
+  @UseGuards(TerritorialScopeGuard) 
   @Public()
   @CacheTTL(30) // Cache por 30 segundos
   @ApiOperation({
@@ -120,7 +122,8 @@ export class ResultsController {
   @ApiQuery({ name: 'electionId', required: false })
   @Get('by-circunscripcion')
   @Public()
-  @UseGuards(ResultsPeriodGuard)
+  
+  @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
   @CacheTTL(60) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resultados por circunscripción',
@@ -160,7 +163,7 @@ export class ResultsController {
   @ApiQuery({ name: 'electionId', required: false })
   @Get('heat-map')
   @Public()
-  @UseGuards(ResultsPeriodGuard)
+  @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
   @CacheTTL(120) // Cache por 2 minutos
   @ApiOperation({
     summary: 'Obtener datos para mapa de calor',
@@ -373,7 +376,7 @@ export class ResultsController {
   }
 
   @Get('live/by-location')
-  @UseGuards(PreliminaryResultsGuard)
+  @UseGuards(PreliminaryResultsGuard, TerritorialScopeGuard)
   @CacheTTL(30)
   @ApiQuery({
     name: 'electionType',

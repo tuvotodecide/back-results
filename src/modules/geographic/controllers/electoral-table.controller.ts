@@ -26,6 +26,8 @@ import {
 } from '../dto/electoral-table.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
 
 @ApiTags('Geografía')
 @Controller('api/v1/geographic/electoral-tables')
@@ -50,6 +52,7 @@ export class ElectoralTableController {
 
   @Get()
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Listar todas las mesas electorales' })
   @ApiResponse({
     status: 200,
@@ -61,6 +64,7 @@ export class ElectoralTableController {
 
   @Get('attested-only')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Listar las mesas con actas' })
   @ApiQuery({ name: 'electionId', required: false })
   @ApiResponse({
@@ -84,6 +88,7 @@ export class ElectoralTableController {
 
   @Get('by-location/:electoralLocationId')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener mesas por recinto electoral' })
   @ApiParam({
     name: 'electoralLocationId',
@@ -108,6 +113,7 @@ export class ElectoralTableController {
 
   @Get('table-code/:tableCode')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener una mesa por código' })
   @ApiParam({
     name: 'tableCode',
@@ -122,6 +128,7 @@ export class ElectoralTableController {
 
   @Get(':id')
   @Public()
+  @UseGuards(TerritorialScopeGuard)
   @ApiOperation({ summary: 'Obtener una mesa electoral por ID' })
   @ApiResponse({ status: 200, description: 'Mesa encontrada' })
   @ApiResponse({ status: 404, description: 'Mesa no encontrada' })
@@ -130,6 +137,7 @@ export class ElectoralTableController {
   }
 
   @Patch(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Actualizar una mesa electoral' })
@@ -146,6 +154,7 @@ export class ElectoralTableController {
   }
 
   @Delete(':id')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Eliminar una mesa electoral' })
@@ -159,6 +168,7 @@ export class ElectoralTableController {
   }
 
   @Patch(':id/activate')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Activar una mesa electoral' })
@@ -169,6 +179,7 @@ export class ElectoralTableController {
   }
 
   @Patch(':id/deactivate')
+  @UseGuards(AdminOnlyGuard)
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
   @ApiOperation({ summary: 'Desactivar una mesa electoral' })

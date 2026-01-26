@@ -43,8 +43,16 @@ export class DepartmentService {
     }
   }
 
-  async findAll(query: GeographicQueryDto) {
-    const { page = 1, limit = 200, sort, order, search, active } = query;
+  async findAll(query: GeographicQueryDto & { departmentId?: string }) {
+    const {
+      page = 1,
+      limit = 200,
+      sort,
+      order,
+      search,
+      active,
+      departmentId,
+    } = query;
     const skip = (page - 1) * limit;
 
     // Construir filtros
@@ -54,6 +62,10 @@ export class DepartmentService {
     }
     if (active !== undefined) {
       filters.active = active === 'true';
+    }
+    if (departmentId) {
+      filters._id = new Types.ObjectId(departmentId);
+      this.logger.log(`Filtrando departments por ID: ${departmentId}`);
     }
 
     // Ejecutar consulta

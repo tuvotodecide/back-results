@@ -24,6 +24,7 @@ import {
 } from '../dto/election-config.dto';
 import { ParseObjectIdPipe } from '../../../common/pipes/parse-objectid.pipe';
 import { Public } from '@/core/decorators/public.decorator';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Configuración Electoral')
 @Controller('api/v1/elections/config')
@@ -33,6 +34,7 @@ export class ElectionConfigController {
   @Post()
   //   @UseGuards(JwtAuthGuard)
   //   @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Crear configuración electoral',
     description:
@@ -135,6 +137,7 @@ export class ElectionConfigController {
   @Patch(':id')
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Actualizar configuración electoral',
     description: 'Actualiza una configuración electoral existente.',
@@ -166,6 +169,7 @@ export class ElectionConfigController {
   @Delete(':id')
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
+  @UseGuards(AdminOnlyGuard)
   @ApiOperation({
     summary: 'Eliminar configuración electoral',
     description: 'Elimina una configuración electoral.',

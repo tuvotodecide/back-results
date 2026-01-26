@@ -11,6 +11,7 @@ import { RoledUserDocument } from '../schemas/roledUser.schema';
 import { Public } from '@/core/decorators/public.decorator';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
+import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 
 @ApiTags('Auth')
 @Controller('api/v1/auth')
@@ -75,6 +76,7 @@ export class AuthController {
   }
 
   @Get('profile')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Obtener el perfil del usuario autenticado' })
   @ApiResponse({ status: 200, type: ProfileResponseDto })
   getProfile(@Request() req) {

@@ -13,6 +13,8 @@ import {
 } from '../../auth/schemas/roledUser.schema';
 import { Department } from '../../geographic/schemas/department.schema';
 import { Municipality } from '../../geographic/schemas/municipality.schema';
+import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
+import { ElectoralLocationService } from '@/modules/geographic/services/electoral-location.service';
 
 @Injectable()
 export class ContractsService {
@@ -23,6 +25,8 @@ export class ContractsService {
     @InjectModel(Department.name) private departmentModel: Model<Department>,
     @InjectModel(Municipality.name)
     private municipalityModel: Model<Municipality>,
+    private electoralLocationService: ElectoralLocationService,
+    private electionConfigService: ElectionConfigService,
   ) {}
 
   /**
@@ -218,5 +222,334 @@ export class ContractsService {
     }
 
     return { hasContract: true, contract };
+  }
+  /**
+   * Obtener todas las elecciones donde el usuario tiene contratos (activos o inactivos)
+   */
+  async getMyElections(userId: string): Promise<
+    Array<{
+      electionId: string;
+      electionName: string;
+      electionType?: string;
+      round?: number;
+      isActive: boolean;
+      contracts: Array<{
+        contractId: string;
+        active: boolean;
+        clientRole: string;
+        territory: {
+          departmentId?: string;
+          departmentName?: string;
+          municipalityId?: string;
+          municipalityName?: string;
+        };
+        startDate: Date;
+        endDate?: Date;
+      }>;
+    }>
+  > {
+    // Buscar TODOS los contratos del usuario (activos e inactivos)
+    const contracts = await this.contractModel
+      .find({
+        clientId: new Types.ObjectId(userId),
+      })
+      .populate('electionId')
+      .populate('departmentId', 'name')
+      .populate('municipalityId', 'name')
+      .sort({ createdAt: -1 })
+      .exec();
+
+    if (!contracts || contracts.length === 0) {
+      return [];
+    }
+
+    // Agrupar contratos por elección
+    const electionMap = new Map<
+      string,
+      {
+        electionId: string;
+        electionName: string;
+        electionType?: string;
+        round?: number;
+        isActive: boolean;
+        contracts: Array<any>;
+      }
+    >();
+
+    for (const contract of contracts) {
+      const election = contract.electionId as any;
+      const electionId = election._id.toString();
+
+      if (!electionMap.has(electionId)) {
+        electionMap.set(electionId, {
+          electionId,
+          electionName: election.name,
+          electionType: election.type,
+          round: election.round,
+          isActive: election.isActive,
+          contracts: [],
+        });
+      }
+
+      electionMap.get(electionId)!.contracts.push({
+        contractId: contract._id.toString(),
+        active: contract.active,
+        clientRole: contract.clientRole,
+        territory: {
+          departmentId: contract.departmentId?.toString(),
+          departmentName:
+            (contract.departmentId as any)?.name || contract.departmentName,
+          municipalityId: contract.municipalityId?.toString(),
+          municipalityName:
+            (contract.municipalityId as any)?.name || contract.municipalityName,
+        },
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+      });
+    }
+
+    return Array.from(electionMap.values());
+  }
+
+  /**
+   * Obtener el historial completo de contratos de un usuario
+   */
+  async getContractHistory(
+    userId: string,
+    filters?: {
+      active?: boolean;
+      electionId?: string;
+    },
+  ): Promise<
+    Array<{
+      contractId: string;
+      active: boolean;
+      clientRole: string;
+      territory: {
+        departmentId?: string;
+        departmentName?: string;
+        municipalityId?: string;
+        municipalityName?: string;
+      };
+      election: {
+        electionId: string;
+        electionName: string;
+        electionType?: string;
+        round?: number;
+        isActive: boolean;
+      };
+      startDate: Date;
+      endDate?: Date;
+      createdAt: Date;
+    }>
+  > {
+    const query: any = {
+      clientId: new Types.ObjectId(userId),
+    };
+
+    if (filters?.active !== undefined) {
+      query.active = filters.active;
+    }
+
+    if (filters?.electionId) {
+      query.electionId = new Types.ObjectId(filters.electionId);
+    }
+
+    const contracts = await this.contractModel
+      .find(query)
+      .populate('electionId')
+      .populate('departmentId', 'name')
+      .populate('municipalityId', 'name')
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return contracts.map((contract) => {
+      const election = contract.electionId as any;
+      return {
+        contractId: contract._id.toString(),
+        active: contract.active,
+        clientRole: contract.clientRole,
+        territory: {
+          departmentId: contract.departmentId?.toString(),
+          departmentName:
+            (contract.departmentId as any)?.name || contract.departmentName,
+          municipalityId: contract.municipalityId?.toString(),
+          municipalityName:
+            (contract.municipalityId as any)?.name || contract.municipalityName,
+        },
+        election: {
+          electionId: election._id.toString(),
+          electionName: election.name,
+          electionType: election.type,
+          round: election.round,
+          isActive: election.isActive,
+        },
+        startDate: contract.startDate,
+        endDate: contract.endDate,
+        createdAt: contract.createdAt,
+      };
+    });
+  }
+
+  async checkAttestationAvailability(
+    latitude: number,
+    longitude: number,
+    maxDistance: number = 10000,
+  ): Promise<{
+    nearestLocation: any;
+    availableElections: Array<{
+      electionId: string;
+      electionName: string;
+      electionType: string;
+      round?: number;
+      canAttest: boolean;
+      reason: string;
+      contract?: {
+        id: string;
+        clientRole: string;
+        territory: string;
+      };
+    }>;
+  }> {
+    const nearestLocation =
+      await this.electoralLocationService.findNearestLocation(
+        latitude,
+        longitude,
+        maxDistance,
+      );
+
+    if (!nearestLocation) {
+      throw new NotFoundException(
+        `No se encontró ningún recinto electoral en un radio de ${maxDistance} metros`,
+      );
+    }
+
+    const locationWithHierarchy =
+      await this.electoralLocationService.findOneWithHierarchy(
+        nearestLocation._id.toString(),
+      );
+
+    const norm = (s: any) =>
+      String(s ?? '')
+        .trim()
+        .replace(/\s+/g, ' ');
+
+    const departmentName = norm(locationWithHierarchy.department?.name);
+    const municipalityName = norm(locationWithHierarchy.municipality?.name);
+
+    const activeElections = await this.electionConfigService.getActiveConfigs();
+
+    if (!activeElections || activeElections.length === 0) {
+      return {
+        nearestLocation: {
+          _id: nearestLocation._id.toString(),
+          name: nearestLocation.name,
+          address: nearestLocation.address,
+          distance: nearestLocation.distance,
+          department: departmentName,
+          municipality: municipalityName,
+        },
+        availableElections: [],
+      };
+    }
+
+    const availableElections = await Promise.all(
+      activeElections.map(async (election) => {
+        const or: any[] = [];
+        if (departmentName) or.push({ departmentName });
+        if (municipalityName) or.push({ municipalityName });
+
+        const contracts = await this.contractModel
+          .find({
+            electionId: new Types.ObjectId(election.id),
+            active: true,
+            ...(or.length ? { $or: or } : {}),
+          })
+          .select('_id clientRole departmentName municipalityName')
+          .lean()
+          .exec();
+
+        let canAttest = false;
+        let reason = '';
+        let contractInfo:
+          | {
+              id: string;
+              clientRole: string;
+              territory: string;
+            }
+          | undefined = undefined;
+
+        if (contracts.length === 0) {
+          reason = `No hay contratos activos para ${election.type} en ${municipalityName}, ${departmentName}`;
+        } else {
+          // Priorizar contrato más específico (municipio sobre departamento)
+          const municipalContract = contracts.find(
+            (c: any) => norm(c.municipalityName) === municipalityName,
+          );
+          const departmentContract = contracts.find(
+            (c: any) => norm(c.departmentName) === departmentName,
+          );
+
+          const activeContract = municipalContract || departmentContract;
+
+          if (activeContract) {
+            canAttest = true;
+            reason = `Contrato activo de ${activeContract.clientRole === 'MAYOR' ? 'Alcalde' : 'Gobernador'}`;
+            contractInfo = {
+              id: activeContract._id.toString(),
+              clientRole: activeContract.clientRole,
+              territory:
+                activeContract.municipalityName ||
+                activeContract.departmentName ||
+                '',
+            };
+          }
+        }
+
+        const result: {
+          electionId: string;
+          electionName: string;
+          electionType: string;
+          round?: number;
+          canAttest: boolean;
+          reason: string;
+          contract?: {
+            id: string;
+            clientRole: string;
+            territory: string;
+          };
+        } = {
+          electionId: election.id,
+          electionName: election.name,
+          electionType: election.type || 'general',
+          round: election.round,
+          canAttest,
+          reason,
+        };
+
+
+        if (contractInfo) {
+          result.contract = contractInfo;
+        }
+
+        return result;
+      }),
+    );
+
+    return {
+      nearestLocation: {
+        _id: nearestLocation._id.toString(),
+        name: nearestLocation.name,
+        address: nearestLocation.address,
+        distance: nearestLocation.distance,
+        department: departmentName,
+        municipality: municipalityName,
+        coordinates: {
+          latitude: nearestLocation.coordinates.latitude,
+          longitude: nearestLocation.coordinates.longitude,
+        },
+      },
+      availableElections,
+    };
   }
 }

@@ -97,6 +97,30 @@ export class LocationFilterDto {
   @IsOptional()
   @IsString()
   electionId?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'ID del departamento ',
+  })
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'ID de la provincia ',
+  })
+  @IsOptional()
+  @IsString()
+  provinceId?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'ID del municipio ',
+  })
+  @IsOptional()
+  @IsString()
+  municipalityId?: string;
 }
 
 export class ElectionTypeFilterDto extends LocationFilterDto {
