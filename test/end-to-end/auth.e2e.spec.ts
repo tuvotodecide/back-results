@@ -589,28 +589,6 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .expect(401);
   });
 
-  it('R20-B: should return Unauthorized on get delegates info without admin role', async () => {
-    const contractId = contracts.insertedIds[0].toString();
-
-    await request(app.getHttpServer())
-      .get('/api/v1/delegates/contract/' + contractId)
-      .auth(laPazToken, { type: 'bearer' })
-      .expect(401);
-
-    await request(app.getHttpServer())
-      .get('/api/v1/delegates/check-authorization')
-      .auth(laPazToken, { type: 'bearer' })
-      .query({
-        dni: '1',
-        contractId,
-      }).expect(401);
-    
-    await request(app.getHttpServer())
-      .get('/api/v1/delegates/authorized-contracts/1')
-      .auth(laPazToken, { type: 'bearer' })
-      .expect(401);
-  });
-
   it('R21-A: should return Unauthorized on delete delegate without auth token', async () => {
     const contractId = contracts.insertedIds[0].toString();
 

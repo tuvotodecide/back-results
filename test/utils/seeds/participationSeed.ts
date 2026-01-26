@@ -65,10 +65,9 @@ export async function seedRandomDelegates(
     const res = await request(httpServer)
       .post('/api/v1/delegates/upload-csv')
       .auth(adminToken, { type: 'bearer' })
-      .send({
-        csvContent: csvContent,
-        contractId: contractId,
-      }).expect(201);
+      .attach('file', Buffer.from(csvContent), 'delegates.csv')
+      .field('contractId', contractId)
+      .expect(201);
   }
 
   return await conn.collection<Delegate>('delegates').find({ dni: { $in: delegateDnis } }).toArray();

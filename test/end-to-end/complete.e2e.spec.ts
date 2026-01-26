@@ -15,7 +15,7 @@ import { TestLoggerModule } from "../utils/module-helpers";
 import { seedElectionConfigWith } from "../utils/seeds/electionsSeed";
 import { seedLocations } from "../utils/seeds/locationsSeed";
 import { ContractWithId, DelegateWithId, RoledUserWithId, seedGovernors, seedMayors, seedRandomDelegates } from "../utils/seeds/participationSeed";
-import { seedParties } from "../utils/seeds/partiesSeed";
+import { PartiesSeedInput, seedParties } from "../utils/seeds/partiesSeed";
 import { seedAdmin } from "../utils/seeds/usersSeed";
 import { getTablesForDepartment, getTablesForMunicipality, login, TableInfo } from "../utils/location-helpers";
 import { JwtModule } from "@nestjs/jwt";
@@ -56,7 +56,35 @@ describe('High scale participation tests', () => {
   let mayorContracts: ContractWithId[];
   let governorContracts: ContractWithId[];
 
-  const parties = ['party1', 'party2', 'party3'];
+  const laPazParties: PartiesSeedInput = {
+    codes: ['lpz1', 'lpz2', 'lpz3'],
+    assignedLoc: 'La Paz',
+    locType: 'department',
+  };
+
+  const staCrzParties: PartiesSeedInput = {
+    codes: ['sc1', 'sc2', 'sc3'],
+    assignedLoc: 'Santa Cruz',
+    locType: 'department',
+  };
+
+  const cbbaParties: PartiesSeedInput = {
+    codes: ['cbba1', 'cbba2', 'cbba3'],
+    assignedLoc: 'Cochabamba',
+    locType: 'municipality',
+  };
+
+  const caracolloParties: PartiesSeedInput = {
+    codes: ['car1', 'car2', 'car3'],
+    assignedLoc: 'Caracollo',
+    locType: 'municipality',
+  };
+
+  const aiquileParties: PartiesSeedInput = {
+    codes: ['aiq1', 'aiq2', 'aiq3'],
+    assignedLoc: 'Aiquile',
+    locType: 'municipality',
+  };
 
   beforeAll(async () => {
     mongod = await MongoMemoryServer.create();
@@ -117,7 +145,11 @@ describe('High scale participation tests', () => {
       governorTokens.set(name, await login(appHttpServer, governor.email, 'secret123'));
     }
 
-    await seedParties(conn, parties, activeElection.insertedId);
+    await seedParties(conn, laPazParties, activeElection.insertedId);
+    await seedParties(conn, staCrzParties, activeElection.insertedId);
+    await seedParties(conn, cbbaParties, activeElection.insertedId);
+    await seedParties(conn, caracolloParties, activeElection.insertedId);
+    await seedParties(conn, aiquileParties, activeElection.insertedId);
 
     adminToken = await login(appHttpServer, adminUser.email, 'secret123');
   });
@@ -135,7 +167,7 @@ describe('High scale participation tests', () => {
     await app.close();
   });
 
-  const uploadAttestation = async (recordId: string, delegate: DelegateWithId, version: number, table: TableInfo) => {
+  const uploadAttestation = async (recordId: string, delegate: DelegateWithId, version: number, table: TableInfo, parties: string[]) => {
     // Mock IPFS fetching
     jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
       getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, parties)
@@ -231,14 +263,13 @@ describe('High scale participation tests', () => {
     const aiquileTables = await getTablesForMunicipality(conn, 'Aiquile', 20);
 
     for (let i = 0; i < 20; i+=2) {
-      await uploadAttestation(`cbba-record-${i}`, cbbaDelegates[i/2], 1, cbbaTables[i]);
-      await uploadAttestation(`cbba-record-${i+1}`, cbbaDelegates[i/2], 1, cbbaTables[i+1]);
+      await uploadAttestation(`cbba-record-${i}`, cbbaDelegates[i/2], 1, cbbaTables[i], cbbaParties.codes);
+      await uploadAttestation(`cbba-record-${i+1}`, cbbaDelegates[i/2], 1, cbbaTables[i+1], cbbaParties.codes);
 
-      await uploadAttestation(`caracollo-record-${i}`, caracolloDelegates[i/2], 1, caracolloTables[i]);
-      await uploadAttestation(`caracollo-record-${i+1}`, caracolloDelegates[i/2], 1, caracolloTables[i+1]);
-
-      await uploadAttestation(`aiquile-record-${i}`, aiquileDelegates[i/2], 1, aiquileTables[i]);
-      await uploadAttestation(`aiquile-record-${i+1}`, aiquileDelegates[i/2], 1, aiquileTables[i+1]);
+      await uploadAttestation(`caracollo-record-${i}`, caracolloDelegates[i/2], 1, caracolloTables[i], caracolloParties.codes);
+      await uploadAttestation(`caracollo-record-${i+1}`, caracolloDelegates[i/2], 1, caracolloTables[i+1], caracolloParties.codes);
+      await uploadAttestation(`aiquile-record-${i}`, aiquileDelegates[i/2], 1, aiquileTables[i], aiquileParties.codes);
+      await uploadAttestation(`aiquile-record-${i+1}`, aiquileDelegates[i/2], 1, aiquileTables[i+1], aiquileParties.codes);
     }
 
     await checkPartipation(10, cbbaDelegates.map(d => d.dni), mayorTokens.get('Cochabamba')!);
@@ -280,16 +311,16 @@ describe('High scale participation tests', () => {
     const santaCruzTables = await getTablesForDepartment(conn, 'Santa Cruz', 30);
 
     for (let i = 0; i < 20; i+=2) {
-      await uploadAttestation(`lapaz-record-${i}`, laPazDelegates[i/2], 1, laPazTables[i]);
-      await uploadAttestation(`lapaz-record-${i+1}`, laPazDelegates[i/2], 1, laPazTables[i+1]);
+      await uploadAttestation(`lapaz-record-${i}`, laPazDelegates[i/2], 1, laPazTables[i], laPazParties.codes);
+      await uploadAttestation(`lapaz-record-${i+1}`, laPazDelegates[i/2], 1, laPazTables[i+1], laPazParties.codes);
 
-      await uploadAttestation(`santacruz-record-${i}`, santaCruzDelegates[i/2], 1, santaCruzTables[i]);
-      await uploadAttestation(`santacruz-record-${i+1}`, santaCruzDelegates[i/2], 1, santaCruzTables[i+1]);
+      await uploadAttestation(`santacruz-record-${i}`, santaCruzDelegates[i/2], 1, santaCruzTables[i], staCrzParties.codes);
+      await uploadAttestation(`santacruz-record-${i+1}`, santaCruzDelegates[i/2], 1, santaCruzTables[i+1], staCrzParties.codes);
     }
 
     for (let i = 0; i < 10; i++) {
-      await uploadAttestation(`lapaz-record-g${i}`, generalDelegates[i], 1, laPazTables[i + 20]);
-      await uploadAttestation(`santacruz-record-g${i}`, generalDelegates[i], 1, santaCruzTables[i + 20]);
+      await uploadAttestation(`lapaz-record-g${i}`, generalDelegates[i], 1, laPazTables[i + 20], laPazParties.codes);
+      await uploadAttestation(`santacruz-record-g${i}`, generalDelegates[i], 1, santaCruzTables[i + 20], staCrzParties.codes);
     }
 
     // Check La Paz participation count La Paz delegates + general delegates

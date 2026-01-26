@@ -129,7 +129,6 @@ describe('Delegates pariticipation end-to-end tests', () => {
       tableNumber = table!.tableNumber;
 
       const mockIpfs = getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties.codes);
-      console.dir(mockIpfs, {depth: null, color: true});
 
       // Mock IPFS fetching
       jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
@@ -151,9 +150,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
           electionId: activeElectionId,
           tableIdIpfs: tableCod,
           version,
-        });
-
-      console.log(ballot.body);
+        }).expect(201);
 
       expect(ballot.body).toHaveProperty('_id');
       
