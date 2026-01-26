@@ -289,10 +289,20 @@ export class PoliticalPartyService {
         typeof municipalityId === 'string'
           ? new Types.ObjectId(municipalityId)
           : municipalityId;
-      filter.$or = [
+
+      const conditions: any[] = [
         { municipalityId: munOid },
         { departmentId: null, municipalityId: null }, // Partidos nacionales
       ];
+      if (departmentId) {
+        const deptOid =
+          typeof departmentId === 'string'
+            ? new Types.ObjectId(departmentId)
+            : departmentId;
+        conditions.push({ departmentId: deptOid, municipalityId: null });
+      }
+
+      filter.$or = conditions;
     } else if (departmentId) {
       const deptOid =
         typeof departmentId === 'string'

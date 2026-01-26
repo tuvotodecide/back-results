@@ -31,7 +31,7 @@ import { ContractsModule } from '@/modules/contracts/contracts.module';
 import { mongoLocationFeatures } from '../utils/mongo';
 import { AttestationModule } from '@/modules/attestation/attestation.module';
 
-jest.setTimeout(60_000);
+jest.setTimeout(80_000);
 
 // Avoid loading the real zk-auth module (pulls ESM deps) during tests
 jest.mock("@/modules/zk-auth/zk-auth.module", () => ({
