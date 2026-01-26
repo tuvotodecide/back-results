@@ -621,7 +621,7 @@ export class BallotService {
     userMunicipalityId?: string,
     userRole?: string,
   ): Promise<Ballot> {
-    const filter: any = { _id: id };
+    const filter: any = { _id: new Types.ObjectId(id) };
 
     if (userDepartmentId && userRole === 'GOVERNOR') {
       const deptName = await this.getDepartmentNameById(userDepartmentId);
@@ -632,7 +632,8 @@ export class BallotService {
       const munName = await this.getMunicipalityNameById(userMunicipalityId);
       filter['location.municipality'] = munName;
     }
-    const ballot = await this.ballotModel.findById(id).exec();
+
+    const ballot = await this.ballotModel.findOne(filter).exec();
     if (!ballot) {
       throw new NotFoundException('Acta no encontrada');
     }

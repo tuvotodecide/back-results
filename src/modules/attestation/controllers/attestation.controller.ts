@@ -21,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { AttestationService } from '../services/attestation.service';
 import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
+import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { Public } from '@/core/decorators/public.decorator';
 import {
   CreateAttestationBulkDto,
@@ -255,7 +256,7 @@ export class AttestationController {
 
   @Get('cases/:tableCode')
   @Public()
-  @UseGuards(TerritorialScopeGuard)
+  @UseGuards(JwtAuthGuard, TerritorialScopeGuard)
   @ApiOperation({ summary: 'Detalle de un caso por mesa' })
   @ApiParam({ name: 'tableCode' })
   @ApiQuery({ name: 'electionId', required: false })
