@@ -21,7 +21,7 @@ export default registerAs('app', () => ({
   },
 
   cors: {
-    origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
+    origins: 'http://localhost:5173'
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
@@ -35,9 +35,15 @@ export default registerAs('app', () => ({
   mail: {
     logoUrl: process.env.EMAIL_LOGO_URL || '',
     verificationBaseUrl: process.env.EMAIL_VERIFICATION_BASE_URL || '',
-    verificationTokenTTLHours: parseInt(process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS || '24', 10),
+    verificationTokenTTLHours: parseInt(
+      process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS || '24',
+      10,
+    ),
     passwordResetBaseUrl: process.env.PASSWORD_RESET_BASE_URL || '',
-    passwordResetTokenTTLHours: parseInt(process.env.PASSWORD_RESET_TOKEN_TTL_HOURS || '2', 10),
+    passwordResetTokenTTLHours: parseInt(
+      process.env.PASSWORD_RESET_TOKEN_TTL_HOURS || '2',
+      10,
+    ),
     smtp: {
       region: process.env.SES_REGION || 'us-east-1',
       accessKeyId: process.env.SES_ACCESS_KEY_ID || '',
@@ -54,5 +60,5 @@ export default registerAs('app', () => ({
     network: process.env.ZK_AUTH_NETWORK,
     stateContract: process.env.ZK_AUTH_STATE_CONTRACT,
     ipfsGatewayUrl: process.env.IPFS_GATEWAY_URL || 'https://ipfs.io',
-  }
+  },
 }));
