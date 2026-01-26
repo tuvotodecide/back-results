@@ -19,7 +19,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { Delegate } from "@/modules/contracts/schemas/delegate.schema";
 import { INestApplication } from "@nestjs/common";
 import { getMockOpenSeaMetadata } from "../utils/testing-data";
-import { seedParties } from "../utils/seeds/partiesSeed";
+import { PartiesSeedInput, seedParties } from "../utils/seeds/partiesSeed";
 import { ElectoralTable } from "@/modules/geographic/schemas/electoral-table.schema";
 import { Department } from "@/modules/geographic/schemas/department.schema";
 import { Province } from "@/modules/geographic/schemas/province.schema";
@@ -54,7 +54,17 @@ describe('Delegates pariticipation end-to-end tests', () => {
   let activeElectionId: string;
 
   let delegates: DelegateWithId[];
-  const parties = ['party1', 'party2', 'party3'];
+  const parties: PartiesSeedInput = {
+    codes: ['party1', 'party2', 'party3'],
+    assignedLoc: 'La Paz',
+    locType: 'department',
+  };
+
+  const cbbaParties: PartiesSeedInput = {
+    codes: ['cbba1', 'cbba2', 'cbba3'],
+    assignedLoc: 'Cochabamba',
+    locType: 'municipality',
+  };
 
   beforeAll(async () => {
     mongod = await MongoMemoryServer.create();
@@ -93,6 +103,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
     activeElectionId = activeElection.insertedId.toString();
 
     await seedParties(conn, parties, activeElection.insertedId);
+    await seedParties(conn, cbbaParties, activeElection.insertedId);
 
     const contracts = await seedContracts(conn, users, 'activeElection');
     delegates = await seedDelegates(conn, contracts.insertedIds[0], adminUser._id);
@@ -117,9 +128,12 @@ describe('Delegates pariticipation end-to-end tests', () => {
       tableCode = table!.tableCode;
       tableNumber = table!.tableNumber;
 
+      const mockIpfs = getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties.codes);
+      console.dir(mockIpfs, {depth: null, color: true});
+
       // Mock IPFS fetching
       jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
-        getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties)
+        mockIpfs
       );
     });
 
@@ -137,7 +151,9 @@ describe('Delegates pariticipation end-to-end tests', () => {
           electionId: activeElectionId,
           tableIdIpfs: tableCod,
           version,
-        }).expect(201);
+        });
+
+      console.log(ballot.body);
 
       expect(ballot.body).toHaveProperty('_id');
       
@@ -200,7 +216,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
       }
     };
 
-    it('P1: 1 record, 1 delegate, should create participation successfully', async () => {
+    it.only('P1: 1 record, 1 delegate, should create participation successfully', async () => {
       await uploadAttestation('recordA', delegates[0], 1);
       await checkLiveResults(150);
       await checkPartipation(1, [delegates[0].dni]);
@@ -249,7 +265,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
 
       // Mock IPFS fetching
       jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
-        getMockOpenSeaMetadata(otherTableCode, otherTableNumber, otherLocationId, parties)
+        getMockOpenSeaMetadata(otherTableCode, otherTableNumber, otherLocationId, cbbaParties.codes)
       );
 
       await uploadAttestation('recordA', delegates[0], 1, otherTableCode);
@@ -267,7 +283,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
 
       // after: restore original mock
       jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
-        getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties)
+        getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties.codes)
       );
     });
   });
