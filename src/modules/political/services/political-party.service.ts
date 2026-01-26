@@ -283,8 +283,6 @@ export class PoliticalPartyService {
     // 1. Si el ballot tiene municipalityId, buscar partidos con ese municipalityId O sin territorio (nacionales)
     // 2. Si el ballot tiene departmentId (sin municipalityId), buscar partidos con ese departmentId O sin territorio
     // 3. Si no tiene territorio, solo buscar partidos nacionales (sin territorio)
-    console.log('departmenId', departmentId);
-    console.log('municipalityId', municipalityId);
 
     if (municipalityId) {
       const munOid =

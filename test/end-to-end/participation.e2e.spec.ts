@@ -216,7 +216,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
       }
     };
 
-    it.only('P1: 1 record, 1 delegate, should create participation successfully', async () => {
+    it('P1: 1 record, 1 delegate, should create participation successfully', async () => {
       await uploadAttestation('recordA', delegates[0], 1);
       await checkLiveResults(150);
       await checkPartipation(1, [delegates[0].dni]);

@@ -37,17 +37,15 @@ export async function seedParties(conn: Connection, parties: PartiesSeedInput, e
     }))
   );
 
-  console.log('Inserted Political Parties:', partyIds.insertedIds);
-  const assignedPartyIds = parties.codes.map((_, index) => ({
+  const assignedPartyIds = parties.codes.map((code) => ({
     electionId,
-    partyId: partyIds.insertedIds[index]._id.toString(),
+    partyId: code,
     active: true,
     departmentId,
     municipalityId,
     createdAt: new Date(),
     updatedAt: new Date(),
   }));
-  console.log('Assigned Election Parties:', assignedPartyIds);
 
   await conn.collection<ElectionParty>('election_parties').insertMany(
     assignedPartyIds
