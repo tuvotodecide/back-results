@@ -29,6 +29,7 @@ import { BallotModule } from '@/modules/ballot/ballot.module';
 import { LoggerService } from '@/core/services/logger.service';
 import { ContractsModule } from '@/modules/contracts/contracts.module';
 import { mongoLocationFeatures } from '../utils/mongo';
+import { AttestationModule } from '@/modules/attestation/attestation.module';
 
 jest.setTimeout(60_000);
 
@@ -92,6 +93,7 @@ describe('Results E2E (role filtering)', () => {
 				},
 				BallotModule,
 				ContractsModule,
+				AttestationModule,
 			],
 			controllers: [
 				ResultsController,
