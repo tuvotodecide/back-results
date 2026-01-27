@@ -72,8 +72,9 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
+    description: 'Tipo de elección: presidential, deputies, departamental (gobernadores), municipal (alcaldes)',
   })
   @ApiQuery({ name: 'department', required: false, example: 'La Paz' })
   @ApiQuery({ name: 'province', required: false, example: 'Murillo' })
@@ -132,7 +133,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
   })
   @ApiQuery({
@@ -172,7 +173,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
     description: 'Tipo de elección',
   })
@@ -193,7 +194,7 @@ export class ResultsController {
     type: HeatMapResponseDto,
   })
   async getHeatMapData(
-    @Query('electionType') electionType: 'presidential' | 'deputies',
+    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
     @Query('locationType')
     locationType: 'department' | 'municipality' | 'province',
     @Query('department') department?: string,
@@ -240,7 +241,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
   })
   @ApiResponse({
@@ -249,7 +250,7 @@ export class ResultsController {
   })
   getPartySummary(
     @Param('partyId') partyId: string,
-    @Query('electionType') electionType: 'presidential' | 'deputies',
+    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
   ) {
     // Este método podría agregarse al servicio para obtener detalles específicos de un partido
     return {
@@ -278,7 +279,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
   })
   @ApiQuery({ name: 'department', required: false })
@@ -301,7 +302,7 @@ export class ResultsController {
     },
   })
   exportResultsCSV(
-    @Query('electionType') electionType: 'presidential' | 'deputies',
+    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
     @Query('department') department?: string,
     @Query('format') format: 'summary' | 'detailed' = 'summary',
   ) {
@@ -380,7 +381,7 @@ export class ResultsController {
   @CacheTTL(30)
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
   })
   async getLiveByLocation(@Query() filters: ElectionTypeFilterDto) {
@@ -396,7 +397,7 @@ export class ResultsController {
   @CacheTTL(60)
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
   })
   @ApiQuery({
@@ -407,7 +408,7 @@ export class ResultsController {
   @ApiQuery({ name: 'department', required: false })
   @ApiQuery({ name: 'electionId', required: false })
   async getLiveHeatMap(
-    @Query('electionType') electionType: 'presidential' | 'deputies',
+    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
     @Query('locationType')
     locationType: 'department' | 'municipality' | 'province',
     @Query('department') department?: string,
@@ -428,7 +429,7 @@ export class ResultsController {
   @CacheTTL(60)
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
     required: true,
   })
   @ApiQuery({
