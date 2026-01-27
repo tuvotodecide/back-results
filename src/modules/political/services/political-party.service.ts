@@ -163,18 +163,20 @@ export class PoliticalPartyService {
 
     if (departmentId) {
       const dept = await this.departmentModel.findById(departmentId).exec();
-      if (dept) {
-        departmentOid = new Types.ObjectId(departmentId);
-        departmentName = dept.name;
+      if (!dept) {
+        throw new NotFoundException(`Departamento no encontrado: ${departmentId}`);
       }
+      departmentOid = new Types.ObjectId(departmentId);
+      departmentName = dept.name;
     }
 
     if (municipalityId) {
       const muni = await this.municipalityModel.findById(municipalityId).exec();
-      if (muni) {
-        municipalityOid = new Types.ObjectId(municipalityId);
-        municipalityName = muni.name;
+      if (!muni) {
+        throw new NotFoundException(`Municipio no encontrado: ${municipalityId}`);
       }
+      municipalityOid = new Types.ObjectId(municipalityId);
+      municipalityName = muni.name;
     }
 
     const ops = (partyIds ?? []).filter(Boolean).map((pid) => ({
@@ -203,10 +205,20 @@ export class PoliticalPartyService {
     }));
 
     if (!ops.length) return { assigned: 0 };
-    const res = await this.electionPartyModel.bulkWrite(ops);
-    const modified = res.modifiedCount ?? 0;
-    const upserted = res.upsertedCount ?? 0;
-    return { assigned: modified + upserted };
+
+    try {
+      const res = await this.electionPartyModel.bulkWrite(ops);
+      const modified = res.modifiedCount ?? 0;
+      const upserted = res.upsertedCount ?? 0;
+      return { assigned: modified + upserted };
+    } catch (error: any) {
+      if (error.code === 11000) {
+        throw new ConflictException(
+          'Conflicto: uno o más partidos ya están asignados a este territorio',
+        );
+      }
+      throw error;
+    }
   }
 
   // Deshabilitar varios partidos para una elección

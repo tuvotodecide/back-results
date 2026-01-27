@@ -377,6 +377,7 @@ export class ResultsController {
   }
 
   @Get('live/by-location')
+  @Public()
   @UseGuards(PreliminaryResultsGuard, TerritorialScopeGuard)
   @CacheTTL(30)
   @ApiQuery({
