@@ -13,6 +13,10 @@ import {
   AttestationCaseDocument,
 } from '../../attestation/schemas/attestation-case.schema';
 import {
+  Attestation,
+  AttestationDocument,
+} from '../../attestation/schemas/attestation.schema';
+import {
   PoliticalParty,
   PoliticalPartyDocument,
 } from '../../political/schemas/political-party.schema';
@@ -40,6 +44,11 @@ import {
   Contract,
   ContractDocument,
 } from '../../contracts/schemas/contract.schema';
+import { User, UserDocument } from '../../users/schemas/user.schema';
+import {
+  Delegate,
+  DelegateDocument,
+} from '../../contracts/schemas/delegate.schema';
 
 // Prefijo para identificar datos de prueba
 const TEST_PREFIX = 'TEST_E2E_';
@@ -85,6 +94,99 @@ const MOCK_PARTIES = [
   { partyId: 'partido_rojo', fullName: 'Partido Rojo', shortName: 'PR', color: '#F44336' },
   { partyId: 'partido_verde', fullName: 'Partido Verde', shortName: 'PV', color: '#4CAF50' },
   { partyId: 'partido_amarillo', fullName: 'Partido Amarillo', shortName: 'PAM', color: '#FFEB3B' },
+];
+
+// Delegados de prueba (usuarios normales que atestiguan)
+const MOCK_DELEGATES = [
+  // Delegados para Gobernador La Paz
+  {
+    dni: 'TEST_DEL_GOB_LP_1',
+    name: 'Delegado 1 Gobernador La Paz',
+    email: 'delegado1.gob.lapaz@test.local',
+    phone: '+591 70000001',
+    forClient: 'TEST_GOB_LP',
+  },
+  {
+    dni: 'TEST_DEL_GOB_LP_2',
+    name: 'Delegado 2 Gobernador La Paz',
+    email: 'delegado2.gob.lapaz@test.local',
+    phone: '+591 70000002',
+    forClient: 'TEST_GOB_LP',
+  },
+  {
+    dni: 'TEST_DEL_GOB_LP_3',
+    name: 'Delegado 3 Gobernador La Paz',
+    email: 'delegado3.gob.lapaz@test.local',
+    phone: '+591 70000003',
+    forClient: 'TEST_GOB_LP',
+  },
+  // Delegados para Gobernador Cochabamba
+  {
+    dni: 'TEST_DEL_GOB_CBB_1',
+    name: 'Delegado 1 Gobernador Cochabamba',
+    email: 'delegado1.gob.cochabamba@test.local',
+    phone: '+591 70000004',
+    forClient: 'TEST_GOB_CBB',
+  },
+  {
+    dni: 'TEST_DEL_GOB_CBB_2',
+    name: 'Delegado 2 Gobernador Cochabamba',
+    email: 'delegado2.gob.cochabamba@test.local',
+    phone: '+591 70000005',
+    forClient: 'TEST_GOB_CBB',
+  },
+  // Delegados para Alcalde La Paz
+  {
+    dni: 'TEST_DEL_ALC_LP_1',
+    name: 'Delegado 1 Alcalde La Paz',
+    email: 'delegado1.alc.lapaz@test.local',
+    phone: '+591 70000006',
+    forClient: 'TEST_ALC_LP',
+  },
+  {
+    dni: 'TEST_DEL_ALC_LP_2',
+    name: 'Delegado 2 Alcalde La Paz',
+    email: 'delegado2.alc.lapaz@test.local',
+    phone: '+591 70000007',
+    forClient: 'TEST_ALC_LP',
+  },
+  {
+    dni: 'TEST_DEL_ALC_LP_3',
+    name: 'Delegado 3 Alcalde La Paz',
+    email: 'delegado3.alc.lapaz@test.local',
+    phone: '+591 70000008',
+    forClient: 'TEST_ALC_LP',
+  },
+  // Delegados para Alcalde Cochabamba
+  {
+    dni: 'TEST_DEL_ALC_CBB_1',
+    name: 'Delegado 1 Alcalde Cochabamba',
+    email: 'delegado1.alc.cochabamba@test.local',
+    phone: '+591 70000009',
+    forClient: 'TEST_ALC_CBB',
+  },
+  {
+    dni: 'TEST_DEL_ALC_CBB_2',
+    name: 'Delegado 2 Alcalde Cochabamba',
+    email: 'delegado2.alc.cochabamba@test.local',
+    phone: '+591 70000010',
+    forClient: 'TEST_ALC_CBB',
+  },
+  // Delegados multi-contrato (trabajan para varios clientes)
+  {
+    dni: 'TEST_DEL_MULTI_1',
+    name: 'Delegado Multi-contrato 1',
+    email: 'delegado.multi1@test.local',
+    phone: '+591 70000011',
+    forClient: ['TEST_GOB_LP', 'TEST_ALC_LP'], // Trabaja para ambos en La Paz
+  },
+  {
+    dni: 'TEST_DEL_MULTI_2',
+    name: 'Delegado Multi-contrato 2',
+    email: 'delegado.multi2@test.local',
+    phone: '+591 70000012',
+    forClient: ['TEST_GOB_CBB', 'TEST_ALC_CBB'], // Trabaja para ambos en Cochabamba
+  },
 ];
 
 // Ubicaciones de prueba
@@ -156,6 +258,12 @@ export class TestingSeederService {
     private municipalityModel: Model<MunicipalityDocument>,
     @InjectModel(Contract.name)
     private contractModel: Model<ContractDocument>,
+    @InjectModel(User.name)
+    private userModel: Model<UserDocument>,
+    @InjectModel(Delegate.name)
+    private delegateModel: Model<DelegateDocument>,
+    @InjectModel(Attestation.name)
+    private attestationModel: Model<AttestationDocument>,
   ) {}
 
   /**
@@ -168,6 +276,9 @@ export class TestingSeederService {
     attestationCases: any[];
     users: any[];
     contracts: any[];
+    delegateUsers: any[];
+    delegates: any[];
+    attestations: any[];
   }> {
     this.logger.log('🌱 Iniciando seed de datos de prueba...');
 
@@ -186,7 +297,7 @@ export class TestingSeederService {
     // 5. Crear attestation cases resueltos
     const attestationCases = await this.seedAttestationCases(elections, ballots);
 
-    // 6. Crear geografÃ­a mÃ­nima para los usuarios de prueba
+    // 6. Crear geografía mínima para los usuarios de prueba
     await this.seedGeography();
 
     // 7. Crear usuarios de prueba (GOVERNOR y MAYOR)
@@ -194,6 +305,21 @@ export class TestingSeederService {
 
     // 8. Crear contratos para los usuarios
     const contracts = await this.seedContracts(elections, users);
+
+    // 9. Crear usuarios delegados (User collection)
+    const delegateUsers = await this.seedDelegateUsers();
+
+    // 10. Crear delegados asociados a contratos
+    const delegates = await this.seedDelegates(delegateUsers, contracts, users);
+
+    // 11. Crear attestations (votos de delegados sobre ballots)
+    const attestations = await this.seedAttestations(
+      elections,
+      ballots,
+      delegateUsers,
+      delegates,
+      contracts,
+    );
 
     this.logger.log('✅ Seed completado exitosamente');
 
@@ -204,6 +330,9 @@ export class TestingSeederService {
       attestationCases,
       users,
       contracts,
+      delegateUsers,
+      delegates,
+      attestations,
     };
   }
 
@@ -214,10 +343,13 @@ export class TestingSeederService {
     deletedElections: number;
     deletedBallots: number;
     deletedAttestationCases: number;
+    deletedAttestations: number;
     deletedParties: number;
     deletedElectionParties: number;
     deletedUsers: number;
     deletedContracts: number;
+    deletedDelegateUsers: number;
+    deletedDelegates: number;
   }> {
     this.logger.log('🧹 Limpiando datos de prueba...');
 
@@ -227,40 +359,72 @@ export class TestingSeederService {
     });
     const electionIds = testElections.map((e) => e._id);
 
-    // Obtener IDs de usuarios de prueba
-    const testUsers = await this.roledUserModel.find({
+    // Obtener IDs de usuarios de prueba (RoledUser - candidatos)
+    const testRoledUsers = await this.roledUserModel.find({
       dni: { $regex: `^${TEST_PREFIX}` },
     });
-    const userIds = testUsers.map((u) => u._id);
+    const roledUserIds = testRoledUsers.map((u) => u._id);
+
+    // Obtener IDs de usuarios delegados (User collection)
+    const testDelegateUsers = await this.userModel.find({
+      dni: { $regex: `^${TEST_PREFIX}` },
+    });
+    const delegateUserIds = testDelegateUsers.map((u) => u._id);
 
     // Eliminar en orden inverso a la creación
-    const deletedContracts = await this.contractModel.deleteMany({
+
+    // 1. Eliminar attestations (votos de delegados)
+    const deletedAttestations = await this.attestationModel.deleteMany({
       $or: [
         { electionId: { $in: electionIds } },
-        { clientId: { $in: userIds } },
+        { userId: { $in: delegateUserIds } },
       ],
     });
 
+    // 2. Eliminar delegates
+    const deletedDelegates = await this.delegateModel.deleteMany({
+      dni: { $regex: `^${TEST_PREFIX}` },
+    });
+
+    // 3. Eliminar usuarios delegados (User collection)
+    const deletedDelegateUsers = await this.userModel.deleteMany({
+      dni: { $regex: `^${TEST_PREFIX}` },
+    });
+
+    // 4. Eliminar contratos
+    const deletedContracts = await this.contractModel.deleteMany({
+      $or: [
+        { electionId: { $in: electionIds } },
+        { clientId: { $in: roledUserIds } },
+      ],
+    });
+
+    // 5. Eliminar usuarios candidatos (RoledUser)
     const deletedUsers = await this.roledUserModel.deleteMany({
       dni: { $regex: `^${TEST_PREFIX}` },
     });
 
+    // 6. Eliminar attestation cases
     const deletedAttestationCases = await this.attestationCaseModel.deleteMany({
       electionId: { $in: electionIds },
     });
 
+    // 7. Eliminar ballots
     const deletedBallots = await this.ballotModel.deleteMany({
       electionId: { $in: electionIds },
     });
 
+    // 8. Eliminar election parties
     const deletedElectionParties = await this.electionPartyModel.deleteMany({
       electionId: { $in: electionIds },
     });
 
+    // 9. Eliminar elecciones
     const deletedElections = await this.electionConfigModel.deleteMany({
       name: { $regex: `^${TEST_PREFIX}` },
     });
 
+    // 10. Eliminar partidos
     const deletedParties = await this.politicalPartyModel.deleteMany({
       partyId: { $regex: `^${TEST_PREFIX.toLowerCase()}` },
     });
@@ -271,10 +435,13 @@ export class TestingSeederService {
       deletedElections: deletedElections.deletedCount,
       deletedBallots: deletedBallots.deletedCount,
       deletedAttestationCases: deletedAttestationCases.deletedCount,
+      deletedAttestations: deletedAttestations.deletedCount,
       deletedParties: deletedParties.deletedCount,
       deletedElectionParties: deletedElectionParties.deletedCount,
       deletedUsers: deletedUsers.deletedCount,
       deletedContracts: deletedContracts.deletedCount,
+      deletedDelegateUsers: deletedDelegateUsers.deletedCount,
+      deletedDelegates: deletedDelegates.deletedCount,
     };
   }
 
@@ -689,15 +856,243 @@ export class TestingSeederService {
   }
 
   /**
+   * Crea usuarios delegados en la colección User
+   */
+  private async seedDelegateUsers(): Promise<UserDocument[]> {
+    const users: UserDocument[] = [];
+
+    for (const delegateData of MOCK_DELEGATES) {
+      const doc = await this.userModel.findOneAndUpdate(
+        { dni: delegateData.dni },
+        {
+          $set: {
+            dni: delegateData.dni,
+            active: true,
+          },
+        },
+        { upsert: true, new: true },
+      );
+      if (doc) {
+        users.push(doc);
+      }
+    }
+
+    this.logger.log(`✅ ${users.length} usuarios delegados creados/actualizados`);
+    return users;
+  }
+
+  /**
+   * Crea delegados asociados a contratos
+   */
+  private async seedDelegates(
+    delegateUsers: UserDocument[],
+    contracts: ContractDocument[],
+    roledUsers: RoledUserDocument[],
+  ): Promise<DelegateDocument[]> {
+    const delegates: DelegateDocument[] = [];
+
+    for (const delegateData of MOCK_DELEGATES) {
+      const user = delegateUsers.find((u) => u.dni === delegateData.dni);
+      if (!user) continue;
+
+      // Determinar los clientes para este delegado
+      const clientDnis = Array.isArray(delegateData.forClient)
+        ? delegateData.forClient
+        : [delegateData.forClient];
+
+      const authorizedContracts: Array<{
+        contractId: Types.ObjectId;
+        clientId: Types.ObjectId;
+        clientRole: 'MAYOR' | 'GOVERNOR';
+        addedAt: Date;
+      }> = [];
+
+      for (const clientDni of clientDnis) {
+        const client = roledUsers.find((u) => u.dni === clientDni);
+        if (!client) continue;
+
+        const contract = contracts.find(
+          (c) => c.clientId.toString() === client._id.toString(),
+        );
+        if (!contract) continue;
+
+        authorizedContracts.push({
+          contractId: contract._id as Types.ObjectId,
+          clientId: client._id as Types.ObjectId,
+          clientRole: client.role as 'MAYOR' | 'GOVERNOR',
+          addedAt: new Date(),
+        });
+      }
+
+      if (authorizedContracts.length === 0) continue;
+
+      const doc = await this.delegateModel.findOneAndUpdate(
+        { dni: delegateData.dni },
+        {
+          $set: {
+            dni: delegateData.dni,
+            userId: user._id,
+            name: delegateData.name,
+            email: delegateData.email,
+            phone: delegateData.phone,
+            authorizedContracts,
+            active: true,
+          },
+        },
+        { upsert: true, new: true },
+      );
+      if (doc) {
+        delegates.push(doc);
+      }
+    }
+
+    this.logger.log(`✅ ${delegates.length} delegados creados/actualizados`);
+    return delegates;
+  }
+
+  /**
+   * Crea attestations (votos de delegados sobre ballots)
+   */
+  private async seedAttestations(
+    elections: Array<ElectionConfigDocument & { _id: Types.ObjectId }>,
+    ballots: BallotDocument[],
+    delegateUsers: UserDocument[],
+    delegates: DelegateDocument[],
+    contracts: ContractDocument[],
+  ): Promise<AttestationDocument[]> {
+    const attestations: AttestationDocument[] = [];
+
+    for (const election of elections) {
+      const electionBallots = ballots.filter(
+        (b) => b.electionId.toString() === election._id.toString(),
+      );
+
+      // Obtener contratos para esta elección
+      const electionContracts = contracts.filter(
+        (c) => c.electionId.toString() === election._id.toString(),
+      );
+
+      for (const ballot of electionBallots) {
+        // Determinar qué delegados pueden atestiguar este ballot según la ubicación
+        const ballotDepartment = ballot.location?.department;
+        const ballotMunicipality = ballot.location?.municipality;
+
+        for (const delegate of delegates) {
+          const user = delegateUsers.find(
+            (u) => u._id.toString() === delegate.userId.toString(),
+          );
+          if (!user) continue;
+
+          // Verificar si el delegado tiene un contrato válido para esta elección
+          for (const authContract of delegate.authorizedContracts) {
+            const contract = electionContracts.find(
+              (c) => c._id.toString() === authContract.contractId.toString(),
+            );
+            if (!contract) continue;
+
+            // Verificar que el contrato corresponde a la ubicación del ballot
+            const contractDept = (contract as any).departmentName;
+            const contractMuni = (contract as any).municipalityName;
+
+            // Para GOVERNOR: debe coincidir el departamento
+            // Para MAYOR: debe coincidir departamento y municipio
+            let canAttest = false;
+            if (authContract.clientRole === 'GOVERNOR') {
+              canAttest = contractDept === ballotDepartment;
+            } else if (authContract.clientRole === 'MAYOR') {
+              canAttest =
+                contractDept === ballotDepartment &&
+                contractMuni === ballotMunicipality;
+            }
+
+            if (!canAttest) continue;
+
+            // Crear attestation con soporte aleatorio (80% de soporte)
+            const support = Math.random() > 0.2;
+
+            try {
+              const attestation = await this.attestationModel.findOneAndUpdate(
+                {
+                  userId: user._id,
+                  ballotId: ballot._id,
+                },
+                {
+                  $set: {
+                    support,
+                    electionId: election._id,
+                    ballotId: ballot._id,
+                    isJury: false,
+                    userId: user._id,
+                    validForContractId: contract._id,
+                    isValidForClientReport: true,
+                  },
+                },
+                { upsert: true, new: true },
+              );
+              attestations.push(attestation);
+            } catch (err) {
+              // Ignorar duplicados
+            }
+          }
+        }
+
+        // Agregar algunos jurados (usuarios que no son delegados pero atestiguaron como jurados)
+        // Crear 1-2 jurados por ballot
+        const juryCount = Math.floor(Math.random() * 2) + 1;
+        for (let j = 0; j < juryCount; j++) {
+          const juryDni = `${TEST_PREFIX}JURY_${ballot.tableCode}_${j}`;
+
+          // Crear usuario jurado
+          const juryUser = await this.userModel.findOneAndUpdate(
+            { dni: juryDni },
+            { $set: { dni: juryDni, active: true } },
+            { upsert: true, new: true },
+          );
+
+          try {
+            const attestation = await this.attestationModel.findOneAndUpdate(
+              {
+                userId: juryUser._id,
+                ballotId: ballot._id,
+              },
+              {
+                $set: {
+                  support: true, // Jurados siempre apoyan
+                  electionId: election._id,
+                  ballotId: ballot._id,
+                  isJury: true,
+                  userId: juryUser._id,
+                  validForContractId: null,
+                  isValidForClientReport: false,
+                },
+              },
+              { upsert: true, new: true },
+            );
+            attestations.push(attestation);
+          } catch (err) {
+            // Ignorar duplicados
+          }
+        }
+      }
+    }
+
+    this.logger.log(`✅ ${attestations.length} attestations creados/actualizados`);
+    return attestations;
+  }
+
+  /**
    * Obtiene estadísticas de los datos de prueba existentes
    */
   async getTestDataStats(): Promise<{
     elections: number;
     ballots: number;
     attestationCases: number;
+    attestations: number;
     parties: number;
     users: number;
     contracts: number;
+    delegateUsers: number;
+    delegates: number;
   }> {
     const testElections = await this.electionConfigModel.countDocuments({
       name: { $regex: `^${TEST_PREFIX}` },
@@ -716,6 +1111,10 @@ export class TestingSeederService {
       electionId: { $in: electionIds },
     });
 
+    const attestations = await this.attestationModel.countDocuments({
+      electionId: { $in: electionIds },
+    });
+
     const parties = await this.politicalPartyModel.countDocuments({
       partyId: { $regex: `^${TEST_PREFIX.toLowerCase()}` },
     });
@@ -728,13 +1127,24 @@ export class TestingSeederService {
       electionId: { $in: electionIds },
     });
 
+    const delegateUsers = await this.userModel.countDocuments({
+      dni: { $regex: `^${TEST_PREFIX}` },
+    });
+
+    const delegates = await this.delegateModel.countDocuments({
+      dni: { $regex: `^${TEST_PREFIX}` },
+    });
+
     return {
       elections: testElections,
       ballots,
       attestationCases,
+      attestations,
       parties,
       users,
       contracts,
+      delegateUsers,
+      delegates,
     };
   }
 

@@ -16,6 +16,10 @@ import {
   AttestationCaseSchema,
 } from '../attestation/schemas/attestation-case.schema';
 import {
+  Attestation,
+  AttestationSchema,
+} from '../attestation/schemas/attestation.schema';
+import {
   PoliticalParty,
   PoliticalPartySchema,
 } from '../political/schemas/political-party.schema';
@@ -43,6 +47,11 @@ import {
   Municipality,
   MunicipalitySchema,
 } from '../geographic/schemas/municipality.schema';
+import { User, UserSchema } from '../users/schemas/user.schema';
+import {
+  Delegate,
+  DelegateSchema,
+} from '../contracts/schemas/delegate.schema';
 
 @Module({
   imports: [
@@ -50,6 +59,7 @@ import {
       { name: ElectionConfig.name, schema: ElectionConfigSchema },
       { name: Ballot.name, schema: BallotSchema },
       { name: AttestationCase.name, schema: AttestationCaseSchema },
+      { name: Attestation.name, schema: AttestationSchema },
       { name: PoliticalParty.name, schema: PoliticalPartySchema },
       { name: ElectionParty.name, schema: ElectionPartySchema },
       { name: RoledUser.name, schema: RoledUserSchema },
@@ -57,6 +67,8 @@ import {
       { name: Province.name, schema: ProvinceSchema },
       { name: Municipality.name, schema: MunicipalitySchema },
       { name: Contract.name, schema: ContractSchema },
+      { name: User.name, schema: UserSchema },
+      { name: Delegate.name, schema: DelegateSchema },
     ]),
   ],
   controllers: [PinataMockController, PinataDataMockController, TestingController],

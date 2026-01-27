@@ -23,23 +23,35 @@ export class TestingController {
   @ApiOperation({
     summary: 'Seed datos de prueba para e2e testing',
     description: `
-      Crea datos mock para testing frontend:
-      - 2 elecciones (departamental y municipal)
-      - 4 partidos políticos de prueba
-      - Ballots con resultados en 4 ubicaciones (12 mesas por elección)
-      - AttestationCases marcados como CONSENSUAL
-      - 4 usuarios de prueba (2 GOVERNOR, 2 MAYOR) con contratos
+      Crea datos mock COMPLETOS para testing frontend E2E:
 
-      Todos los datos tienen prefijo "TEST_E2E_" para fácil identificación.
-      Idempotente: ejecutar múltiples veces actualiza los datos existentes.
+      ## Elecciones y Resultados
+      - 2 elecciones (departamental para gobernadores, municipal para alcaldes)
+      - 4 partidos políticos de prueba (Azul, Rojo, Verde, Amarillo)
+      - 24 ballots con resultados (4 ubicaciones × 3 mesas × 2 elecciones)
+      - 24 AttestationCases marcados como CONSENSUAL
 
-      Usuarios creados:
+      ## Usuarios Candidatos (login con contrato)
       - gobernador.lapaz@test.local (GOVERNOR - La Paz)
       - gobernador.cochabamba@test.local (GOVERNOR - Cochabamba)
       - alcalde.lapaz@test.local (MAYOR - La Paz)
       - alcalde.cochabamba@test.local (MAYOR - Cochabamba)
+      - Contraseña para todos: test1234
 
-      Contraseña para todos: test1234
+      ## Delegados y Atestiguamiento
+      - 12 delegados de prueba (distribuidos entre los 4 candidatos)
+      - 2 delegados multi-contrato (trabajan para varios candidatos)
+      - Attestations (votos de delegados) sobre los ballots
+      - Jurados de mesa (1-2 por ballot)
+
+      ## Ubicaciones con Datos
+      - La Paz → Murillo → La Paz (3 mesas)
+      - La Paz → Murillo → El Alto (3 mesas)
+      - Cochabamba → Cercado → Cochabamba (3 mesas)
+      - Santa Cruz → Andres Ibañez → Santa Cruz (3 mesas)
+
+      Todos los datos tienen prefijo "TEST_E2E_" para fácil identificación.
+      Idempotente: ejecutar múltiples veces actualiza los datos existentes.
     `,
   })
   @ApiResponse({
@@ -69,6 +81,15 @@ export class TestingController {
           password: 'test1234',
         })),
         contractsCount: result.contracts.length,
+        delegates: result.delegates.map((d: any) => ({
+          id: d._id,
+          dni: d.dni,
+          name: d.name,
+          email: d.email,
+          contractsCount: d.authorizedContracts?.length || 0,
+        })),
+        delegateUsersCount: result.delegateUsers.length,
+        attestationsCount: result.attestations.length,
       },
     };
   }
@@ -95,8 +116,13 @@ export class TestingController {
           elections: 2,
           ballots: 24,
           attestationCases: 24,
+          attestations: 100,
           parties: 4,
           electionParties: 8,
+          users: 4,
+          contracts: 4,
+          delegateUsers: 12,
+          delegates: 12,
         },
       },
     },
@@ -111,10 +137,13 @@ export class TestingController {
         elections: result.deletedElections,
         ballots: result.deletedBallots,
         attestationCases: result.deletedAttestationCases,
+        attestations: result.deletedAttestations,
         parties: result.deletedParties,
         electionParties: result.deletedElectionParties,
         users: result.deletedUsers,
         contracts: result.deletedContracts,
+        delegateUsers: result.deletedDelegateUsers,
+        delegates: result.deletedDelegates,
       },
     };
   }

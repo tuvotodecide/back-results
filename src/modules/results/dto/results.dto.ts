@@ -125,12 +125,12 @@ export class LocationFilterDto {
 
 export class ElectionTypeFilterDto extends LocationFilterDto {
   @ApiProperty({
-    enum: ['presidential', 'deputies'],
-    example: 'presidential',
-    description: 'Tipo de elección',
+    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    example: 'departamental',
+    description: 'Tipo de elección: presidential, deputies, departamental (gobernadores), municipal (alcaldes)',
   })
-  @IsEnum(['presidential', 'deputies'])
-  electionType: 'presidential' | 'deputies';
+  @IsEnum(['presidential', 'deputies', 'departamental', 'municipal'])
+  electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal';
 }
 
 export class CircunscripcionFilterDto extends ElectionTypeFilterDto {

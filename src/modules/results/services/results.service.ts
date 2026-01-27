@@ -621,10 +621,10 @@ export class ResultsService implements OnModuleInit {
     );
     const tableQuery = this.buildLocationTableQuery(filters);
 
+    // Para departamental y municipal también usamos votes.parties (misma estructura que presidential)
+    // Solo deputies usa votes.deputies
     const votesPath =
-      filters.electionType === 'presidential'
-        ? 'votes.parties'
-        : 'votes.deputies';
+      filters.electionType === 'deputies' ? 'votes.deputies' : 'votes.parties';
 
     const facetAgg = await this.ballotModel
       .aggregate([
@@ -882,7 +882,7 @@ export class ResultsService implements OnModuleInit {
    * para usar la nueva estructura de votos
    */
   async getHeatMapData(params: {
-    electionType: 'presidential' | 'deputies';
+    electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal';
     locationType: 'department' | 'municipality' | 'province';
     department?: string;
     electionId?: string;
@@ -904,11 +904,10 @@ export class ResultsService implements OnModuleInit {
           ? '$location.municipality'
           : '$location.department';
 
-    // Determinar qué campo usar según el tipo de elección
+    // Para departamental y municipal también usamos votes.parties (misma estructura que presidential)
+    // Solo deputies usa votes.deputies
     const votesPath =
-      params.electionType === 'presidential'
-        ? 'votes.parties'
-        : 'votes.deputies';
+      params.electionType === 'deputies' ? 'votes.deputies' : 'votes.parties';
 
     const results = await this.ballotModel
       .aggregate([
@@ -1033,11 +1032,10 @@ export class ResultsService implements OnModuleInit {
       filters.electionId,
       filters.mode ?? 'final',
     );
-    // Determinar qué campo usar según el tipo de elección
+    // Para departamental y municipal también usamos votes.parties (misma estructura que presidential)
+    // Solo deputies usa votes.deputies
     const votesPath =
-      filters.electionType === 'presidential'
-        ? 'votes.parties'
-        : 'votes.deputies';
+      filters.electionType === 'deputies' ? 'votes.deputies' : 'votes.parties';
 
     const matchStage: any = {};
     if (filters.circunscripcionType) {
