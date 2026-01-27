@@ -172,36 +172,41 @@ export class ElectionConfigService {
     }
   }
 
-  async getElectionStatus(): Promise<ElectionStatusResponseDto> {
-    const config = await this.getActiveConfig();
+  async getElectionStatus(): Promise<any> {
+    const configs = await this.getActiveConfigs();
     const currentTimeUTC = new Date(); // Hora actual UTC
 
-    if (!config) {
+    if (!configs || configs.length === 0) {
       return {
-        isVotingPeriod: false,
-        isResultsPeriod: false,
-        hasActiveConfig: false,
+        hasActiveConfigs: false,
         currentTime: currentTimeUTC,
         currentTimeBolivia: TimezoneUtil.utcToBoliviaSafe(currentTimeUTC),
+        elections: [],
       };
     }
 
-    // Comparar todo en UTC
-    const votingStart = new Date(config.votingStartDate);
-    const votingEnd = new Date(config.votingEndDate);
-    const resultsStart = new Date(config.resultsStartDate);
+    // Calcular estado para cada elección activa
+    const elections = configs.map((config) => {
+      const votingStart = new Date(config.votingStartDate);
+      const votingEnd = new Date(config.votingEndDate);
+      const resultsStart = new Date(config.resultsStartDate);
 
-    const isVotingPeriod =
-      currentTimeUTC >= votingStart && currentTimeUTC <= votingEnd;
-    const isResultsPeriod = currentTimeUTC >= resultsStart;
+      const isVotingPeriod =
+        currentTimeUTC >= votingStart && currentTimeUTC <= votingEnd;
+      const isResultsPeriod = currentTimeUTC >= resultsStart;
+
+      return {
+        ...config,
+        isVotingPeriod,
+        isResultsPeriod,
+      };
+    });
 
     return {
-      isVotingPeriod,
-      isResultsPeriod,
-      hasActiveConfig: true,
+      hasActiveConfigs: true,
       currentTime: currentTimeUTC,
       currentTimeBolivia: TimezoneUtil.utcToBoliviaSafe(currentTimeUTC),
-      config,
+      elections,
     };
   }
 

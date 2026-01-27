@@ -78,35 +78,30 @@ export class ElectionConfigController {
   @Get('active')
   @Public()
   @ApiOperation({
-    summary: 'Obtener configuración electoral activa',
-    description: 'Retorna la configuración electoral actualmente activa.',
+    summary: 'Obtener todas las configuraciones electorales activas',
+    description: 'Retorna todas las configuraciones electorales actualmente activas.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Configuración activa obtenida exitosamente',
-    type: ElectionConfigResponseDto,
+    description: 'Configuraciones activas obtenidas exitosamente',
+    type: [ElectionConfigResponseDto],
   })
-  @ApiResponse({
-    status: 404,
-    description: 'No hay configuración activa',
-  })
-  getActive(): Promise<ElectionConfigResponseDto | null> {
-    return this.electionConfigService.getActiveConfig();
+  getActive(): Promise<ElectionConfigResponseDto[]> {
+    return this.electionConfigService.getActiveConfigs();
   }
 
   @Get('status')
   @Public()
   @ApiOperation({
-    summary: 'Obtener estado actual de las elecciones',
+    summary: 'Obtener estado actual de todas las elecciones activas',
     description:
-      'Verifica si estamos en período de votación, período de resultados, etc.',
+      'Verifica si estamos en período de votación, período de resultados, etc. para cada elección activa.',
   })
   @ApiResponse({
     status: 200,
     description: 'Estado electoral obtenido exitosamente',
-    type: ElectionStatusResponseDto,
   })
-  getStatus(): Promise<ElectionStatusResponseDto> {
+  getStatus(): Promise<any> {
     return this.electionConfigService.getElectionStatus();
   }
 
