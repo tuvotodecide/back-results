@@ -110,6 +110,7 @@ export class UsersController {
   }
 
   @Get(':dni/notifications')
+  @Public()
   @UseGuards(ZkAuthGuard)
   @ApiOperation({
     summary:
