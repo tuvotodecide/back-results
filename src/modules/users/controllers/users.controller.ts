@@ -110,6 +110,7 @@ export class UsersController {
   }
 
   @Get(':dni/notifications')
+  @UseGuards(ZkAuthGuard)
   @ApiOperation({
     summary:
       'Notificaciones del usuario por DNI (topic del recinto y fallback por usuario)',
