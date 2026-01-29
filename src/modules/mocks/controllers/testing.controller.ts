@@ -144,6 +144,9 @@ export class TestingController {
         contracts: result.deletedContracts,
         delegateUsers: result.deletedDelegateUsers,
         delegates: result.deletedDelegates,
+        electoralTables: result.deletedElectoralTables,
+        electoralLocations: result.deletedElectoralLocations,
+        electoralSeats: result.deletedElectoralSeats,
       },
     };
   }

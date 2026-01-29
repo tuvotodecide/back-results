@@ -47,6 +47,18 @@ import {
   Municipality,
   MunicipalitySchema,
 } from '../geographic/schemas/municipality.schema';
+import {
+  ElectoralSeat,
+  ElectoralSeatSchema,
+} from '../geographic/schemas/electoral-seat.schema';
+import {
+  ElectoralLocation,
+  ElectoralLocationSchema,
+} from '../geographic/schemas/electoral-location.schema';
+import {
+  ElectoralTable,
+  ElectoralTableSchema,
+} from '../geographic/schemas/electoral-table.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import {
   Delegate,
@@ -66,6 +78,9 @@ import {
       { name: Department.name, schema: DepartmentSchema },
       { name: Province.name, schema: ProvinceSchema },
       { name: Municipality.name, schema: MunicipalitySchema },
+      { name: ElectoralSeat.name, schema: ElectoralSeatSchema },
+      { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
+      { name: ElectoralTable.name, schema: ElectoralTableSchema },
       { name: Contract.name, schema: ContractSchema },
       { name: User.name, schema: UserSchema },
       { name: Delegate.name, schema: DelegateSchema },

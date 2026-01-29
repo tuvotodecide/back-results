@@ -8,11 +8,20 @@ export class Location {
   @Prop({ required: true })
   department: string;
 
+  @Prop({ type: Types.ObjectId, required: false })
+  departmentId?: Types.ObjectId;
+
   @Prop({ required: true })
   province: string;
 
+  @Prop({ type: Types.ObjectId, required: false })
+  provinceId?: Types.ObjectId;
+
   @Prop({ required: true })
   municipality: string;
+
+  @Prop({ type: Types.ObjectId, required: false })
+  municipalityId?: Types.ObjectId;
 
   @Prop({ required: true })
   electoralSeat: string;
@@ -153,6 +162,9 @@ BallotSchema.index({ status: 1 });
 BallotSchema.index({ 'location.department': 1 });
 BallotSchema.index({ 'location.province': 1 });
 BallotSchema.index({ 'location.municipality': 1 });
+BallotSchema.index({ 'location.departmentId': 1 });
+BallotSchema.index({ 'location.provinceId': 1 });
+BallotSchema.index({ 'location.municipalityId': 1 });
 BallotSchema.index({ 'location.electoralLocationName': 1 });
 BallotSchema.index({ 'location.circunscripcion.type': 1 });
 BallotSchema.index({ 'blockchain.transactionHash': 1 });
@@ -163,6 +175,9 @@ BallotSchema.index({ electionId: 1, status: 1 });
 BallotSchema.index({ electionId: 1, 'location.department': 1 });
 BallotSchema.index({ electionId: 1, 'location.province': 1 });
 BallotSchema.index({ electionId: 1, 'location.municipality': 1 });
+BallotSchema.index({ electionId: 1, 'location.departmentId': 1 });
+BallotSchema.index({ electionId: 1, 'location.provinceId': 1 });
+BallotSchema.index({ electionId: 1, 'location.municipalityId': 1 });
 BallotSchema.index({ electionId: 1, valuable: 1, tableCode: 1 });
 BallotSchema.index({ status: 1, valuable: 1, electionId: 1, tableCode: 1 });
 

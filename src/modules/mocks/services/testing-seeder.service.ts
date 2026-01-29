@@ -41,6 +41,18 @@ import {
   MunicipalityDocument,
 } from '../../geographic/schemas/municipality.schema';
 import {
+  ElectoralSeat,
+  ElectoralSeatDocument,
+} from '../../geographic/schemas/electoral-seat.schema';
+import {
+  ElectoralLocation,
+  ElectoralLocationDocument,
+} from '../../geographic/schemas/electoral-location.schema';
+import {
+  ElectoralTable,
+  ElectoralTableDocument,
+} from '../../geographic/schemas/electoral-table.schema';
+import {
   Contract,
   ContractDocument,
 } from '../../contracts/schemas/contract.schema';
@@ -76,7 +88,7 @@ const MOCK_USERS = [
     dni: 'TEST_ALC_LP',
     role: 'MAYOR' as const,
     department: 'La Paz',
-    municipality: 'La Paz',
+    municipality: 'Nuestra Señora de La Paz',
   },
   {
     email: 'alcalde.cochabamba@test.local',
@@ -194,44 +206,61 @@ const MOCK_LOCATIONS = [
   {
     department: 'La Paz',
     province: 'Murillo',
-    municipality: 'La Paz',
-    electoralSeat: 'Sede Central La Paz',
-    electoralLocationName: 'U.E. Test La Paz 1',
+    municipality: 'Nuestra Señora de La Paz',
+    electoralSeat: 'Nuestra Señora de La Paz',
+    electoralLocationName: 'U. E. Club de Leones Nro. 2',
     district: 'DISTRITO 1',
     zone: 'Zona Central',
     circunscripcion: { number: 1, type: 'Uninominal', name: 'Primera-La Paz' },
+    coordinates: { latitude: -16.5, longitude: -68.15 },
   },
   {
     department: 'La Paz',
     province: 'Murillo',
     municipality: 'El Alto',
-    electoralSeat: 'Sede El Alto',
-    electoralLocationName: 'U.E. Test El Alto 1',
+    electoralSeat: 'El Alto',
+    electoralLocationName: 'U. E. Brasil',
     district: 'DISTRITO 2',
     zone: 'Zona Norte',
     circunscripcion: { number: 2, type: 'Uninominal', name: 'Segunda-El Alto' },
+    coordinates: { latitude: -16.52, longitude: -68.17 },
   },
   {
     department: 'Cochabamba',
     province: 'Cercado',
     municipality: 'Cochabamba',
-    electoralSeat: 'Sede Cochabamba',
-    electoralLocationName: 'U.E. Test Cochabamba 1',
+    electoralSeat: 'Cochabamba',
+    electoralLocationName: 'Colegio Abaroa',
     district: 'DISTRITO 1',
     zone: 'Zona Sur',
     circunscripcion: { number: 10, type: 'Uninominal', name: 'Decima-Cochabamba' },
+    coordinates: { latitude: -17.38, longitude: -66.16 },
   },
   {
     department: 'Santa Cruz',
-    province: 'Andres Ibañez',
+    province: 'Andrés Ibáñez',
     municipality: 'Santa Cruz de la Sierra',
-    electoralSeat: 'Sede Santa Cruz',
-    electoralLocationName: 'U.E. Test Santa Cruz 1',
+    electoralSeat: 'Santa Cruz de la Sierra',
+    electoralLocationName: '16 de Julio',
     district: 'DISTRITO 1',
     zone: 'Zona Este',
     circunscripcion: { number: 20, type: 'Uninominal', name: 'Vigesima-Santa Cruz' },
+    coordinates: { latitude: -17.78, longitude: -63.18 },
   },
 ];
+
+type SeededGeography = {
+  departmentId: Types.ObjectId;
+  provinceId: Types.ObjectId;
+  municipalityId: Types.ObjectId;
+  electoralSeatId: Types.ObjectId;
+  electoralLocationId: Types.ObjectId;
+  tables: Array<{
+    tableId: Types.ObjectId;
+    tableCode: string;
+    tableNumber: string;
+  }>;
+};
 
 @Injectable()
 export class TestingSeederService {
@@ -256,6 +285,12 @@ export class TestingSeederService {
     private provinceModel: Model<ProvinceDocument>,
     @InjectModel(Municipality.name)
     private municipalityModel: Model<MunicipalityDocument>,
+    @InjectModel(ElectoralSeat.name)
+    private electoralSeatModel: Model<ElectoralSeatDocument>,
+    @InjectModel(ElectoralLocation.name)
+    private electoralLocationModel: Model<ElectoralLocationDocument>,
+    @InjectModel(ElectoralTable.name)
+    private electoralTableModel: Model<ElectoralTableDocument>,
     @InjectModel(Contract.name)
     private contractModel: Model<ContractDocument>,
     @InjectModel(User.name)
@@ -291,14 +326,14 @@ export class TestingSeederService {
     // 3. Asociar partidos a elecciones
     await this.seedElectionParties(elections, parties);
 
-    // 4. Crear ballots con resultados
-    const ballots = await this.seedBallots(elections, parties);
+    // 4. Validar geografia existente para los usuarios de prueba
+    const geography = await this.seedGeography();
 
-    // 5. Crear attestation cases resueltos
+    // 5. Crear ballots con resultados
+    const ballots = await this.seedBallots(elections, parties, geography);
+
+    // 6. Crear attestation cases resueltos
     const attestationCases = await this.seedAttestationCases(elections, ballots);
-
-    // 6. Crear geografía mínima para los usuarios de prueba
-    await this.seedGeography();
 
     // 7. Crear usuarios de prueba (GOVERNOR y MAYOR)
     const users = await this.seedUsers();
@@ -350,6 +385,9 @@ export class TestingSeederService {
     deletedContracts: number;
     deletedDelegateUsers: number;
     deletedDelegates: number;
+    deletedElectoralTables: number;
+    deletedElectoralLocations: number;
+    deletedElectoralSeats: number;
   }> {
     this.logger.log('🧹 Limpiando datos de prueba...');
 
@@ -414,6 +452,11 @@ export class TestingSeederService {
       electionId: { $in: electionIds },
     });
 
+    // 7b. No eliminar geografÃ­a existente (mesas/recintos/asientos)
+    const deletedElectoralTables = 0;
+    const deletedElectoralLocations = 0;
+    const deletedElectoralSeats = 0;
+
     // 8. Eliminar election parties
     const deletedElectionParties = await this.electionPartyModel.deleteMany({
       electionId: { $in: electionIds },
@@ -442,6 +485,9 @@ export class TestingSeederService {
       deletedContracts: deletedContracts.deletedCount,
       deletedDelegateUsers: deletedDelegateUsers.deletedCount,
       deletedDelegates: deletedDelegates.deletedCount,
+      deletedElectoralTables,
+      deletedElectoralLocations,
+      deletedElectoralSeats,
     };
   }
 
@@ -575,18 +621,49 @@ export class TestingSeederService {
   private async seedBallots(
     elections: Array<ElectionConfigDocument & { _id: Types.ObjectId }>,
     parties: PoliticalPartyDocument[],
+    geography: SeededGeography[],
   ): Promise<BallotDocument[]> {
     const ballots: BallotDocument[] = [];
-    const fakeLocationId = new Types.ObjectId();
 
     for (const election of elections) {
       // Crear múltiples ballots por ubicación
       for (let locIdx = 0; locIdx < MOCK_LOCATIONS.length; locIdx++) {
         const location = MOCK_LOCATIONS[locIdx];
+        const geo = geography[locIdx];
+        if (!geo) {
+          this.logger.warn(`Geografia faltante para locIdx=${locIdx}, omitiendo ballots`);
+          continue;
+        }
+        const locationData: any = {
+          ...location,
+          departmentId: geo.departmentId,
+          provinceId: geo.provinceId,
+          municipalityId: geo.municipalityId,
+        };
 
-        // 3 mesas por ubicación
-        for (let tableNum = 1; tableNum <= 3; tableNum++) {
-          const tableCode = `${TEST_PREFIX}${election.type?.toUpperCase().slice(0, 3)}_${locIdx}_${tableNum}`;
+        // Mesas existentes por ubicacion
+        if (!geo.tables || geo.tables.length === 0) {
+          this.logger.warn(
+            `No hay mesas activas para locIdx=${locIdx} (${location.electoralLocationName})`,
+          );
+          continue;
+        }
+
+        for (const table of geo.tables) {
+          const tableCode = table.tableCode?.toString().trim();
+          const tableNumber = table.tableNumber?.toString().trim();
+
+          if (!tableCode) {
+            throw new Error(
+              `Mesa sin tableCode en recinto ${location.electoralLocationName}`,
+            );
+          }
+
+          if (!tableNumber) {
+            throw new Error(
+              `Mesa sin tableNumber en recinto ${location.electoralLocationName}`,
+            );
+          }
 
           // Generar votos aleatorios pero realistas
           const partyVotes = parties.map((party) => ({
@@ -599,11 +676,11 @@ export class TestingSeederService {
           const blankVotes = Math.floor(Math.random() * 5) + 1;
 
           const ballotData = {
-            tableNumber: `${tableNum}`,
+            tableNumber,
             tableCode,
             electionId: election._id,
-            electoralLocationId: fakeLocationId,
-            location,
+            electoralLocationId: geo.electoralLocationId,
+            location: locationData,
             votes: {
               parties: {
                 validVotes,
@@ -737,69 +814,109 @@ export class TestingSeederService {
     return users;
   }
 
-  private async seedGeography(): Promise<void> {
-    let createdDepartments = 0;
-    let createdProvinces = 0;
-    let createdMunicipalities = 0;
+  private async seedGeography(): Promise<SeededGeography[]> {
+    const seeded: SeededGeography[] = [];
+    let resolvedLocations = 0;
+    let resolvedTables = 0;
 
-    const departmentIds = new Map<string, Types.ObjectId>();
-    const provinceIds = new Map<string, Types.ObjectId>();
-
-    for (const location of MOCK_LOCATIONS) {
+    for (let locIdx = 0; locIdx < MOCK_LOCATIONS.length; locIdx++) {
+      const location = MOCK_LOCATIONS[locIdx];
       const departmentName = location.department.trim();
       const provinceName = location.province.trim();
       const municipalityName = location.municipality.trim();
 
-      let departmentId = departmentIds.get(departmentName);
-      if (!departmentId) {
-        let department = await this.departmentModel.findOne({ name: departmentName });
-        if (!department) {
-          department = await this.departmentModel.create({
-            name: departmentName,
-            active: true,
-          });
-          createdDepartments += 1;
-        }
-        departmentId = department._id as Types.ObjectId;
-        departmentIds.set(departmentName, departmentId);
+      const department = await this.departmentModel.findOne({
+        name: {
+          $regex: new RegExp(`^${this.escapeRegex(departmentName)}$`, 'i'),
+        },
+      });
+      if (!department) {
+        throw new Error(`Departamento no encontrado: ${departmentName}`);
       }
 
-      const provinceKey = `${departmentId.toString()}::${provinceName}`;
-      let provinceId = provinceIds.get(provinceKey);
-      if (!provinceId) {
-        let province = await this.provinceModel.findOne({
-          name: provinceName,
-          departmentId,
-        });
-        if (!province) {
-          province = await this.provinceModel.create({
-            name: provinceName,
-            departmentId,
-            active: true,
-          });
-          createdProvinces += 1;
-        }
-        provinceId = province._id as Types.ObjectId;
-        provinceIds.set(provinceKey, provinceId);
+      const province = await this.provinceModel.findOne({
+        name: { $regex: new RegExp(`^${this.escapeRegex(provinceName)}$`, 'i') },
+        departmentId: department._id,
+      });
+      if (!province) {
+        throw new Error(`Provincia no encontrada: ${provinceName} (${departmentName})`);
       }
 
       const municipality = await this.municipalityModel.findOne({
-        name: municipalityName,
-        provinceId,
+        name: {
+          $regex: new RegExp(`^${this.escapeRegex(municipalityName)}$`, 'i'),
+        },
+        provinceId: province._id,
       });
       if (!municipality) {
-        await this.municipalityModel.create({
-          name: municipalityName,
-          provinceId,
-          active: true,
-        });
-        createdMunicipalities += 1;
+        throw new Error(
+          `Municipio no encontrado: ${municipalityName} (${provinceName})`,
+        );
       }
+
+      const seat = await this.electoralSeatModel.findOne({
+        name: {
+          $regex: new RegExp(
+            `^${this.escapeRegex(location.electoralSeat)}$`,
+            'i',
+          ),
+        },
+        municipalityId: municipality._id,
+      });
+      if (!seat) {
+        throw new Error(
+          `Asiento electoral no encontrado: ${location.electoralSeat} (${municipalityName})`,
+        );
+      }
+
+      const electoralLocation = await this.electoralLocationModel.findOne({
+        name: {
+          $regex: new RegExp(
+            `^${this.escapeRegex(location.electoralLocationName)}$`,
+            'i',
+          ),
+        },
+        electoralSeatId: seat._id,
+      });
+      if (!electoralLocation) {
+        throw new Error(
+          `Recinto no encontrado: ${location.electoralLocationName} (${location.electoralSeat})`,
+        );
+      }
+
+      const tables = await this.electoralTableModel
+        .find({ electoralLocationId: electoralLocation._id, active: true })
+        .sort({ tableNumber: 1 })
+        .limit(3)
+        .lean();
+
+      if (!tables.length) {
+        throw new Error(
+          `No hay mesas activas para el recinto ${location.electoralLocationName}`,
+        );
+      }
+
+      resolvedLocations += 1;
+      resolvedTables += tables.length;
+
+      seeded[locIdx] = {
+        departmentId: department._id as Types.ObjectId,
+        provinceId: province._id as Types.ObjectId,
+        municipalityId: municipality._id as Types.ObjectId,
+        electoralSeatId: seat._id as Types.ObjectId,
+        electoralLocationId: electoralLocation._id as Types.ObjectId,
+        tables: tables.map((t: any) => ({
+          tableId: t._id as Types.ObjectId,
+          tableCode: t.tableCode,
+          tableNumber: t.tableNumber,
+        })),
+      };
     }
 
     this.logger.log(
-      `âœ… GeografÃ­a lista (departamentos: ${createdDepartments}, provincias: ${createdProvinces}, municipios: ${createdMunicipalities})`,
+      `Geografia validada (recintos: ${resolvedLocations}, mesas: ${resolvedTables})`,
     );
+    return seeded;
   }
 
   /**

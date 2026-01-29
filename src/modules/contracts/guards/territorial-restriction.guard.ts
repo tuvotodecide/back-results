@@ -29,6 +29,11 @@ export class TerritorialRestrictionGuard implements CanActivate {
       throw new ForbiddenException('No autenticado');
     }
 
+    const url: string = request.originalUrl || request.url || '';
+    if (url.includes('/client-reports/my-active-contract')) {
+      return true;
+    }
+
     // Si no es Alcalde ni Gobernador, permitir acceso (ej: Superadmin)
     if (!user.role || !['MAYOR', 'GOVERNOR'].includes(user.role)) {
       return true;
