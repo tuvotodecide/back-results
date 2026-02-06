@@ -40,14 +40,21 @@ export class ResultsController {
   constructor(private readonly resultsService: ResultsService) {}
 
   @ApiQuery({ name: 'electionId', required: false })
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
+    required: false,
+    description:
+      'Tipo de resultado. Si hay múltiples elecciones activas, este parámetro filtra por el tipo correcto.',
+  })
   @Get('quick-count')
   @Public()
   @UseGuards(ResultsPeriodGuard)
-  @CacheTTL(30) // Cache por 30 segundos
+  @CacheTTL(30)
   @ApiOperation({
-    summary: 'Obtener conteo rápido nacional',
+    summary: 'Obtener conteo rápido',
     description:
-      'Retorna el conteo rápido de votos presidenciales a nivel nacional de los 9 departamentos',
+      'Retorna el conteo rápido de votos. Use electionType para filtrar por tipo de elección cuando hay varias activas.',
   })
   @ApiResponse({
     status: 200,
@@ -56,8 +63,9 @@ export class ResultsController {
   })
   async getQuickCount(
     @Query('electionId') electionId?: string,
+    @Query('electionType') electionType?: string,
   ): Promise<QuickCountResponseDto> {
-    return this.resultsService.getQuickCount(electionId);
+    return this.resultsService.getQuickCount(electionId, 'final', electionType);
   }
 
   @ApiQuery({ name: 'electionId', required: false })
@@ -72,9 +80,11 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
-    description: 'Tipo de elección: presidential, deputies, departamental (gobernadores), municipal (alcaldes)',
+    description:
+      'Tipo de resultado: presidential (presidente), deputies (diputados), ' +
+      'departamental (gobernadores), assembly (asambleístas), municipal (alcaldes), council (concejales)',
   })
   @ApiQuery({ name: 'department', required: false, example: 'La Paz' })
   @ApiQuery({ name: 'province', required: false, example: 'Murillo' })
@@ -98,13 +108,21 @@ export class ResultsController {
   }
 
   @ApiQuery({ name: 'electionId', required: false })
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'departamental', 'municipal'],
+    required: false,
+    description:
+      'Tipo de elección para filtrar el progreso cuando hay varias elecciones activas.',
+  })
   @Get('registration-progress')
-  @UseGuards(TerritorialScopeGuard) 
+  @UseGuards(TerritorialScopeGuard)
   @Public()
-  @CacheTTL(30) // Cache por 30 segundos
+  @CacheTTL(30)
   @ApiOperation({
     summary: 'Obtener progreso de registro de actas',
-    description: 'Retorna el progreso de actas registradas vs mesas esperadas',
+    description:
+      'Retorna el progreso de actas registradas vs mesas esperadas. Use electionType para filtrar por tipo.',
   })
   @ApiQuery({ name: 'department', required: false, example: 'La Paz' })
   @ApiQuery({ name: 'province', required: false, example: 'Murillo' })
@@ -116,8 +134,9 @@ export class ResultsController {
   })
   async getRegistrationProgress(
     @Query() filters?: LocationFilterDto,
+    @Query('electionType') electionType?: string,
   ): Promise<RegistrationProgressResponseDto> {
-    return this.resultsService.getRegistrationProgress(filters);
+    return this.resultsService.getRegistrationProgress(filters, electionType);
   }
 
   @ApiQuery({ name: 'electionId', required: false })
@@ -133,7 +152,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
   })
   @ApiQuery({
@@ -173,7 +192,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
     description: 'Tipo de elección',
   })
@@ -194,7 +213,7 @@ export class ResultsController {
     type: HeatMapResponseDto,
   })
   async getHeatMapData(
-    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
+    @Query('electionType') electionType: string,
     @Query('locationType')
     locationType: 'department' | 'municipality' | 'province',
     @Query('department') department?: string,
@@ -241,7 +260,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
   })
   @ApiResponse({
@@ -250,7 +269,7 @@ export class ResultsController {
   })
   getPartySummary(
     @Param('partyId') partyId: string,
-    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
+    @Query('electionType') electionType: string,
   ) {
     // Este método podría agregarse al servicio para obtener detalles específicos de un partido
     return {
@@ -279,7 +298,7 @@ export class ResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
   })
   @ApiQuery({ name: 'department', required: false })
@@ -302,7 +321,7 @@ export class ResultsController {
     },
   })
   exportResultsCSV(
-    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
+    @Query('electionType') electionType: string,
     @Query('department') department?: string,
     @Query('format') format: 'summary' | 'detailed' = 'summary',
   ) {
@@ -372,8 +391,16 @@ export class ResultsController {
   @UseGuards(PreliminaryResultsGuard)
   @CacheTTL(15)
   @ApiQuery({ name: 'electionId', required: false })
-  async getLiveQuickCount(@Query('electionId') electionId?: string) {
-    return this.resultsService.getQuickCount(electionId, 'live');
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
+    required: false,
+  })
+  async getLiveQuickCount(
+    @Query('electionId') electionId?: string,
+    @Query('electionType') electionType?: string,
+  ) {
+    return this.resultsService.getQuickCount(electionId, 'live', electionType);
   }
 
   @Get('live/by-location')
@@ -382,7 +409,7 @@ export class ResultsController {
   @CacheTTL(30)
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
   })
   async getLiveByLocation(@Query() filters: ElectionTypeFilterDto) {
@@ -398,7 +425,7 @@ export class ResultsController {
   @CacheTTL(60)
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
   })
   @ApiQuery({
@@ -409,7 +436,7 @@ export class ResultsController {
   @ApiQuery({ name: 'department', required: false })
   @ApiQuery({ name: 'electionId', required: false })
   async getLiveHeatMap(
-    @Query('electionType') electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal',
+    @Query('electionType') electionType: string,
     @Query('locationType')
     locationType: 'department' | 'municipality' | 'province',
     @Query('department') department?: string,
@@ -430,7 +457,7 @@ export class ResultsController {
   @CacheTTL(60)
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies', 'departamental', 'municipal'],
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
     required: true,
   })
   @ApiQuery({
@@ -443,6 +470,82 @@ export class ResultsController {
     return this.resultsService.getResultsByCircunscripcion({
       ...filters,
       mode: 'live',
+    } as any);
+  }
+
+  @Get('live/ballots')
+  @Public()
+  @UseGuards(PreliminaryResultsGuard, TerritorialScopeGuard)
+  @CacheTTL(30)
+  @ApiOperation({
+    summary: 'Obtener ballots que cuentan en resultados live',
+    description:
+      'Retorna los ballots que realmente se cuentan en los resultados preliminares. ' +
+      'Usa el mismo pipeline que by-location para garantizar consistencia.',
+  })
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
+    required: true,
+  })
+  @ApiQuery({ name: 'electionId', required: false })
+  @ApiQuery({ name: 'department', required: false })
+  @ApiQuery({ name: 'province', required: false })
+  @ApiQuery({ name: 'municipality', required: false })
+  @ApiQuery({ name: 'page', type: 'number', required: false, default: 1 })
+  @ApiQuery({ name: 'limit', type: 'number', required: false, default: 20 })
+  @ApiResponse({
+    status: 200,
+    description: 'Ballots que cuentan en resultados obtenidos exitosamente',
+  })
+  async getLiveCountedBallots(
+    @Query() filters: ElectionTypeFilterDto,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.resultsService.getCountedBallots({
+      ...filters,
+      mode: 'live',
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
+    } as any);
+  }
+
+  @Get('final/ballots')
+  @Public()
+  @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
+  @CacheTTL(60)
+  @ApiOperation({
+    summary: 'Obtener ballots que cuentan en resultados finales',
+    description:
+      'Retorna los ballots que realmente se cuentan en los resultados finales. ' +
+      'Solo incluye ballots con casos resueltos (CONSENSUAL/CLOSED).',
+  })
+  @ApiQuery({
+    name: 'electionType',
+    enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
+    required: true,
+  })
+  @ApiQuery({ name: 'electionId', required: false })
+  @ApiQuery({ name: 'department', required: false })
+  @ApiQuery({ name: 'province', required: false })
+  @ApiQuery({ name: 'municipality', required: false })
+  @ApiQuery({ name: 'page', type: 'number', required: false, default: 1 })
+  @ApiQuery({ name: 'limit', type: 'number', required: false, default: 20 })
+  @ApiResponse({
+    status: 200,
+    description: 'Ballots que cuentan en resultados finales obtenidos exitosamente',
+  })
+  async getFinalCountedBallots(
+    @Query() filters: ElectionTypeFilterDto,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.resultsService.getCountedBallots({
+      ...filters,
+      mode: 'final',
+      page: page ? Number(page) : 1,
+      limit: limit ? Number(limit) : 20,
     } as any);
   }
 }

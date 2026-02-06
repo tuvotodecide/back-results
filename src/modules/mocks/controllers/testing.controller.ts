@@ -71,7 +71,12 @@ export class TestingController {
           type: e.type,
         })),
         partiesCount: result.parties.length,
-        ballotsCount: result.ballots.length,
+        ballots: result.ballots.map((b: any) => ({
+          id: b._id,
+          tableCode: b.tableCode,
+          tableNumber: b.tableNumber,
+          electionId: b.electionId,
+        })),
         attestationCasesCount: result.attestationCases.length,
         users: result.users.map((u: any) => ({
           id: u._id,

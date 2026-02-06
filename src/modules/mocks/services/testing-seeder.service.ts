@@ -675,6 +675,16 @@ export class TestingSeederService {
           const nullVotes = Math.floor(Math.random() * 10) + 1;
           const blankVotes = Math.floor(Math.random() * 5) + 1;
 
+          // Generar votos secundarios (diputados/asambleístas/concejales)
+          // En la misma acta van los candidatos secundarios
+          const deputyVotes = parties.map((party) => ({
+            partyId: party.partyId,
+            votes: Math.floor(Math.random() * 80) + 5,
+          }));
+          const deputyValidVotes = deputyVotes.reduce((sum, p) => sum + p.votes, 0);
+          const deputyNullVotes = Math.floor(Math.random() * 8) + 1;
+          const deputyBlankVotes = Math.floor(Math.random() * 4) + 1;
+
           const ballotData = {
             tableNumber,
             tableCode,
@@ -682,12 +692,21 @@ export class TestingSeederService {
             electoralLocationId: geo.electoralLocationId,
             location: locationData,
             votes: {
+              // Votos principales: presidente/gobernador/alcalde
               parties: {
                 validVotes,
                 nullVotes,
                 blankVotes,
                 partyVotes,
                 totalVotes: validVotes + nullVotes + blankVotes,
+              },
+              // Votos secundarios: diputados/asambleístas/concejales
+              deputies: {
+                validVotes: deputyValidVotes,
+                nullVotes: deputyNullVotes,
+                blankVotes: deputyBlankVotes,
+                partyVotes: deputyVotes,
+                totalVotes: deputyValidVotes + deputyNullVotes + deputyBlankVotes,
               },
             },
             ipfsUri: `https://ipfs.io/ipfs/TEST_CID_${tableCode}`,

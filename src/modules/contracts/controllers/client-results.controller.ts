@@ -34,8 +34,18 @@ export class ClientResultsController {
   })
   @ApiQuery({
     name: 'electionType',
-    enum: ['presidential', 'deputies'],
+    enum: [
+      'presidential',
+      'deputies',
+      'departamental',
+      'assembly',
+      'municipal',
+      'council',
+    ],
     required: true,
+    description:
+      'Tipo de resultado: presidential (presidente), deputies (diputados), ' +
+      'departamental (gobernadores), assembly (asambleístas), municipal (alcaldes), council (concejales)',
   })
   @ApiQuery({
     name: 'electionId',

@@ -212,14 +212,16 @@ export class ElectionConfigService {
 
   async isVotingPeriod(): Promise<boolean> {
     const status = await this.getElectionStatus();
-    return (
-      status.isVotingPeriod || status.config?.allowDataModification === true
+    if (!status.hasActiveConfigs) return false;
+    return status.elections.some(
+      (e: any) => e.isVotingPeriod || e.allowDataModification === true,
     );
   }
 
   async isResultsPeriod(): Promise<boolean> {
     const status = await this.getElectionStatus();
-    return status.isResultsPeriod;
+    if (!status.hasActiveConfigs) return false;
+    return status.elections.some((e: any) => e.isResultsPeriod);
   }
 
   private validateDates(

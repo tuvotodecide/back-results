@@ -80,6 +80,7 @@ export class ClientReportsService {
             dni: '$user.dni',
             ballotId: '$ballot._id',
             tableCode: '$ballot.tableCode',
+            tableNumber: '$ballot.tableNumber',
             location: '$ballot.location',
             createdAt: 1,
             support: 1,
@@ -259,6 +260,7 @@ export class ClientReportsService {
       if (!tableMap.has(tableCode)) {
         tableMap.set(tableCode, {
           tableCode,
+          tableNumber: att.tableNumber || null,
           location: att.location?.electoralLocationName,
           municipality: att.location?.municipality,
           department: att.location?.department,
@@ -314,6 +316,7 @@ export class ClientReportsService {
 
       return {
         tableCode: table.tableCode,
+        tableNumber: table.tableNumber,
         location: table.location,
         municipality: table.municipality,
         department: table.department,

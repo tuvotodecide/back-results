@@ -77,7 +77,43 @@ export class ResultsService implements OnModuleInit {
     return valid.length === 1 ? valid[0] : undefined;
   }
 
-  private async currentElectionMatch(electionId?: string) {
+  /**
+   * Mapea electionType del query al type de ElectionConfig en BD.
+   * presidential/deputies → config 'presidential' (misma acta)
+   * departamental/assembly → config 'departamental' (misma acta)
+   * municipal/council → config 'municipal' (misma acta)
+   */
+  private getConfigTypeForElectionType(
+    electionType?: string,
+  ): string | undefined {
+    if (!electionType) return undefined;
+    const map: Record<string, string> = {
+      presidential: 'presidential',
+      deputies: 'presidential',
+      departamental: 'departamental',
+      assembly: 'departamental',
+      municipal: 'municipal',
+      council: 'municipal',
+    };
+    return map[electionType];
+  }
+
+  /**
+   * Determina qué campo de votos leer del ballot.
+   * Principales (presidential, departamental, municipal) → votes.parties
+   * Secundarios (deputies, assembly, council) → votes.deputies
+   */
+  private getVotesPath(electionType?: string): string {
+    const secondary = ['deputies', 'assembly', 'council'];
+    return electionType && secondary.includes(electionType)
+      ? 'votes.deputies'
+      : 'votes.parties';
+  }
+
+  private async currentElectionMatch(
+    electionId?: string,
+    electionType?: string,
+  ) {
     if (electionId) {
       const parts = electionId
         .split(',')
@@ -93,9 +129,18 @@ export class ResultsService implements OnModuleInit {
     }
     const actives = await this.electionConfigService.getActiveConfigs();
     if (!actives?.length) return {};
+
+    // Cuando hay múltiples elecciones activas simultáneamente,
+    // filtrar por el tipo de config que corresponde al electionType
+    const configType = this.getConfigTypeForElectionType(electionType);
+    const filtered = configType
+      ? actives.filter((a) => a.type === configType)
+      : actives;
+
+    if (!filtered.length) return {};
     return {
       electionId: {
-        $in: actives.map((active) => new Types.ObjectId(active.id)),
+        $in: filtered.map((active) => new Types.ObjectId(active.id)),
       },
     };
   }
@@ -313,8 +358,9 @@ export class ResultsService implements OnModuleInit {
     locationFilters?: LocationFilterDto,
     electionId?: string,
     mode: 'final' | 'live' = 'final',
+    electionType?: string,
   ): Promise<any[]> {
-    const eidMatch = await this.currentElectionMatch(electionId);
+    const eidMatch = await this.currentElectionMatch(electionId, electionType);
     const locMatch = this.buildLocationMatch(locationFilters);
 
     const baseMatch: any = {
@@ -419,12 +465,16 @@ export class ResultsService implements OnModuleInit {
   async getQuickCount(
     electionId?: string,
     mode: 'final' | 'live' = 'final',
+    electionType?: string,
   ): Promise<QuickCountResponseDto> {
     const base = await this.attestedEffectiveBallotsPipeline(
       undefined,
       electionId,
       mode,
+      electionType,
     );
+
+    const votesPath = this.getVotesPath(electionType);
 
     const agg = await this.ballotModel
       .aggregate([
@@ -432,11 +482,11 @@ export class ResultsService implements OnModuleInit {
         {
           $facet: {
             perParty: [
-              { $unwind: '$votes.parties.partyVotes' },
+              { $unwind: `$${votesPath}.partyVotes` },
               {
                 $group: {
-                  _id: '$votes.parties.partyVotes.partyId',
-                  totalVotes: { $sum: '$votes.parties.partyVotes.votes' },
+                  _id: `$${votesPath}.partyVotes.partyId`,
+                  totalVotes: { $sum: `$${votesPath}.partyVotes.votes` },
                   departments: { $addToSet: '$location.department' },
                 },
               },
@@ -454,9 +504,9 @@ export class ResultsService implements OnModuleInit {
               {
                 $group: {
                   _id: null,
-                  validVotes: { $sum: '$votes.parties.validVotes' },
-                  nullVotes: { $sum: '$votes.parties.nullVotes' },
-                  blankVotes: { $sum: '$votes.parties.blankVotes' },
+                  validVotes: { $sum: `$${votesPath}.validVotes` },
+                  nullVotes: { $sum: `$${votesPath}.nullVotes` },
+                  blankVotes: { $sum: `$${votesPath}.blankVotes` },
                   tablesProcessed: { $addToSet: '$tableCode' },
                 },
               },
@@ -618,13 +668,13 @@ export class ResultsService implements OnModuleInit {
       filters,
       filters.electionId,
       filters.mode ?? 'final',
+      filters.electionType,
     );
     const tableQuery = this.buildLocationTableQuery(filters);
 
-    // Para departamental y municipal también usamos votes.parties (misma estructura que presidential)
-    // Solo deputies usa votes.deputies
-    const votesPath =
-      filters.electionType === 'deputies' ? 'votes.deputies' : 'votes.parties';
+    // Principales (presidential, departamental, municipal) → votes.parties
+    // Secundarios (deputies, assembly, council) → votes.deputies
+    const votesPath = this.getVotesPath(filters.electionType);
 
     const facetAgg = await this.ballotModel
       .aggregate([
@@ -729,9 +779,8 @@ export class ResultsService implements OnModuleInit {
    */
   async getRegistrationProgress(
     filters?: LocationFilterDto,
+    electionType?: string,
   ): Promise<RegistrationProgressResponseDto> {
-    // TODO: Verificar cache
-
     // Construir filtro para mesas
     const tableFilter: any = {};
     if (filters?.department)
@@ -746,8 +795,11 @@ export class ResultsService implements OnModuleInit {
       .exec();
     const totalTables = totalTablesAgg[0]?.n ?? 0;
 
-    // Construir filtro para actas registradas
-    const eidMatch = await this.currentElectionMatch(filters?.electionId);
+    // Construir filtro para actas registradas, filtrando por tipo de elección
+    const eidMatch = await this.currentElectionMatch(
+      filters?.electionId,
+      electionType,
+    );
     const ballotFilter: any = {
       status: { $in: ['processed', 'synced'] },
       ...eidMatch,
@@ -882,13 +934,12 @@ export class ResultsService implements OnModuleInit {
    * para usar la nueva estructura de votos
    */
   async getHeatMapData(params: {
-    electionType: 'presidential' | 'deputies' | 'departamental' | 'municipal';
+    electionType: string;
     locationType: 'department' | 'municipality' | 'province';
     department?: string;
     electionId?: string;
     mode?: 'final' | 'live';
   }): Promise<HeatMapResponseDto> {
-    // TODO: Verificar cache
     const locFilters = params.department
       ? { department: params.department }
       : undefined;
@@ -896,6 +947,7 @@ export class ResultsService implements OnModuleInit {
       locFilters as any,
       params.electionId,
       params.mode ?? 'final',
+      params.electionType,
     );
     const groupKey =
       params.locationType === 'province'
@@ -904,10 +956,7 @@ export class ResultsService implements OnModuleInit {
           ? '$location.municipality'
           : '$location.department';
 
-    // Para departamental y municipal también usamos votes.parties (misma estructura que presidential)
-    // Solo deputies usa votes.deputies
-    const votesPath =
-      params.electionType === 'deputies' ? 'votes.deputies' : 'votes.parties';
+    const votesPath = this.getVotesPath(params.electionType);
 
     const results = await this.ballotModel
       .aggregate([
@@ -1031,11 +1080,9 @@ export class ResultsService implements OnModuleInit {
       filters,
       filters.electionId,
       filters.mode ?? 'final',
+      filters.electionType,
     );
-    // Para departamental y municipal también usamos votes.parties (misma estructura que presidential)
-    // Solo deputies usa votes.deputies
-    const votesPath =
-      filters.electionType === 'deputies' ? 'votes.deputies' : 'votes.parties';
+    const votesPath = this.getVotesPath(filters.electionType);
 
     const matchStage: any = {};
     if (filters.circunscripcionType) {
@@ -1132,6 +1179,79 @@ export class ResultsService implements OnModuleInit {
       lastUpdate: new Date(),
     };
   }
+
+  /**
+   * Obtiene los ballots que realmente cuentan en los resultados
+   * Usa el mismo pipeline que getResultsByLocation para garantizar consistencia
+   */
+  async getCountedBallots(
+    filters: (LocationFilterDto & ElectionTypeFilterDto) & {
+      mode?: 'final' | 'live';
+      page?: number;
+      limit?: number;
+    },
+  ): Promise<{
+    data: any[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    mode: string;
+  }> {
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const skip = (page - 1) * limit;
+
+    const base = await this.attestedEffectiveBallotsPipeline(
+      filters,
+      filters.electionId,
+      filters.mode ?? 'live',
+      filters.electionType,
+    );
+
+    // Obtener total de ballots que cuentan
+    const countAgg = await this.ballotModel
+      .aggregate([...base, { $count: 'total' }])
+      .allowDiskUse(true)
+      .exec();
+    const total = countAgg[0]?.total ?? 0;
+
+    // Obtener ballots con paginación
+    const ballots = await this.ballotModel
+      .aggregate([
+        ...base,
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $project: {
+            _id: 1,
+            tableCode: 1,
+            tableNumber: 1,
+            electionId: 1,
+            location: 1,
+            votes: 1,
+            status: 1,
+            version: 1,
+            createdAt: 1,
+            image: 1,
+            ipfsUri: 1,
+          },
+        },
+      ])
+      .allowDiskUse(true)
+      .exec();
+
+    return {
+      data: ballots,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+      mode: filters.mode ?? 'live',
+    };
+  }
+
   async onModuleInit() {
     const BLOCKING = true;
 
