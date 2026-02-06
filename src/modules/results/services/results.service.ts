@@ -8,6 +8,14 @@ import { Model, Types } from 'mongoose';
 import { Ballot, BallotDocument } from '../../ballot/schemas/ballot.schema';
 import { ElectoralTable } from '../../geographic/schemas/electoral-table.schema';
 import {
+  Department,
+  DepartmentDocument,
+} from '../../geographic/schemas/department.schema';
+import {
+  Municipality,
+  MunicipalityDocument,
+} from '../../geographic/schemas/municipality.schema';
+import {
   QuickCountResponseDto,
   LocationResultsResponseDto,
   RegistrationProgressResponseDto,
@@ -27,30 +35,91 @@ export class ResultsService implements OnModuleInit {
     @InjectModel(Ballot.name) private ballotModel: Model<BallotDocument>,
     @InjectModel(ElectoralTable.name)
     private electoralTableModel: Model<ElectoralTable>,
+    @InjectModel(Department.name)
+    private departmentModel: Model<DepartmentDocument>,
+    @InjectModel(Municipality.name)
+    private municipalityModel: Model<MunicipalityDocument>,
     private electionConfigService: ElectionConfigService,
   ) {}
-  private buildLocationMatch(filters?: LocationFilterDto) {
+  /**
+   * Helper para detectar si un string es un ObjectId válido
+   */
+  private isObjectId(value: string): boolean {
+    return Types.ObjectId.isValid(value) && /^[a-fA-F0-9]{24}$/.test(value);
+  }
+
+  /**
+   * Resuelve un departmentId a nombre del departamento
+   */
+  private async resolveDepartmentName(
+    departmentIdOrName: string,
+  ): Promise<string> {
+    if (!this.isObjectId(departmentIdOrName)) {
+      return departmentIdOrName; // Ya es un nombre
+    }
+    try {
+      const dept = await this.departmentModel
+        .findById(departmentIdOrName)
+        .lean();
+      return dept?.name ?? departmentIdOrName;
+    } catch {
+      return departmentIdOrName;
+    }
+  }
+
+  /**
+   * Resuelve un municipalityId a nombre del municipio
+   */
+  private async resolveMunicipalityName(
+    municipalityIdOrName: string,
+  ): Promise<string> {
+    if (!this.isObjectId(municipalityIdOrName)) {
+      return municipalityIdOrName; // Ya es un nombre
+    }
+    try {
+      const muni = await this.municipalityModel
+        .findById(municipalityIdOrName)
+        .lean();
+      return muni?.name ?? municipalityIdOrName;
+    } catch {
+      return municipalityIdOrName;
+    }
+  }
+
+  private async buildLocationMatch(filters?: LocationFilterDto) {
     const match: any = {};
     if (!filters) return match;
-    if (filters.department) match['location.department'] = filters.department;
+
+    // Resolver department: puede venir como ObjectId o como nombre
+    if (filters.department) {
+      const deptName = await this.resolveDepartmentName(filters.department);
+      match['location.department'] = deptName;
+    }
     if (filters.province) match['location.province'] = filters.province;
-    if (filters.municipality)
-      match['location.municipality'] = filters.municipality;
+
+    // Resolver municipality: puede venir como ObjectId o como nombre
+    if (filters.municipality) {
+      const muniName = await this.resolveMunicipalityName(filters.municipality);
+      match['location.municipality'] = muniName;
+    }
     if (filters.electoralSeat)
       match['location.electoralSeat'] = filters.electoralSeat;
     if (filters.electoralLocation)
       match['location.electoralLocationName'] = filters.electoralLocation;
     if (filters.tableCode) match['tableCode'] = filters.tableCode;
+
+    // También manejar departmentId explícito
     if (filters.departmentId) {
-      match['location.departmentId'] = new Types.ObjectId(filters.departmentId);
+      const deptName = await this.resolveDepartmentName(filters.departmentId);
+      match['location.department'] = deptName;
     }
     if (filters.provinceId) {
       match['location.provinceId'] = new Types.ObjectId(filters.provinceId);
     }
+    // También manejar municipalityId explícito
     if (filters.municipalityId) {
-      match['location.municipalityId'] = new Types.ObjectId(
-        filters.municipalityId,
-      );
+      const muniName = await this.resolveMunicipalityName(filters.municipalityId);
+      match['location.municipality'] = muniName;
     }
     return match;
   }
@@ -361,7 +430,7 @@ export class ResultsService implements OnModuleInit {
     electionType?: string,
   ): Promise<any[]> {
     const eidMatch = await this.currentElectionMatch(electionId, electionType);
-    const locMatch = this.buildLocationMatch(locationFilters);
+    const locMatch = await this.buildLocationMatch(locationFilters);
 
     const baseMatch: any = {
       status: { $in: ['processed', 'synced'] },
@@ -781,12 +850,20 @@ export class ResultsService implements OnModuleInit {
     filters?: LocationFilterDto,
     electionType?: string,
   ): Promise<RegistrationProgressResponseDto> {
+    // Resolver nombres de ubicación (pueden venir como ObjectId o como nombre)
+    const resolvedDepartment = filters?.department
+      ? await this.resolveDepartmentName(filters.department)
+      : undefined;
+    const resolvedMunicipality = filters?.municipality
+      ? await this.resolveMunicipalityName(filters.municipality)
+      : undefined;
+
     // Construir filtro para mesas
     const tableFilter: any = {};
-    if (filters?.department)
-      tableFilter['location.department'] = filters.department;
-    if (filters?.municipality)
-      tableFilter['location.municipality'] = filters.municipality;
+    if (resolvedDepartment)
+      tableFilter['location.department'] = resolvedDepartment;
+    if (resolvedMunicipality)
+      tableFilter['location.municipality'] = resolvedMunicipality;
     if (filters?.province) tableFilter['location.province'] = filters.province;
 
     const totalTablesAgg = await this.electoralTableModel
@@ -804,10 +881,10 @@ export class ResultsService implements OnModuleInit {
       status: { $in: ['processed', 'synced'] },
       ...eidMatch,
     };
-    if (filters?.department)
-      ballotFilter['location.department'] = filters.department;
-    if (filters?.municipality)
-      ballotFilter['location.municipality'] = filters.municipality;
+    if (resolvedDepartment)
+      ballotFilter['location.department'] = resolvedDepartment;
+    if (resolvedMunicipality)
+      ballotFilter['location.municipality'] = resolvedMunicipality;
     if (filters?.province) ballotFilter['location.province'] = filters.province;
 
     // Total de actas registradas

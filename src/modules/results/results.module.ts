@@ -7,6 +7,14 @@ import {
   ElectoralTable,
   ElectoralTableSchema,
 } from '../geographic/schemas/electoral-table.schema';
+import {
+  Department,
+  DepartmentSchema,
+} from '../geographic/schemas/department.schema';
+import {
+  Municipality,
+  MunicipalitySchema,
+} from '../geographic/schemas/municipality.schema';
 import { BallotModule } from '../ballot/ballot.module';
 import { GeographicModule } from '../geographic/geographic.module';
 import { ElectionsModule } from '../elections/elections.module';
@@ -16,6 +24,8 @@ import { ElectionsModule } from '../elections/elections.module';
     MongooseModule.forFeature([
       { name: Ballot.name, schema: BallotSchema },
       { name: ElectoralTable.name, schema: ElectoralTableSchema },
+      { name: Department.name, schema: DepartmentSchema },
+      { name: Municipality.name, schema: MunicipalitySchema },
     ]),
     BallotModule,
     GeographicModule,
