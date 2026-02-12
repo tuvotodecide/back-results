@@ -21,8 +21,55 @@ env:
   CACHE_TAG: buildcache
 
 jobs:
+  test:
+    if: github.ref == 'refs/heads/main'
+    name: Run E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: devops_aws
+    permissions:
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get .env File
+        run: |
+          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
+          sed -i 's/\r$//' .env
+          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
+      - name: Cleanup .env
+        run: shred -u .env || rm -f .env
+
   build:
     name: Build & Push Docker image
+    needs: [test]
+    if: |
+      always() &&
+      (needs.test.result == 'success' || (needs.test.result == 'skipped' && startsWith(github.ref, 'refs/tags/')))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -108,7 +155,7 @@ jobs:
   deploy-dev:
     if: github.ref == 'refs/heads/main'
     name: Deploy to EC2 (dev) via SSM
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: devops_aws
@@ -217,9 +264,9 @@ jobs:
           exit 1
 
   deploy-prod:
-    if: startsWith(github.ref, 'refs/tags/')
     name: Deploy to EC2 (prod) via SSM
     needs: build
+    if: always() && needs.build.result == 'success' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: devops_aws
