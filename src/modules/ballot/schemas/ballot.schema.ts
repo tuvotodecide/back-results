@@ -134,6 +134,12 @@ export class Ballot {
   @Prop({ required: false, trim: true })
   tableIdIpfs: string;
 
+  @Prop({ default: false, index: true })
+  hasObservation?: boolean;
+
+  @Prop({ required: false, trim: true })
+  observationText?: string;
+
   @Prop({
     default: 'pending',
     enum: ['pending', 'processed', 'synced', 'error'],
@@ -180,6 +186,7 @@ BallotSchema.index({ electionId: 1, 'location.provinceId': 1 });
 BallotSchema.index({ electionId: 1, 'location.municipalityId': 1 });
 BallotSchema.index({ electionId: 1, valuable: 1, tableCode: 1 });
 BallotSchema.index({ status: 1, valuable: 1, electionId: 1, tableCode: 1 });
+BallotSchema.index({ electionId: 1, hasObservation: 1, tableCode: 1 });
 
 // Middleware para calcular totalVotes en ambas categorías
 BallotSchema.pre('save', function (next) {

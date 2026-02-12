@@ -68,6 +68,7 @@ export class BallotService {
         true,
       );
       const ballotData = this.extractBallotData(ipfsData);
+      const observationData = this.resolveObservationData(createDto, ballotData);
       await this.validateBallotData(ballotData, electionId);
 
       const locationDetails = await this.getLocationDetails(
@@ -93,6 +94,8 @@ export class BallotService {
         ipfsCid: cid,
         recordId: createDto.recordId,
         tableIdIpfs: createDto.tableIdIpfs,
+        hasObservation: observationData.hasObservation,
+        observationText: observationData.observationText,
         status: 'processed',
         version,
       });
@@ -108,7 +111,8 @@ export class BallotService {
       const ipfsData = await this.fetchFromIpfs(createDto.ipfsUri);
 
       const ballotData = this.extractBallotData(ipfsData);
-      // ✅ CORREGIDO: electionId ahora es requerido
+      this.resolveObservationData(createDto, ballotData);
+      // CORREGIDO: electionId ahora es requerido
       const eid = await this.resolveElectionId(createDto.electionId, true);
       await this.validateBallotData(ballotData, eid);
 
@@ -236,6 +240,8 @@ export class BallotService {
       locationId: rawData.locationId,
       image: metadata.image,
       votes: {} as any,
+      hasObservation: rawData.hasObservation,
+      observationText: rawData.observationText,
     };
 
     if (rawData.votes?.parties) {
@@ -263,6 +269,65 @@ export class BallotService {
     }
 
     return ballotData;
+  }
+
+  private resolveObservationData(
+    createDto: CreateBallotFromIpfsDto,
+    ballotData: BallotDataFromIpfs,
+  ): {
+    hasObservation: boolean;
+    observationText?: string;
+  } {
+    const candidateTextRaw = createDto.observationText ?? ballotData.observationText;
+    const candidateText = this.normalizeObservationText(candidateTextRaw);
+
+    let hasObservation: boolean;
+    if (typeof createDto.hasObservation === 'boolean') {
+      hasObservation = createDto.hasObservation;
+    } else if (typeof ballotData.hasObservation === 'boolean') {
+      hasObservation = ballotData.hasObservation;
+    } else {
+      hasObservation = this.isObservationFromText(candidateTextRaw);
+    }
+
+    if (hasObservation && !candidateText) {
+      throw new BadRequestException(
+        'observationText es obligatorio cuando hasObservation=true',
+      );
+    }
+
+    if (!hasObservation) {
+      return {
+        hasObservation: false,
+      };
+    }
+
+    return {
+      hasObservation: true,
+      observationText: candidateText,
+    };
+  }
+
+  private normalizeObservationText(text?: string): string | undefined {
+    if (!text) return undefined;
+    const normalized = String(text).trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private isObservationFromText(text?: string): boolean {
+    const normalized = this.normalizeComparableText(text);
+    if (!normalized) return false;
+    return normalized !== 'correyvale';
+  }
+
+  private normalizeComparableText(text?: string): string {
+    if (!text) return '';
+    return String(text)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .trim();
   }
 
   private async validateBallotData(
@@ -749,3 +814,4 @@ export class BallotService {
     };
   }
 }
+

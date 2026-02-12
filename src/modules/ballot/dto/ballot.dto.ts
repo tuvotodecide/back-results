@@ -7,6 +7,8 @@ import {
   IsEnum,
   IsNumber,
   Min,
+  IsBoolean,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateBallotFromIpfsDto {
@@ -52,7 +54,27 @@ export class CreateBallotFromIpfsDto {
   @IsNumber()
   @Min(1)
   version?: number;
-  
+
+  @ApiProperty({
+    description:
+      'Marca si el acta oficial está registrada con observación para trazabilidad',
+    required: false,
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  hasObservation?: boolean;
+
+  @ApiProperty({
+    description:
+      'Texto de observación. Es obligatorio cuando hasObservation=true',
+    required: false,
+  })
+  @ValidateIf((o: CreateBallotFromIpfsDto) => o.hasObservation === true)
+  @IsString()
+  @IsNotEmpty()
+  observationText?: string;
+
 }
 
 // Interfaces para el formato OpenSea
@@ -99,6 +121,8 @@ export interface BallotDataFromIpfs {
   locationId: string;
   votes: VotesDataFromIpfs;
   image: string;
+  hasObservation?: boolean;
+  observationText?: string;
 }
 
 export class BallotQueryDto {
