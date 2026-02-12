@@ -22,6 +22,7 @@ import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
 import { ContractsModule } from './modules/contracts/contracts.module';
 import { MocksModule } from './modules/mocks/mocks.module';
 import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
+import { WorksheetModule } from './modules/worksheet/worksheet.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
     ContractsModule,
     MocksModule,
     ZkAuthModule,
+    WorksheetModule,
   ],
   controllers: [AppController],
   providers: [
