@@ -84,6 +84,8 @@ export class UsersController {
   }
 
   @Patch(':dni/vote-place')
+  @Public()
+  @UseGuards(ZkAuthGuard)
   @ApiOperation({
     summary: 'Guardar/editar recinto y/o mesa de votación para un DNI',
     description:
