@@ -102,6 +102,7 @@ export class UsersController {
   }
 
   @Get(':dni/vote-place')
+  @Public()
   @ApiOperation({
     summary: 'Obtener recinto/mesa de votación del usuario por DNI',
   })
