@@ -1,0 +1,276 @@
+import { WorksheetService } from '@/modules/worksheet/services/worksheet.service';
+import { WorksheetModule } from '@/modules/worksheet/worksheet.module';
+import { INestApplication } from '@nestjs/common';
+import { getConnectionToken } from '@nestjs/mongoose';
+import { Test } from '@nestjs/testing';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { Connection, Types } from 'mongoose';
+import { getTablesForMunicipality, login, TableInfo } from '../utils/location-helpers';
+import { seedLocations } from '../utils/seeds/locationsSeed';
+import {
+  getBaseTestingModuleImports,
+  getBaseTestingModuleProviders,
+} from '../utils/test-module';
+import { getMockOpenSeaMetadata } from '../utils/testing-data';
+import { PartiesSeedInput, seedParties } from '../utils/seeds/partiesSeed';
+import { seedAdmin } from '../utils/seeds/usersSeed';
+import { seedElectionConfigWith } from '../utils/seeds/electionsSeed';
+import { seedMayors } from '../utils/seeds/participationSeed';
+import request from "supertest";
+import { AuthModule } from '@/modules/auth/auth.module';
+import { Worksheet } from '@/modules/worksheet/schemas/worksheet.schema';
+import { CompareWorksheetDto, WorksheetVotesDto } from '@/modules/worksheet/dto/worksheet.dto';
+import { OpenSeaMetadata } from '@/modules/ballot/dto/ballot.dto';
+import { BallotService } from '@/modules/ballot/services/ballot.service';
+import { AttestationModule } from '@/modules/attestation/attestation.module';
+import { BallotModule } from '@/modules/ballot/ballot.module';
+import { Ballot } from '@/modules/ballot/schemas/ballot.schema';
+import { mock } from 'node:test';
+
+const mockZkAuthGuard = {
+  canActivate: jest.fn().mockResolvedValue(true),
+};
+
+// Avoid loading the real zk-auth module (pulls ESM deps) during tests
+jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
+  ZkAuthModule: class {},
+}));
+
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => mockZkAuthGuard),
+}));
+
+describe('Observed Records End-to-End Tests', () => {
+  let mongod: MongoMemoryServer;
+  let app: INestApplication;
+  let conn: Connection;
+  let appHttpServer: any;
+
+  let activeElectionId: string;
+  let ballotService: BallotService;
+  let cbbaTables: TableInfo[];
+
+  let mayorTokens = new Map<string, string>();
+
+  const cbbaParties: PartiesSeedInput = {
+    codes: ['cbba1', 'cbba2', 'cbba3'],
+    assignedLoc: 'Cochabamba',
+    locType: 'municipality',
+  };
+  const userDni = '491852378';
+
+  beforeAll(async () => {
+    mongod = await MongoMemoryServer.create();
+    const mongoUri = mongod.getUri();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [...getBaseTestingModuleImports(mongoUri), AttestationModule, BallotModule],
+      providers: [...getBaseTestingModuleProviders()],
+    }).compile();
+
+    app = moduleRef.createNestApplication();
+    await app.init();
+
+    conn = moduleRef.get<Connection>(getConnectionToken());
+    appHttpServer = app.getHttpServer();
+    ballotService = app.get<BallotService>(BallotService);
+
+    await seedLocations(conn);
+
+    const activeElection = await seedElectionConfigWith(conn, 'activeElection');
+    activeElectionId = activeElection.insertedId.toString();
+
+    const mayorRes = await seedMayors(conn, activeElection.insertedId);
+    for(const [name, mayor] of mayorRes.users) {
+      mayorTokens.set(name, await login(appHttpServer, mayor.email, 'secret123'));
+    }
+
+    await seedParties(conn, cbbaParties, activeElection.insertedId);
+
+    cbbaTables = await getTablesForMunicipality(conn, 'Cochabamba', 10);
+  });
+
+  afterAll(async () => {
+    await mongod.stop();
+    await app.close();
+  });
+
+  it('AQ1: should return 201 on create observed ballot', async () => {
+    const table = cbbaTables[0];
+
+    // Mock IPFS fetching
+    jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
+      getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, cbbaParties.codes)
+    );
+
+    const ballot = await request(appHttpServer)
+      .post('/api/v1/ballots/from-ipfs')
+      .send({
+        ipfsUri: 'https://ipfs.io/ipfs/testRecordId1',
+        recordId: 'testRecordId1',
+        electionId: activeElectionId,
+        tableIdIpfs: table.tableCode,
+        version: 1,
+        hasObservation: true,
+        observationText: 'Observation for testing',
+      }).expect(201);
+
+    expect(ballot.body).toHaveProperty('_id');
+    const savedBallot = await conn.collection<Ballot>('ballots').findOne({ _id: new Types.ObjectId(ballot.body._id as string) });
+
+    expect(savedBallot).not.toBeNull();
+    expect(savedBallot?.hasObservation).toBe(true);
+    expect(savedBallot?.observationText).toBe('Observation for testing');
+  });
+
+  it('AQ2: observed record should be counted on results', async () => {
+    const table = cbbaTables[1];
+
+    // Upload ballot and attestation
+    jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
+      getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, cbbaParties.codes)
+    );
+
+    const ballot = await request(appHttpServer)
+      .post('/api/v1/ballots/from-ipfs')
+      .send({
+        ipfsUri: 'https://ipfs.io/ipfs/testRecordId2',
+        recordId: 'testRecordId2',
+        electionId: activeElectionId,
+        tableIdIpfs: table.tableCode,
+        version: 1,
+        hasObservation: true,
+        observationText: 'Observation for testing',
+      }).expect(201);
+
+    expect(ballot.body).toHaveProperty('_id');
+
+    const attestation = await request(appHttpServer)
+      .post('/api/v1/attestations')
+      .send({ attestations: [{
+        ballotId: ballot.body._id,
+        support: true,
+        isJury: false,
+        dni: userDni,
+      }] }).expect(201);
+    
+    expect(attestation.body.created).toHaveLength(1);
+    expect(attestation.body.errors).toHaveLength(0);
+
+    // Check results
+    const res = await request(appHttpServer)
+      .get(`/api/v1/client-results/live/by-location`)
+      .query({
+        electionId: activeElectionId,
+        electionType: 'presidential',
+      }).auth(mayorTokens.get('Cochabamba')!, { type: 'bearer' })
+      .expect(200);
+    
+    expect(res.body).toHaveProperty('summary');
+    expect(res.body.summary).toHaveProperty('validVotes', 300);
+  });
+
+  it('AQ3: should return 400 on observed ballot without observation text', async () => {
+    const table = cbbaTables[2];
+
+    // Mock IPFS fetching
+    jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
+      getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, cbbaParties.codes)
+    );
+
+    const ballot = await request(appHttpServer)
+      .post('/api/v1/ballots/from-ipfs')
+      .send({
+        ipfsUri: 'https://ipfs.io/ipfs/testRecordId3',
+        recordId: 'testRecordId3',
+        electionId: activeElectionId,
+        tableIdIpfs: table.tableCode,
+        version: 1,
+        hasObservation: true,
+      }).expect(400);
+
+    expect(ballot.body).toHaveProperty('message', 'observationText es obligatorio cuando hasObservation=true');
+  });
+
+  it('AQ4: should return 201 on observed ballot with observation text on IPFS', async () => {
+    const table = cbbaTables[3];
+    const mockedData = getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, cbbaParties.codes);
+
+    // Mock IPFS fetching
+    jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue({
+      ...mockedData,
+      data: {
+        ...mockedData.data,
+        hasObservation: true,
+        observationText: 'Observation for testing 4',
+      }
+    });
+
+    const ballot = await request(appHttpServer)
+      .post('/api/v1/ballots/from-ipfs')
+      .send({
+        ipfsUri: 'https://ipfs.io/ipfs/testRecordId4',
+        recordId: 'testRecordId4',
+        electionId: activeElectionId,
+        tableIdIpfs: table.tableCode,
+        version: 1,
+      }).expect(201);
+
+    expect(ballot.body).toHaveProperty('_id');
+    const savedBallot = await conn.collection<Ballot>('ballots').findOne({ _id: new Types.ObjectId(ballot.body._id as string) });
+
+    expect(savedBallot).not.toBeNull();
+    expect(savedBallot?.hasObservation).toBe(true);
+    expect(savedBallot?.observationText).toBe('Observation for testing 4');
+  });
+
+  it('AO5: shoud not mark ballot as observed if hasObservation is not send and observationText has text "correyvale"', async () => {
+    const table = cbbaTables[4];
+
+    // Mock IPFS fetching
+    jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
+      getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, cbbaParties.codes)
+    );
+
+    const ballot = await request(appHttpServer)
+      .post('/api/v1/ballots/from-ipfs')
+      .send({
+        ipfsUri: 'https://ipfs.io/ipfs/testRecordId5',
+        recordId: 'testRecordId5',
+        electionId: activeElectionId,
+        tableIdIpfs: table.tableCode,
+        version: 1,
+        observationText: ' Corre y Vale ',
+      }).expect(201);
+
+    expect(ballot.body).toHaveProperty('_id');
+    const savedBallot = await conn.collection<Ballot>('ballots').findOne({ _id: new Types.ObjectId(ballot.body._id as string) });
+
+    expect(savedBallot).not.toBeNull();
+    expect(savedBallot?.hasObservation).toBe(false);
+    expect(savedBallot?.observationText).toBeUndefined();
+  })
+
+  it('AQ6: should return 400 on create observed ballot with empty observation text', async () => {
+    const table = cbbaTables[5];
+
+    // Mock IPFS fetching
+    jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
+      getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, cbbaParties.codes)
+    );
+
+    const ballot = await request(appHttpServer)
+      .post('/api/v1/ballots/from-ipfs')
+      .send({
+        ipfsUri: 'https://ipfs.io/ipfs/testRecordId6',
+        recordId: 'testRecordId6',
+        electionId: activeElectionId,
+        tableIdIpfs: table.tableCode,
+        version: 1,
+        hasObservation: true,
+        observationText: '   ',
+      }).expect(400);
+
+    expect(ballot.body).toHaveProperty('message', 'observationText es obligatorio cuando hasObservation=true');
+  });
+});
