@@ -221,3 +221,14 @@ export class WorksheetStatusResponseDto {
   @ApiPropertyOptional({ example: 'Error al obtener datos de IPFS' })
   errorMessage?: string;
 }
+
+export class WorksheetDetailResponseDto extends WorksheetStatusResponseDto {
+  @ApiPropertyOptional({ example: 'https://gateway.pinata.cloud/ipfs/QmImg...' })
+  image?: string;
+
+  @ApiPropertyOptional({ type: WorksheetVotesDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WorksheetVotesDto)
+  votes?: WorksheetVotesDto;
+}

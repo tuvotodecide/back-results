@@ -23,6 +23,7 @@ import {
   CompareWorksheetResponseDto,
   CreateWorksheetFromIpfsDto,
   RetryWorksheetFromIpfsDto,
+  WorksheetDetailResponseDto,
   WorksheetStatusResponseDto,
 } from '../dto/worksheet.dto';
 import { WorksheetService } from '../services/worksheet.service';
@@ -103,6 +104,51 @@ export class WorksheetController {
       ipfsUri: worksheet.ipfsUri,
       nftLink: worksheet.nftLink,
       errorMessage: worksheet.errorMessage,
+    };
+  }
+
+  @Get(':dni/by-table/:tableCode/detail')
+  @Public()
+  @UseGuards(ZkAuthGuard)
+  @ApiOperation({
+    summary:
+      'Consultar detalle de hoja de trabajo (incluye imagen y votos) por usuario/mesa/elección',
+  })
+  @ApiParam({ name: 'dni' })
+  @ApiParam({ name: 'tableCode' })
+  @ApiQuery({ name: 'electionId', required: true })
+  @ApiResponse({
+    status: 200,
+    description: 'Detalle de hoja encontrado o NOT_FOUND',
+    type: WorksheetDetailResponseDto,
+  })
+  async getDetailByTable(
+    @Param('dni') dni: string,
+    @Param('tableCode') tableCode: string,
+    @Query('electionId') electionId: string,
+  ): Promise<any> {
+    const worksheet = await this.worksheetService.getStatusByTable(
+      dni,
+      electionId,
+      tableCode,
+    );
+
+    if (!worksheet) {
+      return {
+        status: 'NOT_FOUND',
+      };
+    }
+
+    return {
+      id: String((worksheet as any)._id),
+      status: worksheet.status,
+      tableCode: worksheet.tableCode,
+      tableNumber: worksheet.tableNumber,
+      ipfsUri: worksheet.ipfsUri,
+      nftLink: worksheet.nftLink,
+      errorMessage: worksheet.errorMessage,
+      image: worksheet.image,
+      votes: worksheet.votes,
     };
   }
 
