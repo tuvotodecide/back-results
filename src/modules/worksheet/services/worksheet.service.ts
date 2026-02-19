@@ -22,6 +22,7 @@ import {
   WorksheetDocument,
   WorksheetStatus,
 } from '../schemas/worksheet.schema';
+import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 
 interface OpenSeaMetadata {
   image?: string;
@@ -53,6 +54,8 @@ export class WorksheetService {
   constructor(
     @InjectModel(Worksheet.name)
     private readonly worksheetModel: Model<WorksheetDocument>,
+    @InjectModel(NotificationLog.name)
+    private readonly notificationLogModel: Model<NotificationLog>,
     private readonly usersService: UsersService,
     private readonly electoralTableService: ElectoralTableService,
     private readonly electionConfigService: ElectionConfigService,
@@ -242,14 +245,42 @@ export class WorksheetService {
         if (retryOnlyFailed || existing.retryCount > 0) {
           existing.retryCount = (existing.retryCount ?? 0) + 1;
         }
-        return existing.save();
+        const saved = await existing.save();
+        await this.notifyWorksheetUploaded({
+          userId: String(user._id),
+          dni: normalizedDni,
+          electionId: electionObjectId.toString(),
+          tableCode: payload.tableCode as string,
+          tableNumber: String(payload.tableNumber || ''),
+          locationId: this.normalizeOptionalString(
+            String(payload.electoralLocationId ?? mergedData.locationId ?? ''),
+          ),
+          ipfsUri: dto.ipfsUri,
+          imageUrl: this.normalizeOptionalString(payload.image),
+          nftLink: this.normalizeOptionalString(dto.nftLink),
+        });
+        return saved;
       }
 
       const created = new this.worksheetModel({
         ...payload,
         retryCount: 0,
       });
-      return created.save();
+      const saved = await created.save();
+      await this.notifyWorksheetUploaded({
+        userId: String(user._id),
+        dni: normalizedDni,
+        electionId: electionObjectId.toString(),
+        tableCode: payload.tableCode as string,
+        tableNumber: String(payload.tableNumber || ''),
+        locationId: this.normalizeOptionalString(
+          String(payload.electoralLocationId ?? mergedData.locationId ?? ''),
+        ),
+        ipfsUri: dto.ipfsUri,
+        imageUrl: this.normalizeOptionalString(payload.image),
+        nftLink: this.normalizeOptionalString(dto.nftLink),
+      });
+      return saved;
     } catch (error) {
       if (
         error instanceof ConflictException ||
@@ -660,5 +691,72 @@ export class WorksheetService {
     }
 
     throw new BadRequestException('No se pudo extraer CID de la URI');
+  }
+
+  private normalizeOptionalString(value: any): string | undefined {
+    const normalized = String(value ?? '').trim();
+    return normalized.length ? normalized : undefined;
+  }
+
+  private async notifyWorksheetUploaded(params: {
+    userId: string;
+    dni: string;
+    electionId: string;
+    tableCode: string;
+    tableNumber?: string;
+    locationId?: string;
+    ipfsUri: string;
+    imageUrl?: string;
+    nftLink?: string;
+  }): Promise<void> {
+    try {
+      const routeParams = {
+        notificationType: 'worksheet_uploaded',
+        ipfsData: {
+          jsonUrl: params.ipfsUri,
+          ipfsUri: params.ipfsUri,
+          imageUrl: params.imageUrl,
+          url: params.nftLink || params.ipfsUri,
+        },
+        tableData: {
+          tableCode: params.tableCode,
+          tableNumber: params.tableNumber,
+          idRecinto: params.locationId,
+          locationId: params.locationId,
+        },
+        worksheetData: {
+          electionId: params.electionId,
+          tableCode: params.tableCode,
+          tableNumber: params.tableNumber,
+          ipfsUri: params.ipfsUri,
+          nftLink: params.nftLink,
+        },
+      };
+
+      await this.notificationLogModel.create({
+        type: 'generic',
+        topic: `user_${params.userId}`,
+        locationId: params.locationId,
+        title: 'Hoja de trabajo subida',
+        body: `Mesa ${params.tableNumber || params.tableCode}: tu hoja ya esta disponible para comparacion.`,
+        data: {
+          type: 'worksheet_uploaded',
+          dni: params.dni,
+          userId: params.userId,
+          electionId: params.electionId,
+          tableCode: params.tableCode,
+          tableNumber: params.tableNumber || '',
+          locationId: params.locationId || '',
+          ipfsUri: params.ipfsUri,
+          imageUrl: params.imageUrl || '',
+          nftLink: params.nftLink || '',
+          screen: 'SuccessScreen',
+          routeParams: JSON.stringify(routeParams),
+        },
+        status: 'SENT',
+      });
+    } catch {
+      // No romper la subida por fallo de notificación.
+    }
   }
 }

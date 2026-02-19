@@ -220,6 +220,8 @@ export class UsersService {
       chainId,
       contractAddress,
       electionId: dto.electionId ?? null,
+      ipfsUri: dto.ipfsUri ?? null,
+      actaImageUrl: dto.actaImageUrl ?? null,
     };
   }
 

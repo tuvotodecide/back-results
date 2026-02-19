@@ -30,6 +30,24 @@ export class AttestParticipationDto {
   @IsOptional()
   @IsString()
   electionId?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'URL/IPFS del JSON del acta para navegación desde notificaciones',
+    example: 'https://ipfs.io/ipfs/Qm...',
+  })
+  @IsOptional()
+  @IsString()
+  ipfsUri?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'URL de imagen del acta para navegación desde notificaciones',
+    example: 'https://ipfs.io/ipfs/Qm.../acta.png',
+  })
+  @IsOptional()
+  @IsString()
+  actaImageUrl?: string;
 }
 
 export class AttestParticipationResponseDto {
@@ -53,6 +71,12 @@ export class AttestParticipationResponseDto {
 
   @ApiProperty({ required: false })
   electionId?: string | null;
+
+  @ApiProperty({ required: false })
+  ipfsUri?: string | null;
+
+  @ApiProperty({ required: false })
+  actaImageUrl?: string | null;
 }
 
 // Para listar certificados

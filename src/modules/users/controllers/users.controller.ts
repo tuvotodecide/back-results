@@ -177,15 +177,24 @@ export class UsersController {
 
     try {
       const user = await this.usersService.findOrCreateByDni(dni);
-      const locId = (user as any)?.votingLocationId?.toString();
+      // Notificación personal: evitar duplicados en la bandeja por topic de ubicación.
+      const topics: string[] = [`user_${user._id.toString()}`];
 
-      const topics: string[] = [];
-      if (locId) {
-        const safeLoc = String(locId).replace(/[^A-Za-z0-9_-]/g, '');
-        topics.push(`loc_${safeLoc}`);
+      const routeParamsPayload: Record<string, unknown> = {
+        certificateData: {
+          imageUrl: result.imageUrl,
+        },
+        nftData: {
+          nftUrl: result.imageUrl,
+        },
+      };
+      if (result.ipfsUri || result.actaImageUrl) {
+        routeParamsPayload.ipfsData = {
+          jsonUrl: result.ipfsUri || undefined,
+          imageUrl: result.actaImageUrl || undefined,
+          ipfsUri: result.ipfsUri || undefined,
+        };
       }
-      // Fallback SIEMPRE: topic por usuario
-      topics.push(`user_${user._id.toString()}`);
 
       const payload = {
         title: 'Certificado de participación emitido',
@@ -196,30 +205,25 @@ export class UsersController {
           userId: user._id.toString(),
           electionId: result.electionId ?? '',
           imageUrl: result.imageUrl,
+          ipfsUri: result.ipfsUri ?? '',
+          actaImageUrl: result.actaImageUrl ?? '',
           txHash: result.txHash,
           chainId: result.chainId,
           contractAddress: result.contractAddress,
           screen: 'SuccessScreen',
-          routeParams: JSON.stringify({
-            certificateData: {
-              imageUrl: result.imageUrl,
-            },
-            nftData: {
-              nftUrl: result.imageUrl,
-            },
-          }),
+          routeParams: JSON.stringify(routeParamsPayload),
         },
       };
 
       await Promise.all(
         topics.map((topic) =>
           this.logModel.create({
-            type: 'generic', // 👈 requerido
+            type: 'generic',
             topic,
             title: payload.title,
             body: payload.body,
             data: payload.data,
-            status: 'SENT', // 👈 requerido
+            status: 'SENT', 
           }),
         ),
       );
