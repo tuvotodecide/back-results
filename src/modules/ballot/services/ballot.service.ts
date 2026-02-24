@@ -30,6 +30,7 @@ import {
   ElectoralTableDocument,
 } from '@/modules/geographic/schemas/electoral-table.schema';
 import { LoggerService } from '../../../core/services/logger.service';
+import { TableCodeValidationService } from '@/modules/table-code-validation/services/table-code-validation.service';
 
 @Injectable()
 export class BallotService {
@@ -41,6 +42,7 @@ export class BallotService {
     private electoralTableService: ElectoralTableService,
     private politicalPartyService: PoliticalPartyService,
     private electionConfigService: ElectionConfigService,
+    private tableCodeValidationService: TableCodeValidationService,
     private logger: LoggerService,
   ) {}
   private async getDepartmentNameById(departmentId: string): Promise<string> {
@@ -100,7 +102,12 @@ export class BallotService {
         version,
       });
 
-      return await ballot.save();
+      const savedBallot = await ballot.save();
+      await this.tableCodeValidationService.ensurePending(
+        electionId,
+        ballotData.tableCode,
+      );
+      return savedBallot;
     } catch (error) {
       throw error;
     }
@@ -232,12 +239,16 @@ export class BallotService {
       );
     }
     const rawData = metadata.data;
+    const normalizedTableCode = String(rawData.tableCode ?? '').trim();
+    const normalizedTableNumber =
+      String(rawData.tableNumber ?? '').trim() || normalizedTableCode;
+    const normalizedLocationId = String(rawData.locationId ?? '').trim();
 
     // Mapear la estructura de datos desde IPFS al formato esperado
     const ballotData: BallotDataFromIpfs = {
-      tableCode: rawData.tableCode,
-      tableNumber: rawData.tableNumber,
-      locationId: rawData.locationId,
+      tableCode: normalizedTableCode,
+      tableNumber: normalizedTableNumber,
+      locationId: normalizedLocationId,
       image: metadata.image,
       votes: {} as any,
       hasObservation: rawData.hasObservation,
@@ -337,8 +348,8 @@ export class BallotService {
     const errors: string[] = [];
 
     // Validar estructura básica
-    if (!data.tableCode || !data.tableNumber || !data.locationId) {
-      errors.push('Faltan campos básicos: tableCode, tableNumber o locationId');
+    if (!data.tableCode || !data.locationId) {
+      errors.push('Faltan campos básicos: tableCode o locationId');
     }
 
     // Validar estructura de votos
@@ -369,21 +380,6 @@ export class BallotService {
       await this.electoralLocationService.findOne(data.locationId);
     } catch (error) {
       errors.push('El recinto electoral especificado no existe');
-    }
-
-    try {
-      const table = await this.electoralTableService.findByTableCode(
-        data.tableCode,
-      );
-
-      if (
-        !table ||
-        String(table.electoralLocationId) !== String(data.locationId)
-      ) {
-        throw new Error('mismatch');
-      }
-    } catch {
-      errors.push('TABLE_NOT_FOUND_OR_MISMATCH');
     }
 
     // Validar partidos con filtrado territorial

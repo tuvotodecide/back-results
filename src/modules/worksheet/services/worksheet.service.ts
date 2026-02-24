@@ -7,8 +7,8 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { UsersService } from '@/modules/users/services/users.service';
-import { ElectoralTableService } from '@/modules/geographic/services/electoral-table.service';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
+import { TableCodeValidationService } from '@/modules/table-code-validation/services/table-code-validation.service';
 import {
   CompareWorksheetDto,
   CompareWorksheetResponseDto,
@@ -57,8 +57,8 @@ export class WorksheetService {
     @InjectModel(NotificationLog.name)
     private readonly notificationLogModel: Model<NotificationLog>,
     private readonly usersService: UsersService,
-    private readonly electoralTableService: ElectoralTableService,
     private readonly electionConfigService: ElectionConfigService,
+    private readonly tableCodeValidationService: TableCodeValidationService,
   ) {}
 
   async createFromIpfs(dto: CreateWorksheetFromIpfsDto): Promise<Worksheet> {
@@ -246,6 +246,10 @@ export class WorksheetService {
           existing.retryCount = (existing.retryCount ?? 0) + 1;
         }
         const saved = await existing.save();
+        await this.tableCodeValidationService.ensurePending(
+          electionObjectId,
+          payload.tableCode as string,
+        );
         await this.notifyWorksheetUploaded({
           userId: String(user._id),
           dni: normalizedDni,
@@ -267,6 +271,10 @@ export class WorksheetService {
         retryCount: 0,
       });
       const saved = await created.save();
+      await this.tableCodeValidationService.ensurePending(
+        electionObjectId,
+        payload.tableCode as string,
+      );
       await this.notifyWorksheetUploaded({
         userId: String(user._id),
         dni: normalizedDni,
@@ -435,7 +443,7 @@ export class WorksheetService {
 
     return {
       tableCode: metadata.data.tableCode,
-      tableNumber: metadata.data.tableNumber,
+      tableNumber: metadata.data.tableNumber ?? metadata.data.tableCode,
       locationId: metadata.data.locationId,
       image: metadata.image ?? metadata.data.image,
       votes: metadata.data.votes,
@@ -448,7 +456,11 @@ export class WorksheetService {
   ): WorksheetExtractedData {
     return {
       tableCode: extracted.tableCode ?? dto.tableCode,
-      tableNumber: extracted.tableNumber ?? dto.tableNumber,
+      tableNumber:
+        extracted.tableNumber ??
+        dto.tableNumber ??
+        extracted.tableCode ??
+        dto.tableCode,
       locationId: extracted.locationId ?? dto.locationId,
       image: extracted.image ?? dto.image,
       votes: extracted.votes ?? dto.votes,
@@ -463,9 +475,6 @@ export class WorksheetService {
 
     if (!data.tableCode) {
       errors.push('tableCode es requerido');
-    }
-    if (!data.tableNumber) {
-      errors.push('tableNumber es requerido');
     }
     if (!data.votes || (!data.votes.parties && !data.votes.deputies)) {
       errors.push('Debe incluir al menos una categoría de votos');
@@ -482,22 +491,6 @@ export class WorksheetService {
       await this.electionConfigService.findOne(electionId.toString());
     } catch {
       errors.push('La elección indicada no existe');
-    }
-
-    try {
-      const table = await this.electoralTableService.findByTableCode(
-        data.tableCode ?? '',
-      );
-      if (data.locationId) {
-        const tableLocationId = String((table as any).electoralLocationId ?? '');
-        if (tableLocationId && tableLocationId !== String(data.locationId)) {
-          errors.push(
-            'La mesa seleccionada no pertenece al recinto indicado en la hoja',
-          );
-        }
-      }
-    } catch {
-      errors.push('TABLE_NOT_FOUND_OR_MISMATCH');
     }
 
     if (errors.length > 0) {

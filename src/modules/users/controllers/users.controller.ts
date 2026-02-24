@@ -197,10 +197,10 @@ export class UsersController {
       }
 
       const payload = {
-        title: 'Certificado de participación emitido',
-        body: 'Tu certificado de participación ya está disponible.',
+        title: 'Acta subida exitosamente',
+        body: 'Tu acta fue publicada correctamente.',
         data: {
-          type: 'participation_certificate',
+          type: 'acta_published',
           dni: user.dni,
           userId: user._id.toString(),
           electionId: result.electionId ?? '',

@@ -11,6 +11,7 @@ import {
   ElectoralTableSchema,
 } from '../geographic/schemas/electoral-table.schema';
 import { ZkAuthModule } from '../zk-auth/zk-auth.module';
+import { TableCodeValidationModule } from '../table-code-validation/table-code-validation.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ZkAuthModule } from '../zk-auth/zk-auth.module';
     PoliticalModule,
     ElectionsModule,
     ZkAuthModule,
+    TableCodeValidationModule,
   ],
   controllers: [BallotController],
   providers: [BallotService],

@@ -11,6 +11,7 @@ import {
   NotificationLog,
   NotificationLogSchema,
 } from '../notifications/schemas/notification-log.schema';
+import { TableCodeValidationModule } from '../table-code-validation/table-code-validation.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import {
     GeographicModule,
     ElectionsModule,
     ZkAuthModule,
+    TableCodeValidationModule,
   ],
   controllers: [WorksheetController],
   providers: [WorksheetService],
