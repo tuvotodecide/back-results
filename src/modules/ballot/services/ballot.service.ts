@@ -103,6 +103,13 @@ export class BallotService {
       });
 
       const savedBallot = await ballot.save();
+
+      // Registrar/actualizar tableCode en electoral_tables para que aparezca en filtros
+      await this.ensureTableCodeInElectoralTables(
+        ballotData.tableCode,
+        ballotData.locationId,
+      );
+
       await this.tableCodeValidationService.ensurePending(
         electionId,
         ballotData.tableCode,
@@ -808,6 +815,70 @@ export class BallotService {
         completionPercentage,
       },
     };
+  }
+
+  /**
+   * Registra o actualiza el tableCode en electoral_tables para que aparezca en filtros.
+   * Si ya existe una mesa con ese tableCode, no hace nada.
+   * Si no existe, intenta actualizar una mesa existente del recinto o crear una nueva.
+   */
+  private async ensureTableCodeInElectoralTables(
+    tableCode: string,
+    electoralLocationId: Types.ObjectId | string,
+  ): Promise<void> {
+    const normalizedCode = String(tableCode || '').trim();
+    if (!normalizedCode || !electoralLocationId) {
+      return;
+    }
+
+    try {
+      const locationId =
+        typeof electoralLocationId === 'string'
+          ? new Types.ObjectId(electoralLocationId)
+          : electoralLocationId;
+
+      // Verificar si ya existe una mesa con este tableCode
+      const existingByCode = await this.electoralTableModel
+        .findOne({ tableCode: normalizedCode })
+        .lean();
+
+      if (existingByCode) {
+        // Ya existe, no hacer nada
+        return;
+      }
+
+      // Buscar si existe una mesa en el recinto sin tableCode asignado
+      // para actualizarla (preferir actualizar antes que crear nueva)
+      const existingInLocation = await this.electoralTableModel
+        .findOne({
+          electoralLocationId: locationId,
+          $or: [
+            { tableCode: { $exists: false } },
+            { tableCode: null },
+            { tableCode: '' },
+          ],
+        })
+        .lean();
+
+      if (existingInLocation) {
+        // Actualizar mesa existente con el nuevo tableCode
+        await this.electoralTableModel.updateOne(
+          { _id: existingInLocation._id },
+          { $set: { tableCode: normalizedCode, tableNumber: normalizedCode } },
+        );
+        return;
+      }
+
+      // No existe mesa disponible, crear una nueva
+      await this.electoralTableModel.create({
+        tableCode: normalizedCode,
+        tableNumber: normalizedCode,
+        electoralLocationId: locationId,
+        active: true,
+      });
+    } catch {
+      // No lanzar error para no bloquear el guardado del ballot
+    }
   }
 }
 

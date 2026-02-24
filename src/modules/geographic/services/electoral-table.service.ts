@@ -253,6 +253,7 @@ export class ElectoralTableService {
       _id: tableObj._id,
       tableNumber: tableObj.tableNumber,
       tableCode: tableObj.tableCode,
+      legacyTableCode: tableObj.legacyTableCode,
       active: tableObj.active,
       createdAt: tableObj.createdAt,
       updatedAt: tableObj.updatedAt,
@@ -294,6 +295,7 @@ export class ElectoralTableService {
   }
 
   async findByTableCode(tableCode: string): Promise<ElectoralTable> {
+    // Buscar por tableCode (ingresado por usuario desde el acta física)
     const table = await this.electoralTableModel
       .findOne({ tableCode })
       .populate({

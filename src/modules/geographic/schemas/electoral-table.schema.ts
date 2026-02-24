@@ -11,8 +11,13 @@ export class ElectoralTable {
   @Prop({ required: true, trim: true })
   tableNumber: string;
 
-  @Prop({ required: true, trim: true })
+  /** Código de mesa ingresado por el usuario (del acta física) - puede estar vacío hasta que un usuario lo registre */
+  @Prop({ trim: true, sparse: true })
   tableCode: string;
+
+  /** Código de mesa legacy (precargado anteriormente en el sistema) */
+  @Prop({ trim: true })
+  legacyTableCode: string;
 
   @Prop({ type: Types.ObjectId, ref: 'ElectoralLocation', required: true })
   electoralLocationId: Types.ObjectId;
@@ -34,7 +39,10 @@ export const ElectoralTableSchema =
   SchemaFactory.createForClass(ElectoralTable);
 
 ElectoralTableSchema.index({ electoralLocationId: 1 });
-ElectoralTableSchema.index({ tableCode: 1 }, { unique: true });
+// tableCode ahora es sparse: único solo cuando tiene valor (permite múltiples vacíos/null)
+ElectoralTableSchema.index({ tableCode: 1 }, { unique: true, sparse: true });
+// legacyTableCode para búsquedas de compatibilidad
+ElectoralTableSchema.index({ legacyTableCode: 1 }, { sparse: true });
 ElectoralTableSchema.index(
   {
     electoralLocationId: 1,

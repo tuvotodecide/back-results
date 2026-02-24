@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { UsersService } from '@/modules/users/services/users.service';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 import { TableCodeValidationService } from '@/modules/table-code-validation/services/table-code-validation.service';
+import { ElectoralTableService } from '@/modules/geographic/services/electoral-table.service';
 import {
   CompareWorksheetDto,
   CompareWorksheetResponseDto,
@@ -59,6 +60,7 @@ export class WorksheetService {
     private readonly usersService: UsersService,
     private readonly electionConfigService: ElectionConfigService,
     private readonly tableCodeValidationService: TableCodeValidationService,
+    private readonly electoralTableService: ElectoralTableService,
   ) {}
 
   async createFromIpfs(dto: CreateWorksheetFromIpfsDto): Promise<Worksheet> {
@@ -246,6 +248,13 @@ export class WorksheetService {
           existing.retryCount = (existing.retryCount ?? 0) + 1;
         }
         const saved = await existing.save();
+
+        // Registrar tableCode en electoral_tables para filtros
+        await this.ensureTableCodeInElectoralTables(
+          payload.tableCode as string,
+          payload.electoralLocationId ?? mergedData.locationId,
+        );
+
         await this.tableCodeValidationService.ensurePending(
           electionObjectId,
           payload.tableCode as string,
@@ -271,6 +280,13 @@ export class WorksheetService {
         retryCount: 0,
       });
       const saved = await created.save();
+
+      // Registrar tableCode en electoral_tables para filtros
+      await this.ensureTableCodeInElectoralTables(
+        payload.tableCode as string,
+        payload.electoralLocationId ?? mergedData.locationId,
+      );
+
       await this.tableCodeValidationService.ensurePending(
         electionObjectId,
         payload.tableCode as string,
@@ -750,6 +766,39 @@ export class WorksheetService {
       });
     } catch {
       // No romper la subida por fallo de notificación.
+    }
+  }
+
+  /**
+   * Registra el tableCode en electoral_tables para que aparezca en filtros.
+   */
+  private async ensureTableCodeInElectoralTables(
+    tableCode: string | undefined,
+    locationId: string | Types.ObjectId | undefined,
+  ): Promise<void> {
+    const normalizedCode = String(tableCode || '').trim();
+    if (!normalizedCode || !locationId) {
+      return;
+    }
+
+    try {
+      const locationObjectId =
+        typeof locationId === 'string'
+          ? new Types.ObjectId(locationId)
+          : locationId;
+
+      // Usar el servicio para hacer upsert de la mesa
+      await this.electoralTableService.ensureByCodeOrPrecinctAndNumber(
+        locationObjectId,
+        {
+          code: normalizedCode,
+          number: parseInt(normalizedCode, 10) || 1,
+          habilitados: 0,
+          inhabilitados: 0,
+        },
+      );
+    } catch {
+      // No bloquear la subida del worksheet por este error
     }
   }
 }
