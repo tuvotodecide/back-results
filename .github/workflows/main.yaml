@@ -204,6 +204,7 @@ jobs:
           docker exec ${CONTAINER_NAME} /bin/sh -lc 'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
           docker inspect --format="Name={{.Name}} Image={{.Config.Image}} Cmd={{.Config.Cmd}} Entrypoint={{.Config.Entrypoint}}" ${CONTAINER_NAME} || true
           docker image inspect ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} --format 'RepoDigests: {{json .RepoDigests}} Cmd: {{json .Config.Cmd}} Entrypoint: {{json .Config.Entrypoint}}' || true
+          docker network connect results-net ${CONTAINER_NAME} || true
           shred -u .env || rm -f .env
           docker system prune -a -f --volumes
           EOF
@@ -314,6 +315,7 @@ jobs:
           docker exec ${CONTAINER_NAME} /bin/sh -lc 'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
           docker inspect --format="Name={{.Name}} Image={{.Config.Image}} Cmd={{.Config.Cmd}} Entrypoint={{.Config.Entrypoint}}" ${CONTAINER_NAME} || true
           docker image inspect ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} --format 'RepoDigests: {{json .RepoDigests}} Cmd: {{json .Config.Cmd}} Entrypoint: {{json .Config.Entrypoint}}' || true
+          docker network connect results-net ${CONTAINER_NAME} || true
           shred -u .env || rm -f .env
           docker image prune -f
           EOF
