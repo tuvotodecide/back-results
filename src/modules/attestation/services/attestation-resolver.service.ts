@@ -436,10 +436,17 @@ export class AttestationResolverService {
         }
       }
 
+      // Si el contrato ya devuelve un ganador, lo tratamos como resuelto para
+      // que los endpoints finales puedan incluir la mesa.
+      const statusToPersist =
+        winningBallotId && (status === 'PENDING' || status === 'VERIFYING')
+          ? 'CONSENSUAL'
+          : status;
+
       await this.upsertCase(
         new Types.ObjectId(electionId),
         tableCode,
-        status,
+        statusToPersist,
         winningBallotId,
         {
           source: 'on-chain',
@@ -450,7 +457,7 @@ export class AttestationResolverService {
       );
 
       this.logger.log(
-        `Sincronizado ${tableCode}-${electionId}: ${status} ${winningBallotId ? `(ganador: ${winningBallotId})` : '(sin ganador)'}`,
+        `Sincronizado ${tableCode}-${electionId}: ${statusToPersist} ${winningBallotId ? `(ganador: ${winningBallotId})` : '(sin ganador)'}`,
       );
     } catch (error) {
       this.logger.error(

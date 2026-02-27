@@ -638,7 +638,8 @@ export class ResultsService implements OnModuleInit {
   /**
    * Devuelve un pipeline que filtra:
    * ballots processed/synced
-   * solo mesas con caso de atestiguamiento resuelto (CONSENSUAL/CLOSED)
+   * solo mesas con caso de atestiguamiento contabilizable
+   * (PENDING/CONSENSUAL/CLOSED)
    * solo la versión ganadora (winningBallotId) por mesa
    * dedup por tableCode y vuelve al documento original con $replaceRoot
    */
@@ -724,7 +725,7 @@ export class ResultsService implements OnModuleInit {
       return [
         { $match: { ...baseMatch, valuable: true } },
         ...attachCase,
-        { $match: { 'case.status': { $in: ['CONSENSUAL', 'CLOSED'] } } },
+        { $match: { 'case.status': { $in: ['PENDING', 'CONSENSUAL', 'CLOSED'] } } },
         { $match: { $expr: { $eq: ['$_id', '$case.winningBallotId'] } } },
         ...attachTable,
         { $sort: { tableCode: 1, version: -1, createdAt: -1 } },
