@@ -751,7 +751,7 @@ export class AttestationResolverService {
           // Si ya hay resultado final en contrato, solo sincronizamos a BD
           if (
             hasWinner ||
-            ['PENDING', 'VERIFYING', 'CONSENSUAL', 'CLOSED'].includes(stateStr)
+            ['CONSENSUAL', 'CLOSED'].includes(stateStr)
           ) {
             await this.syncFromContract(electionId, tableCode);
             continue;
@@ -768,6 +768,7 @@ export class AttestationResolverService {
 
       if (!ready.length) {
         // No había nada resolvible para esta elección en este tick
+        this.logger.debug(`No hay mesas listas para resolver on-chain en election ${electionId}`);
         break;
       }
 
