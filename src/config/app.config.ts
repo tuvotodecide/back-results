@@ -11,7 +11,7 @@ export default registerAs('app', () => ({
     password: process.env.MONGODB_PASSWORD ?? '',
   },
   redis: {
-    host: process.env.REDIS_HOST || 'localhost',
+    host: process.env.REDIS_HOST?.trim() || '',
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
     password: process.env.REDIS_PASSWORD,
   },
