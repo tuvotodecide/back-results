@@ -28,6 +28,7 @@
     "import:electoral": "ts-node -r tsconfig-paths/register src/scripts/import-prov-dept.ts --file ./final_data_replaced.json",
     "seed:big": "node scripts/seed-big-mock.js",
     "seed:attests": "node scripts/seed-attests.js",
+    "seed:live-scale": "node scripts/load-live-scale.js",
     "resolve:now": "ts-node -r tsconfig-paths/register scripts/resolve-now.ts"
   },
   "dependencies": {

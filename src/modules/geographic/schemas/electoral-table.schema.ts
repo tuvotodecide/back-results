@@ -12,7 +12,7 @@ export class ElectoralTable {
   tableNumber: string;
 
   /** Código de mesa ingresado por el usuario (del acta física) - puede estar vacío hasta que un usuario lo registre */
-  @Prop({ trim: true, sparse: true })
+  @Prop({ trim: true })
   tableCode: string;
 
   /** Código de mesa legacy (precargado anteriormente en el sistema) */

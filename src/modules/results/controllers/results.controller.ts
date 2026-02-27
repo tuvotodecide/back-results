@@ -14,7 +14,7 @@ import {
   ApiQuery,
   ApiBearerAuth,
 } from '@nestjs/swagger';
-import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
+import { CacheTTL } from '@nestjs/cache-manager';
 import { ResultsService } from '../services/results.service';
 import {
   QuickCountResponseDto,
@@ -32,10 +32,11 @@ import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.gu
 import { PreliminaryResultsGuard } from '@/modules/elections/guards/preliminary-results.guard';
 import { Public } from '@/core/decorators/public.decorator';
 import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
+import { CanonicalCacheInterceptor } from '@/core/interceptors/canonical-cache.interceptor';
 
 @ApiTags('Resultados')
 @Controller('api/v1/results')
-@UseInterceptors(CacheInterceptor) // Aplicar caché a todos los endpoints
+@UseInterceptors(CanonicalCacheInterceptor) // Aplicar caché a todos los endpoints
 export class ResultsController {
   constructor(private readonly resultsService: ResultsService) {}
 
@@ -50,7 +51,7 @@ export class ResultsController {
   @Get('quick-count')
   @Public()
   @UseGuards(ResultsPeriodGuard)
-  @CacheTTL(30)
+  @CacheTTL(30_000)
   @ApiOperation({
     summary: 'Obtener conteo rápido',
     description:
@@ -72,7 +73,7 @@ export class ResultsController {
   @Get('by-location')
   @Public()
   @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
-  @CacheTTL(60) // Cache por 60 segundos
+  @CacheTTL(60_000) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resultados por ubicación',
     description:
@@ -118,7 +119,7 @@ export class ResultsController {
   @Get('registration-progress')
   @UseGuards(TerritorialScopeGuard)
   @Public()
-  @CacheTTL(30)
+  @CacheTTL(30_000)
   @ApiOperation({
     summary: 'Obtener progreso de registro de actas',
     description:
@@ -144,7 +145,7 @@ export class ResultsController {
   @Public()
   
   @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
-  @CacheTTL(60) // Cache por 60 segundos
+  @CacheTTL(60_000) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resultados por circunscripción',
     description:
@@ -184,7 +185,7 @@ export class ResultsController {
   @Get('heat-map')
   @Public()
   @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
-  @CacheTTL(120) // Cache por 2 minutos
+  @CacheTTL(120_000) // Cache por 2 minutos
   @ApiOperation({
     summary: 'Obtener datos para mapa de calor',
     description:
@@ -231,7 +232,7 @@ export class ResultsController {
   @Public()
   // @UseGuards(JwtAuthGuard)
   // @ApiBearerAuth()
-  @CacheTTL(60) // Cache por 60 segundos
+  @CacheTTL(60_000) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener estadísticas del sistema',
     description:
@@ -252,7 +253,7 @@ export class ResultsController {
 
   @Get('summary/:partyId')
   @Public()
-  @CacheTTL(60) // Cache por 60 segundos
+  @CacheTTL(60_000) // Cache por 60 segundos
   @ApiOperation({
     summary: 'Obtener resumen por partido político',
     description:
@@ -334,7 +335,7 @@ export class ResultsController {
   }
 
   @Get('trends')
-  @CacheTTL(300) // Cache por 5 minutos
+  @CacheTTL(300_000) // Cache por 5 minutos
   @ApiOperation({
     summary: 'Obtener tendencias temporales',
     description: 'Retorna la evolución de los resultados en el tiempo',
@@ -389,7 +390,7 @@ export class ResultsController {
   @Get('live/quick-count')
   @Public()
   @UseGuards(PreliminaryResultsGuard)
-  @CacheTTL(15)
+  @CacheTTL(15_000)
   @ApiQuery({ name: 'electionId', required: false })
   @ApiQuery({
     name: 'electionType',
@@ -406,7 +407,7 @@ export class ResultsController {
   @Get('live/by-location')
   @Public()
   @UseGuards(PreliminaryResultsGuard, TerritorialScopeGuard)
-  @CacheTTL(30)
+  @CacheTTL(30_000)
   @ApiQuery({
     name: 'electionType',
     enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
@@ -422,7 +423,7 @@ export class ResultsController {
   @Get('live/heat-map')
   @Public()
   @UseGuards(PreliminaryResultsGuard)
-  @CacheTTL(60)
+  @CacheTTL(60_000)
   @ApiQuery({
     name: 'electionType',
     enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
@@ -454,7 +455,7 @@ export class ResultsController {
   @Get('live/by-circunscripcion')
   @Public()
   @UseGuards(PreliminaryResultsGuard)
-  @CacheTTL(60)
+  @CacheTTL(60_000)
   @ApiQuery({
     name: 'electionType',
     enum: ['presidential', 'deputies', 'departamental', 'assembly', 'municipal', 'council'],
@@ -476,7 +477,7 @@ export class ResultsController {
   @Get('live/ballots')
   @Public()
   @UseGuards(PreliminaryResultsGuard, TerritorialScopeGuard)
-  @CacheTTL(30)
+  @CacheTTL(30_000)
   @ApiOperation({
     summary: 'Obtener ballots que cuentan en resultados live',
     description:
@@ -514,7 +515,7 @@ export class ResultsController {
   @Get('final/ballots')
   @Public()
   @UseGuards(ResultsPeriodGuard, TerritorialScopeGuard)
-  @CacheTTL(60)
+  @CacheTTL(60_000)
   @ApiOperation({
     summary: 'Obtener ballots que cuentan en resultados finales',
     description:

@@ -18,7 +18,7 @@ export class TableCodeValidation {
   @Prop({ type: Types.ObjectId, ref: 'ElectionConfig', required: true, index: true })
   electionId: Types.ObjectId;
 
-  @Prop({ required: true, trim: true, index: true })
+  @Prop({ required: true, trim: true})
   tableCode: string;
 
   @Prop({
