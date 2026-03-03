@@ -1,0 +1,52 @@
+export const institutionalVotingFixtures = {
+  event: {
+    name: 'Eleccion Directiva 2026',
+    objective: 'Elegir directiva institucional',
+    votingStart: '2026-07-10T08:00:00-04:00',
+    votingEnd: '2026-07-10T18:00:00-04:00',
+    resultsPublishAt: '2026-07-10T20:00:00-04:00',
+  },
+  rolePresident: {
+    name: 'Presidente',
+  },
+  optionBlue: {
+    name: 'Frente Azul',
+    color: '#0057FF',
+    logoUrl: 'https://cdn.example.com/frente-azul.png',
+    candidates: [
+      {
+        name: 'Ana Perez',
+        photoUrl: 'https://cdn.example.com/candidates/ana.png',
+        roleName: 'Presidente',
+      },
+    ],
+  },
+  optionGreen: {
+    name: 'Frente Verde',
+    color: '#00A65A',
+    logoUrl: 'https://cdn.example.com/frente-verde.png',
+    candidates: [
+      {
+        name: 'Luis Gomez',
+        photoUrl: 'https://cdn.example.com/candidates/luis.png',
+        roleName: 'Presidente',
+      },
+    ],
+  },
+  padronCsv: `carnet\n123456\n123.456\n 123-456 \n\nABC-789\n`,
+  carnet: {
+    normalizedSource: ' 123.456- ',
+    normalizedExpected: '123456',
+    notEmpadronado: 'NO-999',
+    empadronado: 'ABC-789',
+  },
+  participation: {
+    idempotencyKey: 'idem-evt-001-user-001',
+    selections: [
+      {
+        roleName: 'Presidente',
+        optionName: 'Frente Azul',
+      },
+    ],
+  },
+};
