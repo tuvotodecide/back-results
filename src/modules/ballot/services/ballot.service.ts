@@ -72,11 +72,6 @@ export class BallotService {
       const ballotData = this.extractBallotData(ipfsData);
       const observationData = this.resolveObservationData(createDto, ballotData);
       await this.validateBallotData(ballotData, electionId);
-      await this.ensureNoDuplicateVotesForTable(
-        ballotData.tableCode,
-        electionId,
-        ballotData.votes,
-      );
 
       const locationDetails = await this.getLocationDetails(
         ballotData.locationId,
@@ -957,4 +952,3 @@ export class BallotService {
     }
   }
 }
-
