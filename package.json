@@ -25,6 +25,7 @@
     "test:cov": "jest -c ./jest.config.ts --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand -c ./jest.config.ts",
     "test:e2e": "jest -c ./jest.config.ts --runInBand --testPathPattern=test/end-to-end/",
+    "test:e2e:institutional": "jest -c ./jest.config.ts --runInBand --runTestsByPath test/end-to-end/institutional-voting.e2e.spec.ts",
     "import:electoral": "ts-node -r tsconfig-paths/register src/scripts/import-prov-dept.ts --file ./final_data_replaced.json",
     "seed:big": "node scripts/seed-big-mock.js",
     "seed:attests": "node scripts/seed-attests.js",

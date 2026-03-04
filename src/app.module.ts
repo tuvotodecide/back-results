@@ -23,6 +23,8 @@ import { ContractsModule } from './modules/contracts/contracts.module';
 import { MocksModule } from './modules/mocks/mocks.module';
 import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
 import { WorksheetModule } from './modules/worksheet/worksheet.module';
+import { InstitutionalVotingModule } from './modules/institutional-voting/institutional-voting.module';
+import { InstitutionalTenantsModule } from './modules/institutional-tenants/institutional-tenants.module';
 
 @Module({
   imports: [
@@ -52,6 +54,8 @@ import { WorksheetModule } from './modules/worksheet/worksheet.module';
     MocksModule,
     ZkAuthModule,
     WorksheetModule,
+    InstitutionalVotingModule,
+    InstitutionalTenantsModule,
   ],
   controllers: [AppController],
   providers: [

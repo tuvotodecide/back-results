@@ -42,11 +42,5 @@ export const institutionalVotingFixtures = {
   },
   participation: {
     idempotencyKey: 'idem-evt-001-user-001',
-    selections: [
-      {
-        roleName: 'Presidente',
-        optionName: 'Frente Azul',
-      },
-    ],
   },
 };

@@ -1,9 +1,10 @@
 import appConfig from '@/config/app.config';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { AuthModule } from '@/modules/auth/auth.module';
-import { ContractsModule } from '@/modules/contracts/contracts.module';
 import { ElectionsModule } from '@/modules/elections/elections.module';
 import { GeographicModule } from '@/modules/geographic/geographic.module';
+import { InstitutionalTenantsModule } from '@/modules/institutional-tenants/institutional-tenants.module';
+import { InstitutionalVotingModule } from '@/modules/institutional-voting/institutional-voting.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -14,7 +15,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Connection } from 'mongoose';
 import request from 'supertest';
-import { seedElectionConfigWith } from './seeds/electionsSeed';
 import { seedLocations } from './seeds/locationsSeed';
 import { seedAdmin, seedUsers } from './seeds/usersSeed';
 import { TestLoggerModule } from './module-helpers';
@@ -37,9 +37,7 @@ export type InstitutionalVotingContext = {
   mongod: MongoMemoryServer;
   httpServer: any;
   adminToken: string;
-  activeElectionId: string;
-  governorUserId: string;
-  createdContractId: string;
+  createdTenantId: string;
 };
 
 export async function bootstrapInstitutionalVotingContext(): Promise<InstitutionalVotingContext> {
@@ -65,7 +63,8 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       AuthModule,
       ElectionsModule,
       GeographicModule,
-      ContractsModule,
+      InstitutionalTenantsModule,
+      InstitutionalVotingModule,
     ],
     providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
   }).compile();
@@ -91,26 +90,29 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     throw new Error('Admin user not seeded properly');
   }
 
-  const election = await seedElectionConfigWith(conn, 'activeElection');
-  const activeElectionId = election.insertedId.toString();
-
   const loginRes = await request(httpServer).post('/api/v1/auth/login').send({
     email: admin.email,
     password: 'secret123',
   });
 
   const adminToken = loginRes.body?.accessToken as string;
-  const governorUserId = users.get('governorLaPaz')._id.toString() as string;
 
-  const contractRes = await request(httpServer)
-    .post('/api/v1/contracts')
+  const tenantRes = await request(httpServer)
+    .post('/api/v1/institutional-tenants')
     .auth(adminToken, { type: 'bearer' })
     .send({
-      clientId: governorUserId,
-      electionId: activeElectionId,
-      departmentId: users.get('governorLaPaz').votingDepartmentId.toString(),
-      startDate: new Date(Date.now() - 60_000).toISOString(),
-      endDate: new Date(Date.now() + 86_400_000).toISOString(),
+      name: `Tenant E2E ${Date.now()}`,
+      description: 'Tenant para pruebas institucionales',
+    });
+
+  const governorUserId = users.get('governorLaPaz')._id.toString() as string;
+
+  await request(httpServer)
+    .post(`/api/v1/institutional-tenants/${tenantRes.body?.id}/admins`)
+    .auth(adminToken, { type: 'bearer' })
+    .send({
+      userId: governorUserId,
+      active: true,
     });
 
   return {
@@ -120,9 +122,7 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     mongod,
     httpServer,
     adminToken,
-    activeElectionId,
-    governorUserId,
-    createdContractId: contractRes.body?.id,
+    createdTenantId: tenantRes.body?.id,
   };
 }
 
@@ -137,13 +137,13 @@ export async function teardownInstitutionalVotingContext(
 export async function createInstitutionalEvent(
   httpServer: any,
   token: string,
-  contractId: string,
+  tenantId: string,
   payload: Record<string, unknown>,
 ) {
   return request(httpServer)
     .post('/api/v1/voting/events')
     .auth(token, { type: 'bearer' })
-    .send({ ...payload, contractId });
+    .send({ ...payload, tenantId });
 }
 
 export async function publishInstitutionalEvent(
