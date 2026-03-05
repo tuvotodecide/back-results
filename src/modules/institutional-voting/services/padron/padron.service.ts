@@ -178,6 +178,13 @@ export class PadronService {
 
   async checkPublicEligibility(eventId: string, carnet: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
+    if (!event.publicEligibilityEnabled) {
+      return {
+        status: 'PUBLIC_CHECK_DISABLED',
+        referenceVersion: null,
+      };
+    }
+
     const carnetNorm = normalizeCarnet(carnet);
 
     const currentVersion = await this.padronVersionModel

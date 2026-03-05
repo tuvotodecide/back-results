@@ -8,7 +8,7 @@ import {
   uploadPadronCsv,
 } from '../utils/institutional-voting.helpers';
 
-describe('Institutional voting E2E (phase 1 + phase 2)', () => {
+describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
 
   beforeAll(async () => {
@@ -30,6 +30,15 @@ describe('Institutional voting E2E (phase 1 + phase 2)', () => {
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('state', 'DRAFT');
     expect(res.body).toHaveProperty('id');
+  });
+
+  it('SEC-ADM-001: endpoint admin requiere autenticacion', async () => {
+    const unauthorized = await request(ctx.httpServer).post('/api/v1/voting/events').send({
+      ...institutionalVotingFixtures.event,
+      tenantId: ctx.createdTenantId,
+    });
+
+    expect(unauthorized.status).toBe(401);
   });
 
   it('EVT-002: publicar falla si faltan precondiciones y devuelve pending[]', async () => {
@@ -315,5 +324,227 @@ describe('Institutional voting E2E (phase 1 + phase 2)', () => {
 
     expect(voteOutOfWindow.status).toBe(403);
     expect(voteOutOfWindow.body.error).toBe('OUTSIDE_VOTING_WINDOW');
+  });
+
+  it('PUB-001/PUB-002: consulta publica deshabilitada y habilitada por toggle', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+
+    const beforeToggle = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(beforeToggle.status).toBe(200);
+    expect(beforeToggle.body.status).toBe('PUBLIC_CHECK_DISABLED');
+
+    await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}/public-eligibility`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ enabled: true });
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+
+    const afterToggle = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(afterToggle.status).toBe(200);
+    expect(afterToggle.body.status).toBe('HABILITADO');
+  });
+
+  it('PUB-003: endpoints publicos de padron y estado no requieren bearer token', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+
+    const eligibilityPublic = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(eligibilityPublic.status).toBe(200);
+    expect(eligibilityPublic.body.status).toBe('HABILITADO');
+
+    const participationStatusPublic = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/participations/status`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(participationStatusPublic.status).toBe(200);
+    expect(participationStatusPublic.body).toHaveProperty('canVote');
+  });
+
+  it('RES-001/RES-002: resultados bloqueados antes de fecha y disponibles con snapshot', async () => {
+    const createdBlocked = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      {
+        ...institutionalVotingFixtures.event,
+        votingStart: new Date(Date.now() - 7_200_000).toISOString(),
+        votingEnd: new Date(Date.now() - 3_600_000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 3_600_000).toISOString(),
+      },
+    );
+    const blockedEventId = createdBlocked.body.id;
+
+    const beforePublishAt = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${blockedEventId}/results`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(beforePublishAt.status).toBe(403);
+    expect(beforePublishAt.body.error).toBe('RESULTS_NOT_AVAILABLE');
+
+    const createdAvailable = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      {
+        ...institutionalVotingFixtures.event,
+        votingStart: new Date(Date.now() - 7_200_000).toISOString(),
+        votingEnd: new Date(Date.now() - 3_600_000).toISOString(),
+        resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
+      },
+    );
+    const availableEventId = createdAvailable.body.id;
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${availableEventId}/results/snapshot`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.resultsSnapshot);
+
+    const available = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${availableEventId}/results`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(available.status).toBe(200);
+    expect(available.body.source).toBe('BLOCKCHAIN');
+    expect(Array.isArray(available.body.roles)).toBe(true);
+    expect(available.body.roles).toHaveLength(1);
+    expect(available.body.txHash).toBe(institutionalVotingFixtures.resultsSnapshot.txHash);
+  });
+
+  it('NEWS-001: noticia rica segmentada a empadronados queda en historial', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    const linkedDni = '777001';
+    await ctx.conn.collection('users').insertOne({
+      dni: linkedDni,
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      `carnet\n${linkedDni}\n`,
+    );
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+
+    const publishNews = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/news`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.news);
+
+    expect(publishNews.status).toBe(201);
+    expect(publishNews.body.sent).toBeGreaterThan(0);
+
+    const storedNews = await ctx.conn
+      .collection('user_notifications')
+      .findOne({ dni: linkedDni, title: institutionalVotingFixtures.news.title });
+    expect(storedNews).toBeTruthy();
+    expect(storedNews?.data?.type).toBe('INSTITUTIONAL_NEWS');
+  });
+
+  it('NEWS-002: news no se envia si comparison report no esta OK', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      'carnet\n3\n',
+    );
+
+    const publishNews = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/news`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.news);
+
+    expect(publishNews.status).toBe(201);
+    expect(publishNews.body.sent).toBe(0);
+    expect(publishNews.body.skipped).toBe('comparison_not_ok');
+  });
+
+  it('NEWS-003: con comparison OK pero sin usuarios vinculados retorna no_linked_users', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      'carnet\n999001\n',
+    );
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+
+    const publishNews = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/news`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.news);
+
+    expect(publishNews.status).toBe(201);
+    expect(publishNews.body.sent).toBe(0);
+    expect(publishNews.body.skipped).toBe('no_linked_users');
   });
 });

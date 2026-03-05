@@ -3,32 +3,28 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
   HttpCode,
   Param,
   Patch,
   Post,
-  Query,
   Req,
-  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
-import { Public } from '@/core/decorators/public.decorator';
 import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
 import { InstitutionalVotingService } from '../services/institutional-voting.service';
 import { CreateVotingEventDto } from '../dto/create-voting-event.dto';
 import { CreateEventRoleDto } from '../dto/event-role.dto';
+import { UpdatePublicEligibilityDto } from '../dto/public-eligibility-toggle.dto';
+import { UpsertEventResultsSnapshotDto } from '../dto/results-snapshot.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
-import { CreateParticipationDto } from '../dto/participation.dto';
-import { Response } from 'express';
 
-@ApiTags('Institutional Voting')
+@ApiTags('Institutional Voting Admin')
 @Controller('api/v1/voting/events')
-export class InstitutionalVotingController {
+export class InstitutionalVotingAdminController {
   constructor(private readonly institutionalVotingService: InstitutionalVotingService) {}
 
   @Post()
@@ -76,6 +72,7 @@ export class InstitutionalVotingController {
     if (!file) {
       throw new BadRequestException('Archivo requerido');
     }
+
     return this.institutionalVotingService.importPadron(
       eventId,
       file.buffer.toString('utf-8'),
@@ -93,59 +90,34 @@ export class InstitutionalVotingController {
     return this.institutionalVotingService.updateSchedule(eventId, body, req.user);
   }
 
+  @Patch(':eventId/public-eligibility')
+  @UseGuards(ZkAuthGuard)
+  setPublicEligibility(
+    @Param('eventId') eventId: string,
+    @Body() body: UpdatePublicEligibilityDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.setPublicEligibility(eventId, body.enabled, req.user);
+  }
+
   @Get(':eventId/padron/versions')
   listPadronVersions(@Param('eventId') eventId: string, @Req() req: any) {
     return this.institutionalVotingService.listPadronVersions(eventId, req.user);
   }
 
-  @Get(':eventId/eligibility')
-  @Public()
-  eligibility(
-    @Param('eventId') eventId: string,
-    @Query('carnet') carnet: string,
-  ) {
-    return this.institutionalVotingService.checkEligibility(eventId, carnet);
-  }
-
-  @Get(':eventId/eligibility/public')
-  @Public()
-  publicEligibility(
-    @Param('eventId') eventId: string,
-    @Query('carnet') carnet: string,
-  ) {
-    return this.institutionalVotingService.checkPublicEligibility(eventId, carnet);
-  }
-
-  @Post(':eventId/participations')
-  @Public()
-  @UseGuards(ZkAuthGuard)
-  async createParticipation(
-    @Param('eventId') eventId: string,
-    @Body() dto: CreateParticipationDto,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Res() res: Response,
-  ) {
-    const out = await this.institutionalVotingService.createParticipation(
-      eventId,
-      dto,
-      idempotencyKey,
-    );
-
-    return res.status(out.statusCode).json(out.body);
-  }
-
-  @Get(':eventId/participations/status')
-  @Public()
-  participationStatus(
-    @Param('eventId') eventId: string,
-    @Query('carnet') carnet: string,
-  ) {
-    return this.institutionalVotingService.checkParticipationStatus(eventId, carnet);
-  }
-
   @Get(':eventId/results')
   getResults(@Param('eventId') eventId: string) {
     return this.institutionalVotingService.getResults(eventId);
+  }
+
+  @Post(':eventId/results/snapshot')
+  @UseGuards(ZkAuthGuard)
+  upsertResultsSnapshot(
+    @Param('eventId') eventId: string,
+    @Body() dto: UpsertEventResultsSnapshotDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.upsertResultsSnapshot(eventId, dto, req.user);
   }
 
   @Post(':eventId/comparison-report/status')

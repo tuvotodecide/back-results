@@ -43,4 +43,25 @@ export const institutionalVotingFixtures = {
   participation: {
     idempotencyKey: 'idem-evt-001-user-001',
   },
+  resultsSnapshot: {
+    txHash: '0xabc123',
+    blockNumber: '123456',
+    roles: [
+      {
+        roleName: 'Presidente',
+        total: 10,
+        ranking: [
+          { optionName: 'Frente Azul', votes: 6, percentage: 60 },
+          { optionName: 'Frente Verde', votes: 4, percentage: 40 },
+        ],
+        winners: [{ optionName: 'Frente Azul', votes: 6, percentage: 60 }],
+      },
+    ],
+  },
+  news: {
+    title: 'Convocatoria oficial',
+    body: 'Se publica la convocatoria institucional.',
+    imageUrl: 'https://cdn.example.com/news/convocatoria.png',
+    link: 'https://example.com/institucional/convocatoria',
+  },
 };

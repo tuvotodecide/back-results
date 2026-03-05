@@ -39,6 +39,12 @@ export class VotingEvent {
 
   @Prop({ default: false })
   publicEligibilityEnabled: boolean;
+
+  @Prop({ type: Date, required: false })
+  convocationNotifiedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  resultsNotifiedAt?: Date;
 }
 
 export const VotingEventSchema = SchemaFactory.createForClass(VotingEvent);

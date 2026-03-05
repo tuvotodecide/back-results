@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { CreateVotingEventDto } from '../dto/create-voting-event.dto';
+import { CreateEventNewsDto } from '../dto/event-news.dto';
 import { CreateEventRoleDto } from '../dto/event-role.dto';
 import { CreateParticipationDto } from '../dto/participation.dto';
+import { UpsertEventResultsSnapshotDto } from '../dto/results-snapshot.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
 import { VotingEventsService } from './events/voting-events.service';
 import { PadronService } from './padron/padron.service';
@@ -29,6 +31,10 @@ export class InstitutionalVotingService {
     return this.votingEventsService.createRole(eventId, dto, requester);
   }
 
+  publishNews(eventId: string, dto: CreateEventNewsDto, requester: any) {
+    return this.votingEventsService.publishNews(eventId, dto, requester);
+  }
+
   createOption(eventId: string, dto: CreateVotingOptionDto, requester: any) {
     return this.votingEventsService.createOption(eventId, dto, requester);
   }
@@ -53,6 +59,10 @@ export class InstitutionalVotingService {
     return this.votingEventsService.updateSchedule(eventId, payload, requester);
   }
 
+  setPublicEligibility(eventId: string, enabled: boolean, requester: any) {
+    return this.votingEventsService.setPublicEligibility(eventId, enabled, requester);
+  }
+
   checkEligibility(eventId: string, carnet: string) {
     return this.padronService.checkEligibility(eventId, carnet);
   }
@@ -71,6 +81,14 @@ export class InstitutionalVotingService {
 
   getResults(eventId: string) {
     return this.votingResultsService.getResults(eventId);
+  }
+
+  upsertResultsSnapshot(
+    eventId: string,
+    dto: UpsertEventResultsSnapshotDto,
+    requester: any,
+  ) {
+    return this.votingResultsService.upsertResultsSnapshot(eventId, dto, requester);
   }
 
   updateComparisonReportStatus(

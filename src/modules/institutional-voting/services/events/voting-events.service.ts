@@ -7,6 +7,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { CreateVotingEventDto } from '../../dto/create-voting-event.dto';
+import { CreateEventNewsDto } from '../../dto/event-news.dto';
 import { CreateEventRoleDto } from '../../dto/event-role.dto';
 import { CreateVotingOptionDto } from '../../dto/voting-option.dto';
 import { EventRole, EventRoleDocument } from '../../schemas/event-role.schema';
@@ -20,6 +21,7 @@ import {
   VotingOptionDocument,
 } from '../../schemas/voting-option.schema';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
+import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
 
 @Injectable()
 export class VotingEventsService {
@@ -33,6 +35,7 @@ export class VotingEventsService {
     @InjectModel(PadronVersion.name)
     private readonly padronVersionModel: Model<PadronVersionDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
+    private readonly notificationsService: InstitutionalVotingNotificationsService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -209,10 +212,42 @@ export class VotingEventsService {
 
     event.state = 'PUBLISHED';
     await event.save();
+    await this.notificationsService.notifyConvocationIfEligible(event);
 
     return {
       id: String(event._id),
       state: event.state,
+    };
+  }
+
+  async setPublicEligibility(eventId: string, enabled: boolean, requester: any) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    event.publicEligibilityEnabled = Boolean(enabled);
+    await event.save();
+
+    return {
+      id: String(event._id),
+      publicEligibilityEnabled: event.publicEligibilityEnabled,
+    };
+  }
+
+  async publishNews(eventId: string, dto: CreateEventNewsDto, requester: any) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    const out = await this.notificationsService.notifyNewsToCurrentPadron(event, {
+      title: dto.title,
+      body: dto.body,
+      imageUrl: dto.imageUrl,
+      link: dto.link,
+    });
+
+    return {
+      eventId,
+      sent: out.sent ?? 0,
+      skipped: (out as any).skipped ?? null,
     };
   }
 }
