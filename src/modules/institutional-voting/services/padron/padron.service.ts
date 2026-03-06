@@ -144,6 +144,61 @@ export class PadronService {
     };
   }
 
+  async listCurrentPadronVoters(
+    eventId: string,
+    requester: any,
+    page = 1,
+    limit = 50,
+  ) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(500, Math.max(1, Number(limit) || 50));
+    const skip = (safePage - 1) * safeLimit;
+
+    const currentVersion = await this.padronVersionModel
+      .findOne({ eventId: event._id, isCurrent: true })
+      .lean();
+
+    if (!currentVersion) {
+      return {
+        data: [],
+        page: safePage,
+        limit: safeLimit,
+        total: 0,
+        totalPages: 0,
+        padronVersionId: null,
+      };
+    }
+
+    const [rows, total] = await Promise.all([
+      this.padronEntryModel
+        .find(
+          { padronVersionId: currentVersion._id },
+          { _id: 1, carnetNorm: 1, createdAt: 1 },
+        )
+        .sort({ carnetNorm: 1, _id: 1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .lean(),
+      this.padronEntryModel.countDocuments({ padronVersionId: currentVersion._id }),
+    ]);
+
+    return {
+      data: rows.map((row) => ({
+        id: String(row._id),
+        carnetNorm: row.carnetNorm,
+        createdAt: row.createdAt ?? null,
+      })),
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
+      padronVersionId: String(currentVersion._id),
+    };
+  }
+
   async checkEligibility(eventId: string, carnet: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
     const carnetNorm = normalizeCarnet(carnet);

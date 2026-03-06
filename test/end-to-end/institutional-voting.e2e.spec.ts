@@ -32,6 +32,167 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(res.body).toHaveProperty('id');
   });
 
+  it('EVT-LIST-001: lista eventos segun sesion (tenant admin solo sus tenants)', async () => {
+    const ownEventName = `Tenant Event ${Date.now()}`;
+    await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      {
+        ...institutionalVotingFixtures.event,
+        name: ownEventName,
+      },
+    );
+
+    const otherTenant = await request(ctx.httpServer)
+      .post('/api/v1/institutional-tenants')
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({
+        name: `Tenant Other ${Date.now()}`,
+        description: 'Otro tenant',
+      });
+
+    const otherEventName = `Other Event ${Date.now()}`;
+    await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      otherTenant.body.id,
+      {
+        ...institutionalVotingFixtures.event,
+        name: otherEventName,
+      },
+    );
+
+    const tenantAdminList = await request(ctx.httpServer)
+      .get('/api/v1/voting/events')
+      .auth(ctx.tenantAdminToken, { type: 'bearer' });
+
+    expect(tenantAdminList.status).toBe(200);
+    const tenantAdminNames = tenantAdminList.body.data.map((e: any) => e.name);
+    expect(tenantAdminNames).toContain(ownEventName);
+    expect(tenantAdminNames).not.toContain(otherEventName);
+
+    const superAdminList = await request(ctx.httpServer)
+      .get('/api/v1/voting/events')
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(superAdminList.status).toBe(200);
+    const superAdminNames = superAdminList.body.data.map((e: any) => e.name);
+    expect(superAdminNames).toContain(ownEventName);
+    expect(superAdminNames).toContain(otherEventName);
+  });
+
+  it('EVT-LIST-002: tenant admin no puede listar tenant ajeno por tenantId', async () => {
+    const otherTenant = await request(ctx.httpServer)
+      .post('/api/v1/institutional-tenants')
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({
+        name: `Tenant Forbidden ${Date.now()}`,
+        description: 'Tenant sin asignacion',
+      });
+
+    const forbidden = await request(ctx.httpServer)
+      .get('/api/v1/voting/events')
+      .query({ tenantId: otherTenant.body.id })
+      .auth(ctx.tenantAdminToken, { type: 'bearer' });
+
+    expect(forbidden.status).toBe(403);
+  });
+
+  it('EVT-CRUD-001: detalle de evento + CRUD roles/opciones/evento', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    const roleRes = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/roles`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ name: 'Secretario', maxWinners: 1 });
+    expect(roleRes.status).toBe(201);
+    const roleId = roleRes.body.id;
+
+    const optionRes = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/options`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({
+        name: 'Lista Naranja',
+        color: '#F97316',
+        candidates: [{ name: 'Maria Nina', roleName: 'Secretario' }],
+      });
+    expect(optionRes.status).toBe(201);
+    const optionId = optionRes.body.id;
+
+    const detail = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(detail.status).toBe(200);
+    expect(detail.body.roles.length).toBeGreaterThan(0);
+    expect(detail.body.options.length).toBeGreaterThan(0);
+
+    const patchEvent = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ name: 'Evento Editado', objective: 'Objetivo Editado' });
+    expect(patchEvent.status).toBe(200);
+    expect(patchEvent.body.name).toBe('Evento Editado');
+
+    const patchRole = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}/roles/${roleId}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ name: 'Secretario General', maxWinners: 2 });
+    expect(patchRole.status).toBe(200);
+    expect(patchRole.body.maxWinners).toBe(2);
+
+    const putCandidates = await request(ctx.httpServer)
+      .put(`/api/v1/voting/events/${eventId}/options/${optionId}/candidates`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({
+        candidates: [{ name: 'Maria Nina', roleName: 'Secretario General' }],
+      });
+    expect(putCandidates.status).toBe(200);
+
+    const patchOption = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}/options/${optionId}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ name: 'Lista Naranja 2', color: '#EA580C' });
+    expect(patchOption.status).toBe(200);
+    expect(patchOption.body.name).toBe('Lista Naranja 2');
+
+    const listRoles = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/roles`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(listRoles.status).toBe(200);
+    expect(Array.isArray(listRoles.body.data)).toBe(true);
+
+    const listOptions = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/options`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(listOptions.status).toBe(200);
+    expect(Array.isArray(listOptions.body.data)).toBe(true);
+
+    const deleteOption = await request(ctx.httpServer)
+      .delete(`/api/v1/voting/events/${eventId}/options/${optionId}`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(deleteOption.status).toBe(200);
+    expect(deleteOption.body.deleted).toBe(true);
+
+    const deleteRole = await request(ctx.httpServer)
+      .delete(`/api/v1/voting/events/${eventId}/roles/${roleId}`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(deleteRole.status).toBe(200);
+    expect(deleteRole.body.deleted).toBe(true);
+
+    const deleteEvent = await request(ctx.httpServer)
+      .delete(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(deleteEvent.status).toBe(200);
+    expect(deleteEvent.body.deleted).toBe(true);
+  });
+
   it('SEC-ADM-001: endpoint admin requiere autenticacion', async () => {
     const unauthorized = await request(ctx.httpServer).post('/api/v1/voting/events').send({
       ...institutionalVotingFixtures.event,
@@ -150,6 +311,34 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(check.status).toBe(200);
     expect(check.body.normalizedCarnet).toBe(institutionalVotingFixtures.carnet.normalizedExpected);
     expect(check.body.status).toBe('HABILITADO');
+  });
+
+  it('PAD-004: listar votantes del padron vigente paginado', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+
+    const voters = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/voters`)
+      .query({ page: 1, limit: 2 })
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(voters.status).toBe(200);
+    expect(voters.body).toHaveProperty('padronVersionId');
+    expect(Array.isArray(voters.body.data)).toBe(true);
+    expect(voters.body.data.length).toBeLessThanOrEqual(2);
+    expect(voters.body.total).toBeGreaterThan(0);
   });
 
   it('PAR-STATUS: estado de participacion por carnet (canVote / alreadyVoted)', async () => {

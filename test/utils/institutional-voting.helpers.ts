@@ -37,6 +37,7 @@ export type InstitutionalVotingContext = {
   mongod: MongoMemoryServer;
   httpServer: any;
   adminToken: string;
+  tenantAdminToken: string;
   createdTenantId: string;
 };
 
@@ -106,6 +107,7 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     });
 
   const governorUserId = users.get('governorLaPaz')._id.toString() as string;
+  const governorEmail = users.get('governorLaPaz').email as string;
 
   await request(httpServer)
     .post(`/api/v1/institutional-tenants/${tenantRes.body?.id}/admins`)
@@ -115,6 +117,11 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       active: true,
     });
 
+  const tenantAdminLoginRes = await request(httpServer).post('/api/v1/auth/login').send({
+    email: governorEmail,
+    password: 'secret123',
+  });
+
   return {
     app,
     moduleRef,
@@ -122,6 +129,7 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     mongod,
     httpServer,
     adminToken,
+    tenantAdminToken: tenantAdminLoginRes.body?.accessToken as string,
     createdTenantId: tenantRes.body?.id,
   };
 }
