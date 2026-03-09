@@ -8,6 +8,9 @@ export class InstitutionalTenant {
   @Prop({ required: true, trim: true, unique: true })
   name: string;
 
+  @Prop({ required: true, trim: true, unique: true, index: true })
+  nameNorm: string;
+
   @Prop({ required: false, trim: true })
   description?: string;
 

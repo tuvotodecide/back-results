@@ -31,6 +31,18 @@ export class InstitutionalVotingService {
     return this.votingEventsService.listEvents(requester, tenantId);
   }
 
+  getPublicLanding(tenantId?: string, limit?: number) {
+    return this.votingEventsService.getPublicLanding(tenantId, limit);
+  }
+
+  getPublicEventDetail(eventId: string) {
+    return this.votingEventsService.getPublicEventDetail(eventId);
+  }
+
+  checkPublicEligibilityAcrossEvents(carnet: string, tenantId?: string) {
+    return this.votingEventsService.checkPublicEligibilityAcrossEvents(carnet, tenantId);
+  }
+
   getEventDetail(eventId: string, requester: any) {
     return this.votingEventsService.getEventDetail(eventId, requester);
   }

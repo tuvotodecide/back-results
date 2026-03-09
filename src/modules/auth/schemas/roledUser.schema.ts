@@ -48,6 +48,12 @@ export class RoledUser {
 
   @Prop({ type: Types.ObjectId, ref: 'Municipality', default: null })
   votingMunicipalityId?: Types.ObjectId | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  institutionName?: string | null;
+
+  @Prop({ type: String, default: null, trim: true, index: true })
+  institutionNameNorm?: string | null;
 }
 
 export const RoledUserSchema = SchemaFactory.createForClass(RoledUser);

@@ -4,6 +4,7 @@ import { AuthModule } from '@/modules/auth/auth.module';
 import { ElectionsModule } from '@/modules/elections/elections.module';
 import { GeographicModule } from '@/modules/geographic/geographic.module';
 import { InstitutionalTenantsModule } from '@/modules/institutional-tenants/institutional-tenants.module';
+import { InstitutionalAdminApplicationsModule } from '@/modules/institutional-admin-applications/institutional-admin-applications.module';
 import { InstitutionalVotingModule } from '@/modules/institutional-voting/institutional-voting.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -65,6 +66,7 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       ElectionsModule,
       GeographicModule,
       InstitutionalTenantsModule,
+      InstitutionalAdminApplicationsModule,
       InstitutionalVotingModule,
     ],
     providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],

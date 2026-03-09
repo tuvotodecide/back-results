@@ -31,9 +31,18 @@ export class InstitutionalTenantsService {
   ) {}
 
   async createTenant(dto: CreateInstitutionalTenantDto) {
+    const normalizedName = this.normalizeName(dto.name);
+    const displayName = this.formatDisplayName(dto.name);
+
+    const existing = await this.tenantModel.findOne({ nameNorm: normalizedName }).lean();
+    if (existing) {
+      throw new ConflictException('Ya existe un tenant con ese nombre');
+    }
+
     try {
       const created = await this.tenantModel.create({
-        name: dto.name.trim(),
+        name: displayName,
+        nameNorm: normalizedName,
         description: dto.description?.trim(),
         active: true,
       });
@@ -87,5 +96,16 @@ export class InstitutionalTenantsService {
       userId: dto.userId,
       active,
     };
+  }
+
+  private normalizeName(input: string): string {
+    return input
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+  }
+
+  private formatDisplayName(input: string): string {
+    return input.trim().replace(/\s+/g, ' ');
   }
 }

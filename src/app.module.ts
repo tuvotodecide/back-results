@@ -25,6 +25,7 @@ import { ZkAuthModule } from './modules/zk-auth/zk-auth.module';
 import { WorksheetModule } from './modules/worksheet/worksheet.module';
 import { InstitutionalVotingModule } from './modules/institutional-voting/institutional-voting.module';
 import { InstitutionalTenantsModule } from './modules/institutional-tenants/institutional-tenants.module';
+import { InstitutionalAdminApplicationsModule } from './modules/institutional-admin-applications/institutional-admin-applications.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { InstitutionalTenantsModule } from './modules/institutional-tenants/inst
     WorksheetModule,
     InstitutionalVotingModule,
     InstitutionalTenantsModule,
+    InstitutionalAdminApplicationsModule,
   ],
   controllers: [AppController],
   providers: [

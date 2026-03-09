@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { CreateVotingEventDto } from '../../dto/create-voting-event.dto';
 import { CreateEventNewsDto } from '../../dto/event-news.dto';
 import { CreateEventRoleDto } from '../../dto/event-role.dto';
+import { normalizeCarnet } from '../../utils/carnet-normalizer';
 import { UpdateEventRoleDto } from '../../dto/update-event-role.dto';
 import { UpdateOptionCandidatesDto } from '../../dto/update-option-candidates.dto';
 import { UpdateVotingEventDto } from '../../dto/update-voting-event.dto';
@@ -120,6 +121,238 @@ export class VotingEventsService {
         resultsPublishAt: event.resultsPublishAt ?? null,
         publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       })),
+    };
+  }
+
+  async getPublicLanding(tenantId?: string, limit = 10) {
+    const now = new Date();
+    const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
+    const query: Record<string, unknown> = {
+      state: { $in: ['PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+    };
+
+    if (tenantId) {
+      if (!Types.ObjectId.isValid(tenantId)) {
+        throw new BadRequestException('tenantId invalido');
+      }
+      query.tenantId = new Types.ObjectId(tenantId);
+    }
+
+    const events = await this.votingEventModel
+      .find(query)
+      .sort({ votingStart: 1, _id: 1 })
+      .lean();
+
+    const mapped = events.map((event) => {
+      const isUpcoming = Boolean(
+        event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
+      );
+      const isActive = Boolean(
+        event.state === 'PUBLISHED' &&
+          event.votingStart &&
+          event.votingEnd &&
+          now >= event.votingStart &&
+          now <= event.votingEnd,
+      );
+      const isResults = Boolean(
+        event.state === 'RESULTS_PUBLISHED' ||
+          (event.resultsPublishAt && now >= event.resultsPublishAt),
+      );
+
+      return {
+        id: String(event._id),
+        tenantId: String(event.tenantId),
+        name: event.name,
+        objective: event.objective,
+        state: event.state,
+        votingStart: event.votingStart ?? null,
+        votingEnd: event.votingEnd ?? null,
+        resultsPublishAt: event.resultsPublishAt ?? null,
+        publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+        phase: isResults ? 'RESULTS' : isActive ? 'ACTIVE' : isUpcoming ? 'UPCOMING' : 'OTHER',
+      };
+    });
+
+    const upcoming = mapped.filter((e) => e.phase === 'UPCOMING').slice(0, safeLimit);
+    const active = mapped.filter((e) => e.phase === 'ACTIVE').slice(0, safeLimit);
+    const results = mapped
+      .filter((e) => e.phase === 'RESULTS')
+      .sort((a, b) => {
+        const left = a.resultsPublishAt ? new Date(a.resultsPublishAt).getTime() : 0;
+        const right = b.resultsPublishAt ? new Date(b.resultsPublishAt).getTime() : 0;
+        return right - left;
+      })
+      .slice(0, safeLimit);
+
+    return {
+      upcoming,
+      active,
+      results,
+      totals: {
+        upcoming: upcoming.length,
+        active: active.length,
+        results: results.length,
+      },
+    };
+  }
+
+  async getPublicEventDetail(eventId: string) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    if (event.state === 'DRAFT') {
+      throw new NotFoundException('Evento no disponible publicamente');
+    }
+
+    const now = new Date();
+    const isUpcoming = Boolean(
+      event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
+    );
+    const isActive = Boolean(
+      event.state === 'PUBLISHED' &&
+        event.votingStart &&
+        event.votingEnd &&
+        now >= event.votingStart &&
+        now <= event.votingEnd,
+    );
+    const isResults = Boolean(
+      event.state === 'RESULTS_PUBLISHED' ||
+        (event.resultsPublishAt && now >= event.resultsPublishAt),
+    );
+
+    const resultsAvailable = Boolean(event.resultsPublishAt && now >= event.resultsPublishAt);
+    const snapshot = resultsAvailable
+      ? await this.resultsSnapshotModel.findOne({ eventId: event._id }).lean()
+      : null;
+
+    return {
+      id: String(event._id),
+      tenantId: String(event.tenantId),
+      name: event.name,
+      objective: event.objective,
+      state: event.state,
+      phase: isResults ? 'RESULTS' : isActive ? 'ACTIVE' : isUpcoming ? 'UPCOMING' : 'OTHER',
+      votingStart: event.votingStart ?? null,
+      votingEnd: event.votingEnd ?? null,
+      resultsPublishAt: event.resultsPublishAt ?? null,
+      publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+      resultsAvailable,
+      results: resultsAvailable
+        ? {
+            source: snapshot?.source ?? 'BLOCKCHAIN',
+            txHash: snapshot?.txHash ?? null,
+            blockNumber: snapshot?.blockNumber ?? null,
+            roles: snapshot?.roles ?? [],
+          }
+        : null,
+    };
+  }
+
+  async checkPublicEligibilityAcrossEvents(carnet: string, tenantId?: string) {
+    const carnetNorm = normalizeCarnet(carnet);
+    if (!carnetNorm) {
+      throw new BadRequestException('carnet invalido');
+    }
+
+    const now = new Date();
+    const query: Record<string, unknown> = {
+      state: { $in: ['PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+    };
+
+    if (tenantId) {
+      if (!Types.ObjectId.isValid(tenantId)) {
+        throw new BadRequestException('tenantId invalido');
+      }
+      query.tenantId = new Types.ObjectId(tenantId);
+    }
+
+    const events = await this.votingEventModel.find(query).lean();
+    if (!events.length) {
+      return {
+        carnet: carnetNorm,
+        events: [],
+      };
+    }
+
+    const eventIds = events.map((event) => event._id);
+    const versions = await this.padronVersionModel
+      .find(
+        { eventId: { $in: eventIds }, isCurrent: true },
+        { _id: 1, eventId: 1 },
+      )
+      .lean();
+    const versionByEventId = new Map(versions.map((v) => [String(v.eventId), v]));
+    const versionIds = versions.map((v) => v._id);
+
+    const reportRows = versionIds.length
+      ? await this.comparisonReportModel
+          .find(
+            { padronVersionId: { $in: versionIds }, status: 'OK' },
+            { padronVersionId: 1 },
+          )
+          .lean()
+      : [];
+    const okVersionIdSet = new Set(reportRows.map((row) => String(row.padronVersionId)));
+
+    const eligibleRows = okVersionIdSet.size
+      ? await this.padronEntryModel
+          .find(
+            {
+              padronVersionId: { $in: Array.from(okVersionIdSet, (id) => new Types.ObjectId(id)) },
+              carnetNorm,
+            },
+            { padronVersionId: 1 },
+          )
+          .lean()
+      : [];
+    const eligibleVersionIdSet = new Set(
+      eligibleRows.map((row) => String(row.padronVersionId)),
+    );
+
+    const mapped = events.map((event) => {
+      const eventId = String(event._id);
+      const version = versionByEventId.get(eventId);
+      const referenceVersion = version ? String(version._id) : null;
+      const reportOk = version ? okVersionIdSet.has(String(version._id)) : false;
+      const inPadron = version ? eligibleVersionIdSet.has(String(version._id)) : false;
+
+      const isUpcoming = Boolean(
+        event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
+      );
+      const isActive = Boolean(
+        event.state === 'PUBLISHED' &&
+          event.votingStart &&
+          event.votingEnd &&
+          now >= event.votingStart &&
+          now <= event.votingEnd,
+      );
+      const isResults = Boolean(
+        event.state === 'RESULTS_PUBLISHED' ||
+          (event.resultsPublishAt && now >= event.resultsPublishAt),
+      );
+
+      let status = 'PUBLIC_CHECK_DISABLED';
+      if (event.publicEligibilityEnabled) {
+        if (!version || !reportOk) {
+          status = 'PADRON_EN_VALIDACION';
+        } else {
+          status = inPadron ? 'HABILITADO' : 'NO_HABILITADO';
+        }
+      }
+
+      return {
+        eventId,
+        tenantId: String(event.tenantId),
+        name: event.name,
+        state: event.state,
+        phase: isResults ? 'RESULTS' : isActive ? 'ACTIVE' : isUpcoming ? 'UPCOMING' : 'OTHER',
+        status,
+        eligible: status === 'HABILITADO',
+        referenceVersion,
+      };
+    });
+
+    return {
+      carnet: carnetNorm,
+      events: mapped.sort((a, b) => a.name.localeCompare(b.name, 'es')),
     };
   }
 

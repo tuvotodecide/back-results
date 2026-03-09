@@ -7,12 +7,10 @@ import {
   Post,
   Query,
   Res,
-  UseGuards,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { Public } from '@/core/decorators/public.decorator';
-import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
 import { CreateParticipationDto } from '../dto/participation.dto';
 import { InstitutionalVotingService } from '../services/institutional-voting.service';
 
@@ -21,21 +19,155 @@ import { InstitutionalVotingService } from '../services/institutional-voting.ser
 export class InstitutionalVotingPublicController {
   constructor(private readonly institutionalVotingService: InstitutionalVotingService) {}
 
+  @Get('public/landing')
+  @Public()
+  @ApiOperation({
+    summary:
+      'Landing público institucional: lista votaciones próximas, activas y con resultados',
+  })
+  @ApiQuery({
+    name: 'tenantId',
+    required: false,
+    description: 'Filtra por tenant/institución. Si se omite, devuelve de todos los tenants visibles.',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Máximo por grupo (upcoming/active/results). Default 10, máximo 50.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Retorna listas agrupadas para landing público: upcoming, active y results.',
+  })
+  publicLanding(
+    @Query('tenantId') tenantId?: string,
+    @Query('limit') limit = 10,
+  ) {
+    return this.institutionalVotingService.getPublicLanding(
+      tenantId,
+      Number(limit),
+    );
+  }
+
+  @Get('public/detail/:eventId')
+  @Public()
+  @ApiOperation({
+    summary:
+      'Detalle público de evento: estado, ventanas y resultados (si ya son públicos)',
+  })
+  @ApiParam({
+    name: 'eventId',
+    description: 'ID del evento de votación.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Retorna detalle público del evento incluyendo fase (UPCOMING/ACTIVE/RESULTS) y resultados si están disponibles.',
+  })
+  publicEventDetail(@Param('eventId') eventId: string) {
+    return this.institutionalVotingService.getPublicEventDetail(eventId);
+  }
+
+  @Get('public/eligibility-by-carnet')
+  @Public()
+  @ApiOperation({
+    summary:
+      'Consulta pública por carnet en eventos visibles (sin login), opcionalmente por tenant',
+  })
+  @ApiQuery({
+    name: 'carnet',
+    required: true,
+    description: 'Carnet del usuario a consultar (se normaliza internamente).',
+  })
+  @ApiQuery({
+    name: 'tenantId',
+    required: false,
+    description: 'Filtra la consulta a una institución/tenant específica.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Retorna estado de habilitación por evento: HABILITADO, NO_HABILITADO, PADRON_EN_VALIDACION o PUBLIC_CHECK_DISABLED.',
+  })
+  publicEligibilityAcrossEvents(
+    @Query('carnet') carnet: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.institutionalVotingService.checkPublicEligibilityAcrossEvents(
+      carnet,
+      tenantId,
+    );
+  }
+
   @Get(':eventId/eligibility')
   @Public()
+  @ApiOperation({
+    summary: 'Consulta de habilitación por carnet para un evento específico',
+  })
+  @ApiParam({
+    name: 'eventId',
+    description: 'ID del evento de votación.',
+  })
+  @ApiQuery({
+    name: 'carnet',
+    required: true,
+    description: 'Carnet del usuario a consultar.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Retorna HABILITADO o NO_HABILITADO con referencia de versión de padrón.',
+  })
   eligibility(@Param('eventId') eventId: string, @Query('carnet') carnet: string) {
     return this.institutionalVotingService.checkEligibility(eventId, carnet);
   }
 
   @Get(':eventId/eligibility/public')
   @Public()
+  @ApiOperation({
+    summary:
+      'Consulta pública de habilitación por carnet para un evento específico (respeta toggle público)',
+  })
+  @ApiParam({
+    name: 'eventId',
+    description: 'ID del evento de votación.',
+  })
+  @ApiQuery({
+    name: 'carnet',
+    required: true,
+    description: 'Carnet del usuario a consultar.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Retorna HABILITADO/NO_HABILITADO o PADRON_EN_VALIDACION/PUBLIC_CHECK_DISABLED según estado del evento.',
+  })
   publicEligibility(@Param('eventId') eventId: string, @Query('carnet') carnet: string) {
     return this.institutionalVotingService.checkPublicEligibility(eventId, carnet);
   }
 
   @Post(':eventId/participations')
   @Public()
-  @UseGuards(ZkAuthGuard)
+  @ApiOperation({
+    summary:
+      'Registra participación en un evento público. Soporta idempotencia por header idempotency-key.',
+  })
+  @ApiParam({
+    name: 'eventId',
+    description: 'ID del evento de votación.',
+  })
+  @ApiBody({
+    description: 'Datos mínimos para registrar participación.',
+    type: CreateParticipationDto,
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Participación registrada correctamente.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Respuesta idempotente: ya existía participación con la misma clave.',
+  })
   async createParticipation(
     @Param('eventId') eventId: string,
     @Body() dto: CreateParticipationDto,
@@ -53,6 +185,23 @@ export class InstitutionalVotingPublicController {
 
   @Get(':eventId/participations/status')
   @Public()
+  @ApiOperation({
+    summary: 'Consulta estado de participación por carnet en un evento',
+  })
+  @ApiParam({
+    name: 'eventId',
+    description: 'ID del evento de votación.',
+  })
+  @ApiQuery({
+    name: 'carnet',
+    required: true,
+    description: 'Carnet del usuario a consultar.',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Retorna status de participación (canVote/alreadyVoted/razón de bloqueo).',
+  })
   participationStatus(@Param('eventId') eventId: string, @Query('carnet') carnet: string) {
     return this.institutionalVotingService.checkParticipationStatus(eventId, carnet);
   }

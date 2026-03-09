@@ -38,6 +38,12 @@ export class RegisterRoledUserDto {
   @IsMongoId()
   @IsOptional()
   votingMunicipalityId?: string;
+
+  @ApiPropertyOptional({ example: 'Colegio de Ingenieros' })
+  @IsString()
+  @IsOptional()
+  @IsNotEmpty()
+  institutionName?: string;
 }
 
 export class RoledUserResponseDto {
@@ -51,4 +57,5 @@ export class RoledUserResponseDto {
   @ApiProperty() updatedAt: Date;
   @ApiPropertyOptional() votingDepartmentId?: string;
   @ApiPropertyOptional() votingMunicipalityId?: string;
+  @ApiPropertyOptional() institutionName?: string;
 }
