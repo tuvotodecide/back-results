@@ -514,6 +514,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       }).expect(401);
   });
 
+
   it('R19-A: should upload delegate with admin role', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delegates/upload-csv')
