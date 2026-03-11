@@ -40,6 +40,9 @@ import {
   NotificationLog,
   NotificationLogSchema,
 } from '../notifications/schemas/notification-log.schema';
+import { HttpModule } from '@nestjs/axios';
+import { PadronUsersService } from './services/core/padron-users.service';
+import { IssuerService } from './services/core/issuer.service';
 
 @Module({
   imports: [
@@ -59,6 +62,7 @@ import {
       { name: NotificationLog.name, schema: NotificationLogSchema },
     ]),
     ZkAuthModule,
+    HttpModule
   ],
   controllers: [
     InstitutionalVotingAdminController,
@@ -68,6 +72,8 @@ import {
   providers: [
     InstitutionalVotingService,
     InstitutionalVotingAccessService,
+    PadronUsersService,
+    IssuerService,
     VotingEventsService,
     InstitutionalVotingLifecycleService,
     InstitutionalVotingNotificationsService,

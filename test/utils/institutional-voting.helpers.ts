@@ -6,6 +6,7 @@ import { GeographicModule } from '@/modules/geographic/geographic.module';
 import { InstitutionalTenantsModule } from '@/modules/institutional-tenants/institutional-tenants.module';
 import { InstitutionalAdminApplicationsModule } from '@/modules/institutional-admin-applications/institutional-admin-applications.module';
 import { InstitutionalVotingModule } from '@/modules/institutional-voting/institutional-voting.module';
+import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 import { CacheModule } from '@nestjs/cache-manager';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -46,6 +47,14 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
   const mongod = await MongoMemoryServer.create();
   const mongoUri = mongod.getUri();
 
+  const issuerServiceMock = {
+    issueCredential: jest.fn(async (dnis: string[]) => {
+      return Object.fromEntries(
+        dnis.map((dni) => [dni, { credentialData: `mock-credential-${dni}` }]),
+      );
+    }),
+  };
+
   const moduleRef = await Test.createTestingModule({
     imports: [
       ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
@@ -70,7 +79,10 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       InstitutionalVotingModule,
     ],
     providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
-  }).compile();
+  })
+    .overrideProvider(IssuerService)
+    .useValue(issuerServiceMock)
+    .compile();
 
   const app = moduleRef.createNestApplication();
   app.useGlobalPipes(

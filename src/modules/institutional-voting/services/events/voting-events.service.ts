@@ -37,6 +37,8 @@ import {
 } from '../../schemas/voting-option.schema';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
+import { PadronUsersService } from '../core/padron-users.service';
+import { IssuerService } from '../core/issuer.service';
 
 @Injectable()
 export class VotingEventsService {
@@ -59,6 +61,8 @@ export class VotingEventsService {
     private readonly resultsSnapshotModel: Model<EventResultsSnapshotDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
+    private readonly padronUsersService: PadronUsersService,
+    private readonly issuerService: IssuerService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -845,7 +849,22 @@ export class VotingEventsService {
 
     event.state = 'PUBLISHED';
     await event.save();
-    await this.notificationsService.notifyConvocationIfEligible(event);
+
+    if(event.convocationNotifiedAt) {
+      return {
+        id: String(event._id),
+        state: event.state,
+      };
+    }
+
+    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event);
+    if (convotatedUsers.length > 0) {
+      const userCredentials = await this.issuerService.issueCredential(
+        convotatedUsers.map((u) => u.dni),
+        event,
+      );
+      await this.notificationsService.notifyConvocationIfEligible(event, userCredentials);
+    }
 
     return {
       id: String(event._id),
