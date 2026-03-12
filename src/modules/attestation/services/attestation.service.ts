@@ -25,6 +25,10 @@ import { UsersService } from '@/modules/users/services/users.service';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 import { DelegatesService } from '@/modules/contracts/services/delegates.service';
 import { ContractsService } from '@/modules/contracts/services/contracts.service';
+import {
+  BallotComparison,
+  BallotComparisonDocument,
+} from '../schemas/ballot-comparison.schema';
 
 type PopulatedUserRef = { _id: Types.ObjectId; dni: string };
 type AttestationLean<TUser = Types.ObjectId> = {
@@ -47,6 +51,23 @@ type MatchingContract = {
   };
 };
 
+type ComparisonSource = 'attested' | 'resolved';
+
+type NormalizedVoteBucket = {
+  partyVotes: Array<{
+    key: string;
+    label: string;
+    votes: number;
+    internalPartyId?: string;
+  }>;
+  validVotes: number;
+  blankVotes: number;
+  nullVotes: number;
+  totalVotes: number;
+};
+
+type ComparisonStatus = 'MATCH' | 'MISMATCH' | 'NO_TSE_DATA' | 'ERROR' | 'PENDING';
+
 @Injectable()
 export class AttestationService {
   constructor(
@@ -56,6 +77,8 @@ export class AttestationService {
     private ballotModel: Model<BallotDocument>,
     @InjectModel(AttestationCase.name)
     private caseModel: Model<AttestationCase>,
+    @InjectModel(BallotComparison.name)
+    private ballotComparisonModel: Model<BallotComparisonDocument>,
     private usersService: UsersService,
     private electionConfigService: ElectionConfigService,
     private delegatesService: DelegatesService,
@@ -871,6 +894,249 @@ export class AttestationService {
     };
   }
 
+  async getAuditMatchReport(
+    tableCode: string,
+    electionId?: string,
+    comparisonSource: ComparisonSource = 'attested',
+    electionType?: string,
+  ) {
+    const eid = await this.resolveElectionId(electionId);
+    if (!eid) {
+      throw new BadRequestException('electionId es requerido');
+    }
+
+    const ballots = await this.ballotModel
+      .find({ tableCode, electionId: eid })
+      .sort({ version: -1, createdAt: -1 })
+      .lean()
+      .exec();
+
+    if (!ballots.length) {
+      throw new NotFoundException('No hay actas para esa mesa');
+    }
+
+    const ballotIds = ballots.map((ballot) => ballot._id as Types.ObjectId);
+    const [caseDoc, attestationStats, tseResult] = await Promise.all([
+      this.caseModel.findOne({ tableCode, electionId: eid }).lean().exec(),
+      this.attestationModel
+        .aggregate([
+          { $match: { ballotId: { $in: ballotIds } } },
+          {
+            $group: {
+              _id: '$ballotId',
+              supportCount: {
+                $sum: {
+                  $cond: [{ $eq: ['$support', true] }, 1, 0],
+                },
+              },
+              againstCount: {
+                $sum: {
+                  $cond: [{ $eq: ['$support', false] }, 1, 0],
+                },
+              },
+              totalAttestations: { $sum: 1 },
+            },
+          },
+        ])
+        .exec(),
+      this.fetchTseMesaResult(tableCode),
+    ]);
+
+    const attestationMap = new Map<
+      string,
+      { supportCount: number; againstCount: number; totalAttestations: number }
+    >(
+      attestationStats.map((item) => [
+        String(item._id),
+        {
+          supportCount: Number(item.supportCount ?? 0),
+          againstCount: Number(item.againstCount ?? 0),
+          totalAttestations: Number(item.totalAttestations ?? 0),
+        },
+      ]),
+    );
+
+    const ballotsWithStats = ballots.map((ballot) => {
+      const stats = attestationMap.get(String(ballot._id)) ?? {
+        supportCount: 0,
+        againstCount: 0,
+        totalAttestations: 0,
+      };
+      return {
+        ...ballot,
+        ...stats,
+      };
+    });
+
+    const attestedBallot = ballotsWithStats
+      .slice()
+      .sort(
+        (a, b) =>
+          b.supportCount - a.supportCount ||
+          b.totalAttestations - a.totalAttestations ||
+          Number(b.version ?? 0) - Number(a.version ?? 0) ||
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )[0];
+
+    const resolvedBallot = caseDoc?.winningBallotId
+      ? ballotsWithStats.find(
+          (ballot) =>
+            String(ballot._id) === String(caseDoc.winningBallotId),
+        ) ?? null
+      : null;
+
+    const selectedBallot =
+      comparisonSource === 'resolved'
+        ? resolvedBallot ?? attestedBallot
+        : attestedBallot ?? resolvedBallot;
+
+    const localVotes = selectedBallot
+      ? await this.normalizeLocalVotes(selectedBallot as any, electionType)
+      : null;
+    const tseVotes = this.normalizeTseVotes(tseResult);
+
+    const comparison = !tseResult
+      ? {
+          status: 'NO_TSE_DATA',
+          exactMatch: false,
+          comparedFields: 0,
+          matchedFields: 0,
+          mismatches: [],
+        }
+      : localVotes
+        ? this.compareVoteBuckets(localVotes, tseVotes)
+        : {
+            status: 'NO_LOCAL_BALLOT',
+            exactMatch: false,
+            comparedFields: 0,
+            matchedFields: 0,
+            mismatches: [],
+          };
+
+    return {
+      tableCode,
+      electionId: eid.toString(),
+      comparisonSource,
+      caseStatus: caseDoc?.status ?? 'VERIFYING',
+      resolvedAt: caseDoc?.resolvedAt ?? null,
+      selectedBallotId: selectedBallot?._id?.toString() ?? null,
+      selectedBallotVersion: selectedBallot?.version ?? null,
+      selectedBallotSource:
+        selectedBallot && resolvedBallot
+          ? String(selectedBallot._id) === String(resolvedBallot._id)
+            ? 'resolved'
+            : 'attested'
+          : selectedBallot
+            ? 'attested'
+            : null,
+      attestedBallot: attestedBallot
+        ? {
+            ballotId: String(attestedBallot._id),
+            version: attestedBallot.version ?? null,
+            supportCount: attestedBallot.supportCount,
+            againstCount: attestedBallot.againstCount,
+            totalAttestations: attestedBallot.totalAttestations,
+          }
+        : null,
+      resolvedBallot: resolvedBallot
+        ? {
+            ballotId: String(resolvedBallot._id),
+            version: resolvedBallot.version ?? null,
+            supportCount: resolvedBallot.supportCount,
+            againstCount: resolvedBallot.againstCount,
+            totalAttestations: resolvedBallot.totalAttestations,
+          }
+        : null,
+      tse: {
+        fetchedAt: tseResult?.fecha ?? null,
+        hasData: Boolean(tseResult),
+        rawTableRows: tseResult?.tabla ?? [],
+        normalizedVotes: tseVotes,
+      },
+      local: {
+        ballots: ballotsWithStats.map((ballot) => ({
+          ballotId: String(ballot._id),
+          version: ballot.version ?? null,
+          supportCount: ballot.supportCount,
+          againstCount: ballot.againstCount,
+          totalAttestations: ballot.totalAttestations,
+        })),
+        normalizedVotes: localVotes,
+      },
+      comparison,
+    };
+  }
+
+  async runBallotComparisons(params: {
+    electionId: string;
+    tableCode?: string;
+    onlyAttested?: boolean;
+  }) {
+    const eid = await this.resolveElectionId(params.electionId, false);
+    if (!eid) {
+      throw new BadRequestException('electionId es requerido');
+    }
+
+    const ballotQuery: any = {
+      electionId: eid,
+      status: { $in: ['processed', 'synced'] },
+    };
+    if (params.tableCode) {
+      ballotQuery.tableCode = params.tableCode;
+    }
+
+    let ballots = await this.ballotModel
+      .find(ballotQuery)
+      .sort({ tableCode: 1, version: -1, createdAt: -1 })
+      .lean()
+      .exec();
+
+    if (params.onlyAttested) {
+      const attestedBallotIds = await this.attestationModel.distinct('ballotId', {
+        electionId: eid,
+      });
+      const attestedSet = new Set(attestedBallotIds.map((id) => String(id)));
+      ballots = ballots.filter((ballot) => attestedSet.has(String(ballot._id)));
+    }
+
+    const tableCodes = Array.from(
+      new Set(ballots.map((ballot) => String(ballot.tableCode)).filter(Boolean)),
+    );
+    const tseByTableCode = new Map<string, any | null>();
+
+    for (const tableCode of tableCodes) {
+      tseByTableCode.set(tableCode, await this.fetchTseMesaResult(tableCode));
+    }
+
+    let processed = 0;
+    let updated = 0;
+    const byStatus: Record<ComparisonStatus, number> = {
+      MATCH: 0,
+      MISMATCH: 0,
+      NO_TSE_DATA: 0,
+      ERROR: 0,
+      PENDING: 0,
+    };
+
+    for (const ballot of ballots) {
+      processed += 1;
+      const result = await this.compareAndPersistBallot(
+        ballot as unknown as Ballot & { _id: Types.ObjectId },
+        tseByTableCode.get(String(ballot.tableCode)) ?? null,
+      );
+      updated += 1;
+      byStatus[result.status] = (byStatus[result.status] ?? 0) + 1;
+    }
+
+    return {
+      electionId: eid.toString(),
+      processed,
+      updated,
+      byStatus,
+      totalTables: tableCodes.length,
+    };
+  }
+
   async findAttestedBallotsByDepartment(
     departmentName: string,
     page = 1,
@@ -977,6 +1243,329 @@ export class AttestationService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  private async normalizeLocalVotes(
+    ballot: BallotDocument | (Ballot & { _id: Types.ObjectId }),
+    electionType?: string,
+  ): Promise<NormalizedVoteBucket> {
+    const votesPath = await this.resolveVotesPath(
+      ballot.electionId?.toString(),
+      electionType,
+    );
+    const bucket =
+      votesPath === 'votes.deputies' ? ballot.votes?.deputies : ballot.votes?.parties;
+
+    const rawPartyVotes = Array.isArray(bucket?.partyVotes) ? bucket.partyVotes : [];
+    const partyIds = rawPartyVotes
+      .map((item) => String(item.partyId || '').trim())
+      .filter(Boolean);
+
+    const parties = partyIds.length
+      ? await this.ballotModel.db
+          .collection('political_parties')
+          .find({ partyId: { $in: partyIds }, active: true })
+          .project({ _id: 0, partyId: 1, shortName: 1, fullName: 1 })
+          .toArray()
+      : [];
+
+    const partyMetaMap = new Map<string, any>(
+      parties.map((party) => [String(party.partyId), party]),
+    );
+
+    return {
+      partyVotes: rawPartyVotes.map((item) => {
+        const partyId = String(item.partyId || '').trim();
+        const meta = partyMetaMap.get(partyId);
+        const label = String(
+          meta?.shortName || meta?.partyId || meta?.fullName || partyId,
+        ).trim();
+        return {
+          key: this.normalizeKey(label),
+          label,
+          votes: Number(item.votes ?? 0),
+          internalPartyId: partyId,
+        };
+      }),
+      validVotes: Number(bucket?.validVotes ?? 0),
+      blankVotes: Number(bucket?.blankVotes ?? 0),
+      nullVotes: Number(bucket?.nullVotes ?? 0),
+      totalVotes: Number(
+        bucket?.totalVotes ??
+          Number(bucket?.validVotes ?? 0) +
+            Number(bucket?.blankVotes ?? 0) +
+            Number(bucket?.nullVotes ?? 0),
+      ),
+    };
+  }
+
+  private normalizeTseVotes(tseResult: any): NormalizedVoteBucket {
+    const tableRow = Array.isArray(tseResult?.tabla?.[0]) ? tseResult.tabla[0] : [];
+    const partyVotes: NormalizedVoteBucket['partyVotes'] = [];
+    let validVotes = 0;
+    let blankVotes = 0;
+    let nullVotes = 0;
+    let totalVotes = 0;
+
+    for (const cell of tableRow) {
+      const rawName = String(cell?.nombre ?? '').trim();
+      const key = this.normalizeKey(rawName);
+      const value = Number(cell?.valor ?? 0);
+
+      if (!key) continue;
+
+      if (key === 'votovalido') {
+        validVotes = value;
+        continue;
+      }
+      if (key === 'votoblanco') {
+        blankVotes = value;
+        continue;
+      }
+      if (key === 'votonulo') {
+        nullVotes = value;
+        continue;
+      }
+      if (key === 'votoemitido') {
+        totalVotes = value;
+        continue;
+      }
+
+      partyVotes.push({
+        key,
+        label: rawName,
+        votes: value,
+      });
+    }
+
+    return {
+      partyVotes,
+      validVotes,
+      blankVotes,
+      nullVotes,
+      totalVotes,
+    };
+  }
+
+  private compareVoteBuckets(
+    localVotes: NormalizedVoteBucket,
+    tseVotes: NormalizedVoteBucket,
+  ) {
+    const localPartyMap = new Map(
+      localVotes.partyVotes.map((item) => [item.key, item]),
+    );
+    const tsePartyMap = new Map(
+      tseVotes.partyVotes.map((item) => [item.key, item]),
+    );
+
+    const metricKeys = [
+      {
+        key: 'validVotes',
+        label: 'Votos validos',
+        local: localVotes.validVotes,
+        tse: tseVotes.validVotes,
+      },
+      {
+        key: 'blankVotes',
+        label: 'Votos blancos',
+        local: localVotes.blankVotes,
+        tse: tseVotes.blankVotes,
+      },
+      {
+        key: 'nullVotes',
+        label: 'Votos nulos',
+        local: localVotes.nullVotes,
+        tse: tseVotes.nullVotes,
+      },
+      {
+        key: 'totalVotes',
+        label: 'Votos emitidos',
+        local: localVotes.totalVotes,
+        tse: tseVotes.totalVotes,
+      },
+    ];
+
+    const mismatches: Array<{
+      field: string;
+      label: string;
+      local: number;
+      tse: number;
+      kind: 'party' | 'metric';
+    }> = [];
+
+    for (const metric of metricKeys) {
+      if (metric.local !== metric.tse) {
+        mismatches.push({
+          field: metric.key,
+          label: metric.label,
+          local: metric.local,
+          tse: metric.tse,
+          kind: 'metric',
+        });
+      }
+    }
+
+    const partyKeys = new Set([
+      ...Array.from(localPartyMap.keys()),
+      ...Array.from(tsePartyMap.keys()),
+    ]);
+
+    for (const key of partyKeys) {
+      const local = localPartyMap.get(key);
+      const tse = tsePartyMap.get(key);
+      const localVotesValue = Number(local?.votes ?? 0);
+      const tseVotesValue = Number(tse?.votes ?? 0);
+      if (localVotesValue !== tseVotesValue) {
+        mismatches.push({
+          field: key,
+          label: local?.label || tse?.label || key,
+          local: localVotesValue,
+          tse: tseVotesValue,
+          kind: 'party',
+        });
+      }
+    }
+
+    const comparedFields = metricKeys.length + partyKeys.size;
+    const matchedFields = comparedFields - mismatches.length;
+    const exactMatch = mismatches.length === 0;
+
+    return {
+      status: exactMatch ? 'MATCH' : 'MISMATCH',
+      exactMatch,
+      comparedFields,
+      matchedFields,
+      mismatches,
+    };
+  }
+
+  private async compareAndPersistBallot(
+    ballot: Ballot & { _id: Types.ObjectId },
+    tseResult: any | null,
+  ): Promise<{ status: ComparisonStatus }> {
+    try {
+      const localVotes = await this.normalizeLocalVotes(ballot as any);
+      const normalizedTseVotes = this.normalizeTseVotes(tseResult);
+
+      const comparison = !tseResult
+        ? {
+            status: 'NO_TSE_DATA' as const,
+            exactMatch: false,
+            comparedFields: 0,
+            matchedFields: 0,
+            mismatches: [],
+          }
+        : this.compareVoteBuckets(localVotes, normalizedTseVotes);
+
+      await this.ballotComparisonModel.findOneAndUpdate(
+        { ballotId: ballot._id },
+        {
+          $set: {
+            ballotId: ballot._id,
+            electionId: ballot.electionId,
+            tableCode: ballot.tableCode,
+            status: comparison.status,
+            exactMatch: comparison.exactMatch,
+            comparedFields: comparison.comparedFields,
+            matchedFields: comparison.matchedFields,
+            mismatches: comparison.mismatches,
+            normalizedLocalVotes: localVotes,
+            normalizedTseVotes: tseResult ? normalizedTseVotes : null,
+            comparedAt: new Date(),
+            tseFetchedAt: tseResult?.fecha ? this.parseTseDate(tseResult.fecha) : null,
+            errorMessage: null,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+
+      return { status: comparison.status as ComparisonStatus };
+    } catch (error: any) {
+      await this.ballotComparisonModel.findOneAndUpdate(
+        { ballotId: ballot._id },
+        {
+          $set: {
+            ballotId: ballot._id,
+            electionId: ballot.electionId,
+            tableCode: ballot.tableCode,
+            status: 'ERROR',
+            exactMatch: false,
+            comparedFields: 0,
+            matchedFields: 0,
+            mismatches: [],
+            normalizedLocalVotes: null,
+            normalizedTseVotes: null,
+            comparedAt: new Date(),
+            tseFetchedAt: null,
+            errorMessage: error?.message ?? String(error),
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+      return { status: 'ERROR' };
+    }
+  }
+
+  private async resolveVotesPath(
+    electionId?: string,
+    electionType?: string,
+  ): Promise<'votes.parties' | 'votes.deputies'> {
+    const type =
+      electionType ||
+      (electionId
+        ? (await this.electionConfigService.findOne(electionId))?.type
+        : undefined);
+    return ['deputies', 'assembly', 'council'].includes(String(type))
+      ? 'votes.deputies'
+      : 'votes.parties';
+  }
+
+  private normalizeKey(value: string): string {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toLowerCase();
+  }
+
+  private parseTseDate(value?: string | null): Date | null {
+    const raw = String(value || '').trim();
+    const match = raw.match(
+      /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/,
+    );
+    if (!match) return null;
+    const [, dd, mm, yyyy, hh, min, ss] = match;
+    const iso = `${yyyy}-${mm}-${dd}T${hh}:${min}:${ss}-04:00`;
+    const parsed = new Date(iso);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  private async fetchTseMesaResult(tableCode: string): Promise<any | null> {
+    const endpoint =
+      process.env.TSE_MESA_ENDPOINT ||
+      'https://computo.oep.org.bo/api/v1/resultados/mesa';
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Referer: 'https://computo.oep.org.bo/',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+        },
+        body: JSON.stringify({ codigoMesa: Number(tableCode) || tableCode }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`TSE respondio ${response.status}`);
+      }
+
+      return await response.json();
+    } catch {
+      return null;
+    }
   }
 
   async findAttestedBallotsByDepartmentId(

@@ -17,6 +17,10 @@ import {
   AttestationDocument,
 } from '../../attestation/schemas/attestation.schema';
 import {
+  BallotComparison,
+  BallotComparisonDocument,
+} from '../../attestation/schemas/ballot-comparison.schema';
+import {
   PoliticalParty,
   PoliticalPartyDocument,
 } from '../../political/schemas/political-party.schema';
@@ -65,6 +69,8 @@ import {
 // Prefijo para identificar datos de prueba
 const TEST_PREFIX = 'TEST_E2E_';
 const TEST_PASSWORD = 'test1234'; // Contraseña para todos los usuarios de prueba
+const AUDIT_PREFIX = 'TEST_AUDIT_';
+const AUDIT_PASSWORD = 'audit1234';
 
 // Usuarios de prueba
 const MOCK_USERS = [
@@ -299,6 +305,8 @@ export class TestingSeederService {
     private delegateModel: Model<DelegateDocument>,
     @InjectModel(Attestation.name)
     private attestationModel: Model<AttestationDocument>,
+    @InjectModel(BallotComparison.name)
+    private ballotComparisonModel: Model<BallotComparisonDocument>,
   ) {}
 
   /**
@@ -371,6 +379,411 @@ export class TestingSeederService {
     };
   }
 
+  async seedAuditDemo(): Promise<{
+    election: any;
+    admin: any;
+    client: any;
+    delegateUser: any;
+    delegate: any;
+    contract: any;
+    ballots: any[];
+  }> {
+    this.logger.log('🌱 Creando demo de auditoría TSE...');
+
+    const hashedPassword = await bcrypt.hash(AUDIT_PASSWORD, 10);
+    const now = new Date();
+    const auditElectionName = 'Elección Gobernadores 2026';
+    const auditElectionType = 'presidential';
+
+    await this.electionConfigModel.updateMany(
+      {
+        type: auditElectionType,
+        isActive: true,
+        name: { $ne: auditElectionName },
+      },
+      {
+        $set: {
+          isActive: false,
+        },
+      },
+    );
+
+    const election = await this.electionConfigModel.findOneAndUpdate(
+      { name: auditElectionName },
+      {
+        $set: {
+          name: auditElectionName,
+          votingStartDate: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
+          votingEndDate: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+          resultsStartDate: new Date(now.getTime() - 60 * 60 * 1000),
+          isActive: true,
+          allowDataModification: false,
+          timezone: 'America/La_Paz',
+          type: auditElectionType,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    const department = await this.departmentModel.findOneAndUpdate(
+      { name: 'La Paz' },
+      { $setOnInsert: { name: 'La Paz' } },
+      { upsert: true, new: true },
+    );
+    const province = await this.provinceModel.findOneAndUpdate(
+      { name: 'Murillo', departmentId: department._id },
+      { $setOnInsert: { name: 'Murillo', departmentId: department._id } },
+      { upsert: true, new: true },
+    );
+    const municipality = await this.municipalityModel.findOneAndUpdate(
+      { name: 'Nuestra Señora de La Paz', provinceId: province._id },
+      {
+        $setOnInsert: {
+          name: 'Nuestra Señora de La Paz',
+          provinceId: province._id,
+        },
+      },
+      { upsert: true, new: true },
+    );
+    const seat = await this.electoralSeatModel.findOneAndUpdate(
+      {
+        municipalityId: municipality._id,
+        idLoc: 'AUDIT_SEAT_001',
+      },
+      {
+        $set: {
+          idLoc: 'AUDIT_SEAT_001',
+          name: 'Centro de Votacion San Miguel',
+          municipalityId: municipality._id,
+        },
+      },
+      { upsert: true, new: true },
+    );
+    const location = await this.electoralLocationModel.findOneAndUpdate(
+      {
+        electoralSeatId: seat._id,
+        code: 'AUDIT_REC_001',
+      },
+      {
+        $set: {
+          fid: 'AUDIT_FID_001',
+          code: 'AUDIT_REC_001',
+          name: 'Unidad Educativa San Miguel',
+          address: 'Av. Costanera Nro. 2450',
+          district: 'Distrito 2',
+          zone: 'San Miguel',
+          circunscripcion: {
+            number: 1,
+            type: 'Uninominal',
+            name: 'Circunscripcion 1',
+          },
+          coordinates: {
+            latitude: -16.5405,
+            longitude: -68.0893,
+          },
+          geo: {
+            type: 'Point',
+            coordinates: [-68.0893, -16.5405],
+          },
+          electoralSeatId: seat._id,
+        },
+      },
+      { upsert: true, new: true },
+    );
+
+    const admin = await this.roledUserModel.findOneAndUpdate(
+      { email: 'audit.admin@test.local' },
+      {
+        $set: {
+          dni: '10203040',
+          email: 'audit.admin@test.local',
+          name: 'Ana Torres',
+          password: hashedPassword,
+          role: 'ADMIN',
+          active: true,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    const client = await this.roledUserModel.findOneAndUpdate(
+      { email: 'audit.governor@test.local' },
+      {
+        $set: {
+          dni: '49876540',
+          email: 'audit.governor@test.local',
+          name: 'Carlos Mendoza',
+          password: hashedPassword,
+          role: 'GOVERNOR',
+          active: true,
+          votingDepartmentId: department._id,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    const contract = await this.contractModel.findOneAndUpdate(
+      {
+        clientId: client._id,
+        electionId: election._id,
+      },
+      {
+        $set: {
+          active: true,
+          clientId: client._id,
+          clientRole: 'GOVERNOR',
+          departmentId: department._id,
+          departmentName: 'La Paz',
+          municipalityId: null,
+          municipalityName: null,
+          electionId: election._id,
+          startDate: new Date(now.getTime() - 12 * 60 * 60 * 1000),
+          endDate: null,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    const delegateUser = await this.userModel.findOneAndUpdate(
+      { dni: '8045123' },
+      {
+        $set: {
+          dni: '8045123',
+          active: true,
+          votingLocationId: location._id,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    const delegate = await this.delegateModel.findOneAndUpdate(
+      { dni: '8045123' },
+      {
+        $set: {
+          dni: '8045123',
+          userId: delegateUser._id,
+          active: true,
+          name: 'Mariela Rojas',
+          email: 'mariela.rojas.demo@test.local',
+          phone: '+59171234567',
+          authorizedContracts: [
+            {
+              contractId: contract._id,
+              clientId: client._id,
+              clientRole: 'GOVERNOR',
+              addedAt: new Date(),
+              addedBy: admin._id,
+            },
+          ],
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    await this.politicalPartyModel.findOneAndUpdate(
+      { partyId: `${AUDIT_PREFIX.toLowerCase()}pdc` },
+      {
+        $set: {
+          partyId: `${AUDIT_PREFIX.toLowerCase()}pdc`,
+          fullName: 'Partido Demócrata Cristiano',
+          shortName: 'PDC',
+          color: '#0055AA',
+          active: true,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    await this.politicalPartyModel.findOneAndUpdate(
+      { partyId: `${AUDIT_PREFIX.toLowerCase()}libre` },
+      {
+        $set: {
+          partyId: `${AUDIT_PREFIX.toLowerCase()}libre`,
+          fullName: 'Alianza Libre',
+          shortName: 'LIBRE',
+          color: '#228B22',
+          active: true,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    await this.electionPartyModel.findOneAndUpdate(
+      {
+        electionId: election._id,
+        partyId: `${AUDIT_PREFIX.toLowerCase()}pdc`,
+        departmentId: null,
+        municipalityId: null,
+      },
+      {
+        $set: {
+          electionId: election._id,
+          partyId: `${AUDIT_PREFIX.toLowerCase()}pdc`,
+          active: true,
+          ballotNumber: 1,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    await this.electionPartyModel.findOneAndUpdate(
+      {
+        electionId: election._id,
+        partyId: `${AUDIT_PREFIX.toLowerCase()}libre`,
+        departmentId: null,
+        municipalityId: null,
+      },
+      {
+        $set: {
+          electionId: election._id,
+          partyId: `${AUDIT_PREFIX.toLowerCase()}libre`,
+          active: true,
+          ballotNumber: 2,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    const tableCodes = ['2010701', '2010691'];
+    for (const tableCode of tableCodes) {
+      await this.electoralTableModel.findOneAndUpdate(
+        { tableCode },
+        {
+          $set: {
+            tableCode,
+            tableNumber: tableCode,
+            electoralLocationId: location._id,
+            active: true,
+            observedByElection: {},
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+    }
+
+    const commonLocation = {
+      department: 'La Paz',
+      departmentId: department._id,
+      province: 'Murillo',
+      provinceId: province._id,
+      municipality: 'Nuestra Señora de La Paz',
+      municipalityId: municipality._id,
+      electoralSeat: seat.name,
+      electoralLocationName: location.name,
+      district: 'Distrito 2',
+      zone: 'San Miguel',
+      circunscripcion: {
+        number: 1,
+        type: 'Uninominal',
+        name: 'Circunscripcion 1',
+      },
+    };
+
+    const ballotSpecs = [
+      {
+        tableCode: '2010701',
+        tableNumber: '2010701',
+        votes: {
+          validVotes: 208,
+          blankVotes: 0,
+          nullVotes: 11,
+          totalVotes: 219,
+          partyVotes: [
+            { partyId: `${AUDIT_PREFIX.toLowerCase()}pdc`, votes: 110 },
+            { partyId: `${AUDIT_PREFIX.toLowerCase()}libre`, votes: 98 },
+          ],
+        },
+      },
+      {
+        tableCode: '2010691',
+        tableNumber: '2010691',
+        votes: {
+          validVotes: 208,
+          blankVotes: 1,
+          nullVotes: 6,
+          totalVotes: 215,
+          partyVotes: [
+            { partyId: `${AUDIT_PREFIX.toLowerCase()}pdc`, votes: 100 },
+            { partyId: `${AUDIT_PREFIX.toLowerCase()}libre`, votes: 108 },
+          ],
+        },
+      },
+    ];
+
+    const ballots: any[] = [];
+    for (const spec of ballotSpecs) {
+      const ballot = await this.ballotModel.findOneAndUpdate(
+        {
+          electionId: election._id,
+          tableCode: spec.tableCode,
+          version: 1,
+        },
+        {
+          $set: {
+            electionId: election._id,
+            tableCode: spec.tableCode,
+            tableNumber: spec.tableNumber,
+            electoralLocationId: location._id,
+            location: commonLocation,
+            votes: { parties: spec.votes },
+            ipfsUri: `ipfs://${AUDIT_PREFIX.toLowerCase()}${spec.tableCode}`,
+            ipfsCid: `${AUDIT_PREFIX.toLowerCase()}${spec.tableCode}`,
+            image: `https://example.com/${spec.tableCode}.jpg`,
+            recordId: `${AUDIT_PREFIX}${spec.tableCode}`,
+            tableIdIpfs: spec.tableCode,
+            hasObservation: false,
+            status: 'processed',
+            valuable: true,
+            version: 1,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+      ballots.push(ballot);
+
+      await this.attestationCaseModel.findOneAndUpdate(
+        { electionId: election._id, tableCode: spec.tableCode },
+        {
+          $set: {
+            electionId: election._id,
+            tableCode: spec.tableCode,
+            status: 'CONSENSUAL',
+            winningBallotId: ballot._id,
+            resolvedAt: new Date(),
+            summary: {},
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+
+      await this.attestationModel.findOneAndUpdate(
+        { userId: delegateUser._id, ballotId: ballot._id },
+        {
+          $set: {
+            support: true,
+            electionId: election._id,
+            ballotId: ballot._id,
+            isJury: false,
+            userId: delegateUser._id,
+            validForContractId: contract._id,
+            isValidForClientReport: true,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true },
+      );
+    }
+
+    this.logger.log('✅ Demo de auditoría creada');
+
+    return {
+      election,
+      admin,
+      client,
+      delegateUser,
+      delegate,
+      contract,
+      ballots,
+    };
+  }
+
   /**
    * Elimina todos los datos de prueba
    */
@@ -390,22 +803,41 @@ export class TestingSeederService {
     deletedElectoralSeats: number;
   }> {
     this.logger.log('🧹 Limpiando datos de prueba...');
+    const testNameRegex = new RegExp(`^(${TEST_PREFIX}|${AUDIT_PREFIX})`);
+    const testPartyRegex = new RegExp(
+      `^(${TEST_PREFIX.toLowerCase()}|${AUDIT_PREFIX.toLowerCase()})`,
+    );
+    const auditElectionNames = ['Elección Gobernadores 2026'];
+    const auditRoledUserEmails = [
+      'audit.admin@test.local',
+      'audit.governor@test.local',
+    ];
+    const auditDelegateDnis = ['8045123'];
 
     // Obtener IDs de elecciones de prueba
     const testElections = await this.electionConfigModel.find({
-      name: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { name: { $regex: testNameRegex } },
+        { name: { $in: auditElectionNames } },
+      ],
     });
     const electionIds = testElections.map((e) => e._id);
 
     // Obtener IDs de usuarios de prueba (RoledUser - candidatos)
     const testRoledUsers = await this.roledUserModel.find({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { email: { $in: auditRoledUserEmails } },
+      ],
     });
     const roledUserIds = testRoledUsers.map((u) => u._id);
 
     // Obtener IDs de usuarios delegados (User collection)
     const testDelegateUsers = await this.userModel.find({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { dni: { $in: auditDelegateDnis } },
+      ],
     });
     const delegateUserIds = testDelegateUsers.map((u) => u._id);
 
@@ -418,15 +850,24 @@ export class TestingSeederService {
         { userId: { $in: delegateUserIds } },
       ],
     });
+    await this.ballotComparisonModel.deleteMany({
+      electionId: { $in: electionIds },
+    });
 
     // 2. Eliminar delegates
     const deletedDelegates = await this.delegateModel.deleteMany({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { dni: { $in: auditDelegateDnis } },
+      ],
     });
 
     // 3. Eliminar usuarios delegados (User collection)
     const deletedDelegateUsers = await this.userModel.deleteMany({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { dni: { $in: auditDelegateDnis } },
+      ],
     });
 
     // 4. Eliminar contratos
@@ -439,7 +880,10 @@ export class TestingSeederService {
 
     // 5. Eliminar usuarios candidatos (RoledUser)
     const deletedUsers = await this.roledUserModel.deleteMany({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { email: { $in: auditRoledUserEmails } },
+      ],
     });
 
     // 6. Eliminar attestation cases
@@ -464,12 +908,15 @@ export class TestingSeederService {
 
     // 9. Eliminar elecciones
     const deletedElections = await this.electionConfigModel.deleteMany({
-      name: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { name: { $regex: testNameRegex } },
+        { name: { $in: auditElectionNames } },
+      ],
     });
 
     // 10. Eliminar partidos
     const deletedParties = await this.politicalPartyModel.deleteMany({
-      partyId: { $regex: `^${TEST_PREFIX.toLowerCase()}` },
+      partyId: { $regex: testPartyRegex },
     });
 
     this.logger.log('✅ Limpieza completada');
@@ -1230,12 +1677,28 @@ export class TestingSeederService {
     delegateUsers: number;
     delegates: number;
   }> {
+    const testNameRegex = new RegExp(`^(${TEST_PREFIX}|${AUDIT_PREFIX})`);
+    const testPartyRegex = new RegExp(
+      `^(${TEST_PREFIX.toLowerCase()}|${AUDIT_PREFIX.toLowerCase()})`,
+    );
+    const auditElectionNames = ['Elección Gobernadores 2026'];
+    const auditRoledUserEmails = [
+      'audit.admin@test.local',
+      'audit.governor@test.local',
+    ];
+    const auditDelegateDnis = ['8045123'];
     const testElections = await this.electionConfigModel.countDocuments({
-      name: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { name: { $regex: testNameRegex } },
+        { name: { $in: auditElectionNames } },
+      ],
     });
 
     const electionDocs = await this.electionConfigModel.find({
-      name: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { name: { $regex: testNameRegex } },
+        { name: { $in: auditElectionNames } },
+      ],
     });
     const electionIds = electionDocs.map((e) => e._id);
 
@@ -1252,11 +1715,14 @@ export class TestingSeederService {
     });
 
     const parties = await this.politicalPartyModel.countDocuments({
-      partyId: { $regex: `^${TEST_PREFIX.toLowerCase()}` },
+      partyId: { $regex: testPartyRegex },
     });
 
     const users = await this.roledUserModel.countDocuments({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { email: { $in: auditRoledUserEmails } },
+      ],
     });
 
     const contracts = await this.contractModel.countDocuments({
@@ -1264,11 +1730,17 @@ export class TestingSeederService {
     });
 
     const delegateUsers = await this.userModel.countDocuments({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { dni: { $in: auditDelegateDnis } },
+      ],
     });
 
     const delegates = await this.delegateModel.countDocuments({
-      dni: { $regex: `^${TEST_PREFIX}` },
+      $or: [
+        { dni: { $regex: testNameRegex } },
+        { dni: { $in: auditDelegateDnis } },
+      ],
     });
 
     return {

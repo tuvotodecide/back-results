@@ -283,6 +283,22 @@ describe('Delegates pariticipation end-to-end tests', () => {
         getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties.codes)
       );
     });
+
+    // it('P11: should count delegate participation even when report flags are missing', async () => {
+    //   await uploadAttestation('recordA', delegates[0], 1);
+
+    //   await conn.collection('attestations').updateMany(
+    //     {},
+    //     {
+    //       $set: {
+    //         isValidForClientReport: false,
+    //         validForContractId: null,
+    //       },
+    //     },
+    //   );
+
+    //   await checkPartipation(1, [delegates[0].dni]);
+    // });
   });
 
   describe('Filters availability', () => {

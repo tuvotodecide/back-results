@@ -22,6 +22,10 @@ import {
   AttestationSchema,
 } from '../attestation/schemas/attestation.schema';
 import { Ballot, BallotSchema } from '../ballot/schemas/ballot.schema';
+import {
+  BallotComparison,
+  BallotComparisonSchema,
+} from '../attestation/schemas/ballot-comparison.schema';
 import { ClientReportsService } from './services/client-reports.service';
 import { ClientReportsController } from './controllers/client-reports.controller';
 import { ResultsModule } from '../results/results.module';
@@ -41,6 +45,7 @@ import { AttestationAvailabilityGuard } from '@/core/guards/attestation-availabi
       { name: Municipality.name, schema: MunicipalitySchema },
       { name: Attestation.name, schema: AttestationSchema },
       { name: Ballot.name, schema: BallotSchema },
+      { name: BallotComparison.name, schema: BallotComparisonSchema },
     ]),
     UsersModule,
     AuthModule,

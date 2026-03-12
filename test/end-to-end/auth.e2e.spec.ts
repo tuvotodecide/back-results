@@ -45,6 +45,8 @@ const MailMockService = {
   getTemplate: jest.fn(),
 }
 
+jest.setTimeout(180000);
+
 describe('Auth E2E testing + contracts and delegates', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;

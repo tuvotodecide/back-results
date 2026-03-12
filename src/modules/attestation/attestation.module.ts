@@ -22,6 +22,10 @@ import { LockSchema } from './schemas/lock.schema';
 import { ContractsModule } from '../contracts/contracts.module';
 import { ZkAuthModule } from '../zk-auth/zk-auth.module';
 import { GeographicModule } from '../geographic/geographic.module';
+import {
+  BallotComparison,
+  BallotComparisonSchema,
+} from './schemas/ballot-comparison.schema';
 
 @Module({
   imports: [
@@ -30,6 +34,7 @@ import { GeographicModule } from '../geographic/geographic.module';
       { name: Ballot.name, schema: BallotSchema },
       { name: AttestationCase.name, schema: AttestationCaseSchema },
       { name: ElectoralTable.name, schema: ElectoralTableSchema },
+      { name: BallotComparison.name, schema: BallotComparisonSchema },
       { name: 'Lock', schema: LockSchema, collection: 'locks' },
     ]),
     ElectionsModule,

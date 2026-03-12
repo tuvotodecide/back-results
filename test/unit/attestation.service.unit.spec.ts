@@ -7,12 +7,16 @@ import { UsersService } from '@/modules/users/services/users.service';
 import { Ballot } from '@/modules/ballot/schemas/ballot.schema';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 import { Types } from 'mongoose';
+import { DelegatesService } from '@/modules/contracts/services/delegates.service';
+import { ContractsService } from '@/modules/contracts/services/contracts.service';
+import { BallotComparison } from '@/modules/attestation/schemas/ballot-comparison.schema';
 
 const attModel = () => ({
   create: jest.fn(),
   countDocuments: jest.fn(),
   find: jest.fn(),
   aggregate: jest.fn(),
+  distinct: jest.fn(),
 });
 
 const ballotModel = () => ({
@@ -29,11 +33,18 @@ const attCaseModel = () => ({
   aggregate: jest.fn(),
 });
 
+const ballotComparisonModel = () => ({
+  findOneAndUpdate: jest.fn(),
+});
+
 const electionCfg = {
   getActiveConfigs: jest.fn().mockResolvedValue([{ id: 'Election1' }]),
   getActiveConfig: jest.fn(),
+  findOne: jest.fn(),
 };
 const userSvc = { findOrCreateByDni: jest.fn() };
+const delegatesSvc = { getAuthorizedContracts: jest.fn() };
+const contractsSvc = { getClientContract: jest.fn() };
 
 describe('AttestationService', () => {
   let svc: AttestationService;
@@ -45,8 +56,14 @@ describe('AttestationService', () => {
         { provide: getModelToken('Attestation'), useValue: attModel() },
         { provide: getModelToken(Ballot.name), useValue: ballotModel() },
         { provide: getModelToken('AttestationCase'), useValue: attCaseModel() },
+        {
+          provide: getModelToken(BallotComparison.name),
+          useValue: ballotComparisonModel(),
+        },
         { provide: UsersService, useValue: userSvc },
         { provide: ElectionConfigService, useValue: electionCfg },
+        { provide: DelegatesService, useValue: delegatesSvc },
+        { provide: ContractsService, useValue: contractsSvc },
       ],
     }).compile();
 
@@ -106,5 +123,86 @@ describe('AttestationService', () => {
     });
     expect(res.total).toBe(42);
     expect(Array.isArray(res.items)).toBe(true);
+  });
+
+  it('runBallotComparisons persiste MATCH cuando coincide con TSE', async () => {
+    const electionId = new Types.ObjectId().toString();
+    const ballotId = new Types.ObjectId();
+
+    electionCfg.getActiveConfig.mockResolvedValue(null);
+    electionCfg.findOne.mockResolvedValue({ id: electionId, type: 'presidential' });
+
+    (svc as any).ballotModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockReturnValue({
+          exec: jest.fn().mockResolvedValue([
+            {
+              _id: ballotId,
+              electionId: new Types.ObjectId(electionId),
+              tableCode: '2010691',
+              version: 1,
+              status: 'processed',
+              votes: {
+                parties: {
+                  validVotes: 216,
+                  nullVotes: 6,
+                  blankVotes: 1,
+                  totalVotes: 223,
+                  partyVotes: [
+                    { partyId: 'pdc', votes: 98 },
+                    { partyId: 'libre', votes: 118 },
+                  ],
+                },
+              },
+              createdAt: new Date(),
+            },
+          ]),
+        }),
+      }),
+    });
+
+    (svc as any).attestationModel.distinct.mockResolvedValue([ballotId]);
+    (svc as any).ballotModel.db = {
+      collection: jest.fn().mockImplementation((name: string) => {
+        if (name === 'political_parties') {
+          return {
+            find: jest.fn().mockReturnValue({
+              project: jest.fn().mockReturnValue({
+                toArray: jest.fn().mockResolvedValue([
+                  { partyId: 'pdc', shortName: 'PDC' },
+                  { partyId: 'libre', shortName: 'LIBRE' },
+                ]),
+              }),
+            }),
+          };
+        }
+        return { find: jest.fn() };
+      }),
+    };
+
+    jest
+      .spyOn(svc as any, 'fetchTseMesaResult')
+      .mockResolvedValue({
+        tabla: [[
+          { nombre: 'PDC', valor: '98' },
+          { nombre: 'LIBRE', valor: '118' },
+          { nombre: 'voto_valido', valor: '216' },
+          { nombre: 'voto_blanco', valor: '1' },
+          { nombre: 'voto_nulo', valor: '6' },
+          { nombre: 'voto_emitido', valor: '223' },
+        ]],
+        fecha: '10/03/2026 13:31:05',
+      });
+
+    (svc as any).ballotComparisonModel.findOneAndUpdate.mockResolvedValue({});
+
+    const result = await (svc as any).runBallotComparisons({
+      electionId,
+      onlyAttested: true,
+    });
+
+    expect(result.processed).toBe(1);
+    expect(result.byStatus.MATCH).toBe(1);
+    expect((svc as any).ballotComparisonModel.findOneAndUpdate).toHaveBeenCalled();
   });
 });

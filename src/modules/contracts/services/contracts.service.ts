@@ -148,6 +148,117 @@ export class ContractsService {
       .exec();
   }
 
+  async findPublicActiveContracts(filters?: {
+    electionId?: string;
+    electionType?: string;
+  }): Promise<
+    Array<{
+      contractId: string;
+      clientRole: 'MAYOR' | 'GOVERNOR';
+      election: {
+        electionId: string;
+        electionName: string;
+        electionType?: string;
+        round?: number;
+      };
+      territory: {
+        type: 'municipality' | 'department';
+        departmentId?: string;
+        departmentName?: string;
+        municipalityId?: string;
+        municipalityName?: string;
+      };
+      active: boolean;
+    }>
+  > {
+    const activeElections = await this.electionConfigService.getActiveConfigs();
+    if (!activeElections.length) return [];
+
+    let filteredElections = activeElections;
+    if (filters?.electionType) {
+      filteredElections = activeElections.filter(
+        (e) => e.type === filters.electionType,
+      );
+    }
+    if (filters?.electionId) {
+      filteredElections = filteredElections.filter(
+        (e) => e.id === filters.electionId,
+      );
+    }
+    if (!filteredElections.length) return [];
+
+    const electionIdSet = new Set(filteredElections.map((e) => e.id));
+
+    const contracts = await this.contractModel
+      .find({
+        active: true,
+        electionId: {
+          $in: filteredElections.map((e) => new Types.ObjectId(e.id)),
+        },
+      })
+      .populate('electionId', 'name type round')
+      .populate('departmentId', 'name')
+      .populate('municipalityId', 'name')
+      .sort({
+        electionId: 1,
+        clientRole: 1,
+        departmentName: 1,
+        municipalityName: 1,
+        createdAt: -1,
+      })
+      .exec();
+
+    return contracts
+      .map((c) => {
+        const election = c.electionId as any;
+        if (!election?._id) return null;
+        const eid = election._id.toString();
+        if (!electionIdSet.has(eid)) return null;
+
+        const dept = c.departmentId as any;
+        const muni = c.municipalityId as any;
+        const isMunicipal = Boolean(muni || c.municipalityName);
+
+        return {
+          contractId: c._id.toString(),
+          clientRole: c.clientRole,
+          election: {
+            electionId: eid,
+            electionName: election.name,
+            electionType: election.type,
+            round: election.round,
+          },
+          territory: {
+            type: isMunicipal ? 'municipality' : 'department',
+            departmentId: dept?._id?.toString() || c.departmentId?.toString(),
+            departmentName: dept?.name || c.departmentName,
+            municipalityId:
+              muni?._id?.toString() || c.municipalityId?.toString(),
+            municipalityName: muni?.name || c.municipalityName,
+          },
+          active: c.active,
+        };
+      })
+      .filter(Boolean) as Array<{
+      contractId: string;
+      clientRole: 'MAYOR' | 'GOVERNOR';
+      election: {
+        electionId: string;
+        electionName: string;
+        electionType?: string;
+        round?: number;
+      };
+      territory: {
+        type: 'municipality' | 'department';
+        departmentId?: string;
+        departmentName?: string;
+        municipalityId?: string;
+        municipalityName?: string;
+      };
+      active: boolean;
+    }>;
+  }
+
   /**
    * Verificar si existe cobertura activa para un territorio
    */
@@ -296,10 +407,14 @@ export class ContractsService {
         active: contract.active,
         clientRole: contract.clientRole,
         territory: {
-          departmentId: contract.departmentId?.toString(),
+          departmentId:
+            (contract.departmentId as any)?._id?.toString() ||
+            contract.departmentId?.toString(),
           departmentName:
             (contract.departmentId as any)?.name || contract.departmentName,
-          municipalityId: contract.municipalityId?.toString(),
+          municipalityId:
+            (contract.municipalityId as any)?._id?.toString() ||
+            contract.municipalityId?.toString(),
           municipalityName:
             (contract.municipalityId as any)?.name || contract.municipalityName,
         },

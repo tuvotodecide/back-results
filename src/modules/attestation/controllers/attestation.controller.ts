@@ -18,6 +18,7 @@ import {
   ApiQuery,
   ApiParam,
   ApiBody,
+  ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AttestationService } from '../services/attestation.service';
 import { TerritorialScopeGuard } from '@/core/guards/territorial-scope.guard';
@@ -30,6 +31,8 @@ import {
 } from '../dto/attestation.dto';
 import { VotingPeriodGuard } from '@/modules/elections/guards/voting-period.guard';
 import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
+import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.guard';
+import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Attestations')
 @Controller('api/v1/attestations')
@@ -272,6 +275,61 @@ export class AttestationController {
       req?.userMunicipalityId,
       req?.userRole,
     );
+  }
+
+  @Get('audit-match/:tableCode')
+  @Public()
+  @UseGuards(TerritorialScopeGuard)
+  @ApiOperation({
+    summary: 'Comparar una mesa contra TSE usando atestiguamientos o resolución',
+    description:
+      'Retorna el acta más apoyada o la resuelta, normaliza votos y compara contra el endpoint externo del TSE.',
+  })
+  @ApiParam({ name: 'tableCode' })
+  @ApiQuery({ name: 'electionId', required: true })
+  @ApiQuery({
+    name: 'comparisonSource',
+    required: false,
+    enum: ['attested', 'resolved'],
+  })
+  @ApiQuery({ name: 'electionType', required: false })
+  async getAuditMatchReport(
+    @Param('tableCode') tableCode: string,
+    @Query('electionId') electionId: string,
+    @Query('comparisonSource')
+    comparisonSource: 'attested' | 'resolved' = 'attested',
+    @Query('electionType') electionType?: string,
+  ) {
+    return this.attestationService.getAuditMatchReport(
+      tableCode,
+      electionId,
+      comparisonSource,
+      electionType,
+    );
+  }
+
+  @Post('ballot-comparisons/run')
+  @UseGuards(JwtAuthGuard, AdminOnlyGuard, ResultsPeriodGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Ejecutar comparación masiva de actas contra TSE',
+    description:
+      'Se ejecuta manualmente después del periodo de votación. Compara actas procesadas/sincronizadas y persiste el resultado por ballot.',
+  })
+  @ApiQuery({ name: 'electionId', required: true })
+  @ApiQuery({ name: 'tableCode', required: false })
+  @ApiQuery({ name: 'onlyAttested', required: false, type: Boolean })
+  async runBallotComparisons(
+    @Query('electionId') electionId: string,
+    @Query('tableCode') tableCode?: string,
+    @Query('onlyAttested') onlyAttested?: string,
+  ) {
+    return this.attestationService.runBallotComparisons({
+      electionId,
+      tableCode,
+      onlyAttested: onlyAttested === 'true',
+    });
   }
 
   @Delete(':id')
