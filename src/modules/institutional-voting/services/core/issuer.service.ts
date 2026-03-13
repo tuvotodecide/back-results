@@ -1,0 +1,88 @@
+import { Injectable, InternalServerErrorException } from "@nestjs/common";
+import { HttpService } from "@nestjs/axios";
+import { ConfigService } from "@nestjs/config";
+import { randomUUID } from "crypto";
+import { VotingEventDocument } from "../../schemas/voting-event.schema";
+import { Types } from "mongoose";
+
+export type VCclaimData = {
+  id: string;
+}
+
+@Injectable()
+export class IssuerService {
+  private readonly baseUrl: string;
+  private readonly username: string;
+  private readonly password: string;
+  private readonly issuerDid: string;
+  private readonly credSchema: string;
+  private readonly credType: string;
+
+  private readonly identityBaseUrl: string;
+  private readonly identityApiKey: string;
+
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
+  ) {
+    this.baseUrl = this.configService.get<string>('app.issuer.baseUrl')!;
+    this.username = this.configService.get<string>('app.issuer.username')!;
+    this.password = this.configService.get<string>('app.issuer.password')!;
+    this.issuerDid = this.configService.get<string>('app.issuer.did')!;
+    this.credSchema = this.configService.get<string>('app.issuer.credSchema')!;
+    this.credType = this.configService.get<string>('app.issuer.credType')!;
+    this.identityBaseUrl = this.configService.get<string>('app.identity.baseUrl')!;
+    this.identityApiKey = this.configService.get<string>('app.identity.apiKey')!;
+  }
+
+  async issueCredential(dnis: string[], event: VotingEventDocument) {
+    const url = `${this.baseUrl}/v2/identities/${this.issuerDid}/credentials`;
+    const users = await this.getDidsByDnis(dnis);
+
+    const credentialData: Record<string, Record<string, string>> = {};
+    for (const user of users) {
+      const body = {
+        credentialSchema: this.credSchema,
+        type: this.credType,
+        credentialSubject: {
+          id: user.did,
+          eventId: (event._id as Types.ObjectId).toString(),
+          nullifier: randomUUID(),
+        },
+      }
+
+      try {
+        const response = await this.httpService.axiosRef.post<VCclaimData>(url, body, {
+          auth: {
+            username: this.username,
+            password: this.password,
+          },
+        });
+        credentialData[user.dni] = {
+          credentialData: response.data.id,
+        };
+      } catch (error) {
+        throw new InternalServerErrorException(`Error issuing credential for DNI ${user.dni}: ${error.response?.data || error.message}`);
+      }
+    }
+
+    return credentialData;
+  }
+
+  async getDidsByDnis(dnis: string[]) {
+    const url = `${this.identityBaseUrl}/registry/get-by-dni`;
+    try {
+      const response = await this.httpService.axiosRef.get<{ dni: string; did: string }[]>(url, {
+        params: {
+          dnis: dnis.join(','),
+        },
+        headers: {
+          'x-api-key': this.identityApiKey,
+        }
+      });
+      return response.data;
+    } catch (error) {
+      throw new InternalServerErrorException(`Error fetching DIDs for given DNIs: ${error.response?.data || error.message}`);
+    }
+  }
+}

@@ -38,7 +38,7 @@ export class InstitutionalVotingNotificationsService {
     private readonly votingEventModel: Model<VotingEventDocument>,
   ) {}
 
-  async notifyConvocationIfEligible(event: VotingEventDocument) {
+  async notifyConvocationIfEligible(event: VotingEventDocument, additionalPerUserDniData: Record<string, Record<string, string>> = {}) {
     if (event.convocationNotifiedAt) return { sent: 0, skipped: 'already_notified' };
     const out = await this.notifyToCurrentPadron(event, {
       type: 'convocation',
@@ -49,7 +49,7 @@ export class InstitutionalVotingNotificationsService {
         eventId: String(event._id),
         deepLink: `myapp://event/${String(event._id)}`,
       },
-    });
+    }, additionalPerUserDniData);
 
     await this.votingEventModel.updateOne(
       { _id: event._id },
@@ -110,6 +110,7 @@ export class InstitutionalVotingNotificationsService {
       body: string;
       data: Record<string, string>;
     },
+    additionalPerUserDniData: Record<string, Record<string, string>> = {},
   ) {
     const currentVersion = await this.padronVersionModel
       .findOne({ eventId: event._id, isCurrent: true })
@@ -148,7 +149,10 @@ export class InstitutionalVotingNotificationsService {
       topic,
       title: payload.title,
       body: payload.body,
-      data: payload.data,
+      data: {
+        ...payload.data,
+        ...additionalPerUserDniData[u.dni],
+      },
       status: 'NEW' as const,
     }));
     await this.userNotificationModel.insertMany(batch, { ordered: false });
