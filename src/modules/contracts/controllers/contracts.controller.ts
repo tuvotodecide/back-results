@@ -204,6 +204,37 @@ export class ContractsController {
     };
   }
 
+  @Get('public-active')
+  @Public()
+  @ApiOperation({
+    summary: 'Listar contratos activos públicos por elección',
+    description:
+      'Retorna contratos activos de elecciones activas para consumo público (Home).',
+  })
+  @ApiQuery({ name: 'electionId', required: false, type: String })
+  @ApiQuery({
+    name: 'electionType',
+    required: false,
+    enum: ['municipal', 'departamental', 'presidential'],
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Contratos públicos activos obtenidos exitosamente',
+  })
+  async listPublicActive(
+    @Query('electionId') electionId?: string,
+    @Query('electionType') electionType?: string,
+  ) {
+    const data = await this.contractsService.findPublicActiveContracts({
+      electionId,
+      electionType,
+    });
+    return {
+      data,
+      total: data.length,
+    };
+  }
+
   /**
    * M1: Verificar cobertura para un territorio
    */

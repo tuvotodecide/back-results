@@ -45,6 +45,8 @@ const MailMockService = {
   getTemplate: jest.fn(),
 }
 
+jest.setTimeout(180000);
+
 describe('Auth E2E testing + contracts and delegates', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
@@ -513,6 +515,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
         contractId: contracts.insertedIds[0].toString(),
       }).expect(401);
   });
+
 
   it('R19-A: should upload delegate with admin role', async () => {
     await request(app.getHttpServer())

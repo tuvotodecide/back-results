@@ -129,6 +129,11 @@ export class BallotService {
       // CORREGIDO: electionId ahora es requerido
       const eid = await this.resolveElectionId(createDto.electionId, true);
       await this.validateBallotData(ballotData, eid);
+      await this.ensureNoDuplicateVotesForTable(
+        ballotData.tableCode,
+        eid,
+        ballotData.votes,
+      );
 
       return true;
     } catch (error) {
@@ -444,6 +449,72 @@ export class BallotService {
     if (errors.length > 0) {
       throw new BadRequestException(
         `Errores de validación: ${errors.join(', ')}`,
+      );
+    }
+  }
+
+
+  private normalizeVotesForComparison(votes: any): any {
+    const normalizeNumber = (value: unknown) => {
+      const num = Number(value);
+      return Number.isFinite(num) && num >= 0 ? num : 0;
+    };
+
+    const normalizeCategory = (category: any) => {
+      if (!category) return null;
+      const partyVotes = Array.isArray(category.partyVotes)
+        ? category.partyVotes
+            .map((item: any) => ({
+              partyId: String(item?.partyId ?? '').trim().toLowerCase(),
+              votes: normalizeNumber(item?.votes),
+            }))
+            .sort((a: any, b: any) =>
+              a.partyId.localeCompare(b.partyId) || a.votes - b.votes,
+            )
+        : [];
+
+      return {
+        validVotes: normalizeNumber(category.validVotes),
+        nullVotes: normalizeNumber(category.nullVotes),
+        blankVotes: normalizeNumber(category.blankVotes),
+        partyVotes,
+      };
+    };
+
+    return {
+      parties: normalizeCategory(votes?.parties),
+      deputies: normalizeCategory(votes?.deputies),
+    };
+  }
+
+  private async ensureNoDuplicateVotesForTable(
+    tableCode: string,
+    electionId: Types.ObjectId,
+    votes: any,
+  ): Promise<void> {
+    const normalizedIncoming = this.normalizeVotesForComparison(votes);
+    const existing = await this.ballotModel
+      .find(
+        {
+          electionId,
+          tableCode,
+        },
+        {
+          votes: 1,
+        },
+      )
+      .lean();
+
+    const incomingValue = JSON.stringify(normalizedIncoming);
+    const duplicated = existing.some(
+      ballot =>
+        JSON.stringify(this.normalizeVotesForComparison((ballot as any)?.votes)) ===
+        incomingValue,
+    );
+
+    if (duplicated) {
+      throw new ConflictException(
+        'Ya existe un acta con los mismos votos para esta mesa',
       );
     }
   }
@@ -881,4 +952,3 @@ export class BallotService {
     }
   }
 }
-

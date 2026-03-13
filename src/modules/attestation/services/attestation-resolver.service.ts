@@ -755,16 +755,23 @@ export class AttestationResolverService {
             info.status,
           );
 
-          // Si ya hay resultado final en contrato, solo sincronizamos a BD
+          // enum AttestationState { OPEN=0, CONSENSUAL=1, VERIFYING=2, CLOSED=3, PENDING=4 }
+          // Solo status 0 (OPEN) necesita resolve().
+          // Status 2 (VERIFYING) ya fue resuelto por el oráculo, no llamar resolve() de nuevo.
+          const contractStatus = info.status;
+          const needsResolve = contractStatus === 0; // OPEN
+
+          // Si ya hay resultado final o el contrato ya procesó este attestation, solo sincronizamos
           if (
             hasWinner ||
-            ['CONSENSUAL', 'CLOSED'].includes(stateStr)
+            ['CONSENSUAL', 'CLOSED'].includes(stateStr) ||
+            !needsResolve
           ) {
             await this.syncFromContract(electionId, tableCode);
             continue;
           }
 
-          // Sigue sin resolver en contrato -> la incluimos en el batch de resolve()
+          // Sigue en estado OPEN en contrato -> la incluimos en el batch de resolve()
           ready.push({ tableCode, electionId });
         } catch (err) {
           this.logger.warn(

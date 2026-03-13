@@ -196,17 +196,34 @@ export class UsersController {
         };
       }
 
+      const notificationType =
+        dto.notificationType === 'participation_certificate'
+          ? 'participation_certificate'
+          : 'acta_published';
+      const mesaLabel = String(dto.tableNumber || dto.tableCode || '').trim();
+      const isParticipation = notificationType === 'participation_certificate';
+
       const payload = {
-        title: 'Acta subida exitosamente',
-        body: 'Tu acta fue publicada correctamente.',
+        title: isParticipation
+          ? 'Atestiguamiento exitoso'
+          : 'Acta subida exitosamente',
+        body: isParticipation
+          ? mesaLabel
+            ? `Atestiguamiento exitoso.`
+            : 'Tu atestiguamiento se registró correctamente.'
+          : mesaLabel
+            ? `Tu acta de la mesa ${mesaLabel} fue publicada correctamente.`
+            : 'Tu acta fue publicada correctamente.',
         data: {
-          type: 'acta_published',
+          type: notificationType,
           dni: user.dni,
           userId: user._id.toString(),
           electionId: result.electionId ?? '',
           imageUrl: result.imageUrl,
           ipfsUri: result.ipfsUri ?? '',
           actaImageUrl: result.actaImageUrl ?? '',
+          tableCode: dto.tableCode ?? '',
+          tableNumber: dto.tableNumber ?? '',
           txHash: result.txHash,
           chainId: result.chainId,
           contractAddress: result.contractAddress,

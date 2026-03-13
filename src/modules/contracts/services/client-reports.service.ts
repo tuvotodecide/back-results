@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Contract } from '../schemas/contract.schema';
 import { Delegate } from '../schemas/delegate.schema';
 import { Attestation } from '../../attestation/schemas/attestation.schema';
 import { Ballot } from '../../ballot/schemas/ballot.schema';
+import { BallotComparison } from '../../attestation/schemas/ballot-comparison.schema';
 
 /**
  * UC4: Reporte del Alcalde/Gobernador
@@ -12,11 +13,15 @@ import { Ballot } from '../../ballot/schemas/ballot.schema';
  */
 @Injectable()
 export class ClientReportsService {
+  private readonly logger = new Logger(ClientReportsService.name);
+
   constructor(
     @InjectModel(Contract.name) private contractModel: Model<Contract>,
     @InjectModel(Delegate.name) private delegateModel: Model<Delegate>,
     @InjectModel(Attestation.name) private attestationModel: Model<Attestation>,
     @InjectModel(Ballot.name) private ballotModel: Model<Ballot>,
+    @InjectModel(BallotComparison.name)
+    private ballotComparisonModel: Model<BallotComparison>,
   ) {}
 
   /**
@@ -27,7 +32,7 @@ export class ClientReportsService {
     electionId: string;
     groupBy?: 'delegate' | 'location' | 'table';
   }) {
-    const contract = await this.contractModel.findById(params.contractId);
+    const contract = await this.contractModel.findById(params.contractId).lean();
     if (!contract) {
       throw new NotFoundException('Contrato no encontrado');
     }
@@ -41,53 +46,17 @@ export class ClientReportsService {
       .lean();
 
     const delegateUserIds = delegates.map((d) => d.userId);
+    this.logger.debug(
+      `[delegate-activity] electionId=${params.electionId} contractId=${params.contractId} delegates=${delegates.length} department=${contract.departmentName ?? 'null'} municipality=${contract.municipalityName ?? 'null'}`,
+    );
 
-    // Obtener atestiguamientos válidos para este contrato
-    const attestations = await this.attestationModel
-      .aggregate([
-        {
-          $match: {
-            userId: { $in: delegateUserIds },
-            electionId: new Types.ObjectId(params.electionId),
-            isValidForClientReport: true,
-            validForContractId: new Types.ObjectId(params.contractId),
-          },
-        },
-        {
-          $lookup: {
-            from: 'ballots',
-            localField: 'ballotId',
-            foreignField: '_id',
-            as: 'ballot',
-          },
-        },
-        {
-          $unwind: '$ballot',
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'userId',
-            foreignField: '_id',
-            as: 'user',
-          },
-        },
-        {
-          $unwind: '$user',
-        },
-        {
-          $project: {
-            dni: '$user.dni',
-            ballotId: '$ballot._id',
-            tableCode: '$ballot.tableCode',
-            tableNumber: '$ballot.tableNumber',
-            location: '$ballot.location',
-            createdAt: 1,
-            support: 1,
-          },
-        },
-      ])
-      .exec();
+    const attestations = await this.getContractAttestations({
+      contract,
+      contractId: params.contractId,
+      electionId: params.electionId,
+      delegateUserIds,
+      includeUser: true,
+    });
 
     // Agrupar según el parámetro
     switch (params.groupBy) {
@@ -346,7 +315,7 @@ export class ClientReportsService {
     contractId: string;
     electionId: string;
   }) {
-    const contract = await this.contractModel.findById(params.contractId);
+    const contract = await this.contractModel.findById(params.contractId).lean();
     if (!contract) {
       throw new NotFoundException('Contrato no encontrado');
     }
@@ -357,81 +326,37 @@ export class ClientReportsService {
       active: true,
     });
 
-    // Delegados con actividad
-    const activeDelegates = await this.attestationModel
-      .distinct('userId', {
-        electionId: new Types.ObjectId(params.electionId),
-        isValidForClientReport: true,
-        validForContractId: new Types.ObjectId(params.contractId),
+    const delegates = await this.delegateModel
+      .find({
+        'authorizedContracts.contractId': new Types.ObjectId(params.contractId),
+        active: true,
       })
-      .exec();
+      .lean();
 
-    // Total de atestiguamientos
-    const totalAttestations = await this.attestationModel.countDocuments({
-      electionId: new Types.ObjectId(params.electionId),
-      isValidForClientReport: true,
-      validForContractId: new Types.ObjectId(params.contractId),
+    const delegateUserIds = delegates.map((d) => d.userId);
+    this.logger.debug(
+      `[executive-summary] electionId=${params.electionId} contractId=${params.contractId} delegates=${delegates.length} department=${contract.departmentName ?? 'null'} municipality=${contract.municipalityName ?? 'null'}`,
+    );
+    const attestations = await this.getContractAttestations({
+      contract,
+      contractId: params.contractId,
+      electionId: params.electionId,
+      delegateUserIds,
+      includeUser: true,
     });
 
-    // Mesas únicas atestiguadas
-    const uniqueTables = await this.attestationModel.aggregate([
-      {
-        $match: {
-          electionId: new Types.ObjectId(params.electionId),
-          isValidForClientReport: true,
-          validForContractId: new Types.ObjectId(params.contractId),
-        },
-      },
-      {
-        $lookup: {
-          from: 'ballots',
-          localField: 'ballotId',
-          foreignField: '_id',
-          as: 'ballot',
-        },
-      },
-      {
-        $unwind: '$ballot',
-      },
-      {
-        $group: {
-          _id: '$ballot.tableCode',
-        },
-      },
-      {
-        $count: 'total',
-      },
-    ]);
-
-    // Recintos únicos
-    const uniqueLocations = await this.attestationModel.aggregate([
-      {
-        $match: {
-          electionId: new Types.ObjectId(params.electionId),
-          isValidForClientReport: true,
-          validForContractId: new Types.ObjectId(params.contractId),
-        },
-      },
-      {
-        $lookup: {
-          from: 'ballots',
-          localField: 'ballotId',
-          foreignField: '_id',
-          as: 'ballot',
-        },
-      },
-      {
-        $unwind: '$ballot',
-      },
-      {
-        $group: {
-          _id: '$ballot.location.electoralLocationName',
-        },
-      },
-      {
-        $count: 'total',
-      },
-    ]);
+    const activeDelegates = new Set(
+      attestations.map((att: any) => String(att.userId)),
+    );
+    const uniqueTables = new Set(
+      attestations.map((att: any) => att.tableCode).filter(Boolean),
+    );
+    const uniqueLocations = new Set(
+      attestations
+        .map((att: any) => att.location?.electoralLocationName)
+        .filter(Boolean),
+    );
+    const totalAttestations = attestations.length;
 
     return {
       contract: {
@@ -444,19 +369,312 @@ export class ClientReportsService {
       },
       summary: {
         totalDelegatesAuthorized: totalDelegates,
-        activeDelegates: activeDelegates.length,
+        activeDelegates: activeDelegates.size,
         participationRate:
           totalDelegates > 0
-            ? ((activeDelegates.length / totalDelegates) * 100).toFixed(2) + '%'
+            ? ((activeDelegates.size / totalDelegates) * 100).toFixed(2) + '%'
             : '0%',
         totalAttestations,
-        uniqueTablesAttested: uniqueTables[0]?.total || 0,
-        uniqueLocationsAttested: uniqueLocations[0]?.total || 0,
+        uniqueTablesAttested: uniqueTables.size,
+        uniqueLocationsAttested: uniqueLocations.size,
         avgAttestationsPerDelegate:
-          activeDelegates.length > 0
-            ? (totalAttestations / activeDelegates.length).toFixed(2)
+          activeDelegates.size > 0
+            ? (totalAttestations / activeDelegates.size).toFixed(2)
             : '0',
       },
     };
+  }
+
+  async getAuditMatchReport(params: {
+    contractId: string;
+    electionId: string;
+    department?: string;
+    province?: string;
+    municipality?: string;
+    electoralSeat?: string;
+    electoralLocation?: string;
+    tableCode?: string;
+  }) {
+    const contract = await this.contractModel.findById(params.contractId).lean();
+    if (!contract) {
+      throw new NotFoundException('Contrato no encontrado');
+    }
+
+    const delegates = await this.delegateModel
+      .find({
+        'authorizedContracts.contractId': new Types.ObjectId(params.contractId),
+        active: true,
+      })
+      .lean();
+
+    const delegateUserIds = delegates.map((d) => d.userId);
+    this.logger.debug(
+      `[audit-match] electionId=${params.electionId} contractId=${params.contractId} delegates=${delegates.length} department=${contract.departmentName ?? 'null'} municipality=${contract.municipalityName ?? 'null'}`,
+    );
+    const rows = await this.getContractAttestations({
+      contract,
+      contractId: params.contractId,
+      electionId: params.electionId,
+      delegateUserIds,
+      includeUser: true,
+      extraProjection: {
+        version: '$ballot.version',
+        delegateName: '$user.name',
+        delegateDni: '$user.dni',
+      },
+    });
+
+    const filteredRows = rows.filter((row: any) => {
+      if (params.department && row.location?.department !== params.department)
+        return false;
+      if (params.province && row.location?.province !== params.province)
+        return false;
+      if (
+        params.municipality &&
+        row.location?.municipality !== params.municipality
+      )
+        return false;
+      if (
+        params.electoralSeat &&
+        row.location?.electoralSeat !== params.electoralSeat
+      )
+        return false;
+      if (
+        params.electoralLocation &&
+        row.location?.electoralLocationName !== params.electoralLocation
+      )
+        return false;
+      if (params.tableCode && row.tableCode !== params.tableCode) return false;
+      return true;
+    });
+
+    const byBallot = new Map<string, any>();
+    for (const row of filteredRows) {
+      const key = String(row.ballotId);
+      if (!byBallot.has(key)) {
+        byBallot.set(key, {
+          ballotId: key,
+          tableCode: row.tableCode,
+          mesa: row.tableNumber || row.tableCode,
+          recinto: row.location?.electoralLocationName || 'Sin ubicación',
+          version: row.version ?? null,
+          delegates: new Map<string, string>(),
+        });
+      }
+      const item = byBallot.get(key);
+      item.delegates.set(
+        String(row.delegateDni || row.delegateName || key),
+        row.delegateName || row.delegateDni || 'Sin nombre',
+      );
+    }
+
+    const ballotIds = Array.from(byBallot.keys())
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
+
+    const comparisons = ballotIds.length
+      ? await this.ballotComparisonModel
+          .find({ ballotId: { $in: ballotIds } })
+          .lean()
+          .exec()
+      : [];
+
+    const comparisonMap = new Map(
+      comparisons.map((comparison: any) => [
+        String(comparison.ballotId),
+        comparison,
+      ]),
+    );
+
+    const details = Array.from(byBallot.values())
+      .map((item) => {
+        const comparison = comparisonMap.get(item.ballotId);
+        const status = String(comparison?.status || 'PENDING');
+        return {
+          _id: item.ballotId,
+          ballotId: item.ballotId,
+          recinto: item.recinto,
+          mesa: item.mesa,
+          tableCode: item.tableCode,
+          version: item.version,
+          testigo: Array.from(item.delegates.values()).join(', '),
+          auditoria: this.mapAuditStatusLabel(status),
+          comparisonStatus: status,
+          comparedAt: comparison?.comparedAt ?? null,
+          mismatches: comparison?.mismatches ?? [],
+        };
+      })
+      .sort((a, b) => a.recinto.localeCompare(b.recinto) || a.mesa.localeCompare(b.mesa));
+
+    const observados = details.filter(
+      (item) => item.comparisonStatus === 'MISMATCH',
+    ).length;
+
+    return {
+      observados,
+      sinObservaciones: details.filter(
+        (item) => item.comparisonStatus === 'MATCH',
+      ).length,
+      pendientes: details.filter(
+        (item) => item.comparisonStatus !== 'MATCH' && item.comparisonStatus !== 'MISMATCH',
+      ).length,
+      total: details.length,
+      details,
+    };
+  }
+
+  private mapAuditStatusLabel(
+    status: string,
+  ): 'Sin Obs' | 'No coincide' | 'Pendiente' {
+    if (status === 'MATCH') return 'Sin Obs';
+    if (status === 'MISMATCH') return 'No coincide';
+    return 'Pendiente';
+  }
+
+  private buildTerritoryFallbackMatch(contract: any) {
+    if (contract.municipalityName) {
+      return {
+        'ballot.location.municipality': contract.municipalityName,
+      };
+    }
+
+    if (contract.departmentName) {
+      return {
+        'ballot.location.department': contract.departmentName,
+      };
+    }
+
+    return null;
+  }
+
+  private async getContractAttestations(params: {
+    contract: any;
+    contractId: string;
+    electionId: string;
+    delegateUserIds: Types.ObjectId[];
+    includeUser?: boolean;
+    extraProjection?: Record<string, any>;
+  }) {
+    if (params.delegateUserIds.length === 0) {
+      this.logger.debug(
+        `[client-report-debug] electionId=${params.electionId} contractId=${params.contractId} delegateUserIds=0`,
+      );
+      return [];
+    }
+
+    const contractId = new Types.ObjectId(params.contractId);
+    const fallbackMatch = this.buildTerritoryFallbackMatch(params.contract);
+    const territoryField = params.contract.municipalityName
+      ? 'municipality'
+      : params.contract.departmentName
+        ? 'department'
+        : 'none';
+    const territoryValue =
+      params.contract.municipalityName || params.contract.departmentName || null;
+    const contractScopeMatch = fallbackMatch
+      ? {
+          $or: [
+            {
+              isValidForClientReport: true,
+              validForContractId: contractId,
+            },
+            fallbackMatch,
+          ],
+        }
+      : {
+          isValidForClientReport: true,
+          validForContractId: contractId,
+        };
+
+    const pipeline: any[] = [
+      {
+        $match: {
+          userId: { $in: params.delegateUserIds },
+          electionId: new Types.ObjectId(params.electionId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'ballots',
+          localField: 'ballotId',
+          foreignField: '_id',
+          as: 'ballot',
+        },
+      },
+      { $unwind: '$ballot' },
+      {
+        $addFields: {
+          _matchedByFlags: {
+            $and: [
+              { $eq: ['$isValidForClientReport', true] },
+              { $eq: ['$validForContractId', contractId] },
+            ],
+          },
+          _matchedByTerritory:
+            territoryField === 'municipality'
+              ? {
+                  $eq: [
+                    '$ballot.location.municipality',
+                    params.contract.municipalityName,
+                  ],
+                }
+              : territoryField === 'department'
+                ? {
+                    $eq: [
+                      '$ballot.location.department',
+                      params.contract.departmentName,
+                    ],
+                  }
+                : false,
+        },
+      },
+      { $match: contractScopeMatch },
+    ];
+
+    if (params.includeUser) {
+      pipeline.push(
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'userId',
+            foreignField: '_id',
+            as: 'user',
+          },
+        },
+        { $unwind: '$user' },
+      );
+    }
+
+    pipeline.push({
+      $project: {
+        userId: 1,
+        dni: '$user.dni',
+        ballotId: '$ballot._id',
+        tableCode: '$ballot.tableCode',
+        tableNumber: '$ballot.tableNumber',
+        location: '$ballot.location',
+        createdAt: 1,
+        support: 1,
+        _matchedByFlags: 1,
+        _matchedByTerritory: 1,
+        ...(params.extraProjection || {}),
+      },
+    });
+
+    const rows = await this.attestationModel.aggregate(pipeline).exec();
+
+    const byFlags = rows.filter((row: any) => row._matchedByFlags).length;
+    const byTerritory = rows.filter(
+      (row: any) => row._matchedByTerritory,
+    ).length;
+    const fallbackOnly = rows.filter(
+      (row: any) => !row._matchedByFlags && row._matchedByTerritory,
+    ).length;
+
+    this.logger.debug(
+      `[client-report-debug] electionId=${params.electionId} contractId=${params.contractId} territoryField=${territoryField} territoryValue=${territoryValue ?? 'null'} delegateUserIds=${params.delegateUserIds.length} rows=${rows.length} byFlags=${byFlags} byTerritory=${byTerritory} fallbackOnly=${fallbackOnly}`,
+    );
+
+    return rows;
   }
 }

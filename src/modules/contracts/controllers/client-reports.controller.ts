@@ -126,6 +126,55 @@ export class ClientReportsController {
     });
   }
 
+  @Get('audit-match')
+  @ApiOperation({
+    summary: 'Reporte de auditoría OEP/TSE para actas de mis delegados',
+    description:
+      'Retorna resumen y detalle por acta atestiguada dentro del contrato, usando comparaciones previamente persistidas.',
+  })
+  @ApiQuery({ name: 'electionId', required: true })
+  @ApiQuery({ name: 'contractId', required: false })
+  @ApiQuery({ name: 'department', required: false })
+  @ApiQuery({ name: 'province', required: false })
+  @ApiQuery({ name: 'municipality', required: false })
+  @ApiQuery({ name: 'electoralSeat', required: false })
+  @ApiQuery({ name: 'electoralLocation', required: false })
+  @ApiQuery({ name: 'tableCode', required: false })
+  async getAuditMatch(
+    @Query('electionId') electionId: string,
+    @Query('contractId') contractIdParam: string,
+    @Query('department') department: string | undefined,
+    @Query('province') province: string | undefined,
+    @Query('municipality') municipality: string | undefined,
+    @Query('electoralSeat') electoralSeat: string | undefined,
+    @Query('electoralLocation') electoralLocation: string | undefined,
+    @Query('tableCode') tableCode: string | undefined,
+    @Request() req: any,
+  ) {
+    let contractId: string;
+
+    if (req.contract) {
+      contractId = req.contract._id.toString();
+    } else if (contractIdParam) {
+      contractId = contractIdParam;
+    } else {
+      throw new BadRequestException(
+        'contractId es requerido para usuarios SUPERADMIN',
+      );
+    }
+
+    return this.clientReportsService.getAuditMatchReport({
+      contractId,
+      electionId,
+      department,
+      province,
+      municipality,
+      electoralSeat,
+      electoralLocation,
+      tableCode,
+    });
+  }
+
   /**
    * Obtener mi contrato activo
    */

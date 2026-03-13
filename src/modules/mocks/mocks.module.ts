@@ -20,6 +20,10 @@ import {
   AttestationSchema,
 } from '../attestation/schemas/attestation.schema';
 import {
+  BallotComparison,
+  BallotComparisonSchema,
+} from '../attestation/schemas/ballot-comparison.schema';
+import {
   PoliticalParty,
   PoliticalPartySchema,
 } from '../political/schemas/political-party.schema';
@@ -72,6 +76,7 @@ import {
       { name: Ballot.name, schema: BallotSchema },
       { name: AttestationCase.name, schema: AttestationCaseSchema },
       { name: Attestation.name, schema: AttestationSchema },
+      { name: BallotComparison.name, schema: BallotComparisonSchema },
       { name: PoliticalParty.name, schema: PoliticalPartySchema },
       { name: ElectionParty.name, schema: ElectionPartySchema },
       { name: RoledUser.name, schema: RoledUserSchema },

@@ -149,9 +149,11 @@ jobs:
             --filter tagStatus=UNTAGGED \
             --query 'imageIds[*]' --output json)
           if [ "$IMAGE_IDS" != "[]" ]; then
-            aws ecr batch-delete-image \
-              --repository-name "${{ env.ECR_REPO }}" \
-              --image-ids "$IMAGE_IDS"
+            echo "$IMAGE_IDS" | jq -c '[_nwise(100)][]' | while read -r BATCH; do
+              aws ecr batch-delete-image \
+                --repository-name "${{ env.ECR_REPO }}" \
+                --image-ids "$BATCH"
+            done
           fi
 
   deploy-dev:

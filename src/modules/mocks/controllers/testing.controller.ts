@@ -99,6 +99,65 @@ export class TestingController {
     };
   }
 
+  @Post('seed-audit-demo')
+  @Public()
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Seed específico para demo de auditoría TSE',
+    description: `
+      Crea una demo mínima y reutilizable para probar el flujo completo de auditoría:
+
+      - 1 usuario ADMIN para ejecutar la comparación masiva
+      - 1 usuario GOVERNOR con contrato activo para iniciar sesión y ver reportes
+      - 1 delegado autorizado
+      - 2 actas atestiguadas: mesa 2010701 y mesa 2010691
+      - Mesa 2010701 preparada para MATCH con el OEP/TSE
+      - Mesa 2010691 preparada para MISMATCH con el OEP/TSE
+      - Elección activa y ya en período de resultados
+    `,
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Demo de auditoría creada exitosamente',
+  })
+  async seedAuditDemo() {
+    const result = await this.seederService.seedAuditDemo();
+
+    return {
+      success: true,
+      message: 'Demo de auditoría creada',
+      data: {
+        election: {
+          id: result.election._id,
+          name: result.election.name,
+          type: result.election.type,
+        },
+        admin: {
+          email: result.admin.email,
+          password: 'audit1234',
+          role: result.admin.role,
+        },
+        client: {
+          email: result.client.email,
+          password: 'audit1234',
+          role: result.client.role,
+        },
+        delegate: {
+          dni: result.delegate.dni,
+          name: result.delegate.name,
+        },
+        contract: {
+          id: result.contract._id,
+        },
+        ballots: result.ballots.map((b: any) => ({
+          id: b._id,
+          tableCode: b.tableCode,
+          tableNumber: b.tableNumber,
+        })),
+      },
+    };
+  }
+
   @Delete('cleanup')
   @Public()
   @HttpCode(HttpStatus.OK)

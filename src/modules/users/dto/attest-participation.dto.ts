@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsIn,
 } from 'class-validator';
 
 export class AttestParticipationDto {
@@ -48,6 +49,34 @@ export class AttestParticipationDto {
   @IsOptional()
   @IsString()
   actaImageUrl?: string;
+
+  @ApiProperty({
+    required: false,
+    description: "Tipo de notificación a registrar para el usuario",
+    enum: ['acta_published', 'participation_certificate'],
+    example: 'participation_certificate',
+  })
+  @IsOptional()
+  @IsIn(['acta_published', 'participation_certificate'])
+  notificationType?: 'acta_published' | 'participation_certificate';
+
+  @ApiProperty({
+    required: false,
+    description: 'Código de mesa para texto de notificación',
+    example: 'A-12',
+  })
+  @IsOptional()
+  @IsString()
+  tableCode?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Número de mesa para texto de notificación',
+    example: '12',
+  })
+  @IsOptional()
+  @IsString()
+  tableNumber?: string;
 }
 
 export class AttestParticipationResponseDto {
