@@ -13,6 +13,9 @@ export class PadronEntry {
 
   @Prop({ required: true, trim: true })
   carnetNorm: string;
+
+  @Prop({ type: Boolean, default: true })
+  enabled: boolean;
 }
 
 export const PadronEntrySchema = SchemaFactory.createForClass(PadronEntry);

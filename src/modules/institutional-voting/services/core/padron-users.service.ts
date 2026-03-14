@@ -38,7 +38,7 @@ export class PadronUsersService {
     }
 
     const entries = await this.padronEntryModel
-      .find({ padronVersionId: currentVersion._id }, { carnetNorm: 1 })
+      .find({ padronVersionId: currentVersion._id, enabled: true }, { carnetNorm: 1 })
       .lean();
     if (!entries.length) {
       return [];

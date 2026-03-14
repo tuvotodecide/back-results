@@ -17,6 +17,9 @@ export class InstitutionalAdminApplication {
   @Prop({ required: true, trim: true, lowercase: true })
   email: string;
 
+  @Prop({ required: true })
+  passwordHash: string;
+
   @Prop({ required: true, trim: true })
   name: string;
 

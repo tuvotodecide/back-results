@@ -19,6 +19,13 @@ import {
 } from '../../schemas/padron-version.schema';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 
+const ENABLED_HEADER = 'habilitado';
+
+type ParsedPadronRow = {
+  carnetNorm: string;
+  enabled: boolean;
+};
+
 @Injectable()
 export class PadronService {
   constructor(
@@ -48,19 +55,27 @@ export class PadronService {
       throw new BadRequestException('CSV vacio');
     }
 
-    let rows = lines;
-    if (rows[0].toLowerCase() === 'carnet') {
-      rows = rows.slice(1);
-    }
+    const headerColumns = lines[0].split(',').map((cell) => cell.trim().toLowerCase());
+    const hasHeader = ['carnet', 'dni'].includes(headerColumns[0]);
+    const hasEnabledColumn = headerColumns[1] === ENABLED_HEADER;
+    let rows = hasHeader ? lines.slice(1) : lines;
 
     const seen = new Set<string>();
-    const validEntries: string[] = [];
+    const validEntries: ParsedPadronRow[] = [];
     let duplicates = 0;
     let invalid = 0;
 
     for (const raw of rows) {
-      const normalized = normalizeCarnet(raw);
+      if (!raw) continue;
+      const [rawCarnet = '', rawEnabled = ''] = raw.split(',');
+      const normalized = normalizeCarnet(rawCarnet);
       if (!normalized) {
+        invalid++;
+        continue;
+      }
+
+      const enabled = this.parseEnabledValue(rawEnabled, hasEnabledColumn);
+      if (enabled === null) {
         invalid++;
         continue;
       }
@@ -71,7 +86,10 @@ export class PadronService {
       }
 
       seen.add(normalized);
-      validEntries.push(normalized);
+      validEntries.push({
+        carnetNorm: normalized,
+        enabled,
+      });
     }
 
     const digest = createHash('sha256').update(csvContent).digest('hex');
@@ -96,10 +114,11 @@ export class PadronService {
 
     if (validEntries.length > 0) {
       await this.padronEntryModel.insertMany(
-        validEntries.map((carnetNorm) => ({
+        validEntries.map((entry) => ({
           padronVersionId: version._id,
           eventId: event._id,
-          carnetNorm,
+          carnetNorm: entry.carnetNorm,
+          enabled: entry.enabled,
         })),
         { ordered: false },
       );
@@ -176,7 +195,7 @@ export class PadronService {
       this.padronEntryModel
         .find(
           { padronVersionId: currentVersion._id },
-          { _id: 1, carnetNorm: 1, createdAt: 1 },
+          { _id: 1, carnetNorm: 1, enabled: 1, createdAt: 1 },
         )
         .sort({ carnetNorm: 1, _id: 1 })
         .skip(skip)
@@ -189,7 +208,8 @@ export class PadronService {
       data: rows.map((row) => ({
         id: String(row._id),
         carnetNorm: row.carnetNorm,
-        createdAt: row.createdAt ?? null,
+        enabled: row.enabled !== false,
+        createdAt: (row as any).createdAt ?? null,
       })),
       page: safePage,
       limit: safeLimit,
@@ -213,19 +233,19 @@ export class PadronService {
 
     if (!currentVersion) {
       return {
-        status: 'NO_HABILITADO',
+        status: 'NOT_ELIGIBLE',
         normalizedCarnet: carnetNorm,
         referenceVersion: null,
       };
     }
 
-    const found = await this.padronEntryModel.exists({
+    const found = await this.padronEntryModel.findOne({
       padronVersionId: currentVersion._id,
       carnetNorm,
-    });
+    }, { enabled: 1 }).lean();
 
     return {
-      status: found ? 'HABILITADO' : 'NO_HABILITADO',
+      status: found ? (found.enabled === false ? 'DISABLED' : 'ELIGIBLE') : 'NOT_ELIGIBLE',
       normalizedCarnet: carnetNorm,
       referenceVersion: String(currentVersion._id),
     };
@@ -248,7 +268,7 @@ export class PadronService {
 
     if (!currentVersion) {
       return {
-        status: 'PADRON_EN_VALIDACION',
+        status: 'ROLL_IN_VALIDATION',
         referenceVersion: null,
       };
     }
@@ -260,20 +280,35 @@ export class PadronService {
 
     if (!reportOk) {
       return {
-        status: 'PADRON_EN_VALIDACION',
+        status: 'ROLL_IN_VALIDATION',
         referenceVersion: String(currentVersion._id),
       };
     }
 
-    const found = await this.padronEntryModel.exists({
+    const found = await this.padronEntryModel.findOne({
       padronVersionId: currentVersion._id,
       carnetNorm,
-    });
+    }, { enabled: 1 }).lean();
 
     return {
-      status: found ? 'HABILITADO' : 'NO_HABILITADO',
+      status: found ? (found.enabled === false ? 'DISABLED' : 'ELIGIBLE') : 'NOT_ELIGIBLE',
       referenceVersion: String(currentVersion._id),
     };
+  }
+
+  private parseEnabledValue(value: string, hasEnabledColumn: boolean): boolean | null {
+    if (!hasEnabledColumn) {
+      return true;
+    }
+
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (['1', 'true', 'si', 'sí', 'habilitado', 'activo'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'deshabilitado', 'inactivo'].includes(normalized)) {
+      return false;
+    }
+    return null;
   }
 
   async updateComparisonReportStatus(

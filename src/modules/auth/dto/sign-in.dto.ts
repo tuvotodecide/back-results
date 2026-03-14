@@ -17,6 +17,7 @@ export class SignInResponseDto {
   @ApiProperty() accessToken: string;
   @ApiProperty({ enum: userRoles }) role: UserRole;
   @ApiProperty() active: boolean;
+  @ApiPropertyOptional() tenantId?: string | null;
 }
 
 export class ProfileResponseDto {
@@ -26,6 +27,7 @@ export class ProfileResponseDto {
   @ApiProperty() active: boolean;
   @ApiPropertyOptional() votingDepartmentId: string;
   @ApiPropertyOptional() votingMunicipalityId: string;
+  @ApiPropertyOptional() tenantId?: string | null;
   @ApiProperty({ description: 'Timestamp: fecha de emisión' }) iat: number;
   @ApiProperty({ description: 'Timestamp: fecha de expiración' }) exp: number;
 }

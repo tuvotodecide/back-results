@@ -74,6 +74,7 @@ export class InstitutionalAdminApplicationsService {
     const created = await this.applicationModel.create({
       dni,
       email,
+      passwordHash: bcrypt.hashSync(dto.password, 10),
       name: dto.name.trim(),
       institutionName,
       institutionNameNorm,
@@ -142,7 +143,7 @@ export class InstitutionalAdminApplicationsService {
         approvedAt: row.approvedAt ?? null,
         tenantId: row.tenantId ? String(row.tenantId) : null,
         userId: row.userId ? String(row.userId) : null,
-        createdAt: row.createdAt,
+        createdAt: (row as any).createdAt ?? null,
       })),
       total: rows.length,
     };
@@ -171,7 +172,7 @@ export class InstitutionalAdminApplicationsService {
         dni: app.dni,
         email: app.email,
         name: app.name,
-        password: bcrypt.hashSync(randomBytes(24).toString('hex'), 10),
+        password: app.passwordHash,
         role: 'ADMIN',
         active: true,
       });

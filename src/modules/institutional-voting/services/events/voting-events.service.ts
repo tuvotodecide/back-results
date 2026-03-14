@@ -206,6 +206,14 @@ export class VotingEventsService {
       throw new NotFoundException('Evento no disponible publicamente');
     }
 
+    const [roles, options] = await Promise.all([
+      this.eventRoleModel.find({ eventId: event._id }).sort({ createdAt: 1, _id: 1 }).lean(),
+      this.votingOptionModel
+        .find({ eventId: event._id, active: { $ne: false } })
+        .sort({ createdAt: 1, _id: 1 })
+        .lean(),
+    ]);
+
     const now = new Date();
     const isUpcoming = Boolean(
       event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
@@ -239,6 +247,19 @@ export class VotingEventsService {
       resultsPublishAt: event.resultsPublishAt ?? null,
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       resultsAvailable,
+      roles: roles.map((role) => ({
+        id: String(role._id),
+        name: role.name,
+        maxWinners: role.maxWinners,
+      })),
+      options: options.map((option) => ({
+        id: String(option._id),
+        name: option.name,
+        color: option.color,
+        logoUrl: option.logoUrl ?? null,
+        candidates: option.candidates ?? [],
+        active: option.active,
+      })),
       results: resultsAvailable
         ? {
             source: snapshot?.source ?? 'BLOCKCHAIN',
@@ -303,12 +324,12 @@ export class VotingEventsService {
               padronVersionId: { $in: Array.from(okVersionIdSet, (id) => new Types.ObjectId(id)) },
               carnetNorm,
             },
-            { padronVersionId: 1 },
+            { padronVersionId: 1, enabled: 1 },
           )
           .lean()
       : [];
-    const eligibleVersionIdSet = new Set(
-      eligibleRows.map((row) => String(row.padronVersionId)),
+    const eligibilityByVersionId = new Map(
+      eligibleRows.map((row) => [String(row.padronVersionId), row.enabled !== false]),
     );
 
     const mapped = events.map((event) => {
@@ -316,7 +337,8 @@ export class VotingEventsService {
       const version = versionByEventId.get(eventId);
       const referenceVersion = version ? String(version._id) : null;
       const reportOk = version ? okVersionIdSet.has(String(version._id)) : false;
-      const inPadron = version ? eligibleVersionIdSet.has(String(version._id)) : false;
+      const versionEligibility = version ? eligibilityByVersionId.get(String(version._id)) : undefined;
+      const inPadron = typeof versionEligibility !== 'undefined';
 
       const isUpcoming = Boolean(
         event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
@@ -336,9 +358,9 @@ export class VotingEventsService {
       let status = 'PUBLIC_CHECK_DISABLED';
       if (event.publicEligibilityEnabled) {
         if (!version || !reportOk) {
-          status = 'PADRON_EN_VALIDACION';
+          status = 'ROLL_IN_VALIDATION';
         } else {
-          status = inPadron ? 'HABILITADO' : 'NO_HABILITADO';
+          status = !inPadron ? 'NOT_ELIGIBLE' : versionEligibility ? 'ELIGIBLE' : 'DISABLED';
         }
       }
 
@@ -349,7 +371,7 @@ export class VotingEventsService {
         state: event.state,
         phase: isResults ? 'RESULTS' : isActive ? 'ACTIVE' : isUpcoming ? 'UPCOMING' : 'OTHER',
         status,
-        eligible: status === 'HABILITADO',
+        eligible: status === 'ELIGIBLE',
         referenceVersion,
       };
     });

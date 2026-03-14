@@ -147,15 +147,19 @@ export class ParticipationService {
       status: 'OK',
     });
     if (!reportOk) {
-      return { status: 'PADRON_IN_VALIDATION', canVote: false, alreadyVoted: false };
+      return { status: 'ROLL_IN_VALIDATION', canVote: false, alreadyVoted: false };
     }
 
-    const inPadron = await this.padronEntryModel.exists({
+    const inPadron = await this.padronEntryModel.findOne({
       padronVersionId: currentVersion._id,
       carnetNorm,
-    });
+    }, { enabled: 1 }).lean();
     if (!inPadron) {
-      return { status: 'NOT_IN_PADRON', canVote: false, alreadyVoted: false };
+      return { status: 'NOT_IN_ROLL', canVote: false, alreadyVoted: false };
+    }
+
+    if (inPadron.enabled === false) {
+      return { status: 'VOTER_DISABLED', canVote: false, alreadyVoted: false };
     }
 
     const existing = await this.participationModel

@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsNotEmpty, IsString, ValidateNested } from 'class-validator';
 
 class OptionCandidateDto {
   @ApiProperty()
@@ -8,10 +8,10 @@ class OptionCandidateDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
+  @ApiProperty()
   @IsString()
-  photoUrl?: string;
+  @IsNotEmpty()
+  photoUrl: string;
 
   @ApiProperty()
   @IsString()

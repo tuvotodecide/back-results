@@ -12,6 +12,10 @@ import { JwtService } from '@nestjs/jwt';
 import { MailService } from '@/modules/mail/mail.service';
 import { randomBytes } from 'crypto';
 import { RequestPasswordResetDto, ResetPasswordDto } from '../dto/password-reset.dto';
+import {
+  TenantAdminAssignment,
+  TenantAdminAssignmentDocument,
+} from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +23,8 @@ export class AuthService {
     @InjectModel(RoledUser.name) private roledUserModel: Model<RoledUserDocument>,
     @InjectModel(Department.name) private departmentModel: Model<Department>,
     @InjectModel(Municipality.name) private municipalityModel: Model<Municipality>,
+    @InjectModel(TenantAdminAssignment.name)
+    private tenantAdminAssignmentModel: Model<TenantAdminAssignmentDocument>,
     private jwtService: JwtService,
     private mailService: MailService,
     private configService: ConfigService,
@@ -122,6 +128,8 @@ export class AuthService {
       throw new ForbiddenException('Credenciales inválidas');
     }
 
+    const tenantId = await this.resolveActiveTenantId(user._id);
+
     const payload = {
       sub: user._id.toString(),
       dni: user.dni,
@@ -136,10 +144,14 @@ export class AuthService {
     if (user.votingMunicipalityId) {
       payload['votingMunicipalityId'] = user.votingMunicipalityId.toString();
     }
+
+    if (tenantId) {
+      payload['tenantId'] = tenantId;
+    }
     
     const accessToken = await this.jwtService.signAsync(payload);
 
-    return { accessToken, role: user.role, active: user.active };
+    return { accessToken, role: user.role, active: user.active, tenantId };
   }
 
   async requestPasswordReset(dto: RequestPasswordResetDto): Promise<void> {
@@ -220,6 +232,18 @@ export class AuthService {
       const separator = baseUrl.includes('?') ? '&' : '?';
       return `${baseUrl}${separator}token=${token}`;
     }
+  }
+
+  private async resolveActiveTenantId(userId: Types.ObjectId | string): Promise<string | null> {
+    const assignment = await this.tenantAdminAssignmentModel
+      .findOne({
+        userId: typeof userId === 'string' ? new Types.ObjectId(userId) : userId,
+        active: true,
+      })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+
+    return assignment?.tenantId ? String(assignment.tenantId) : null;
   }
 
   async createRoledUser(dto: RegisterRoledUserDto): Promise<RoledUserDocument> {

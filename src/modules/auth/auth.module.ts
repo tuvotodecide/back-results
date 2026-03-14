@@ -8,12 +8,19 @@ import { Municipality, MunicipalitySchema } from '../geographic/schemas/municipa
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { MailModule } from '../mail/mail.module';
+import {
+  TenantAdminAssignment,
+  TenantAdminAssignmentSchema,
+} from '../institutional-tenants/schemas/tenant-admin-assignment.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: RoledUser.name, schema: RoledUserSchema }]),
     MongooseModule.forFeature([{ name: Department.name, schema: DepartmentSchema }]),
     MongooseModule.forFeature([{ name: Municipality.name, schema: MunicipalitySchema }]),
+    MongooseModule.forFeature([
+      { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
+    ]),
     JwtModule.registerAsync({
       global: true,
       useFactory: (configService: ConfigService) => ({
