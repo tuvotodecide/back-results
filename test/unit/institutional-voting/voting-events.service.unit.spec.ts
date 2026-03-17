@@ -67,6 +67,7 @@ describe('VotingEventsService (unit)', () => {
     comparisonReportModel = {
       exists: jest.fn(),
       find: jest.fn(),
+      updateOne: jest.fn(),
       deleteMany: jest.fn(),
     };
     participationModel = {
@@ -191,7 +192,7 @@ describe('VotingEventsService (unit)', () => {
   it('publica el evento sin reenviar convocatoria si ya fue notificada', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
-      totals: { invalidCount: 0 },
+      totals: { validCount: 1, invalidCount: 0, duplicateCount: 0 },
     };
     const event = {
       _id: new Types.ObjectId(),
@@ -222,10 +223,44 @@ describe('VotingEventsService (unit)', () => {
     });
   });
 
+  it('publica el evento aunque el padrón siga pendiente de aprobación operativa', async () => {
+    const currentPadron = {
+      _id: new Types.ObjectId(),
+      totals: { validCount: 2, invalidCount: 0, duplicateCount: 0 },
+    };
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    eventRoleModel.countDocuments.mockResolvedValue(1);
+    votingOptionModel.countDocuments.mockResolvedValue(1);
+    padronVersionModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(currentPadron),
+    });
+    comparisonReportModel.exists.mockResolvedValue(false);
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
+
+    const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
+
+    expect(comparisonReportModel.updateOne).not.toHaveBeenCalled();
+    expect(event.save).toHaveBeenCalled();
+    expect(result).toEqual({
+      id: String(event._id),
+      state: 'PUBLISHED',
+    });
+  });
+
   it('publica y emite credenciales/notificación cuando hay usuarios elegibles', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
-      totals: { invalidCount: 0 },
+      totals: { validCount: 2, invalidCount: 0, duplicateCount: 0 },
     };
     const event = {
       _id: new Types.ObjectId(),
@@ -271,7 +306,7 @@ describe('VotingEventsService (unit)', () => {
   it('publica sin emitir credenciales si no hay usuarios vinculados al padrón', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
-      totals: { invalidCount: 0 },
+      totals: { validCount: 1, invalidCount: 0, duplicateCount: 0 },
     };
     const event = {
       _id: new Types.ObjectId(),
@@ -365,66 +400,42 @@ describe('VotingEventsService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('permite crear cargos aun con el evento publicado', async () => {
+  it('bloquea crear cargos cuando el evento ya fue publicado', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
       state: 'PUBLISHED',
     };
-    const createdRole = {
-      _id: new Types.ObjectId(),
-      eventId: event._id,
-      name: 'Secretario',
-      maxWinners: 1,
-    };
     accessService.getEventOrThrow.mockResolvedValue(event);
-    eventRoleModel.create.mockResolvedValue(createdRole);
 
-    const result = await service.createRole(
-      String(event._id),
-      { name: 'Secretario', maxWinners: 1 },
-      { sub: 'admin-1' },
-    );
+    await expect(
+      service.createRole(
+        String(event._id),
+        { name: 'Secretario', maxWinners: 1 },
+        { sub: 'admin-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
 
-    expect(eventRoleModel.create).toHaveBeenCalledWith({
-      eventId: event._id,
-      name: 'Secretario',
-      normalizedName: 'secretario',
-      maxWinners: 1,
-    });
-    expect(result).toEqual({
-      id: String(createdRole._id),
-      eventId: String(createdRole.eventId),
-      name: createdRole.name,
-      maxWinners: createdRole.maxWinners,
-    });
+    expect(eventRoleModel.create).not.toHaveBeenCalled();
   });
 
-  it('permite desactivar una opción aun con el evento publicado', async () => {
+  it('bloquea desactivar una opción cuando el evento ya fue publicado', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
       state: 'PUBLISHED',
     };
-    const optionId = new Types.ObjectId();
     accessService.getEventOrThrow.mockResolvedValue(event);
-    votingOptionModel.findOneAndUpdate.mockReturnValue({
-      lean: jest.fn().mockResolvedValue({
-        _id: optionId,
-        active: false,
-      }),
-    });
 
-    const result = await service.deactivateOption(
-      String(event._id),
-      String(optionId),
-      { sub: 'admin-1' },
-    );
+    await expect(
+      service.deactivateOption(
+        String(event._id),
+        String(new Types.ObjectId()),
+        { sub: 'admin-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
 
-    expect(result).toEqual({
-      id: String(optionId),
-      active: false,
-    });
+    expect(votingOptionModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('resuelve elegibilidad pública transversal entre eventos visibles', async () => {

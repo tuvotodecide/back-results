@@ -474,6 +474,7 @@ export class VotingEventsService {
   async createRole(eventId: string, dto: CreateEventRoleDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    this.assertDraftState(event, 'crear cargos');
 
     const normalizedName = this.accessService.normalizeName(dto.name);
 
@@ -613,6 +614,7 @@ export class VotingEventsService {
   async createOption(eventId: string, dto: CreateVotingOptionDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    this.assertDraftState(event, 'crear opciones');
 
     const normalizedName = this.accessService.normalizeName(dto.name);
 
@@ -773,6 +775,7 @@ export class VotingEventsService {
   async deactivateOption(eventId: string, optionId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    this.assertDraftState(event, 'desactivar opciones');
 
     const updated = await this.votingOptionModel
       .findOneAndUpdate(
@@ -823,6 +826,7 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    this.assertDraftState(event, 'editar el cronograma');
 
     const { votingStart, votingEnd, resultsPublishAt } = this.accessService.parseAndValidateDates(
       payload.votingStart,
@@ -857,28 +861,6 @@ export class VotingEventsService {
       ),
     ]);
 
-    let comparisonReportOk = currentPadron
-      ? await this.comparisonReportModel.exists({
-          padronVersionId: currentPadron._id,
-          status: 'OK',
-        })
-      : false;
-
-    if (
-      currentPadron &&
-      !comparisonReportOk &&
-      Number(currentPadron?.totals?.validCount ?? 0) > 0 &&
-      Number(currentPadron?.totals?.invalidCount ?? 0) === 0 &&
-      Number(currentPadron?.totals?.duplicateCount ?? 0) === 0
-    ) {
-      await this.comparisonReportModel.updateOne(
-        { padronVersionId: currentPadron._id },
-        { $set: { eventId: event._id, status: 'OK' } },
-        { upsert: true },
-      );
-      comparisonReportOk = true;
-    }
-
     const pending: string[] = [];
     if (rolesCount === 0) pending.push('cargos');
     if (optionsCount === 0) pending.push('opciones');
@@ -890,9 +872,6 @@ export class VotingEventsService {
       }
       if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) {
         pending.push('padron_invalid');
-      }
-      if (!comparisonReportOk) {
-        pending.push('padron_validation');
       }
     }
     if (!hasWindows) pending.push('horarios');

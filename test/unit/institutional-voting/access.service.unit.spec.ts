@@ -65,6 +65,21 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(assignmentModel.findOne).not.toHaveBeenCalled();
   });
 
+  it('permite aprobaciones reservadas al administrador global', () => {
+    expect(() =>
+      service.assertGlobalAdminAccess({ role: 'ADMIN' }, 'aprobar el padrón'),
+    ).not.toThrow();
+  });
+
+  it('rechaza aprobaciones reservadas para usuarios que no son administradores globales', () => {
+    expect(() =>
+      service.assertGlobalAdminAccess(
+        { role: 'GOVERNOR', sub: String(new Types.ObjectId()) },
+        'aprobar el padrón',
+      ),
+    ).toThrow(ForbiddenException);
+  });
+
   it('rechaza escritura sin identidad del solicitante', async () => {
     await expect(
       service.assertTenantWriteAccess(new Types.ObjectId(), { role: 'TENANT_ADMIN' }),
@@ -232,17 +247,14 @@ describe('InstitutionalVotingAccessService (unit)', () => {
   });
 
   it('permite fechas exactamente en el límite mínimo de 24 horas', () => {
-    const now = Date.now();
+    const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     const votingStart = new Date(now + 24 * 60 * 60 * 1000).toISOString();
     const votingEnd = new Date(now + 25 * 60 * 60 * 1000).toISOString();
     const resultsPublishAt = new Date(now + 26 * 60 * 60 * 1000).toISOString();
 
-    const result = service.parseAndValidateDates(
-      votingStart,
-      votingEnd,
-      resultsPublishAt,
-      true,
-    );
+    const result = service.parseAndValidateDates(votingStart, votingEnd, resultsPublishAt, true);
+    nowSpy.mockRestore();
 
     expect(result.votingStart).toBeInstanceOf(Date);
   });

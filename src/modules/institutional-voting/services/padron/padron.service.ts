@@ -348,8 +348,11 @@ export class PadronService {
     requester: any,
     padronVersionId?: string,
   ) {
+    this.accessService.assertGlobalAdminAccess(
+      requester,
+      'aprobar o rechazar el padrón',
+    );
     const event = await this.accessService.getEventOrThrow(eventId);
-    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
     const eventObjectId = new Types.ObjectId(String(event._id));
     const version = await this.resolvePadronVersion(eventObjectId, padronVersionId);
     if (!version) throw new NotFoundException('No existe padron vigente');

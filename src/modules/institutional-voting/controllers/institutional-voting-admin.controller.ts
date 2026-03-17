@@ -446,7 +446,7 @@ export class InstitutionalVotingAdminController {
   @ApiOperation({
     summary: 'Actualizar estado de Comparison Report del padrón',
     description:
-      'Cambia estado de validación del padrón vigente (PENDING, OK o FAILED).',
+      'Cambia estado de validación del padrón vigente (PENDING, OK o FAILED). Solo administrador global.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
   @ApiBody({

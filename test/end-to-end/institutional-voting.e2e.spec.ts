@@ -77,6 +77,17 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     return eventId;
   }
 
+  async function approveComparisonReport(
+    eventId: string,
+    token: string,
+    status: 'PENDING' | 'OK' | 'FAILED' = 'OK',
+  ) {
+    return request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(token, { type: 'bearer' })
+      .send({ status });
+  }
+
   async function seedLinkedUsers(dnis: string[]) {
     for (const dni of dnis) {
       await ctx.conn.collection('users').updateOne(
@@ -281,6 +292,84 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     });
 
     expect(unauthorized.status).toBe(401);
+  });
+
+  it('PAD-APPROVAL-001: tenant admin configura el evento pero solo admin global aprueba el padrón', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.tenantAdminToken,
+      ctx.createdTenantId,
+      {
+        ...institutionalVotingFixtures.event,
+        votingStart: new Date(Date.now() - 60_000).toISOString(),
+        votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+      },
+    );
+    expect(created.status).toBe(201);
+    const eventId = created.body.id as string;
+
+    const role = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/roles`)
+      .auth(ctx.tenantAdminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.rolePresident);
+    expect(role.status).toBe(201);
+
+    const option = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/options`)
+      .auth(ctx.tenantAdminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.optionBlue);
+    expect(option.status).toBe(201);
+
+    const upload = await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.tenantAdminToken,
+      eventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+    expect(upload.status).toBe(201);
+
+    const publish = await publishInstitutionalEvent(
+      ctx.httpServer,
+      ctx.tenantAdminToken,
+      eventId,
+    );
+    expect(publish.status).toBe(201);
+    expect(publish.body.state).toBe('PUBLISHED');
+
+    const eligibilityPending = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(eligibilityPending.status).toBe(200);
+    expect(eligibilityPending.body.status).toBe('ROLL_IN_VALIDATION');
+
+    const participationPending = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/participations/status`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(participationPending.status).toBe(200);
+    expect(participationPending.body.status).toBe('ROLL_IN_VALIDATION');
+
+    const forbiddenApproval = await approveComparisonReport(
+      eventId,
+      ctx.tenantAdminToken,
+      'OK',
+    );
+    expect(forbiddenApproval.status).toBe(403);
+
+    const approved = await approveComparisonReport(eventId, ctx.adminToken, 'OK');
+    expect([200, 201]).toContain(approved.status);
+
+    const eligibilityApproved = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(eligibilityApproved.status).toBe(200);
+    expect(eligibilityApproved.body.status).toBe('ELIGIBLE');
+
+    const participationApproved = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/participations/status`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(participationApproved.status).toBe(200);
+    expect(participationApproved.body.status).toBe('CAN_VOTE');
   });
 
   it('EVT-002: publicar falla si faltan precondiciones y devuelve pending[]', async () => {
@@ -1101,7 +1190,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      'carnet\n3\n',
+      'carnet,habilitado\n3,maybe\n',
     );
 
     const publishNews = await request(ctx.httpServer)

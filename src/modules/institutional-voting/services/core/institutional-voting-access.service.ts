@@ -62,6 +62,12 @@ export class InstitutionalVotingAccessService {
     }
   }
 
+  assertGlobalAdminAccess(requester: any, action = 'realizar esta acción') {
+    if (requester?.role !== 'ADMIN') {
+      throw new ForbiddenException(`Solo un administrador global puede ${action}`);
+    }
+  }
+
   async resolveReadableTenantIds(requester: any, tenantIdFilter?: string): Promise<Types.ObjectId[]> {
     const isAdmin = requester?.role === 'ADMIN';
     const requesterId = requester?.sub ? String(requester.sub) : '';

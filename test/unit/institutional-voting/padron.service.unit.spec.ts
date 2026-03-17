@@ -35,6 +35,7 @@ describe('PadronService (unit)', () => {
   let accessService: {
     getEventOrThrow: jest.Mock;
     assertTenantWriteAccess: jest.Mock;
+    assertGlobalAdminAccess: jest.Mock;
   };
 
   const event = {
@@ -63,6 +64,7 @@ describe('PadronService (unit)', () => {
     accessService = {
       getEventOrThrow: jest.fn(),
       assertTenantWriteAccess: jest.fn(),
+      assertGlobalAdminAccess: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -252,7 +254,7 @@ describe('PadronService (unit)', () => {
   });
 
   it('actualiza el estado de aprobación de una versión específica del padrón', async () => {
-    const requester = { sub: String(new Types.ObjectId()) };
+    const requester = { sub: String(new Types.ObjectId()), role: 'ADMIN' };
     const version = {
       _id: new Types.ObjectId(),
     };
@@ -266,9 +268,9 @@ describe('PadronService (unit)', () => {
       String(version._id),
     );
 
-    expect(accessService.assertTenantWriteAccess).toHaveBeenCalledWith(
-      event.tenantId,
+    expect(accessService.assertGlobalAdminAccess).toHaveBeenCalledWith(
       requester,
+      'aprobar o rechazar el padrón',
     );
     expect(comparisonReportModel.updateOne).toHaveBeenCalledWith(
       { padronVersionId: version._id },
@@ -283,7 +285,7 @@ describe('PadronService (unit)', () => {
   });
 
   it('rechaza consultar una versión inexistente del padrón', async () => {
-    const requester = { sub: String(new Types.ObjectId()) };
+    const requester = { sub: String(new Types.ObjectId()), role: 'ADMIN' };
     accessService.getEventOrThrow.mockResolvedValue(event);
     padronVersionModel.findOne.mockResolvedValue(null);
 
@@ -295,6 +297,24 @@ describe('PadronService (unit)', () => {
         String(new Types.ObjectId()),
       ),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  it('rechaza cambiar el comparison report si el solicitante no es administrador global', async () => {
+    const requester = { sub: String(new Types.ObjectId()), role: 'GOVERNOR' };
+    accessService.assertGlobalAdminAccess.mockImplementation(() => {
+      throw new ForbiddenException('Solo un administrador global puede aprobar o rechazar el padrón');
+    });
+
+    await expect(
+      service.updateComparisonReportStatus(
+        String(event._id),
+        'OK',
+        requester,
+        String(new Types.ObjectId()),
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(accessService.getEventOrThrow).not.toHaveBeenCalled();
   });
 
   it('rechaza carnet inválido al consultar elegibilidad', async () => {

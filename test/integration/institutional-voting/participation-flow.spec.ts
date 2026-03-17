@@ -141,17 +141,20 @@ describe('Institutional voting integration - participation flow', () => {
       ctx.adminToken,
       eventId,
     );
-    expect(published.status).toBe(400);
-    expect(published.body.pending).toEqual(
-      expect.arrayContaining(['padron_validation']),
-    );
+    expect(published.status).toBe(201);
+
+    const statusBeforeApproval = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/participations/status`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(statusBeforeApproval.status).toBe(200);
+    expect(statusBeforeApproval.body.status).toBe('ROLL_IN_VALIDATION');
 
     const denied = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
       .send({ carnet: institutionalVotingFixtures.carnet.empadronado });
 
     expect(denied.status).toBe(403);
-    expect(denied.body.error).toBe('EVENT_NOT_PUBLISHED');
+    expect(denied.body.error).toBe('ROLL_IN_VALIDATION');
   });
 
   it('bloquea la participación para no empadronado e inhabilitado', async () => {
