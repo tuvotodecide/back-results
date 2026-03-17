@@ -18,11 +18,10 @@ import { seedContracts, seedUsers } from '../utils/seeds/usersSeed';
 import { seedLocations } from '../utils/seeds/locationsSeed';
 import { seedElectionConfigWith } from '../utils/seeds/electionsSeed';
 import { seedAttestation } from '../utils/seeds/attestationsSeed';
-import { AuthController } from '@/modules/auth/controllers/auth.controller';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RoledUser, RoledUserSchema } from '@/modules/auth/schemas/roledUser.schema';
 import { JwtModule } from '@nestjs/jwt';
-import { AuthService } from '@/modules/auth/services/auth.service';
+import { AuthModule } from '@/modules/auth/auth.module';
 import { MailService } from '@/modules/mail/mail.service';
 import appConfig from '@/config/app.config';
 import { BallotModule } from '@/modules/ballot/ballot.module';
@@ -91,30 +90,28 @@ describe('Results E2E (role filtering)', () => {
 					exports: [LoggerService],
 					module: class LoggerModule {},
 				},
+				AuthModule,
 				BallotModule,
 				ContractsModule,
 				AttestationModule,
 			],
 			controllers: [
 				ResultsController,
-				AuthController,
 			],
 			providers: [
-				AuthService,
-				{
-					provide: MailService,
-					useValue: {
-						sendEmail: jest.fn(),
-						createEmail: jest.fn(),
-						getTemplate: jest.fn(),
-					},
-				},
 				ResultsService,
 				ElectionConfigService,
 				ResultsPeriodGuard,
 				PreliminaryResultsGuard,
 			],
-		}).compile();
+		})
+			.overrideProvider(MailService)
+			.useValue({
+				sendEmail: jest.fn(),
+				createEmail: jest.fn(),
+				getTemplate: jest.fn(),
+			})
+			.compile();
 
 		app = moduleRef.createNestApplication();
 		await app.init();

@@ -1,4 +1,6 @@
 import request from 'supertest';
+import { Types } from 'mongoose';
+import { InstitutionalVotingLifecycleService } from '@/modules/institutional-voting/services/events/institutional-voting-lifecycle.service';
 import { institutionalVotingFixtures } from '../fixtures.institutional-voting';
 import {
   bootstrapInstitutionalVotingContext,
@@ -18,6 +20,79 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
   afterAll(async () => {
     await teardownInstitutionalVotingContext(ctx);
   });
+
+  async function createConfiguredEvent(
+    payload: Record<string, unknown> = institutionalVotingFixtures.event,
+    optionPayload: Record<string, unknown> = institutionalVotingFixtures.optionBlue,
+  ) {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      payload,
+    );
+    const eventId = created.body.id;
+
+    const role = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/roles`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.rolePresident);
+    expect(role.status).toBe(201);
+
+    const option = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/options`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(optionPayload);
+    expect(option.status).toBe(201);
+
+    return eventId as string;
+  }
+
+  async function createPublishReadyEvent(
+    csvContent = institutionalVotingFixtures.padronCsv,
+    payloadOverrides: Record<string, unknown> = {},
+  ) {
+    const eventId = await createConfiguredEvent({
+      ...institutionalVotingFixtures.event,
+      votingStart: new Date(Date.now() - 60_000).toISOString(),
+      votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+      ...payloadOverrides,
+    });
+
+    const upload = await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      csvContent,
+    );
+    expect(upload.status).toBe(201);
+
+    const comparison = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+    expect([200, 201]).toContain(comparison.status);
+
+    return eventId;
+  }
+
+  async function seedLinkedUsers(dnis: string[]) {
+    for (const dni of dnis) {
+      await ctx.conn.collection('users').updateOne(
+        { dni },
+        {
+          $set: {
+            dni,
+            active: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        { upsert: true },
+      );
+    }
+  }
 
   it('EVT-001: crear evento debe devolver DRAFT', async () => {
     const res = await createInstitutionalEvent(
@@ -151,7 +226,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .put(`/api/v1/voting/events/${eventId}/options/${optionId}/candidates`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({
-        candidates: [{ name: 'Maria Nina', roleName: 'Secretario General' }],
+        candidates: [
+          {
+            name: 'Maria Nina',
+            photoUrl: 'https://cdn.example.com/candidates/maria.png',
+            roleName: 'Secretario General',
+          },
+        ],
       });
     expect(putCandidates.status).toBe(200);
 
@@ -220,6 +301,57 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(publish.body.pending).toEqual(
       expect.arrayContaining(['cargos', 'opciones', 'padron', 'horarios']),
     );
+  });
+
+  it('EVT-003: publicar exitosamente deja el evento en PUBLISHED, habilita consulta pública y genera convocatoria', async () => {
+    await seedLinkedUsers(['123456', 'ABC789']);
+    const eventId = await createPublishReadyEvent();
+
+    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    expect(publish.status).toBe(201);
+    expect(publish.body.state).toBe('PUBLISHED');
+
+    const publicEligibility = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(publicEligibility.status).toBe(200);
+    expect(publicEligibility.body.status).toBe('ELIGIBLE');
+
+    const notifications = await ctx.conn
+      .collection('user_notifications')
+      .find({
+        'data.type': 'INSTITUTIONAL_EVENT_PUBLISHED',
+        'data.eventId': eventId,
+      })
+      .toArray();
+    expect(notifications).toHaveLength(2);
+
+    const eventInDb = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: new Types.ObjectId(eventId) });
+    expect(eventInDb?.state).toBe('PUBLISHED');
+    expect(eventInDb?.convocationNotifiedAt).toBeTruthy();
+    expect(eventInDb?.publicEligibilityEnabled).toBe(true);
+  });
+
+  it('EVT-004: publicar exitosamente sin usuarios vinculados no genera convocatoria', async () => {
+    await ctx.conn.collection('users').deleteMany({
+      dni: { $in: ['123456', 'ABC789'] },
+    });
+    const eventId = await createPublishReadyEvent();
+
+    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    expect(publish.status).toBe(201);
+    expect(publish.body.state).toBe('PUBLISHED');
+
+    const notifications = await ctx.conn
+      .collection('user_notifications')
+      .find({
+        'data.type': 'INSTITUTIONAL_EVENT_PUBLISHED',
+        'data.eventId': eventId,
+      })
+      .toArray();
+    expect(notifications).toHaveLength(0);
   });
 
   it('BLT-001/002: crear cargo y rechazar duplicado', async () => {
@@ -310,7 +442,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .query({ carnet: institutionalVotingFixtures.carnet.normalizedSource });
     expect(check.status).toBe(200);
     expect(check.body.normalizedCarnet).toBe(institutionalVotingFixtures.carnet.normalizedExpected);
-    expect(check.body.status).toBe('HABILITADO');
+    expect(check.body.status).toBe('ELIGIBLE');
   });
 
   it('PAD-004: listar votantes del padron vigente paginado', async () => {
@@ -339,6 +471,62 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(Array.isArray(voters.body.data)).toBe(true);
     expect(voters.body.data.length).toBeLessThanOrEqual(2);
     expect(voters.body.total).toBeGreaterThan(0);
+  });
+
+  it('PAD-005: elegibilidad privada negativa devuelve NOT_ELIGIBLE y DISABLED', async () => {
+    const eventId = await createConfiguredEvent(institutionalVotingFixtures.event);
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      'carnet,habilitado\nABC-789,no\n',
+    );
+
+    const disabled = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(disabled.status).toBe(200);
+    expect(disabled.body.status).toBe('DISABLED');
+
+    const notEligible = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility`)
+      .query({ carnet: institutionalVotingFixtures.carnet.notEmpadronado });
+    expect(notEligible.status).toBe(200);
+    expect(notEligible.body.status).toBe('NOT_ELIGIBLE');
+  });
+
+  it('PAD-006: elegibilidad pública negativa devuelve NOT_ELIGIBLE y DISABLED', async () => {
+    const eventId = await createConfiguredEvent(institutionalVotingFixtures.event);
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      'carnet,habilitado\nABC-789,no\n999001,si\n',
+    );
+
+    await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}/public-eligibility`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ enabled: true });
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+
+    const disabled = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(disabled.status).toBe(200);
+    expect(disabled.body.status).toBe('DISABLED');
+
+    const notEligible = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.notEmpadronado });
+    expect(notEligible.status).toBe(200);
+    expect(notEligible.body.status).toBe('NOT_ELIGIBLE');
   });
 
   it('PAR-STATUS: estado de participacion por carnet (canVote / alreadyVoted)', async () => {
@@ -445,7 +633,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ carnet: institutionalVotingFixtures.carnet.notEmpadronado });
     expect(denied.status).toBe(403);
-    expect(denied.body.error).toBe('NOT_IN_PADRON');
+    expect(denied.body.error).toBe('NOT_IN_ROLL');
 
     const body = { carnet: institutionalVotingFixtures.carnet.empadronado };
     const first = await request(ctx.httpServer)
@@ -470,6 +658,49 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send(body);
     expect(secondVote.status).toBe(409);
+  });
+
+  it('PAR-004: votante inhabilitado no puede participar', async () => {
+    const eventId = await createPublishReadyEvent('carnet,habilitado\nABC-789,no\n');
+    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    expect(published.status).toBe(201);
+
+    const denied = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ carnet: institutionalVotingFixtures.carnet.empadronado });
+
+    expect(denied.status).toBe(403);
+    expect(denied.body.error).toBe('VOTER_DISABLED');
+  });
+
+  it('PAR-005: no se puede participar cuando el evento sigue en DRAFT', async () => {
+    const eventId = await createConfiguredEvent({
+      ...institutionalVotingFixtures.event,
+      votingStart: new Date(Date.now() - 60_000).toISOString(),
+      votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+    });
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+
+    const denied = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ carnet: institutionalVotingFixtures.carnet.empadronado });
+
+    expect(denied.status).toBe(403);
+    expect(denied.body.error).toBe('EVENT_NOT_PUBLISHED');
   });
 
   it('WIN-001: fuera de ventana se bloquea participacion', async () => {
@@ -535,7 +766,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(beforeToggle.status).toBe(200);
-    expect(beforeToggle.body.status).toBe('PUBLIC_CHECK_DISABLED');
+    expect(beforeToggle.body.status).toBe('ROLL_IN_VALIDATION');
 
     await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${eventId}/public-eligibility`)
@@ -551,7 +782,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(afterToggle.status).toBe(200);
-    expect(afterToggle.body.status).toBe('HABILITADO');
+    expect(afterToggle.body.status).toBe('ELIGIBLE');
   });
 
   it('PUB-003: endpoints publicos de padron y estado no requieren bearer token', async () => {
@@ -579,13 +810,131 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .get(`/api/v1/voting/events/${eventId}/eligibility`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(eligibilityPublic.status).toBe(200);
-    expect(eligibilityPublic.body.status).toBe('HABILITADO');
+    expect(eligibilityPublic.body.status).toBe('ELIGIBLE');
 
     const participationStatusPublic = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/participations/status`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(participationStatusPublic.status).toBe(200);
     expect(participationStatusPublic.body).toHaveProperty('canVote');
+  });
+
+  it('PUB-004/PUB-005: consulta pública transversal entre múltiples eventos y filtro institucional', async () => {
+    const ownEligibleName = `Own Eligible ${Date.now()}`;
+    const ownDisabledName = `Own Disabled ${Date.now()}`;
+    const ownPrivateName = `Own Private ${Date.now()}`;
+    const otherTenantName = `Other Tenant ${Date.now()}`;
+    const otherEligibleName = `Other Eligible ${Date.now()}`;
+
+    const ownEligibleEventId = await createPublishReadyEvent(
+      institutionalVotingFixtures.padronCsv,
+      { name: ownEligibleName },
+    );
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownEligibleEventId);
+
+    const ownDisabledEventId = await createPublishReadyEvent(
+      'carnet,habilitado\nABC-789,no\n',
+      { name: ownDisabledName },
+    );
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownDisabledEventId);
+
+    const ownPrivateEventId = await createPublishReadyEvent(
+      institutionalVotingFixtures.padronCsv,
+      { name: ownPrivateName },
+    );
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId);
+    await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${ownPrivateEventId}/public-eligibility`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ enabled: false });
+
+    const otherTenant = await request(ctx.httpServer)
+      .post('/api/v1/institutional-tenants')
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({
+        name: otherTenantName,
+        description: 'Tenant para filtro público',
+      });
+    expect(otherTenant.status).toBe(201);
+
+    const otherCreated = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      otherTenant.body.id,
+      {
+        ...institutionalVotingFixtures.event,
+        name: otherEligibleName,
+        votingStart: new Date(Date.now() - 60_000).toISOString(),
+        votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+      },
+    );
+    const otherEligibleEventId = otherCreated.body.id;
+
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${otherEligibleEventId}/roles`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.rolePresident);
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${otherEligibleEventId}/options`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.optionBlue);
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      otherEligibleEventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+    await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${otherEligibleEventId}/comparison-report/status`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ status: 'OK' });
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, otherEligibleEventId);
+
+    const allVisible = await request(ctx.httpServer)
+      .get('/api/v1/voting/events/public/eligibility-by-carnet')
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+
+    expect(allVisible.status).toBe(200);
+    const allByName = new Map(allVisible.body.events.map((event: any) => [event.name, event]));
+    expect(allByName.get(ownEligibleName)).toEqual(
+      expect.objectContaining({ status: 'ELIGIBLE', tenantId: ctx.createdTenantId }),
+    );
+    expect(allByName.get(ownDisabledName)).toEqual(
+      expect.objectContaining({ status: 'DISABLED', tenantId: ctx.createdTenantId }),
+    );
+    expect(allByName.get(ownPrivateName)).toEqual(
+      expect.objectContaining({
+        status: 'PUBLIC_CHECK_DISABLED',
+        tenantId: ctx.createdTenantId,
+      }),
+    );
+    expect(allByName.get(otherEligibleName)).toEqual(
+      expect.objectContaining({ status: 'ELIGIBLE', tenantId: otherTenant.body.id }),
+    );
+
+    const filtered = await request(ctx.httpServer)
+      .get('/api/v1/voting/events/public/eligibility-by-carnet')
+      .query({
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+        tenantId: ctx.createdTenantId,
+      });
+
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.events.every((event: any) => event.tenantId === ctx.createdTenantId)).toBe(
+      true,
+    );
+    expect(filtered.body.events.map((event: any) => event.name)).not.toContain(otherEligibleName);
+
+    const invalidTenant = await request(ctx.httpServer)
+      .get('/api/v1/voting/events/public/eligibility-by-carnet')
+      .query({
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+        tenantId: 'tenant-invalido',
+      });
+
+    expect(invalidTenant.status).toBe(400);
+    expect(invalidTenant.body.message).toBe('tenantId invalido');
   });
 
   it('RES-001/RES-002: resultados bloqueados antes de fecha y disponibles con snapshot', async () => {
@@ -634,6 +983,65 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(Array.isArray(available.body.roles)).toBe(true);
     expect(available.body.roles).toHaveLength(1);
     expect(available.body.txHash).toBe(institutionalVotingFixtures.resultsSnapshot.txHash);
+  });
+
+  it('RES-003: el ciclo institucional cierra la votación y publica resultados finales', async () => {
+    await seedLinkedUsers(['ABC789']);
+    const eventId = await createPublishReadyEvent(institutionalVotingFixtures.padronCsv, {
+      votingStart: new Date(Date.now() - 7_200_000).toISOString(),
+      votingEnd: new Date(Date.now() - 3_600_000).toISOString(),
+      resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+
+    const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
+    await lifecycle.processLifecycle();
+
+    const updatedEvent = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: new Types.ObjectId(eventId) });
+    expect(updatedEvent?.state).toBe('RESULTS_PUBLISHED');
+    expect(updatedEvent?.resultsNotifiedAt).toBeTruthy();
+
+    const notifications = await ctx.conn
+      .collection('user_notifications')
+      .find({
+        'data.type': 'INSTITUTIONAL_RESULTS_AVAILABLE',
+        'data.eventId': eventId,
+      })
+      .toArray();
+    expect(notifications.length).toBeGreaterThan(0);
+  });
+
+  it('SEC-ADM-002: tenant admin no puede ver ni mutar un evento ajeno', async () => {
+    const otherTenant = await request(ctx.httpServer)
+      .post('/api/v1/institutional-tenants')
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({
+        name: `Tenant Foreign ${Date.now()}`,
+        description: 'Tenant ajeno para validación E2E',
+      });
+    expect(otherTenant.status).toBe(201);
+
+    const foreignEvent = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      otherTenant.body.id,
+      institutionalVotingFixtures.event,
+    );
+    const foreignEventId = foreignEvent.body.id;
+
+    const detail = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${foreignEventId}`)
+      .auth(ctx.tenantAdminToken, { type: 'bearer' });
+    expect(detail.status).toBe(403);
+
+    const patch = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${foreignEventId}`)
+      .auth(ctx.tenantAdminToken, { type: 'bearer' })
+      .send({ name: 'Intento no autorizado' });
+    expect(patch.status).toBe(403);
   });
 
   it('NEWS-001: noticia rica segmentada a empadronados queda en historial', async () => {

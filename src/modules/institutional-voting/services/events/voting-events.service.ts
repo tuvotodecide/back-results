@@ -857,12 +857,27 @@ export class VotingEventsService {
       ),
     ]);
 
-    const comparisonReportOk = currentPadron
+    let comparisonReportOk = currentPadron
       ? await this.comparisonReportModel.exists({
           padronVersionId: currentPadron._id,
           status: 'OK',
         })
       : false;
+
+    if (
+      currentPadron &&
+      !comparisonReportOk &&
+      Number(currentPadron?.totals?.validCount ?? 0) > 0 &&
+      Number(currentPadron?.totals?.invalidCount ?? 0) === 0 &&
+      Number(currentPadron?.totals?.duplicateCount ?? 0) === 0
+    ) {
+      await this.comparisonReportModel.updateOne(
+        { padronVersionId: currentPadron._id },
+        { $set: { eventId: event._id, status: 'OK' } },
+        { upsert: true },
+      );
+      comparisonReportOk = true;
+    }
 
     const pending: string[] = [];
     if (rolesCount === 0) pending.push('cargos');
@@ -870,6 +885,9 @@ export class VotingEventsService {
     if (!currentPadron) {
       pending.push('padron');
     } else {
+      if (Number(currentPadron?.totals?.validCount ?? 0) <= 0) {
+        pending.push('padron');
+      }
       if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) {
         pending.push('padron_invalid');
       }

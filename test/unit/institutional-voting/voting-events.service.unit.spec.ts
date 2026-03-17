@@ -35,26 +35,52 @@ describe('VotingEventsService (unit)', () => {
   beforeEach(async () => {
     votingEventModel = {
       create: jest.fn(),
+      find: jest.fn(),
+      deleteOne: jest.fn(),
     };
     eventRoleModel = {
       countDocuments: jest.fn(),
+      create: jest.fn(),
+      findOne: jest.fn(),
+      deleteMany: jest.fn(),
+      deleteOne: jest.fn(),
     };
     votingOptionModel = {
       countDocuments: jest.fn(),
+      create: jest.fn(),
+      exists: jest.fn(),
+      findOneAndUpdate: jest.fn(),
       updateMany: jest.fn(),
+      deleteMany: jest.fn(),
+      deleteOne: jest.fn(),
     };
     padronVersionModel = {
       exists: jest.fn(),
+      find: jest.fn(),
+      findOne: jest.fn(),
+      deleteMany: jest.fn(),
     };
-    padronEntryModel = {};
-    comparisonReportModel = {};
-    participationModel = {};
-    resultsSnapshotModel = {};
+    padronEntryModel = {
+      find: jest.fn(),
+      deleteMany: jest.fn(),
+    };
+    comparisonReportModel = {
+      exists: jest.fn(),
+      find: jest.fn(),
+      deleteMany: jest.fn(),
+    };
+    participationModel = {
+      deleteMany: jest.fn(),
+    };
+    resultsSnapshotModel = {
+      deleteMany: jest.fn(),
+    };
     accessService = {
       getEventOrThrow: jest.fn(),
       getTenantOrThrow: jest.fn(),
       assertTenantWriteAccess: jest.fn(),
       parseAndValidateDates: jest.fn(),
+      normalizeName: jest.fn((value: string) => value.trim().toLowerCase()),
     };
     notificationsService = {
       notifyConvocationIfEligible: jest.fn(),
@@ -136,6 +162,7 @@ describe('VotingEventsService (unit)', () => {
   });
 
   it('rechaza publicar si faltan precondiciones críticas', async () => {
+    const findOneLean = jest.fn().mockResolvedValue(null);
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -145,7 +172,7 @@ describe('VotingEventsService (unit)', () => {
     accessService.getEventOrThrow.mockResolvedValue(event);
     eventRoleModel.countDocuments.mockResolvedValue(0);
     votingOptionModel.countDocuments.mockResolvedValue(0);
-    padronVersionModel.exists.mockResolvedValue(false);
+    padronVersionModel.findOne.mockReturnValue({ lean: findOneLean });
 
     await expect(
       service.publishEvent(String(event._id), { sub: 'admin-1' }),
@@ -162,6 +189,10 @@ describe('VotingEventsService (unit)', () => {
   });
 
   it('publica el evento sin reenviar convocatoria si ya fue notificada', async () => {
+    const currentPadron = {
+      _id: new Types.ObjectId(),
+      totals: { invalidCount: 0 },
+    };
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -175,7 +206,10 @@ describe('VotingEventsService (unit)', () => {
     accessService.getEventOrThrow.mockResolvedValue(event);
     eventRoleModel.countDocuments.mockResolvedValue(1);
     votingOptionModel.countDocuments.mockResolvedValue(1);
-    padronVersionModel.exists.mockResolvedValue(true);
+    padronVersionModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(currentPadron),
+    });
+    comparisonReportModel.exists.mockResolvedValue(true);
 
     const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
 
@@ -189,6 +223,10 @@ describe('VotingEventsService (unit)', () => {
   });
 
   it('publica y emite credenciales/notificación cuando hay usuarios elegibles', async () => {
+    const currentPadron = {
+      _id: new Types.ObjectId(),
+      totals: { invalidCount: 0 },
+    };
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -208,7 +246,10 @@ describe('VotingEventsService (unit)', () => {
     accessService.getEventOrThrow.mockResolvedValue(event);
     eventRoleModel.countDocuments.mockResolvedValue(1);
     votingOptionModel.countDocuments.mockResolvedValue(1);
-    padronVersionModel.exists.mockResolvedValue(true);
+    padronVersionModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(currentPadron),
+    });
+    comparisonReportModel.exists.mockResolvedValue(true);
     padronUsersService.getPadronUsersFromEvent.mockResolvedValue(convokedUsers);
     issuerService.issueCredential.mockResolvedValue(issued);
     notificationsService.notifyConvocationIfEligible.mockResolvedValue({ sent: 2 });
@@ -228,6 +269,10 @@ describe('VotingEventsService (unit)', () => {
   });
 
   it('publica sin emitir credenciales si no hay usuarios vinculados al padrón', async () => {
+    const currentPadron = {
+      _id: new Types.ObjectId(),
+      totals: { invalidCount: 0 },
+    };
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -241,7 +286,10 @@ describe('VotingEventsService (unit)', () => {
     accessService.getEventOrThrow.mockResolvedValue(event);
     eventRoleModel.countDocuments.mockResolvedValue(1);
     votingOptionModel.countDocuments.mockResolvedValue(1);
-    padronVersionModel.exists.mockResolvedValue(true);
+    padronVersionModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(currentPadron),
+    });
+    comparisonReportModel.exists.mockResolvedValue(true);
     padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
 
     const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
@@ -252,5 +300,270 @@ describe('VotingEventsService (unit)', () => {
       id: String(event._id),
       state: 'PUBLISHED',
     });
+  });
+
+  it('bloquea actualizar el evento cuando ya no está en borrador', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'PUBLISHED',
+      save: jest.fn(),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    await expect(
+      service.updateEvent(
+        String(event._id),
+        { name: 'Nuevo nombre' },
+        { sub: 'admin-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('permite actualizar el evento cuando aún está en borrador', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+      name: 'Evento inicial',
+      objective: 'Objetivo inicial',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    const result = await service.updateEvent(
+      String(event._id),
+      { name: ' Evento actualizado ', objective: ' Objetivo nuevo ' },
+      { sub: 'admin-1' },
+    );
+
+    expect(event.save).toHaveBeenCalled();
+    expect(result).toEqual({
+      id: String(event._id),
+      tenantId: String(event.tenantId),
+      name: 'Evento actualizado',
+      objective: 'Objetivo nuevo',
+      state: 'DRAFT',
+    });
+  });
+
+  it('bloquea actualizar roles cuando el evento ya no está en borrador', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'PUBLISHED',
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    await expect(
+      service.updateRole(
+        String(event._id),
+        String(new Types.ObjectId()),
+        { name: 'Secretario' },
+        { sub: 'admin-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('permite crear cargos aun con el evento publicado', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'PUBLISHED',
+    };
+    const createdRole = {
+      _id: new Types.ObjectId(),
+      eventId: event._id,
+      name: 'Secretario',
+      maxWinners: 1,
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    eventRoleModel.create.mockResolvedValue(createdRole);
+
+    const result = await service.createRole(
+      String(event._id),
+      { name: 'Secretario', maxWinners: 1 },
+      { sub: 'admin-1' },
+    );
+
+    expect(eventRoleModel.create).toHaveBeenCalledWith({
+      eventId: event._id,
+      name: 'Secretario',
+      normalizedName: 'secretario',
+      maxWinners: 1,
+    });
+    expect(result).toEqual({
+      id: String(createdRole._id),
+      eventId: String(createdRole.eventId),
+      name: createdRole.name,
+      maxWinners: createdRole.maxWinners,
+    });
+  });
+
+  it('permite desactivar una opción aun con el evento publicado', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'PUBLISHED',
+    };
+    const optionId = new Types.ObjectId();
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    votingOptionModel.findOneAndUpdate.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: optionId,
+        active: false,
+      }),
+    });
+
+    const result = await service.deactivateOption(
+      String(event._id),
+      String(optionId),
+      { sub: 'admin-1' },
+    );
+
+    expect(result).toEqual({
+      id: String(optionId),
+      active: false,
+    });
+  });
+
+  it('resuelve elegibilidad pública transversal entre eventos visibles', async () => {
+    const tenantId = new Types.ObjectId();
+    const eventEligibleId = new Types.ObjectId();
+    const eventDisabledId = new Types.ObjectId();
+    const eventPendingId = new Types.ObjectId();
+    const eligibleVersionId = new Types.ObjectId();
+    const disabledVersionId = new Types.ObjectId();
+    const pendingVersionId = new Types.ObjectId();
+
+    votingEventModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: eventPendingId,
+          tenantId,
+          name: 'Beta',
+          state: 'PUBLISHED',
+          publicEligibilityEnabled: true,
+          votingStart: new Date(Date.now() + 60_000),
+          votingEnd: new Date(Date.now() + 120_000),
+          resultsPublishAt: new Date(Date.now() + 180_000),
+        },
+        {
+          _id: eventEligibleId,
+          tenantId,
+          name: 'Alfa',
+          state: 'PUBLISHED',
+          publicEligibilityEnabled: true,
+          votingStart: new Date(Date.now() - 60_000),
+          votingEnd: new Date(Date.now() + 120_000),
+          resultsPublishAt: new Date(Date.now() + 180_000),
+        },
+        {
+          _id: eventDisabledId,
+          tenantId,
+          name: 'Gamma',
+          state: 'RESULTS_PUBLISHED',
+          publicEligibilityEnabled: true,
+          votingStart: new Date(Date.now() - 180_000),
+          votingEnd: new Date(Date.now() - 120_000),
+          resultsPublishAt: new Date(Date.now() - 60_000),
+        },
+      ]),
+    });
+    padronVersionModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { _id: eligibleVersionId, eventId: eventEligibleId },
+        { _id: disabledVersionId, eventId: eventDisabledId },
+        { _id: pendingVersionId, eventId: eventPendingId },
+      ]),
+    });
+    comparisonReportModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { padronVersionId: eligibleVersionId },
+        { padronVersionId: disabledVersionId },
+      ]),
+    });
+    padronEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { padronVersionId: eligibleVersionId, enabled: true },
+        { padronVersionId: disabledVersionId, enabled: false },
+      ]),
+    });
+
+    const result = await service.checkPublicEligibilityAcrossEvents('abc-789');
+
+    expect(result.carnet).toBe('ABC789');
+    expect(result.events).toEqual([
+      expect.objectContaining({
+        eventId: String(eventEligibleId),
+        name: 'Alfa',
+        status: 'ELIGIBLE',
+        eligible: true,
+      }),
+      expect.objectContaining({
+        eventId: String(eventPendingId),
+        name: 'Beta',
+        status: 'ROLL_IN_VALIDATION',
+        eligible: false,
+      }),
+      expect.objectContaining({
+        eventId: String(eventDisabledId),
+        name: 'Gamma',
+        status: 'DISABLED',
+        eligible: false,
+      }),
+    ]);
+  });
+
+  it('devuelve consulta pública transversal vacía cuando no hay eventos visibles', async () => {
+    votingEventModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    });
+
+    const result = await service.checkPublicEligibilityAcrossEvents('123.456');
+
+    expect(result).toEqual({
+      carnet: '123456',
+      events: [],
+    });
+  });
+
+  it('rechaza tenant inválido en consulta pública transversal', async () => {
+    await expect(
+      service.checkPublicEligibilityAcrossEvents('123456', 'tenant-invalido'),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('devuelve consulta pública deshabilitada para eventos que no exponen padrón', async () => {
+    const tenantId = new Types.ObjectId();
+    const eventId = new Types.ObjectId();
+
+    votingEventModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: eventId,
+          tenantId,
+          name: 'Evento Privado',
+          state: 'PUBLISHED',
+          publicEligibilityEnabled: false,
+          votingStart: new Date(Date.now() - 60_000),
+          votingEnd: new Date(Date.now() + 60_000),
+          resultsPublishAt: new Date(Date.now() + 120_000),
+        },
+      ]),
+    });
+    padronVersionModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    });
+
+    const result = await service.checkPublicEligibilityAcrossEvents('123456');
+
+    expect(result.events).toEqual([
+      expect.objectContaining({
+        eventId: String(eventId),
+        status: 'PUBLIC_CHECK_DISABLED',
+        eligible: false,
+      }),
+    ]);
   });
 });

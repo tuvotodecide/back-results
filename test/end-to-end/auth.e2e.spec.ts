@@ -1,13 +1,11 @@
-import { AuthController } from "@/modules/auth/controllers/auth.controller";
 import { RoledUser, RoledUserSchema } from "@/modules/auth/schemas/roledUser.schema";
-import { AuthService } from "@/modules/auth/services/auth.service";
 import { Department } from "@/modules/geographic/schemas/department.schema";
 import { Municipality } from "@/modules/geographic/schemas/municipality.schema";
+import { AuthModule } from "@/modules/auth/auth.module";
 import { MailService } from "@/modules/mail/mail.service";
 import { CacheModule } from "@nestjs/cache-manager";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
-import { ConfigModule, ConfigService } from "@nestjs/config";
-import { JwtModule } from "@nestjs/jwt";
+import { ConfigModule } from "@nestjs/config";
 import { getConnectionToken, MongooseModule } from "@nestjs/mongoose";
 import { Test, TestingModule } from "@nestjs/testing";
 import { MongoMemoryServer } from "mongodb-memory-server";
@@ -79,27 +77,17 @@ describe('Auth E2E testing + contracts and delegates', () => {
           { name: RoledUser.name, schema: RoledUserSchema },
           ...mongoLocationFeatures,
         ]),
-        JwtModule.registerAsync({
-          global: true,
-          useFactory: (configService: ConfigService) => ({
-            secret: configService.get('app.jwt.secret'),
-            signOptions: { expiresIn: configService.get('app.jwt.expirationTime') },
-          }),
-          inject: [ConfigService],
-        }),
         TestLoggerModule,
+        AuthModule,
         ContractsModule,
       ],
-      controllers: [AuthController],
       providers: [
-        AuthService,
-        {
-          provide: MailService,
-          useValue: MailMockService,
-        },
         { provide: APP_GUARD, useClass: JwtAuthGuard },
       ],
-    }).compile();
+    })
+      .overrideProvider(MailService)
+      .useValue(MailMockService)
+      .compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(

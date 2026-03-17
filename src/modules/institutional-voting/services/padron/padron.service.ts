@@ -124,10 +124,13 @@ export class PadronService {
       );
     }
 
+    const comparisonStatus =
+      validEntries.length > 0 && duplicates === 0 && invalid === 0 ? 'OK' : 'PENDING';
+
     await this.comparisonReportModel.create({
       eventId: event._id,
       padronVersionId: version._id,
-      status: 'PENDING',
+      status: comparisonStatus,
     });
 
     return {

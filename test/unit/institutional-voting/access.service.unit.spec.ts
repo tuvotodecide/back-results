@@ -107,6 +107,18 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result).toEqual([tenantA]);
   });
 
+  it('devuelve todos los tenants activos cuando el solicitante es administrador global y no filtra', async () => {
+    const tenantA = new Types.ObjectId();
+    const tenantB = new Types.ObjectId();
+    tenantModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ _id: tenantA }, { _id: tenantB }]),
+    });
+
+    const result = await service.resolveReadableTenantIds({ role: 'ADMIN' });
+
+    expect(result).toEqual([tenantA, tenantB]);
+  });
+
   it('permite filtrar un tenant específico al administrador global', async () => {
     const tenantId = new Types.ObjectId();
     tenantModel.findById.mockReturnValue({
@@ -115,6 +127,23 @@ describe('InstitutionalVotingAccessService (unit)', () => {
 
     const result = await service.resolveReadableTenantIds(
       { role: 'ADMIN' },
+      String(tenantId),
+    );
+
+    expect(result).toEqual([tenantId]);
+  });
+
+  it('permite leer un tenant específico cuando existe asignación activa', async () => {
+    const tenantId = new Types.ObjectId();
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    });
+    assignmentModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ tenantId }),
+    });
+
+    const result = await service.resolveReadableTenantIds(
+      { sub: String(new Types.ObjectId()), role: 'TENANT_ADMIN' },
       String(tenantId),
     );
 
@@ -136,6 +165,25 @@ describe('InstitutionalVotingAccessService (unit)', () => {
         String(tenantId),
       ),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('rechaza lectura general cuando no existe identidad del solicitante y no es admin', async () => {
+    await expect(
+      service.resolveReadableTenantIds({ role: 'TENANT_ADMIN' }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('devuelve lista vacía cuando el administrador institucional no tiene asignaciones activas', async () => {
+    assignmentModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    });
+
+    const result = await service.resolveReadableTenantIds({
+      sub: String(new Types.ObjectId()),
+      role: 'TENANT_ADMIN',
+    });
+
+    expect(result).toEqual([]);
   });
 
   it('rechaza tenant inválido o inactivo', async () => {
@@ -183,6 +231,37 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result.resultsPublishAt).toBeInstanceOf(Date);
   });
 
+  it('permite fechas exactamente en el límite mínimo de 24 horas', () => {
+    const now = Date.now();
+    const votingStart = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+    const votingEnd = new Date(now + 25 * 60 * 60 * 1000).toISOString();
+    const resultsPublishAt = new Date(now + 26 * 60 * 60 * 1000).toISOString();
+
+    const result = service.parseAndValidateDates(
+      votingStart,
+      votingEnd,
+      resultsPublishAt,
+      true,
+    );
+
+    expect(result.votingStart).toBeInstanceOf(Date);
+  });
+
+  it('permite fechas cercanas cuando la regla de ventana no se exige', () => {
+    const result = service.parseAndValidateDates(
+      new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+      new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+      false,
+    );
+
+    expect(result.votingStart).toBeInstanceOf(Date);
+  });
+
+  it('devuelve objeto vacío cuando no se envían fechas', () => {
+    expect(service.parseAndValidateDates()).toEqual({});
+  });
+
   it('rechaza fechas incompletas o fuera de regla operativa', () => {
     expect(() =>
       service.parseAndValidateDates(
@@ -207,6 +286,19 @@ describe('InstitutionalVotingAccessService (unit)', () => {
         new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
         true,
       ),
+    ).toThrow(BadRequestException);
+
+    expect(() =>
+      service.parseAndValidateDates(
+        new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        new Date(Date.now() + 48.5 * 60 * 60 * 1000).toISOString(),
+        false,
+      ),
+    ).toThrow(BadRequestException);
+
+    expect(() =>
+      service.parseAndValidateDates('fecha-invalida', 'otra-fecha', 'otra-mas', false),
     ).toThrow(BadRequestException);
   });
 });
