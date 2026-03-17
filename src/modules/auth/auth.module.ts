@@ -12,6 +12,10 @@ import {
   TenantAdminAssignment,
   TenantAdminAssignmentSchema,
 } from '../institutional-tenants/schemas/tenant-admin-assignment.schema';
+import {
+  InstitutionalAdminApplication,
+  InstitutionalAdminApplicationSchema,
+} from '../institutional-admin-applications/schemas/institutional-admin-application.schema';
 
 @Module({
   imports: [
@@ -20,6 +24,12 @@ import {
     MongooseModule.forFeature([{ name: Municipality.name, schema: MunicipalitySchema }]),
     MongooseModule.forFeature([
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
+    ]),
+    MongooseModule.forFeature([
+      {
+        name: InstitutionalAdminApplication.name,
+        schema: InstitutionalAdminApplicationSchema,
+      },
     ]),
     JwtModule.registerAsync({
       global: true,

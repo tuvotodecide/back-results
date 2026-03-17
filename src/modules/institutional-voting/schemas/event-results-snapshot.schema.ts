@@ -50,5 +50,3 @@ export class EventResultsSnapshot {
 
 export const EventResultsSnapshotSchema =
   SchemaFactory.createForClass(EventResultsSnapshot);
-
-EventResultsSnapshotSchema.index({ eventId: 1 }, { unique: true });

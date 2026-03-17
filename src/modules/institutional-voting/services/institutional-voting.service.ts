@@ -125,6 +125,10 @@ export class InstitutionalVotingService {
     return this.padronService.listCurrentPadronVoters(eventId, requester, page, limit);
   }
 
+  downloadPadronCsv(eventId: string, requester: any, padronVersionId?: string) {
+    return this.padronService.downloadPadronCsv(eventId, requester, padronVersionId);
+  }
+
   updateSchedule(
     eventId: string,
     payload: { votingStart?: string; votingEnd?: string; resultsPublishAt?: string },
@@ -169,7 +173,13 @@ export class InstitutionalVotingService {
     eventId: string,
     status: 'PENDING' | 'OK' | 'FAILED',
     requester: any,
+    padronVersionId?: string,
   ) {
-    return this.padronService.updateComparisonReportStatus(eventId, status, requester);
+    return this.padronService.updateComparisonReportStatus(
+      eventId,
+      status,
+      requester,
+      padronVersionId,
+    );
   }
 }

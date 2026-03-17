@@ -219,6 +219,34 @@ export class PadronService {
     };
   }
 
+  async downloadPadronCsv(eventId: string, requester: any, padronVersionId?: string) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    const eventObjectId = new Types.ObjectId(String(event._id));
+
+    const version = await this.resolvePadronVersion(eventObjectId, padronVersionId);
+
+    const rows = await this.padronEntryModel
+      .find(
+        { padronVersionId: version._id },
+        { carnetNorm: 1, enabled: 1, _id: 0 },
+      )
+      .sort({ carnetNorm: 1 })
+      .lean();
+
+    const csvLines = [
+      `carnet,${ENABLED_HEADER}`,
+      ...rows.map((row) => `${row.carnetNorm},${row.enabled === false ? 'no' : 'si'}`),
+    ];
+
+    return {
+      fileName: `padron-${String(version._id)}.csv`,
+      csvContent: `\uFEFF${csvLines.join('\n')}`,
+      padronVersionId: String(version._id),
+      isCurrent: version.isCurrent === true,
+    };
+  }
+
   async checkEligibility(eventId: string, carnet: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
     const carnetNorm = normalizeCarnet(carnet);
@@ -315,10 +343,12 @@ export class PadronService {
     eventId: string,
     status: 'PENDING' | 'OK' | 'FAILED',
     requester: any,
+    padronVersionId?: string,
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    const version = await this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true });
+    const eventObjectId = new Types.ObjectId(String(event._id));
+    const version = await this.resolvePadronVersion(eventObjectId, padronVersionId);
     if (!version) throw new NotFoundException('No existe padron vigente');
 
     await this.comparisonReportModel.updateOne(
@@ -328,5 +358,35 @@ export class PadronService {
     );
 
     return { eventId, padronVersionId: String(version._id), status };
+  }
+
+  private async resolvePadronVersion(eventObjectId: Types.ObjectId, padronVersionId?: string) {
+    if (padronVersionId) {
+      if (!Types.ObjectId.isValid(padronVersionId)) {
+        throw new BadRequestException('padronVersionId invalido');
+      }
+
+      const version = await this.padronVersionModel.findOne({
+        _id: new Types.ObjectId(padronVersionId),
+        eventId: eventObjectId,
+      });
+
+      if (!version) {
+        throw new NotFoundException('No existe la version de padron solicitada');
+      }
+
+      return version;
+    }
+
+    const currentVersion = await this.padronVersionModel.findOne({
+      eventId: eventObjectId,
+      isCurrent: true,
+    });
+
+    if (!currentVersion) {
+      throw new NotFoundException('No existe padron vigente');
+    }
+
+    return currentVersion;
   }
 }

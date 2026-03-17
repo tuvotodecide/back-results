@@ -16,6 +16,10 @@ import {
   TenantAdminAssignment,
   TenantAdminAssignmentDocument,
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
+import {
+  InstitutionalAdminApplication,
+  InstitutionalAdminApplicationDocument,
+} from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
 
 @Injectable()
 export class AuthService {
@@ -25,6 +29,8 @@ export class AuthService {
     @InjectModel(Municipality.name) private municipalityModel: Model<Municipality>,
     @InjectModel(TenantAdminAssignment.name)
     private tenantAdminAssignmentModel: Model<TenantAdminAssignmentDocument>,
+    @InjectModel(InstitutionalAdminApplication.name)
+    private institutionalAdminApplicationModel: Model<InstitutionalAdminApplicationDocument>,
     private jwtService: JwtService,
     private mailService: MailService,
     private configService: ConfigService,
@@ -110,8 +116,22 @@ export class AuthService {
   }
 
   async signIn(dto: SignInDto): Promise<SignInResponseDto> {
-    const user = await this.roledUserModel.findOne({ email: dto.email });
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.roledUserModel.findOne({ email });
     if (!user) {
+      const application = await this.institutionalAdminApplicationModel
+        .findOne({ email })
+        .sort({ createdAt: -1, _id: -1 })
+        .lean();
+
+      if (application?.status === 'PENDING_EMAIL_VERIFICATION') {
+        throw new UnauthorizedException('El correo electrónico no ha sido verificado');
+      }
+
+      if (application?.status === 'PENDING_APPROVAL') {
+        throw new UnauthorizedException('La solicitud está pendiente de aprobación');
+      }
+
       throw new ForbiddenException('Credenciales inválidas');
     }
 

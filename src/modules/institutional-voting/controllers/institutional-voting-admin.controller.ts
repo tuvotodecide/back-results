@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   Query,
+  Res,
   Req,
   UploadedFile,
   UseInterceptors,
@@ -34,6 +35,7 @@ import { UpdateOptionCandidatesDto } from '../dto/update-option-candidates.dto';
 import { UpdateVotingEventDto } from '../dto/update-voting-event.dto';
 import { UpdateVotingOptionDto } from '../dto/update-voting-option.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
+import type { Response } from 'express';
 
 @ApiTags('Institutional Voting Admin')
 @Controller('api/v1/voting/events')
@@ -380,6 +382,36 @@ export class InstitutionalVotingAdminController {
     );
   }
 
+  @Get(':eventId/padron/download')
+  @ApiOperation({
+    summary: 'Descargar padrón CSV',
+    description:
+      'Descarga el padrón vigente del evento o una versión específica si se envía padronVersionId.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({
+    name: 'padronVersionId',
+    required: false,
+    description: 'ID de una versión específica del padrón. Si se omite, descarga la vigente.',
+  })
+  @ApiResponse({ status: 200, description: 'Archivo CSV del padrón.' })
+  async downloadPadronCsv(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+    @Query('padronVersionId') padronVersionId?: string,
+  ) {
+    const result = await this.institutionalVotingService.downloadPadronCsv(
+      eventId,
+      req.user,
+      padronVersionId,
+    );
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+    return result.csvContent;
+  }
+
   @Get(':eventId/results')
   @ApiOperation({
     summary: 'Obtener resultados del evento',
@@ -422,6 +454,10 @@ export class InstitutionalVotingAdminController {
       type: 'object',
       properties: {
         status: { type: 'string', enum: ['PENDING', 'OK', 'FAILED'] },
+        padronVersionId: {
+          type: 'string',
+          description: 'Versión específica del padrón a aprobar/rechazar. Si se omite, usa la vigente.',
+        },
       },
       required: ['status'],
     },
@@ -429,13 +465,14 @@ export class InstitutionalVotingAdminController {
   @ApiResponse({ status: 200, description: 'Estado del comparison report actualizado.' })
   updateComparisonStatus(
     @Param('eventId') eventId: string,
-    @Body('status') status: 'PENDING' | 'OK' | 'FAILED',
+    @Body() body: { status: 'PENDING' | 'OK' | 'FAILED'; padronVersionId?: string },
     @Req() req: any,
   ) {
     return this.institutionalVotingService.updateComparisonReportStatus(
       eventId,
-      status,
+      body.status,
       req.user,
+      body.padronVersionId,
     );
   }
 }
