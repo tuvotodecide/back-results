@@ -39,6 +39,7 @@ import { InstitutionalVotingAccessService } from '../core/institutional-voting-a
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
 import { PadronUsersService } from '../core/padron-users.service';
 import { IssuerService } from '../core/issuer.service';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class VotingEventsService {
@@ -63,6 +64,7 @@ export class VotingEventsService {
     private readonly notificationsService: InstitutionalVotingNotificationsService,
     private readonly padronUsersService: PadronUsersService,
     private readonly issuerService: IssuerService,
+    private readonly configService: ConfigService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -392,9 +394,12 @@ export class VotingEventsService {
       this.votingOptionModel.find({ eventId: event._id }).sort({ createdAt: 1, _id: 1 }).lean(),
     ]);
 
+    const chainRequestId = this.configService.get<string>('app.votingRequestId');
+
     return {
       id: String(event._id),
       tenantId: String(event.tenantId),
+      chainRequestId,
       name: event.name,
       objective: event.objective,
       state: event.state,

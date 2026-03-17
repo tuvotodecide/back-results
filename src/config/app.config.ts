@@ -76,4 +76,6 @@ export default registerAs('app', () => ({
     baseUrl: process.env.IDENTITY_BASE_URL || '',
     apiKey: process.env.IDENTITY_API_KEY || '',
   },
+
+  votingRequestId: process.env.VOTING_REQUEST_ID || '',
 }));
