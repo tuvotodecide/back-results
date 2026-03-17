@@ -84,6 +84,7 @@ export class VotingEventsService {
       votingEnd,
       resultsPublishAt,
       state: 'DRAFT',
+      publicEligibilityEnabled: true,
     });
 
     return {
@@ -850,16 +851,32 @@ export class VotingEventsService {
     const [rolesCount, optionsCount, currentPadron, hasWindows] = await Promise.all([
       this.eventRoleModel.countDocuments({ eventId: event._id }),
       this.votingOptionModel.countDocuments({ eventId: event._id, active: true }),
-      this.padronVersionModel.exists({ eventId: event._id, isCurrent: true }),
+      this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
       Promise.resolve(
         Boolean(event.votingStart && event.votingEnd && event.resultsPublishAt),
       ),
     ]);
 
+    const comparisonReportOk = currentPadron
+      ? await this.comparisonReportModel.exists({
+          padronVersionId: currentPadron._id,
+          status: 'OK',
+        })
+      : false;
+
     const pending: string[] = [];
     if (rolesCount === 0) pending.push('cargos');
     if (optionsCount === 0) pending.push('opciones');
-    if (!currentPadron) pending.push('padron');
+    if (!currentPadron) {
+      pending.push('padron');
+    } else {
+      if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) {
+        pending.push('padron_invalid');
+      }
+      if (!comparisonReportOk) {
+        pending.push('padron_validation');
+      }
+    }
     if (!hasWindows) pending.push('horarios');
 
     if (pending.length > 0) {
@@ -870,6 +887,7 @@ export class VotingEventsService {
     }
 
     event.state = 'PUBLISHED';
+    event.publicEligibilityEnabled = true;
     await event.save();
 
     if(event.convocationNotifiedAt) {

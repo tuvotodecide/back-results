@@ -37,7 +37,7 @@ export class VotingEvent {
   })
   state: VotingEventState;
 
-  @Prop({ default: false })
+  @Prop({ default: true })
   publicEligibilityEnabled: boolean;
 
   @Prop({ type: Date, required: false })
