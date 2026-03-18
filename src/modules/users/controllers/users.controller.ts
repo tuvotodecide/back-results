@@ -69,6 +69,8 @@ export class UsersController {
   }
 
   @Get(':dni')
+  @Public()
+  @UseGuards(ZkAuthGuard)
   @ApiOperation({ summary: 'Obtener usuario por DNI' })
   @ApiParam({ name: 'dni' })
   @ApiResponse({ status: 200, type: UserResponseDto })
