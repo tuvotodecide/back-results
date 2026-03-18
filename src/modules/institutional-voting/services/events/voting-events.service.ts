@@ -911,11 +911,11 @@ export class VotingEventsService {
 
     const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event);
     if (convotatedUsers.length > 0) {
-      const userCredentials = await this.issuerService.issueCredential(
-        convotatedUsers.map((u) => u.dni),
-        event,
-      );
-      await this.notificationsService.notifyConvocationIfEligible(event, userCredentials);
+      // const userCredentials = await this.issuerService.issueCredential(
+      //   convotatedUsers.map((u) => u.dni),
+      //   event,
+      // );
+      await this.notificationsService.notifyConvocationIfEligible(event/*,userCredentials*/);
     }
 
     return {

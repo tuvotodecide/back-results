@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import * as admin from 'firebase-admin';
 import { User } from '@/modules/users/schemas/user.schema';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 import { UserNotification } from '@/modules/notifications/schemas/user-notification.schema';
@@ -22,6 +23,8 @@ import {
 @Injectable()
 export class InstitutionalVotingNotificationsService {
   constructor(
+    @Inject('FIREBASE_ADMIN')
+    private readonly fb: typeof admin,
     @InjectModel(PadronVersion.name)
     private readonly padronVersionModel: Model<PadronVersionDocument>,
     @InjectModel(PadronEntry.name)
@@ -131,6 +134,10 @@ export class InstitutionalVotingNotificationsService {
       .find({ padronVersionId: currentVersion._id, enabled: true }, { carnetNorm: 1 })
       .lean();
     if (!entries.length) {
+      console.warn('[InstitutionalVotingNotifications] Current padron is empty', {
+        eventId: String(event._id),
+        currentPadronId: String(currentVersion._id),
+      });
       return { sent: 0, skipped: 'empty_padron' };
     }
 
@@ -138,34 +145,99 @@ export class InstitutionalVotingNotificationsService {
     const users = await this.userModel.find({ active: true }, { _id: 1, dni: 1 }).lean();
     const recipients = users.filter((u) => carnetSet.has(normalizeCarnet(u.dni) ?? ''));
 
+    console.log('[InstitutionalVotingNotifications] Padron recipients resolved', {
+      eventId: String(event._id),
+      enabledPadronEntries: entries.length,
+      activeUsersChecked: users.length,
+      linkedRecipients: recipients.length,
+    });
+
     if (!recipients.length) {
       return { sent: 0, skipped: 'no_linked_users' };
     }
 
-    const topic = `tenant_${String(event.tenantId)}`;
-    const batch = recipients.map((u) => ({
+    const inboxBatch = recipients.map((u) => ({
       userId: u._id as Types.ObjectId,
       dni: u.dni,
-      topic,
+      topic: `user_${String(u._id)}`,
       title: payload.title,
       body: payload.body,
       data: {
         ...payload.data,
-        ...additionalPerUserDniData[u.dni],
+        ...(additionalPerUserDniData[u.dni] || {}),
       },
       status: 'NEW' as const,
     }));
-    await this.userNotificationModel.insertMany(batch, { ordered: false });
+    await this.userNotificationModel.insertMany(inboxBatch, { ordered: false });
 
-    await this.notificationLogModel.create({
-      type: 'generic',
-      topic,
-      title: payload.title,
-      body: payload.body,
-      data: payload.data,
-      status: 'SENT',
+    const deliveryResults = await Promise.all(
+      recipients.map(async (u) => {
+        const topic = `user_${String(u._id)}`;
+        const data = {
+          ...payload.data,
+          ...(additionalPerUserDniData[u.dni] || {}),
+        };
+
+        try {
+          const messageId = await this.fb.messaging().send({
+            topic,
+            notification: {
+              title: payload.title,
+              body: payload.body,
+            },
+            data,
+            android: { priority: 'high' },
+            apns: { headers: { 'apns-priority': '10' } },
+          });
+
+          return {
+            topic,
+            data,
+            status: 'SENT' as const,
+            messageId,
+          };
+        } catch (error: any) {
+          console.error('[InstitutionalVotingNotifications] Push delivery failed', {
+            eventId: String(event._id),
+            userId: String(u._id),
+            dni: u.dni,
+            topic,
+            error: error?.message || String(error),
+          });
+
+          return {
+            topic,
+            data,
+            status: 'FAILED' as const,
+            error: error?.message || String(error),
+          };
+        }
+      }),
+    );
+
+    await this.notificationLogModel.insertMany(
+      deliveryResults.map((item) => ({
+        type: 'generic',
+        topic: item.topic,
+        title: payload.title,
+        body: payload.body,
+        data: item.data,
+        status: item.status,
+        ...('messageId' in item && item.messageId ? { messageId: item.messageId } : {}),
+        ...('error' in item && item.error ? { error: item.error } : {}),
+      })),
+      { ordered: false },
+    );
+
+    const sent = deliveryResults.filter((item) => item.status === 'SENT').length;
+    const failed = deliveryResults.length - sent;
+
+    console.log('[InstitutionalVotingNotifications] Delivery summary', {
+      eventId: String(event._id),
+      sent,
+      failed,
     });
 
-    return { sent: recipients.length };
+    return { sent, failed };
   }
 }
