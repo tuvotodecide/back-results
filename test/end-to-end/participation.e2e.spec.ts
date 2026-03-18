@@ -51,6 +51,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
   let appHttpServer: any;
   let users: Map<string, any>;
   let laPazToken: string;
+  let adminToken: string;
   let activeElectionId: string;
 
   let delegates: DelegateWithId[];
@@ -110,6 +111,7 @@ describe('Delegates pariticipation end-to-end tests', () => {
 
     const governorLaPaz = users.get('governorLaPaz');
     laPazToken = await login(appHttpServer, governorLaPaz.email, 'secret123');
+    adminToken = await login(appHttpServer, adminUser.email, 'secret123');
   });
 
   afterAll(async () => {
@@ -282,6 +284,26 @@ describe('Delegates pariticipation end-to-end tests', () => {
       jest.spyOn(ballotService, 'fetchFromIpfs' as any).mockResolvedValue(
         getMockOpenSeaMetadata(tableCode, tableNumber, locationId, parties.codes)
       );
+    });
+
+    it('P11: deleting an attestation requires admin authorization', async () => {
+      await uploadAttestation('record-delete', delegates[0], 1);
+
+      const stored = await conn.collection('attestations').findOne({});
+      expect(stored?._id).toBeTruthy();
+
+      const forbiddenDelete = await request(appHttpServer)
+        .delete(`/api/v1/attestations/${stored!._id.toString()}`)
+        .auth(laPazToken, { type: 'bearer' });
+      expect([401, 403]).toContain(forbiddenDelete.status);
+
+      await request(appHttpServer)
+        .delete(`/api/v1/attestations/${stored!._id.toString()}`)
+        .auth(adminToken, { type: 'bearer' })
+        .expect(204);
+
+      const deleted = await conn.collection('attestations').findOne({ _id: stored!._id });
+      expect(deleted).toBeNull();
     });
 
     // it('P11: should count delegate participation even when report flags are missing', async () => {

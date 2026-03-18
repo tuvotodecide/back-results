@@ -227,7 +227,7 @@ describe('Institutional voting integration - publication and results', () => {
     expect(notifications.length).toBeGreaterThan(0);
   });
 
-  it('no publica resultados automáticamente si falla la notificación final', async () => {
+  it('publica resultados oficialmente aunque falle la notificación final y reintenta después', async () => {
     const eventId = await preparePublishedEvent({
       votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
@@ -244,10 +244,21 @@ describe('Institutional voting integration - publication and results', () => {
     const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
     await lifecycle.processLifecycle();
 
-    const updatedEvent = await ctx.conn
+    const failedEvent = await ctx.conn
       .collection('voting_events')
       .findOne({ _id: new Types.ObjectId(eventId) });
-    expect(updatedEvent?.state).not.toBe('RESULTS_PUBLISHED');
+    expect(failedEvent?.state).toBe('RESULTS_PUBLISHED');
+    expect(failedEvent?.resultsNotifiedAt).toBeFalsy();
+    expect(failedEvent?.resultsNotificationFailedAt).toBeTruthy();
+    expect(failedEvent?.resultsNotificationError).toBe('results notification failed');
     notifySpy.mockRestore();
+
+    await lifecycle.processLifecycle();
+
+    const retriedEvent = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: new Types.ObjectId(eventId) });
+    expect(retriedEvent?.state).toBe('RESULTS_PUBLISHED');
+    expect(retriedEvent?.resultsNotifiedAt).toBeTruthy();
   });
 });

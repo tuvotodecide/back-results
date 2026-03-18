@@ -866,6 +866,13 @@ export class VotingEventsService {
       ),
     ]);
 
+    const comparisonReportOk = currentPadron
+      ? await this.comparisonReportModel.exists({
+          padronVersionId: currentPadron._id,
+          status: 'OK',
+        })
+      : false;
+
     const pending: string[] = [];
     if (rolesCount === 0) pending.push('cargos');
     if (optionsCount === 0) pending.push('opciones');
@@ -877,6 +884,9 @@ export class VotingEventsService {
       }
       if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) {
         pending.push('padron_invalid');
+      }
+      if (!comparisonReportOk) {
+        pending.push('padron_validation');
       }
     }
     if (!hasWindows) pending.push('horarios');

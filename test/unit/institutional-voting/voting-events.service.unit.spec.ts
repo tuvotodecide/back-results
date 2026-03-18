@@ -223,7 +223,7 @@ describe('VotingEventsService (unit)', () => {
     });
   });
 
-  it('publica el evento aunque el padrón siga pendiente de aprobación operativa', async () => {
+  it('bloquea publicar el evento mientras el padrón siga pendiente de aprobación operativa', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
       totals: { validCount: 2, invalidCount: 0, duplicateCount: 0 },
@@ -245,16 +245,13 @@ describe('VotingEventsService (unit)', () => {
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
     comparisonReportModel.exists.mockResolvedValue(false);
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
 
-    const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
+    await expect(
+      service.publishEvent(String(event._id), { sub: 'admin-1' }),
+    ).rejects.toThrow(BadRequestException);
 
     expect(comparisonReportModel.updateOne).not.toHaveBeenCalled();
-    expect(event.save).toHaveBeenCalled();
-    expect(result).toEqual({
-      id: String(event._id),
-      state: 'PUBLISHED',
-    });
+    expect(event.save).not.toHaveBeenCalled();
   });
 
   it('publica y emite credenciales/notificación cuando hay usuarios elegibles', async () => {
@@ -419,6 +416,25 @@ describe('VotingEventsService (unit)', () => {
     expect(eventRoleModel.create).not.toHaveBeenCalled();
   });
 
+  it('bloquea crear opciones cuando el evento ya fue publicado', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'PUBLISHED',
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    await expect(
+      service.createOption(
+        String(event._id),
+        { name: 'Lista Azul', color: '#2563EB', candidates: [] },
+        { sub: 'admin-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(votingOptionModel.create).not.toHaveBeenCalled();
+  });
+
   it('bloquea desactivar una opción cuando el evento ya fue publicado', async () => {
     const event = {
       _id: new Types.ObjectId(),
@@ -436,6 +452,31 @@ describe('VotingEventsService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
 
     expect(votingOptionModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('bloquea editar el cronograma cuando el evento ya fue publicado', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'PUBLISHED',
+      save: jest.fn(),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    await expect(
+      service.updateSchedule(
+        String(event._id),
+        {
+          votingStart: new Date().toISOString(),
+          votingEnd: new Date(Date.now() + 60_000).toISOString(),
+          resultsPublishAt: new Date(Date.now() + 120_000).toISOString(),
+        },
+        { sub: 'admin-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(accessService.parseAndValidateDates).not.toHaveBeenCalled();
+    expect(event.save).not.toHaveBeenCalled();
   });
 
   it('resuelve elegibilidad pública transversal entre eventos visibles', async () => {

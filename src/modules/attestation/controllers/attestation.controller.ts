@@ -333,6 +333,8 @@ export class AttestationController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, AdminOnlyGuard)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
     summary: 'Eliminar una attestation',
@@ -353,6 +355,10 @@ export class AttestationController {
   @ApiResponse({
     status: 404,
     description: 'Attestation no encontrada',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'No autorizado',
   })
   async remove(@Param('id') id: string): Promise<void> {
     return this.attestationService.remove(id);

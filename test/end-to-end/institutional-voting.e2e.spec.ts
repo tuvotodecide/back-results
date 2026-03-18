@@ -329,25 +329,15 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     );
     expect(upload.status).toBe(201);
 
-    const publish = await publishInstitutionalEvent(
+    const publishBeforeApproval = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.tenantAdminToken,
       eventId,
     );
-    expect(publish.status).toBe(201);
-    expect(publish.body.state).toBe('PUBLISHED');
-
-    const eligibilityPending = await request(ctx.httpServer)
-      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
-      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
-    expect(eligibilityPending.status).toBe(200);
-    expect(eligibilityPending.body.status).toBe('ROLL_IN_VALIDATION');
-
-    const participationPending = await request(ctx.httpServer)
-      .get(`/api/v1/voting/events/${eventId}/participations/status`)
-      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
-    expect(participationPending.status).toBe(200);
-    expect(participationPending.body.status).toBe('ROLL_IN_VALIDATION');
+    expect(publishBeforeApproval.status).toBe(400);
+    expect(publishBeforeApproval.body.pending).toEqual(
+      expect.arrayContaining(['padron_validation']),
+    );
 
     const forbiddenApproval = await approveComparisonReport(
       eventId,
@@ -359,17 +349,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     const approved = await approveComparisonReport(eventId, ctx.adminToken, 'OK');
     expect([200, 201]).toContain(approved.status);
 
-    const eligibilityApproved = await request(ctx.httpServer)
-      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
-      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
-    expect(eligibilityApproved.status).toBe(200);
-    expect(eligibilityApproved.body.status).toBe('ELIGIBLE');
-
-    const participationApproved = await request(ctx.httpServer)
-      .get(`/api/v1/voting/events/${eventId}/participations/status`)
-      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
-    expect(participationApproved.status).toBe(200);
-    expect(participationApproved.body.status).toBe('CAN_VOTE');
+    const publishAfterApproval = await publishInstitutionalEvent(
+      ctx.httpServer,
+      ctx.tenantAdminToken,
+      eventId,
+    );
+    expect(publishAfterApproval.status).toBe(201);
+    expect(publishAfterApproval.body.state).toBe('PUBLISHED');
   });
 
   it('EVT-002: publicar falla si faltan precondiciones y devuelve pending[]', async () => {

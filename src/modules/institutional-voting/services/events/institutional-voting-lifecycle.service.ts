@@ -34,18 +34,27 @@ export class InstitutionalVotingLifecycleService {
 
     const publishable = await this.votingEventModel
       .find({
-        state: { $in: ['PUBLISHED', 'CLOSED'] },
+        state: { $in: ['PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
         resultsPublishAt: { $lte: now },
         resultsNotifiedAt: { $exists: false },
       })
       .limit(50);
 
     for (const event of publishable) {
-      try {
-        await this.notificationsService.notifyResultsAvailableIfEligible(event);
+      if (event.state !== 'RESULTS_PUBLISHED') {
         event.state = 'RESULTS_PUBLISHED';
+      }
+
+      try {
+        await event.save();
+        await this.notificationsService.notifyResultsAvailableIfEligible(event);
+        event.resultsNotificationFailedAt = undefined;
+        event.resultsNotificationError = undefined;
         await event.save();
       } catch (error: any) {
+        event.resultsNotificationFailedAt = new Date();
+        event.resultsNotificationError = String(error?.message ?? error ?? 'unknown_error');
+        await event.save();
         this.logger.warn(
           `No se pudo notificar resultados para eventId=${String(event._id)}: ${error?.message ?? error}`,
         );

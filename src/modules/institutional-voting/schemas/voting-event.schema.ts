@@ -45,6 +45,12 @@ export class VotingEvent {
 
   @Prop({ type: Date, required: false })
   resultsNotifiedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  resultsNotificationFailedAt?: Date;
+
+  @Prop({ type: String, required: false })
+  resultsNotificationError?: string;
 }
 
 export const VotingEventSchema = SchemaFactory.createForClass(VotingEvent);
