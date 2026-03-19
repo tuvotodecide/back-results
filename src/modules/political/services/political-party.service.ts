@@ -341,7 +341,7 @@ export class PoliticalPartyService {
     electionId: string,
     departmentId?: string,
     municipalityId?: string,
-  ): Promise<ElectionPartyDocument[]> {
+  ): Promise<any[]> {
     const eid = new Types.ObjectId(electionId);
     const filter: any = {
       electionId: eid,
@@ -366,9 +366,51 @@ export class PoliticalPartyService {
       filter.municipalityId = null;
     }
 
-    return this.electionPartyModel
+    const assignments = await this.electionPartyModel
       .find(filter)
       .sort({ ballotNumber: 1, partyId: 1 })
+      .lean()
       .exec();
+
+    const partyIds = Array.from(
+      new Set(
+        assignments
+          .map((assignment: any) => String(assignment?.partyId || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!partyIds.length) {
+      return [];
+    }
+
+    const parties = await this.politicalPartyModel
+      .find({ partyId: { $in: partyIds }, active: true })
+      .select({
+        _id: 0,
+        partyId: 1,
+        shortName: 1,
+        fullName: 1,
+        logoUrl: 1,
+        color: 1,
+      })
+      .collation(this.partyIdCollation)
+      .lean()
+      .exec();
+
+    const partyMap = new Map(
+      parties.map((party: any) => [String(party.partyId || '').trim(), party]),
+    );
+
+    return assignments.map((assignment: any) => {
+      const party = partyMap.get(String(assignment?.partyId || '').trim());
+      return {
+        ...assignment,
+        shortName: party?.shortName || assignment?.partyId || null,
+        fullName: party?.fullName || null,
+        logoUrl: party?.logoUrl || null,
+        color: assignment?.color || party?.color || null,
+      };
+    });
   }
 }
