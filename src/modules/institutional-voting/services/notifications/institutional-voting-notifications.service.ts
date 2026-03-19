@@ -2,43 +2,26 @@ import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as admin from 'firebase-admin';
-import { User } from '@/modules/users/schemas/user.schema';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 import { UserNotification } from '@/modules/notifications/schemas/user-notification.schema';
-import { normalizeCarnet } from '../../utils/carnet-normalizer';
-import {
-  ComparisonReport,
-  ComparisonReportDocument,
-} from '../../schemas/comparison-report.schema';
-import { PadronEntry, PadronEntryDocument } from '../../schemas/padron-entry.schema';
-import {
-  PadronVersion,
-  PadronVersionDocument,
-} from '../../schemas/padron-version.schema';
 import {
   VotingEvent,
   VotingEventDocument,
 } from '../../schemas/voting-event.schema';
+import { PadronUsersService } from '../core/padron-users.service';
 
 @Injectable()
 export class InstitutionalVotingNotificationsService {
   constructor(
     @Inject('FIREBASE_ADMIN')
     private readonly fb: typeof admin,
-    @InjectModel(PadronVersion.name)
-    private readonly padronVersionModel: Model<PadronVersionDocument>,
-    @InjectModel(PadronEntry.name)
-    private readonly padronEntryModel: Model<PadronEntryDocument>,
-    @InjectModel(ComparisonReport.name)
-    private readonly comparisonReportModel: Model<ComparisonReportDocument>,
-    @InjectModel(User.name)
-    private readonly userModel: Model<User>,
     @InjectModel(UserNotification.name)
     private readonly userNotificationModel: Model<UserNotification>,
     @InjectModel(NotificationLog.name)
     private readonly notificationLogModel: Model<NotificationLog>,
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
+    private readonly padronUsersService: PadronUsersService,
   ) {}
 
   async notifyConvocationIfEligible(event: VotingEventDocument, additionalPerUserDniData: Record<string, Record<string, string>> = {}) {
@@ -115,40 +98,10 @@ export class InstitutionalVotingNotificationsService {
     },
     additionalPerUserDniData: Record<string, Record<string, string>> = {},
   ) {
-    const currentVersion = await this.padronVersionModel
-      .findOne({ eventId: event._id, isCurrent: true })
-      .lean();
-    if (!currentVersion) {
-      return { sent: 0, skipped: 'no_current_padron' };
-    }
-
-    const reportOk = await this.comparisonReportModel.exists({
-      padronVersionId: currentVersion._id,
-      status: 'OK',
-    });
-    if (!reportOk) {
-      return { sent: 0, skipped: 'comparison_not_ok' };
-    }
-
-    const entries = await this.padronEntryModel
-      .find({ padronVersionId: currentVersion._id, enabled: true }, { carnetNorm: 1 })
-      .lean();
-    if (!entries.length) {
-      console.warn('[InstitutionalVotingNotifications] Current padron is empty', {
-        eventId: String(event._id),
-        currentPadronId: String(currentVersion._id),
-      });
-      return { sent: 0, skipped: 'empty_padron' };
-    }
-
-    const carnetSet = new Set(entries.map((e) => e.carnetNorm));
-    const users = await this.userModel.find({ active: true }, { _id: 1, dni: 1 }).lean();
-    const recipients = users.filter((u) => carnetSet.has(normalizeCarnet(u.dni) ?? ''));
+    const recipients = await this.padronUsersService.getPadronUsersFromEvent(event);
 
     console.log('[InstitutionalVotingNotifications] Padron recipients resolved', {
       eventId: String(event._id),
-      enabledPadronEntries: entries.length,
-      activeUsersChecked: users.length,
       linkedRecipients: recipients.length,
     });
 
