@@ -31,6 +31,9 @@ export class ElectionParty {
   @Prop({ default: true })
   active: boolean;
 
+  @Prop({ type: Number, default: null })
+  assignmentOrder?: number | null;
+
   @Prop() ballotNumber?: number;
   @Prop() allianceName?: string;
   @Prop() color?: string;
