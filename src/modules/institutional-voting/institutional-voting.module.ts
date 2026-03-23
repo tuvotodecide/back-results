@@ -43,6 +43,7 @@ import {
 import { HttpModule } from '@nestjs/axios';
 import { PadronUsersService } from './services/core/padron-users.service';
 import { IssuerService } from './services/core/issuer.service';
+import { FirebaseModule } from '@/core/firebase/firebase.module';
 
 @Module({
   imports: [
@@ -62,7 +63,8 @@ import { IssuerService } from './services/core/issuer.service';
       { name: NotificationLog.name, schema: NotificationLogSchema },
     ]),
     ZkAuthModule,
-    HttpModule
+    HttpModule,
+    FirebaseModule,
   ],
   controllers: [
     InstitutionalVotingAdminController,

@@ -409,7 +409,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(eventInDb?.publicEligibilityEnabled).toBe(true);
   });
 
-  it('EVT-004: publicar exitosamente sin usuarios vinculados no genera convocatoria', async () => {
+  it('EVT-004: publicar exitosamente sin usuarios preexistentes genera convocatoria para el padron vigente', async () => {
     await ctx.conn.collection('users').deleteMany({
       dni: { $in: ['123456', 'ABC789'] },
     });
@@ -426,7 +426,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
         'data.eventId': eventId,
       })
       .toArray();
-    expect(notifications).toHaveLength(0);
+    expect(notifications).toHaveLength(2);
   });
 
   it('BLT-001/002: crear cargo y rechazar duplicado', async () => {
@@ -1163,7 +1163,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(storedNews?.data?.type).toBe('INSTITUTIONAL_NEWS');
   });
 
-  it('NEWS-002: news no se envia si comparison report no esta OK', async () => {
+  it('NEWS-002: sin comparison report OK la publicacion retorna no_linked_users', async () => {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -1186,10 +1186,10 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
     expect(publishNews.status).toBe(201);
     expect(publishNews.body.sent).toBe(0);
-    expect(publishNews.body.skipped).toBe('comparison_not_ok');
+    expect(publishNews.body.skipped).toBe('no_linked_users');
   });
 
-  it('NEWS-003: con comparison OK pero sin usuarios vinculados retorna no_linked_users', async () => {
+  it('NEWS-003: con comparison OK crea usuario desde padron y envia noticia', async () => {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -1216,7 +1216,12 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .send(institutionalVotingFixtures.news);
 
     expect(publishNews.status).toBe(201);
-    expect(publishNews.body.sent).toBe(0);
-    expect(publishNews.body.skipped).toBe('no_linked_users');
+    expect(publishNews.body.sent).toBe(1);
+    expect(publishNews.body.skipped).toBeNull();
+
+    const storedNews = await ctx.conn
+      .collection('user_notifications')
+      .findOne({ dni: '999001', title: institutionalVotingFixtures.news.title });
+    expect(storedNews).toBeTruthy();
   });
 });

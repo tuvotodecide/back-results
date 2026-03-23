@@ -47,6 +47,12 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
   const mongod = await MongoMemoryServer.create();
   const mongoUri = mongod.getUri();
 
+  const firebaseAdminMock = {
+    messaging: jest.fn(() => ({
+      send: jest.fn().mockResolvedValue('mock-message-id'),
+    })),
+  };
+
   const issuerServiceMock = {
     issueCredential: jest.fn(async (dnis: string[]) => {
       return Object.fromEntries(
@@ -80,6 +86,8 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     ],
     providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
   })
+    .overrideProvider('FIREBASE_ADMIN')
+    .useValue(firebaseAdminMock)
     .overrideProvider(IssuerService)
     .useValue(issuerServiceMock)
     .compile();
