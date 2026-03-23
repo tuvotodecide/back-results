@@ -37,9 +37,8 @@ import {
 } from '../../schemas/voting-option.schema';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
-import { PadronUsersService } from '../core/padron-users.service';
-import { IssuerService } from '../core/issuer.service';
 import { ConfigService } from '@nestjs/config';
+import { VoteReaderService } from '../core/vote-reader.service';
 
 @Injectable()
 export class VotingEventsService {
@@ -62,9 +61,8 @@ export class VotingEventsService {
     private readonly resultsSnapshotModel: Model<EventResultsSnapshotDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
-    private readonly padronUsersService: PadronUsersService,
-    private readonly issuerService: IssuerService,
     private readonly configService: ConfigService,
+    private readonly voteReaderService: VoteReaderService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -234,9 +232,10 @@ export class VotingEventsService {
     );
 
     const resultsAvailable = Boolean(event.resultsPublishAt && now >= event.resultsPublishAt);
-    const snapshot = resultsAvailable
-      ? await this.resultsSnapshotModel.findOne({ eventId: event._id }).lean()
-      : null;
+    let results = [];
+    if (resultsAvailable) {
+      results = await this.voteReaderService.getResults(String(event._id));
+    }
 
     return {
       id: String(event._id),
@@ -263,14 +262,7 @@ export class VotingEventsService {
         candidates: option.candidates ?? [],
         active: option.active,
       })),
-      results: resultsAvailable
-        ? {
-            source: snapshot?.source ?? 'BLOCKCHAIN',
-            txHash: snapshot?.txHash ?? null,
-            blockNumber: snapshot?.blockNumber ?? null,
-            roles: snapshot?.roles ?? [],
-          }
-        : null,
+      results,
     };
   }
 
@@ -909,14 +901,15 @@ export class VotingEventsService {
       };
     }
 
-    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event);
+    /*const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event);
     if (convotatedUsers.length > 0) {
-      // const userCredentials = await this.issuerService.issueCredential(
-      //   convotatedUsers.map((u) => u.dni),
-      //   event,
-      // );
-      await this.notificationsService.notifyConvocationIfEligible(event/*,userCredentials*/);
-    }
+      const userCredentials = await this.issuerService.issueCredential(
+        convotatedUsers.map((u) => u.dni),
+        event,
+      );
+      await this.notificationsService.notifyConvocationIfEligible(event, userCredentials);
+    }*/
+    await this.notificationsService.notifyConvocationIfEligible(event);
 
     return {
       id: String(event._id),

@@ -6,7 +6,6 @@ import { GeographicModule } from '@/modules/geographic/geographic.module';
 import { InstitutionalTenantsModule } from '@/modules/institutional-tenants/institutional-tenants.module';
 import { InstitutionalAdminApplicationsModule } from '@/modules/institutional-admin-applications/institutional-admin-applications.module';
 import { InstitutionalVotingModule } from '@/modules/institutional-voting/institutional-voting.module';
-import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 import { CacheModule } from '@nestjs/cache-manager';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -20,6 +19,7 @@ import request from 'supertest';
 import { seedLocations } from './seeds/locationsSeed';
 import { seedAdmin, seedUsers } from './seeds/usersSeed';
 import { TestLoggerModule } from './module-helpers';
+import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
 
 // Evitar cargar ZK real (dependencias ESM/circuitos) en el entorno de test.
 jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
@@ -53,13 +53,23 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     })),
   };
 
+  const voteReaderServiceMock = {
+    getResults: jest.fn(async (voteEventId: string) => {
+      return [
+        { option: 'Option A', votes: '100' },
+        { option: 'Option B', votes: '50' },
+      ];
+    }),
+  };
+
+  /*
   const issuerServiceMock = {
     issueCredential: jest.fn(async (dnis: string[]) => {
       return Object.fromEntries(
         dnis.map((dni) => [dni, { credentialData: `mock-credential-${dni}` }]),
       );
     }),
-  };
+  };*/
 
   const moduleRef = await Test.createTestingModule({
     imports: [
@@ -88,8 +98,10 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
   })
     .overrideProvider('FIREBASE_ADMIN')
     .useValue(firebaseAdminMock)
-    .overrideProvider(IssuerService)
-    .useValue(issuerServiceMock)
+    .overrideProvider(VoteReaderService)
+    .useValue(voteReaderServiceMock)
+    //.overrideProvider(IssuerService)
+    //.useValue(issuerServiceMock)
     .compile();
 
   const app = moduleRef.createNestApplication();

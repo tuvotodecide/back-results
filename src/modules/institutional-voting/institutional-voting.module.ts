@@ -42,8 +42,8 @@ import {
 } from '../notifications/schemas/notification-log.schema';
 import { HttpModule } from '@nestjs/axios';
 import { PadronUsersService } from './services/core/padron-users.service';
-import { IssuerService } from './services/core/issuer.service';
 import { FirebaseModule } from '@/core/firebase/firebase.module';
+import { VoteReaderService } from './services/core/vote-reader.service';
 
 @Module({
   imports: [
@@ -75,7 +75,7 @@ import { FirebaseModule } from '@/core/firebase/firebase.module';
     InstitutionalVotingService,
     InstitutionalVotingAccessService,
     PadronUsersService,
-    IssuerService,
+    VoteReaderService,
     VotingEventsService,
     InstitutionalVotingLifecycleService,
     InstitutionalVotingNotificationsService,

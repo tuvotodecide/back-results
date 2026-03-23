@@ -9,6 +9,14 @@ export type VCclaimData = {
   id: string;
 }
 
+export type DidByDniResponse = {
+  ok: boolean;
+  records: {
+    dni: string;
+    did: string;
+  }[];
+}
+
 @Injectable()
 export class IssuerService {
   private readonly baseUrl: string;
@@ -62,7 +70,8 @@ export class IssuerService {
           credentialData: response.data.id,
         };
       } catch (error) {
-        throw new InternalServerErrorException(`Error issuing credential for DNI ${user.dni}: ${error.response?.data || error.message}`);
+        console.error(`Error issuing credential for DNI ${user.dni}:`, error.response?.data || error.message);
+        throw new InternalServerErrorException(`Error issuing credential for DNI`);
       }
     }
 
@@ -72,7 +81,7 @@ export class IssuerService {
   async getDidsByDnis(dnis: string[]) {
     const url = `${this.identityBaseUrl}/registry/get-by-dni`;
     try {
-      const response = await this.httpService.axiosRef.get<{ dni: string; did: string }[]>(url, {
+      const response = await this.httpService.axiosRef.get<DidByDniResponse>(url, {
         params: {
           dnis: dnis.join(','),
         },
@@ -80,9 +89,15 @@ export class IssuerService {
           'x-api-key': this.identityApiKey,
         }
       });
-      return response.data;
+
+      if (!response.data.ok) {
+        throw new Error(`Identity service responded with ok=false: ${JSON.stringify(response.data)}`);
+      }
+
+      return response.data.records;
     } catch (error) {
-      throw new InternalServerErrorException(`Error fetching DIDs for given DNIs: ${error.response?.data || error.message}`);
+      console.error('Error fetching DIDs for DNIs:', error.response?.data || error.message);
+      throw new InternalServerErrorException(`Error fetching DIDs for given DNIs`);
     }
   }
 }

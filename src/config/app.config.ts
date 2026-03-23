@@ -63,19 +63,7 @@ export default registerAs('app', () => ({
     ipfsGatewayUrl: process.env.IPFS_GATEWAY_URL || 'https://ipfs.io',
   },
 
-  issuer: {
-    baseUrl: process.env.ISSUER_BASE_URL || '',
-    username: process.env.ISSUER_USERNAME || '',
-    password: process.env.ISSUER_PASSWORD || '',
-    did: process.env.ISSUER_DID || '',
-    credSchema: process.env.ISSUER_CRED_SCHEMA || '',
-    credType: process.env.ISSUER_CRED_TYPE || '',
+  blockchain: {
+    chain: process.env.CHAIN || 'base-sepolia',
   },
-
-  identity: {
-    baseUrl: process.env.IDENTITY_BASE_URL || '',
-    apiKey: process.env.IDENTITY_API_KEY || '',
-  },
-
-  votingRequestId: process.env.VOTING_REQUEST_ID || '',
 }));
