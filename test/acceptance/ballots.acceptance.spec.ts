@@ -37,7 +37,7 @@ class ElectoralLocationServiceMock {
     return { _id: id };
   }
   async findOneWithHierarchy(id: string) {
-    // Usado por createFromIpfs a getLocationDetails()
+    // Used by createFromIpfs getLocationDetails()
     return {
       _id: id,
       name: 'U.E. Demo',
