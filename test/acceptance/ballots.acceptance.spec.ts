@@ -1,6 +1,5 @@
 import {
   INestApplication,
-  BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';

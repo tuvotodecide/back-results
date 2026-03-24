@@ -1,5 +1,3 @@
-import { WorksheetService } from '@/modules/worksheet/services/worksheet.service';
-import { WorksheetModule } from '@/modules/worksheet/worksheet.module';
 import { INestApplication } from '@nestjs/common';
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
@@ -13,19 +11,13 @@ import {
 } from '../utils/test-module';
 import { getMockOpenSeaMetadata } from '../utils/testing-data';
 import { PartiesSeedInput, seedParties } from '../utils/seeds/partiesSeed';
-import { seedAdmin } from '../utils/seeds/usersSeed';
 import { seedElectionConfigWith } from '../utils/seeds/electionsSeed';
 import { seedMayors } from '../utils/seeds/participationSeed';
 import request from "supertest";
-import { AuthModule } from '@/modules/auth/auth.module';
-import { Worksheet } from '@/modules/worksheet/schemas/worksheet.schema';
-import { CompareWorksheetDto, WorksheetVotesDto } from '@/modules/worksheet/dto/worksheet.dto';
-import { OpenSeaMetadata } from '@/modules/ballot/dto/ballot.dto';
 import { BallotService } from '@/modules/ballot/services/ballot.service';
 import { AttestationModule } from '@/modules/attestation/attestation.module';
 import { BallotModule } from '@/modules/ballot/ballot.module';
 import { Ballot } from '@/modules/ballot/schemas/ballot.schema';
-import { mock } from 'node:test';
 
 const mockZkAuthGuard = {
   canActivate: jest.fn().mockResolvedValue(true),
