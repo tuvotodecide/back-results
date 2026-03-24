@@ -22,7 +22,6 @@ export default registerAs('app', () => ({
 
   cors: {
     origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
-    // origins: 'http://localhost:5173'
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
