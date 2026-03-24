@@ -14,6 +14,10 @@ import {
   InstitutionalAdminApplication,
   InstitutionalAdminApplicationSchema,
 } from './schemas/institutional-admin-application.schema';
+import {
+  VotingEvent,
+  VotingEventSchema,
+} from '../institutional-voting/schemas/voting-event.schema';
 import { InstitutionalAdminApplicationsService } from './services/institutional-admin-applications.service';
 import { InstitutionalAdminApplicationsController } from './controllers/institutional-admin-applications.controller';
 
@@ -24,6 +28,7 @@ import { InstitutionalAdminApplicationsController } from './controllers/institut
       { name: RoledUser.name, schema: RoledUserSchema },
       { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
+      { name: VotingEvent.name, schema: VotingEventSchema },
     ]),
     MailModule,
   ],

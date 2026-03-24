@@ -19,6 +19,10 @@ import {
   TenantAdminAssignment,
   TenantAdminAssignmentDocument,
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
+import {
+  VotingEvent,
+  VotingEventDocument,
+} from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { InstitutionalAdminApplication, InstitutionalAdminApplicationDocument } from '../schemas/institutional-admin-application.schema';
 
@@ -33,6 +37,8 @@ export class InstitutionalAdminApplicationsService {
     private readonly tenantModel: Model<InstitutionalTenantDocument>,
     @InjectModel(TenantAdminAssignment.name)
     private readonly assignmentModel: Model<TenantAdminAssignmentDocument>,
+    @InjectModel(VotingEvent.name)
+    private readonly votingEventModel: Model<VotingEventDocument>,
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
   ) {}
@@ -227,6 +233,145 @@ export class InstitutionalAdminApplicationsService {
       status: app.status,
       tenantId: String(tenant._id),
       userId: String(user._id),
+    };
+  }
+
+  async createApprovedTestAdmin(
+    dto: CreateInstitutionalAdminApplicationDto,
+    requester: any,
+  ) {
+    const email = dto.email.trim().toLowerCase();
+    const dni = dto.dni.trim();
+    const institutionName = this.formatDisplayName(dto.institutionName);
+    const institutionNameNorm = this.normalizeName(institutionName);
+    const name = dto.name.trim();
+
+    const existingUser = await this.roledUserModel
+      .findOne({
+        $or: [{ email }, { dni }],
+      })
+      .lean();
+    if (existingUser) {
+      throw new ConflictException('Ya existe un usuario con ese email o DNI');
+    }
+
+    const existingApplication = await this.applicationModel
+      .findOne({
+        $or: [{ email }, { dni }],
+      })
+      .lean();
+    if (existingApplication) {
+      throw new ConflictException('Ya existe una solicitud para ese email o DNI');
+    }
+
+    let tenant = await this.tenantModel.findOne({ nameNorm: institutionNameNorm });
+    if (!tenant) {
+      tenant = await this.tenantModel.create({
+        name: institutionName,
+        nameNorm: institutionNameNorm,
+        description: `Tenant de prueba para ${email}`,
+        active: true,
+      });
+    }
+
+    const user = await this.roledUserModel.create({
+      dni,
+      email,
+      name,
+      password: bcrypt.hashSync(dto.password, 10),
+      role: 'ADMIN',
+      active: true,
+      verificationToken: undefined,
+      verificationTokenExpiresAt: undefined,
+    });
+
+    await this.assignmentModel.findOneAndUpdate(
+      {
+        tenantId: tenant._id,
+        userId: user._id,
+      },
+      { $set: { active: true } },
+      { upsert: true, new: true },
+    );
+
+    const approvedAt = new Date();
+    const application = await this.applicationModel.create({
+      dni,
+      email,
+      passwordHash: user.password,
+      name,
+      institutionName,
+      institutionNameNorm,
+      status: 'APPROVED',
+      emailVerifiedAt: approvedAt,
+      approvedAt,
+      approvedBy: requester?.sub ? new Types.ObjectId(requester.sub) : undefined,
+      tenantId: tenant._id,
+      userId: user._id,
+    });
+
+    return {
+      id: String(application._id),
+      status: application.status,
+      email: application.email,
+      userId: String(user._id),
+      tenantId: String(tenant._id),
+    };
+  }
+
+  async cleanupTestAdminByEmail(rawEmail: string) {
+    const email = rawEmail.trim().toLowerCase();
+    const applications = await this.applicationModel.find({ email }).lean();
+    const user = await this.roledUserModel.findOne({ email }).lean();
+
+    const tenantIds = new Set<string>();
+    for (const app of applications) {
+      if (app.tenantId) tenantIds.add(String(app.tenantId));
+    }
+
+    if (user?._id) {
+      const assignments = await this.assignmentModel
+        .find({ userId: user._id }, { tenantId: 1 })
+        .lean();
+      for (const assignment of assignments) {
+        tenantIds.add(String(assignment.tenantId));
+      }
+      await this.assignmentModel.deleteMany({ userId: user._id });
+      await this.roledUserModel.deleteOne({ _id: user._id });
+    }
+
+    await this.applicationModel.deleteMany({ email });
+
+    let deletedTenants = 0;
+    for (const tenantId of tenantIds) {
+      if (!Types.ObjectId.isValid(tenantId)) {
+        continue;
+      }
+
+      const [remainingAssignments, remainingEvents] = await Promise.all([
+        this.assignmentModel.countDocuments({
+          tenantId: new Types.ObjectId(tenantId),
+          active: true,
+        }),
+        this.votingEventModel.countDocuments({
+          tenantId: new Types.ObjectId(tenantId),
+        }),
+      ]);
+
+      if (remainingAssignments === 0 && remainingEvents === 0) {
+        const result = await this.tenantModel.deleteOne({
+          _id: new Types.ObjectId(tenantId),
+        });
+        deletedTenants += result.deletedCount ?? 0;
+      }
+    }
+
+    return {
+      success: true,
+      email,
+      deletedApplications: applications.length,
+      deletedUser: Boolean(user),
+      deletedTenants,
     };
   }
 

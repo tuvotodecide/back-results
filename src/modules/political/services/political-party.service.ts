@@ -27,6 +27,51 @@ import { Municipality } from '../../geographic/schemas/municipality.schema';
 export class PoliticalPartyService {
   private readonly partyIdCollation = { locale: 'en', strength: 2 };
 
+  private sortAssignments<T extends {
+    assignmentOrder?: number | null;
+    ballotNumber?: number | null;
+    partyId?: string | null;
+    createdAt?: Date | string | null;
+  }>(assignments: T[]): T[] {
+    return [...assignments].sort((a, b) => {
+      const aOrder =
+        typeof a?.assignmentOrder === 'number'
+          ? a.assignmentOrder
+          : Number.MAX_SAFE_INTEGER;
+      const bOrder =
+        typeof b?.assignmentOrder === 'number'
+          ? b.assignmentOrder
+          : Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
+      }
+
+      const aBallot =
+        typeof a?.ballotNumber === 'number'
+          ? a.ballotNumber
+          : Number.MAX_SAFE_INTEGER;
+      const bBallot =
+        typeof b?.ballotNumber === 'number'
+          ? b.ballotNumber
+          : Number.MAX_SAFE_INTEGER;
+      if (aBallot !== bBallot) {
+        return aBallot - bBallot;
+      }
+
+      const aCreated = a?.createdAt ? new Date(a.createdAt).getTime() : Number.MAX_SAFE_INTEGER;
+      const bCreated = b?.createdAt ? new Date(b.createdAt).getTime() : Number.MAX_SAFE_INTEGER;
+      if (aCreated !== bCreated) {
+        return aCreated - bCreated;
+      }
+
+      return String(a?.partyId || '').localeCompare(
+        String(b?.partyId || ''),
+        'en',
+        { sensitivity: 'base' },
+      );
+    });
+  }
+
   constructor(
     @InjectModel(PoliticalParty.name)
     private politicalPartyModel: Model<PoliticalPartyDocument>,
@@ -179,7 +224,7 @@ export class PoliticalPartyService {
       municipalityName = muni.name;
     }
 
-    const ops = (partyIds ?? []).filter(Boolean).map((pid) => ({
+    const ops = (partyIds ?? []).filter(Boolean).map((pid, index) => ({
       updateOne: {
         filter: {
           electionId: eid,
@@ -197,7 +242,11 @@ export class PoliticalPartyService {
             municipalityName: municipalityName,
             createdAt: new Date(),
           },
-          $set: { active: true, updatedAt: new Date() },
+          $set: {
+            active: true,
+            assignmentOrder: index,
+            updatedAt: new Date(),
+          },
         },
         upsert: true,
         collation: this.partyIdCollation,
@@ -254,11 +303,13 @@ export class PoliticalPartyService {
   // Listar partidos (y metadatos) de una elección
   async getElectionParties(electionId: string) {
     const eid = new Types.ObjectId(electionId);
-    return this.electionPartyModel
+    const assignments = await this.electionPartyModel
       .find({ electionId: eid })
-      .sort({ active: -1, ballotNumber: 1, partyId: 1 })
       .lean()
       .exec();
+    return this.sortAssignments(
+      assignments.sort((a: any, b: any) => Number(Boolean(b.active)) - Number(Boolean(a.active))),
+    );
   }
 
   // Editar metadatos por elección (número de papeleta, alianza, color, active)
@@ -341,7 +392,7 @@ export class PoliticalPartyService {
     electionId: string,
     departmentId?: string,
     municipalityId?: string,
-  ): Promise<ElectionPartyDocument[]> {
+  ): Promise<any[]> {
     const eid = new Types.ObjectId(electionId);
     const filter: any = {
       electionId: eid,
@@ -366,9 +417,52 @@ export class PoliticalPartyService {
       filter.municipalityId = null;
     }
 
-    return this.electionPartyModel
+    const assignments = await this.electionPartyModel
       .find(filter)
-      .sort({ ballotNumber: 1, partyId: 1 })
+      .lean()
       .exec();
+
+    const orderedAssignments = this.sortAssignments(assignments as any[]);
+
+    const partyIds = Array.from(
+      new Set(
+        orderedAssignments
+          .map((assignment: any) => String(assignment?.partyId || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    if (!partyIds.length) {
+      return [];
+    }
+
+    const parties = await this.politicalPartyModel
+      .find({ partyId: { $in: partyIds }, active: true })
+      .select({
+        _id: 0,
+        partyId: 1,
+        shortName: 1,
+        fullName: 1,
+        logoUrl: 1,
+        color: 1,
+      })
+      .collation(this.partyIdCollation)
+      .lean()
+      .exec();
+
+    const partyMap = new Map(
+      parties.map((party: any) => [String(party.partyId || '').trim(), party]),
+    );
+
+    return orderedAssignments.map((assignment: any) => {
+      const party = partyMap.get(String(assignment?.partyId || '').trim());
+      return {
+        ...assignment,
+        shortName: party?.shortName || assignment?.partyId || null,
+        fullName: party?.fullName || null,
+        logoUrl: party?.logoUrl || null,
+        color: assignment?.color || party?.color || null,
+      };
+    });
   }
 }

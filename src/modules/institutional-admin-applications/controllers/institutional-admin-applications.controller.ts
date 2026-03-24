@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   Post,
   Query,
@@ -83,5 +86,38 @@ export class InstitutionalAdminApplicationsController {
   @ApiResponse({ status: 200, description: 'Solicitud aprobada correctamente.' })
   approve(@Param('applicationId') applicationId: string, @Req() req: any) {
     return this.institutionalAdminApplicationsService.approveApplication(applicationId, req.user);
+  }
+
+  @Post('test/approved-admin')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Crear admin institucional de prueba ya aprobado',
+    description:
+      'Crea usuario ADMIN activo, crea o reutiliza tenant, registra la solicitud como APPROVED y asigna el usuario al tenant para pruebas E2E.',
+  })
+  @ApiBody({ type: CreateInstitutionalAdminApplicationDto })
+  @ApiResponse({ status: 201, description: 'Admin institucional de prueba creado.' })
+  createApprovedTestAdmin(
+    @Body() dto: CreateInstitutionalAdminApplicationDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.createApprovedTestAdmin(
+      dto,
+      req.user,
+    );
+  }
+
+  @Delete('test/by-email/:email')
+  @UseGuards(AdminOnlyGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Eliminar datos de prueba institucionales por correo',
+    description:
+      'Elimina solicitud, usuario y asignaciones del admin institucional. Si el tenant queda vacio, tambien lo elimina.',
+  })
+  @ApiParam({ name: 'email', description: 'Correo del admin institucional de prueba.' })
+  @ApiResponse({ status: 200, description: 'Datos de prueba eliminados.' })
+  cleanupTestAdminByEmail(@Param('email') email: string) {
+    return this.institutionalAdminApplicationsService.cleanupTestAdminByEmail(email);
   }
 }
