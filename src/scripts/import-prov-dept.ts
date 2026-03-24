@@ -292,7 +292,7 @@ async function main() {
       }
     }
 
-    console.log(`\n✅ Import terminado. Tables upserted: ${upsertedTables}`);
+   
   } finally {
     await app.close();
   }

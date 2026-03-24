@@ -100,10 +100,6 @@ export class InstitutionalVotingNotificationsService {
   ) {
     const recipients = await this.padronUsersService.getPadronUsersFromEvent(event);
 
-    console.log('[InstitutionalVotingNotifications] Padron recipients resolved', {
-      eventId: String(event._id),
-      linkedRecipients: recipients.length,
-    });
 
     if (!recipients.length) {
       return { sent: 0, skipped: 'no_linked_users' };
@@ -185,12 +181,7 @@ export class InstitutionalVotingNotificationsService {
     const sent = deliveryResults.filter((item) => item.status === 'SENT').length;
     const failed = deliveryResults.length - sent;
 
-    console.log('[InstitutionalVotingNotifications] Delivery summary', {
-      eventId: String(event._id),
-      sent,
-      failed,
-    });
-
+ 
     return { sent, failed };
   }
 }

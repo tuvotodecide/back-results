@@ -81,11 +81,6 @@ export class PadronUsersService {
       .find({ dni: { $in: carnetList }, active: true }, { _id: 1, dni: 1, active: 1 })
       .lean();
 
-    console.log('[PadronUsersService] Resolved users from padron', {
-      eventId: String(event._id),
-      requestedCarnets: carnetList.length,
-      recipients: recipients.length,
-    });
 
     return recipients;
   }
