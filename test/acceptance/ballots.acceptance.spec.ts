@@ -29,7 +29,7 @@ import {
 import { InMemoryMongo } from '../utils/mongo';
 const VALID_OID = '64b000000000000000000001';
 const OTHER_OID = '64b000000000000000000099';
-// Mocks de servicios dependientes (Geographic + Parties)
+// Dependent mock services (Geographic + Parties)
 class ElectoralLocationServiceMock {
   public shouldThrowFindOne = false;
   async findOne(id: string) {
