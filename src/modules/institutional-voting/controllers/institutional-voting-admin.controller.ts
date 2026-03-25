@@ -36,6 +36,7 @@ import { UpdateVotingEventDto } from '../dto/update-voting-event.dto';
 import { UpdateVotingOptionDto } from '../dto/update-voting-option.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
 import type { Response } from 'express';
+import { PublishEventItemDto } from '../dto/publish-event.dto';
 
 @ApiTags('Institutional Voting Admin')
 @Controller('api/v1/voting/events')
@@ -112,6 +113,7 @@ export class InstitutionalVotingAdminController {
       'Cambia estado a PUBLISHED si cumple precondiciones (cargos, opciones, padrón y horarios).',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: [PublishEventItemDto] })
   @ApiResponse({ status: 200, description: 'Evento publicado.' })
   @ApiResponse({ status: 400, description: 'Faltan precondiciones para publicar.' })
   publishEvent(@Param('eventId') eventId: string, @Req() req: any) {
