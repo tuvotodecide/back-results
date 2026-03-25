@@ -196,7 +196,7 @@ export async function publishInstitutionalEvent(
   return request(httpServer)
     .post(`/api/v1/voting/events/${eventId}/publish`)
     .auth(token, { type: 'bearer' })
-    .send({});
+    .send([]);
 }
 
 export async function uploadPadronCsv(

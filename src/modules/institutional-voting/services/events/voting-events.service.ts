@@ -39,6 +39,9 @@ import { InstitutionalVotingAccessService } from '../core/institutional-voting-a
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
 import { ConfigService } from '@nestjs/config';
 import { VoteReaderService } from '../core/vote-reader.service';
+import { User, UserDocument } from '@/modules/users/schemas/user.schema';
+import { PadronUsersService } from '../core/padron-users.service';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class VotingEventsService {
@@ -59,10 +62,13 @@ export class VotingEventsService {
     private readonly participationModel: Model<ParticipationDocument>,
     @InjectModel(EventResultsSnapshot.name)
     private readonly resultsSnapshotModel: Model<EventResultsSnapshotDocument>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
     private readonly configService: ConfigService,
     private readonly voteReaderService: VoteReaderService,
+    private readonly padronUsersService: PadronUsersService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -901,19 +907,22 @@ export class VotingEventsService {
       };
     }
 
-    /*const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event);
+    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event);
+    let userCredentials: Record<string, Record<string, string>> = {};
+    let nullifiers: string[] = [];
     if (convotatedUsers.length > 0) {
-      const userCredentials = await this.issuerService.issueCredential(
-        convotatedUsers.map((u) => u.dni),
-        event,
-      );
-      await this.notificationsService.notifyConvocationIfEligible(event, userCredentials);
-    }*/
-    await this.notificationsService.notifyConvocationIfEligible(event);
+      convotatedUsers.forEach((user) => {
+        const nullifier = randomUUID();
+        nullifiers.push(nullifier);
+        userCredentials[String(user.dni)] = { nullifier };
+      });
+    }
+    await this.notificationsService.notifyConvocationIfEligible(event, userCredentials);
 
     return {
       id: String(event._id),
       state: event.state,
+      nullifiers,
     };
   }
 
