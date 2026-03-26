@@ -927,12 +927,6 @@ export class VotingEventsService {
   async publishEvent(eventId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    if (event.votingStart instanceof Date && event.votingStart.getTime() <= Date.now()) {
-      throw new BadRequestException(
-        "No se puede publicar una votacion cuyo horario de inicio ya paso. Debes eliminarla si quedo incompleta.",
-      );
-    }
-
 
     const [rolesCount, optionsCount, currentPadron, hasWindows] = await Promise.all([
       this.eventRoleModel.countDocuments({ eventId: event._id }),
@@ -1046,12 +1040,6 @@ export class VotingEventsService {
 
   private assertDraftEditable(event: VotingEventDocument, action: string) {
     this.assertDraftState(event, action);
-
-    if (event.votingStart instanceof Date && event.votingStart.getTime() <= Date.now()) {
-      throw new BadRequestException(
-        "No se permite " + action + " porque la hora de inicio ya paso. Solo puedes eliminar esta votacion.",
-      );
-    }
   }
 
   private assertDraftState(event: VotingEventDocument, action: string) {
