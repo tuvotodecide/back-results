@@ -121,6 +121,30 @@ export class InstitutionalVotingNotificationsService {
     });
   }
 
+  async notifyScheduleUpdatedToCurrentPadron(event: VotingEventDocument) {
+    const eventId = String(event._id);
+    const publicUrl = this.buildPublicElectionUrl(eventId);
+
+    return this.notifyToCurrentPadron(event, {
+      type: 'schedule_updated',
+      title: 'Horario actualizado',
+      body: `Se actualizó el horario de ${event.name}`,
+      data: {
+        type: 'INSTITUTIONAL_SCHEDULE_UPDATED',
+        eventId,
+        eventName: event.name,
+        votingStart: event.votingStart?.toISOString?.() ?? '',
+        votingEnd: event.votingEnd?.toISOString?.() ?? '',
+        resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
+        bannerTitle: 'Horario actualizado',
+        bannerSubtitle: 'Revisa las nuevas fechas de la votación',
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        deepLink: `myapp://event/${eventId}`,
+      },
+    });
+  }
+
   private async notifyToCurrentPadron(
     event: VotingEventDocument,
     payload: {

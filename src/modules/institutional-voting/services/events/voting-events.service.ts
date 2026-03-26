@@ -893,6 +893,7 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    const shouldNotifyScheduleChange = event.state === 'PUBLISHED';
     const now = Date.now();
     const startsInMoreThan24Hours =
       event.votingStart instanceof Date &&
@@ -915,6 +916,10 @@ export class VotingEventsService {
     event.votingEnd = votingEnd;
     event.resultsPublishAt = resultsPublishAt;
     await event.save();
+
+    if (shouldNotifyScheduleChange) {
+      await this.notificationsService.notifyScheduleUpdatedToCurrentPadron(event);
+    }
 
     return {
       id: String(event._id),
