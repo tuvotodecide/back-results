@@ -52,7 +52,7 @@ export class InstitutionalAdminApplicationsService {
       .findOne({ nameNorm: institutionNameNorm }, { _id: 1 })
       .lean();
     if (existingTenant) {
-      throw new ConflictException('La institucion ya se encuentra registrada');
+      throw new ConflictException('La institución ya se encuentra registrada');
     }
 
     const existingUser = await this.roledUserModel.findOne({
@@ -102,15 +102,15 @@ export class InstitutionalAdminApplicationsService {
   async verifyEmail(token: string) {
     const app = await this.applicationModel.findOne({ verificationToken: token });
     if (!app) {
-      throw new BadRequestException('Token de verificacion invalido');
+      throw new BadRequestException('Token de verificación inválido');
     }
 
     if (app.status !== 'PENDING_EMAIL_VERIFICATION') {
-      throw new BadRequestException('La solicitud no esta pendiente de verificacion');
+      throw new BadRequestException('La solicitud no está pendiente de verificación');
     }
 
     if (!app.verificationTokenExpiresAt || app.verificationTokenExpiresAt.getTime() < Date.now()) {
-      throw new BadRequestException('El token de verificacion ha expirado');
+      throw new BadRequestException('El token de verificación ha expirado');
     }
 
     app.status = 'PENDING_APPROVAL';
@@ -157,7 +157,7 @@ export class InstitutionalAdminApplicationsService {
 
   async approveApplication(applicationId: string, requester: any) {
     if (!Types.ObjectId.isValid(applicationId)) {
-      throw new BadRequestException('applicationId invalido');
+      throw new BadRequestException('applicationId inválido');
     }
 
     const app = await this.applicationModel.findById(applicationId);
@@ -166,7 +166,7 @@ export class InstitutionalAdminApplicationsService {
     }
 
     if (app.status !== 'PENDING_APPROVAL') {
-      throw new BadRequestException('La solicitud no esta pendiente de aprobacion');
+      throw new BadRequestException('La solicitud no está pendiente de aprobación');
     }
 
     let user = await this.roledUserModel.findOne({

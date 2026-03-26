@@ -58,7 +58,7 @@ export class ContractsController {
   @ApiOperation({
     summary: 'Aprobar o rechazar un usuario con rol (Superadmin)',
     description:
-      'Permite al Superadmin aprobar o rechazar solicitudes de usuarios que desean operar como Alcalde o Gobernador',
+      'Permite al superadministrador aprobar o rechazar solicitudes de usuarios que desean operar como alcalde o gobernador',
   })
   @ApiResponse({ status: 200, description: 'Usuario procesado exitosamente' })
   async approveUser(
@@ -121,7 +121,7 @@ export class ContractsController {
   @ApiOperation({
     summary: 'Crear un contrato territorial (Superadmin)',
     description:
-      'Crea un contrato que habilita a un Alcalde/Gobernador para operar en un territorio específico',
+      'Crea un contrato que habilita a un alcalde o gobernador para operar en un territorio específico',
   })
   @ApiResponse({ status: 201, description: 'Contrato creado exitosamente' })
   async create(@Body() dto: CreateContractDto) {
@@ -242,7 +242,7 @@ export class ContractsController {
   @ApiOperation({
     summary: 'Verificar si existe cobertura activa para un territorio',
     description:
-      'Usado por la app móvil para habilitar/deshabilitar el atestiguamiento según cobertura contratada',
+      'Usado por la app móvil para habilitar o deshabilitar el atestiguamiento según la cobertura contratada',
   })
   @ApiResponse({
     status: 200,
@@ -293,7 +293,7 @@ export class ContractsController {
     @Query('electionId') electionId: string,
   ) {
     if (!electionId) {
-      throw new Error('electionId es requerido');
+      throw new Error('electionId es obligatorio');
     }
 
     const contract = await this.contractsService.getClientContract(
@@ -452,7 +452,7 @@ export class ContractsController {
     required: false,
     type: Number,
     example: 10000,
-    description: 'Distancia máxima en metros (default: 10000)',
+    description: 'Distancia máxima en metros (por defecto: 10000)',
   })
   @ApiResponse({
     status: 200,

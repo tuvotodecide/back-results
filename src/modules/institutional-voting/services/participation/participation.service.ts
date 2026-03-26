@@ -45,7 +45,7 @@ export class ParticipationService {
     const event = await this.accessService.getEventOrThrow(eventId);
     const carnetNorm = normalizeCarnet(dto.carnet);
     if (!carnetNorm) {
-      throw new BadRequestException('carnet invalido');
+      throw new BadRequestException('carnet inválido');
     }
 
     if (idempotencyKey) {
@@ -116,7 +116,7 @@ export class ParticipationService {
   async checkParticipationStatus(eventId: string, carnet: string) {
     const normalized = normalizeCarnet(carnet);
     if (!normalized) {
-      throw new BadRequestException('carnet invalido');
+      throw new BadRequestException('carnet inválido');
     }
 
     return this.resolveParticipationStatus(eventId, normalized);

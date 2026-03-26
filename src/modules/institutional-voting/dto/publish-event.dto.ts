@@ -2,12 +2,12 @@ import { ApiProperty } from "@nestjs/swagger";
 import { IsNotEmpty, IsString } from "class-validator";
 
 export class PublishEventItemDto {
-  @ApiProperty({ description: 'ID del usuario'})
+  @ApiProperty({ description: 'ID del usuario' })
   @IsString()
   @IsNotEmpty()
   id: string;
 
-  @ApiProperty({ description: 'nullifier del usuario'})
+  @ApiProperty({ description: 'Nullifier del usuario' })
   @IsString()
   @IsNotEmpty()
   nullifier: string;

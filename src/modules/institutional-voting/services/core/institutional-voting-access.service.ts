@@ -32,7 +32,7 @@ export class InstitutionalVotingAccessService {
 
   async getEventOrThrow(eventId: string) {
     if (!Types.ObjectId.isValid(eventId)) {
-      throw new BadRequestException('eventId invalido');
+      throw new BadRequestException('eventId inválido');
     }
 
     const event = await this.votingEventModel.findById(eventId);
@@ -138,7 +138,7 @@ export class InstitutionalVotingAccessService {
 
   async getTenantOrThrow(tenantId: string) {
     if (!Types.ObjectId.isValid(tenantId)) {
-      throw new BadRequestException('tenantId invalido');
+      throw new BadRequestException('tenantId inválido');
     }
 
     const tenant = await this.tenantModel.findById(tenantId).lean();
@@ -176,7 +176,7 @@ export class InstitutionalVotingAccessService {
       Number.isNaN(votingEnd.getTime()) ||
       Number.isNaN(resultsPublishAt.getTime())
     ) {
-      throw new BadRequestException('Fechas invalidas');
+      throw new BadRequestException('Fechas inválidas');
     }
 
     if (votingStart >= votingEnd) {
