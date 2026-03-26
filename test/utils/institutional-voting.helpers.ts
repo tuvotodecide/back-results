@@ -192,11 +192,12 @@ export async function publishInstitutionalEvent(
   httpServer: any,
   token: string,
   eventId: string,
+  nullifiers: string[],
 ) {
   return request(httpServer)
     .post(`/api/v1/voting/events/${eventId}/publish`)
     .auth(token, { type: 'bearer' })
-    .send([]);
+    .send(nullifiers);
 }
 
 export async function uploadPadronCsv(

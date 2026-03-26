@@ -34,6 +34,12 @@ export const institutionalVotingFixtures = {
     ],
   },
   padronCsv: `carnet\n123456\n123.456\n 123-456 \n\nABC-789\n`,
+  nullifiersForPadron: [
+    'nullifier-123456',
+    'nullifier-123.456',
+    'nullifier-123-456',
+    'nullifier-ABC-789',
+  ],
   carnet: {
     normalizedSource: ' 123.456- ',
     normalizedExpected: '123456',

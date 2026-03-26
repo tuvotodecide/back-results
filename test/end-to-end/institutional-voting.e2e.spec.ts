@@ -333,6 +333,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.httpServer,
       ctx.tenantAdminToken,
       eventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(publishBeforeApproval.status).toBe(400);
     expect(publishBeforeApproval.body.pending).toEqual(
@@ -353,6 +354,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.httpServer,
       ctx.tenantAdminToken,
       eventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(publishAfterApproval.status).toBe(201);
     expect(publishAfterApproval.body.state).toBe('PUBLISHED');
@@ -370,7 +372,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     );
     const eventId = created.body.id;
 
-    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, []);
     expect(publish.status).toBe(400);
     expect(publish.body).toHaveProperty('pending');
     expect(publish.body.pending).toEqual(
@@ -382,7 +384,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     await seedLinkedUsers(['123456', 'ABC789']);
     const eventId = await createPublishReadyEvent();
 
-    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
     expect(publish.status).toBe(201);
     expect(publish.body.state).toBe('PUBLISHED');
 
@@ -415,7 +417,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     });
     const eventId = await createPublishReadyEvent();
 
-    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
     expect(publish.status).toBe(201);
     expect(publish.body.state).toBe('PUBLISHED');
 
@@ -640,7 +642,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const statusBefore = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/participations/status`)
@@ -701,7 +703,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const denied = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -737,7 +739,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
   it('PAR-004: votante inhabilitado no puede participar', async () => {
     const eventId = await createPublishReadyEvent('carnet,habilitado\nABC-789,no\n');
-    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, ['nullifier-ACB-789']);
     expect(published.status).toBe(201);
 
     const denied = await request(ctx.httpServer)
@@ -810,7 +812,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const voteOutOfWindow = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -905,19 +907,19 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       institutionalVotingFixtures.padronCsv,
       { name: ownEligibleName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownEligibleEventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownEligibleEventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const ownDisabledEventId = await createPublishReadyEvent(
       'carnet,habilitado\nABC-789,no\n',
       { name: ownDisabledName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownDisabledEventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownDisabledEventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const ownPrivateEventId = await createPublishReadyEvent(
       institutionalVotingFixtures.padronCsv,
       { name: ownPrivateName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId, institutionalVotingFixtures.nullifiersForPadron);
     await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${ownPrivateEventId}/public-eligibility`)
       .auth(ctx.adminToken, { type: 'bearer' })
@@ -964,7 +966,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .post(`/api/v1/voting/events/${otherEligibleEventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, otherEligibleEventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, otherEligibleEventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const allVisible = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')
@@ -1068,7 +1070,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
     });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
     await lifecycle.processLifecycle();
