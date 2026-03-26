@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { VotingEventsService } from '@/modules/institutional-voting/services/events/voting-events.service';
 import { VotingEvent } from '@/modules/institutional-voting/schemas/voting-event.schema';
@@ -11,10 +12,11 @@ import { PadronEntry } from '@/modules/institutional-voting/schemas/padron-entry
 import { ComparisonReport } from '@/modules/institutional-voting/schemas/comparison-report.schema';
 import { Participation } from '@/modules/institutional-voting/schemas/participation.schema';
 import { EventResultsSnapshot } from '@/modules/institutional-voting/schemas/event-results-snapshot.schema';
+import { User } from '@/modules/users/schemas/user.schema';
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
 import { PadronUsersService } from '@/modules/institutional-voting/services/core/padron-users.service';
-import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
+import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
 
 describe('VotingEventsService (unit)', () => {
   let service: VotingEventsService;
@@ -27,10 +29,12 @@ describe('VotingEventsService (unit)', () => {
   let comparisonReportModel: any;
   let participationModel: any;
   let resultsSnapshotModel: any;
+  let userModel: any;
   let accessService: any;
   let notificationsService: any;
   let padronUsersService: any;
-  let issuerService: any;
+  let configService: any;
+  let voteReaderService: any;
 
   beforeEach(async () => {
     votingEventModel = {
@@ -76,6 +80,10 @@ describe('VotingEventsService (unit)', () => {
     resultsSnapshotModel = {
       deleteMany: jest.fn(),
     };
+    userModel = {
+      find: jest.fn(),
+      findOne: jest.fn(),
+    };
     accessService = {
       getEventOrThrow: jest.fn(),
       getTenantOrThrow: jest.fn(),
@@ -89,8 +97,11 @@ describe('VotingEventsService (unit)', () => {
     padronUsersService = {
       getPadronUsersFromEvent: jest.fn(),
     };
-    issuerService = {
-      issueCredential: jest.fn(),
+    configService = {
+      get: jest.fn(),
+    };
+    voteReaderService = {
+      getResults: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -110,13 +121,15 @@ describe('VotingEventsService (unit)', () => {
           provide: getModelToken(EventResultsSnapshot.name),
           useValue: resultsSnapshotModel,
         },
+        { provide: getModelToken(User.name), useValue: userModel },
         { provide: InstitutionalVotingAccessService, useValue: accessService },
         {
           provide: InstitutionalVotingNotificationsService,
           useValue: notificationsService,
         },
+        { provide: ConfigService, useValue: configService },
+        { provide: VoteReaderService, useValue: voteReaderService },
         { provide: PadronUsersService, useValue: padronUsersService },
-        { provide: IssuerService, useValue: issuerService },
       ],
     }).compile();
 
@@ -216,7 +229,6 @@ describe('VotingEventsService (unit)', () => {
 
     expect(event.save).toHaveBeenCalled();
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
-    expect(issuerService.issueCredential).not.toHaveBeenCalled();
     expect(result).toEqual({
       id: String(event._id),
       state: 'PUBLISHED',
@@ -269,11 +281,10 @@ describe('VotingEventsService (unit)', () => {
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000),
       save: jest.fn().mockResolvedValue(undefined),
     };
-    const convokedUsers = [{ dni: '123456' }, { dni: 'ABC789' }];
-    const issued = {
-      '123456': { credentialData: 'cred-1' },
-      ABC789: { credentialData: 'cred-2' },
-    };
+    const convokedUsers = [
+      { dni: '123456', enabled: true },
+      { dni: 'ABC789', enabled: false },
+    ];
 
     accessService.getEventOrThrow.mockResolvedValue(event);
     eventRoleModel.countDocuments.mockResolvedValue(1);
@@ -283,21 +294,31 @@ describe('VotingEventsService (unit)', () => {
     });
     comparisonReportModel.exists.mockResolvedValue(true);
     padronUsersService.getPadronUsersFromEvent.mockResolvedValue(convokedUsers);
-    issuerService.issueCredential.mockResolvedValue(issued);
     notificationsService.notifyConvocationIfEligible.mockResolvedValue({ sent: 2 });
 
     const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
 
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event);
-    expect(issuerService.issueCredential).toHaveBeenCalledWith(
-      ['123456', 'ABC789'],
+    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(
       event,
+      { includeDisabled: true },
     );
     expect(notificationsService.notifyConvocationIfEligible).toHaveBeenCalledWith(
       event,
-      issued,
+      {
+        '123456': expect.objectContaining({
+          eligible: 'true',
+          nullifier: expect.any(String),
+        }),
+        ABC789: {
+          eligible: 'false',
+        },
+      },
     );
-    expect(result.state).toBe('PUBLISHED');
+    expect(result).toEqual({
+      id: String(event._id),
+      state: 'PUBLISHED',
+      nullifiers: [expect.any(String)],
+    });
   });
 
   it('publica sin emitir credenciales si no hay usuarios vinculados al padrón', async () => {
@@ -326,11 +347,11 @@ describe('VotingEventsService (unit)', () => {
 
     const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
 
-    expect(issuerService.issueCredential).not.toHaveBeenCalled();
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
     expect(result).toEqual({
       id: String(event._id),
       state: 'PUBLISHED',
+      nullifiers: [],
     });
   });
 
@@ -578,6 +599,80 @@ describe('VotingEventsService (unit)', () => {
       carnet: '123456',
       events: [],
     });
+  });
+
+  it('filtra el landing público por carnet empadronado y habilitado', async () => {
+    const tenantId = new Types.ObjectId();
+    const eligibleEventId = new Types.ObjectId();
+    const hiddenEventId = new Types.ObjectId();
+    const eligibleVersionId = new Types.ObjectId();
+    const hiddenVersionId = new Types.ObjectId();
+
+    votingEventModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          {
+            _id: hiddenEventId,
+            tenantId,
+            name: 'Oculto',
+            objective: 'No empadronado',
+            state: 'PUBLISHED',
+            publicEligibilityEnabled: true,
+            votingStart: new Date(Date.now() - 60_000),
+            votingEnd: new Date(Date.now() + 60_000),
+            resultsPublishAt: new Date(Date.now() + 120_000),
+          },
+          {
+            _id: eligibleEventId,
+            tenantId,
+            name: 'Visible',
+            objective: 'Empadronado',
+            state: 'PUBLISHED',
+            publicEligibilityEnabled: true,
+            votingStart: new Date(Date.now() - 60_000),
+            votingEnd: new Date(Date.now() + 60_000),
+            resultsPublishAt: new Date(Date.now() + 120_000),
+          },
+        ]),
+      }),
+    });
+    padronVersionModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { _id: eligibleVersionId, eventId: eligibleEventId },
+        { _id: hiddenVersionId, eventId: hiddenEventId },
+      ]),
+    });
+    comparisonReportModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { padronVersionId: eligibleVersionId },
+        { padronVersionId: hiddenVersionId },
+      ]),
+    });
+    padronEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ padronVersionId: eligibleVersionId }]),
+    });
+
+    const result = await service.getPublicLanding(undefined, 10, 'abc-123');
+
+    expect(result.active).toHaveLength(1);
+    expect(result.active[0]).toEqual(
+      expect.objectContaining({
+        id: String(eligibleEventId),
+        name: 'Visible',
+      }),
+    );
+    expect(result.totals).toEqual({
+      upcoming: 0,
+      active: 1,
+      results: 0,
+    });
+    expect(padronEntryModel.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        carnetNorm: 'ABC123',
+        enabled: { $ne: false },
+      }),
+      { padronVersionId: 1 },
+    );
   });
 
   it('rechaza tenant inválido en consulta pública transversal', async () => {

@@ -12,6 +12,7 @@ type PadronResolvedUser = {
   _id: Types.ObjectId;
   dni: string;
   active: boolean;
+  enabled: boolean;
 };
 
 @Injectable()
@@ -27,7 +28,11 @@ export class PadronUsersService {
     private readonly userModel: Model<UserDocument>,
   ) {}
 
-  async getPadronUsersFromEvent(event: VotingEventDocument): Promise<PadronResolvedUser[]> {
+  async getPadronUsersFromEvent(
+    event: VotingEventDocument,
+    options: { includeDisabled?: boolean } = {},
+  ): Promise<PadronResolvedUser[]> {
+    const includeDisabled = options.includeDisabled === true;
     const currentVersion = await this.padronVersionModel
       .findOne({ eventId: event._id, isCurrent: true })
       .lean();
@@ -44,19 +49,32 @@ export class PadronUsersService {
     }
 
     const entries = await this.padronEntryModel
-      .find({ padronVersionId: currentVersion._id, enabled: true }, { carnetNorm: 1 })
+      .find(
+        {
+          padronVersionId: currentVersion._id,
+          ...(includeDisabled ? {} : { enabled: true }),
+        },
+        { carnetNorm: 1, enabled: 1 },
+      )
       .lean();
     if (!entries.length) {
       return [];
     }
 
-    const carnetList = Array.from(
-      new Set(
-        entries
-          .map((e) => normalizeCarnet(e.carnetNorm))
-          .filter((value) => value.length > 0),
-      ),
-    );
+    const entryMap = new Map<string, boolean>();
+    entries.forEach((entry) => {
+      const normalized = normalizeCarnet(entry.carnetNorm);
+      if (!normalized) {
+        return;
+      }
+      if (!entryMap.has(normalized)) {
+        entryMap.set(normalized, Boolean(entry.enabled));
+      } else if (entry.enabled === true) {
+        entryMap.set(normalized, true);
+      }
+    });
+
+    const carnetList = Array.from(entryMap.keys());
     if (!carnetList.length) {
       return [];
     }
@@ -82,6 +100,9 @@ export class PadronUsersService {
       .lean();
 
 
-    return recipients;
+    return recipients.map((recipient) => ({
+      ...recipient,
+      enabled: Boolean(entryMap.get(recipient.dni)),
+    }));
   }
 }

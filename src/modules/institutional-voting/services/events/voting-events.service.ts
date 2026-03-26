@@ -135,7 +135,7 @@ export class VotingEventsService {
     };
   }
 
-  async getPublicLanding(tenantId?: string, limit = 10) {
+  async getPublicLanding(tenantId?: string, limit = 10, carnet?: string) {
     const now = new Date();
     const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
     const query: Record<string, unknown> = {
@@ -149,10 +149,19 @@ export class VotingEventsService {
       query.tenantId = new Types.ObjectId(tenantId);
     }
 
-    const events = await this.votingEventModel
+    let events = await this.votingEventModel
       .find(query)
       .sort({ votingStart: 1, _id: 1 })
       .lean();
+
+    const carnetNorm = carnet ? normalizeCarnet(carnet) : '';
+    if (carnet && !carnetNorm) {
+      throw new BadRequestException('carnet invalido');
+    }
+
+    if (carnetNorm) {
+      events = await this.filterPublicLandingEventsByCarnet(events, carnetNorm);
+    }
 
     const mapped = events.map((event) => {
       const isUpcoming = Boolean(
@@ -205,6 +214,61 @@ export class VotingEventsService {
         results: results.length,
       },
     };
+  }
+
+  private async filterPublicLandingEventsByCarnet(events: any[], carnetNorm: string) {
+    const eligibleEvents = events.filter((event) => event.publicEligibilityEnabled !== false);
+    if (!eligibleEvents.length) {
+      return [];
+    }
+
+    const eventIds = eligibleEvents.map((event) => event._id);
+    const currentVersions = await this.padronVersionModel
+      .find({ eventId: { $in: eventIds }, isCurrent: true }, { _id: 1, eventId: 1 })
+      .lean();
+
+    if (!currentVersions.length) {
+      return [];
+    }
+
+    const versionIds = currentVersions.map((version) => version._id);
+    const okReports = await this.comparisonReportModel
+      .find({ padronVersionId: { $in: versionIds }, status: 'OK' }, { padronVersionId: 1 })
+      .lean();
+
+    const okVersionIds = new Set(okReports.map((report) => String(report.padronVersionId)));
+    const activeVersions = currentVersions.filter((version) =>
+      okVersionIds.has(String(version._id)),
+    );
+
+    if (!activeVersions.length) {
+      return [];
+    }
+
+    const padronEntries = await this.padronEntryModel
+      .find(
+        {
+          padronVersionId: { $in: activeVersions.map((version) => version._id) },
+          carnetNorm,
+        },
+        { padronVersionId: 1 },
+      )
+      .lean();
+
+    if (!padronEntries.length) {
+      return [];
+    }
+
+    const allowedVersionIds = new Set(
+      padronEntries.map((entry) => String(entry.padronVersionId)),
+    );
+    const allowedEventIds = new Set(
+      activeVersions
+        .filter((version) => allowedVersionIds.has(String(version._id)))
+        .map((version) => String(version.eventId)),
+    );
+
+    return eligibleEvents.filter((event) => allowedEventIds.has(String(event._id)));
   }
 
   async getPublicEventDetail(eventId: string) {
@@ -392,12 +456,12 @@ export class VotingEventsService {
       this.votingOptionModel.find({ eventId: event._id }).sort({ createdAt: 1, _id: 1 }).lean(),
     ]);
 
-    const chainRequestId = this.configService.get<string>('app.votingRequestId');
+    // const chainRequestId = this.configService.get<string>('app.votingRequestId');
 
     return {
       id: String(event._id),
       tenantId: String(event.tenantId),
-      chainRequestId,
+      chainRequestId:123,
       name: event.name,
       objective: event.objective,
       state: event.state,
@@ -424,7 +488,7 @@ export class VotingEventsService {
   async updateEvent(eventId: string, dto: UpdateVotingEventDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'editar el evento');
+    this.assertDraftEditable(event, 'editar el evento');
 
     if (dto.name !== undefined) {
       event.name = dto.name.trim();
@@ -477,7 +541,7 @@ export class VotingEventsService {
   async createRole(eventId: string, dto: CreateEventRoleDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'crear cargos');
+    this.assertDraftEditable(event, 'crear cargos');
 
     const normalizedName = this.accessService.normalizeName(dto.name);
 
@@ -525,7 +589,7 @@ export class VotingEventsService {
   async updateRole(eventId: string, roleId: string, dto: UpdateEventRoleDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'editar cargos');
+    this.assertDraftEditable(event, 'editar cargos');
 
     if (!Types.ObjectId.isValid(roleId)) {
       throw new BadRequestException('roleId invalido');
@@ -581,7 +645,7 @@ export class VotingEventsService {
   async deleteRole(eventId: string, roleId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'eliminar cargos');
+    this.assertDraftEditable(event, 'eliminar cargos');
 
     if (!Types.ObjectId.isValid(roleId)) {
       throw new BadRequestException('roleId invalido');
@@ -617,7 +681,7 @@ export class VotingEventsService {
   async createOption(eventId: string, dto: CreateVotingOptionDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'crear opciones');
+    this.assertDraftEditable(event, 'crear opciones');
 
     const normalizedName = this.accessService.normalizeName(dto.name);
 
@@ -680,7 +744,7 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'editar opciones');
+    this.assertDraftEditable(event, 'editar opciones');
 
     if (!Types.ObjectId.isValid(optionId)) {
       throw new BadRequestException('optionId invalido');
@@ -736,7 +800,7 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'actualizar candidatos');
+    this.assertDraftEditable(event, 'actualizar candidatos');
 
     if (!Types.ObjectId.isValid(optionId)) {
       throw new BadRequestException('optionId invalido');
@@ -778,7 +842,7 @@ export class VotingEventsService {
   async deactivateOption(eventId: string, optionId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'desactivar opciones');
+    this.assertDraftEditable(event, 'desactivar opciones');
 
     const updated = await this.votingOptionModel
       .findOneAndUpdate(
@@ -801,7 +865,7 @@ export class VotingEventsService {
   async deleteOption(eventId: string, optionId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'eliminar opciones');
+    this.assertDraftEditable(event, 'eliminar opciones');
 
     if (!Types.ObjectId.isValid(optionId)) {
       throw new BadRequestException('optionId invalido');
@@ -829,7 +893,16 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'editar el cronograma');
+    const now = Date.now();
+    const startsInMoreThan24Hours =
+      event.votingStart instanceof Date &&
+      event.votingStart.getTime() - now >= 24 * 60 * 60 * 1000;
+
+    if (event.state !== 'DRAFT' && !(event.state === 'PUBLISHED' && startsInMoreThan24Hours)) {
+      throw new BadRequestException(
+        'Solo se permite editar el cronograma en DRAFT o hasta 24 horas antes del inicio cuando la votacion ya fue publicada',
+      );
+    }
 
     const { votingStart, votingEnd, resultsPublishAt } = this.accessService.parseAndValidateDates(
       payload.votingStart,
@@ -854,6 +927,12 @@ export class VotingEventsService {
   async publishEvent(eventId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    if (event.votingStart instanceof Date && event.votingStart.getTime() <= Date.now()) {
+      throw new BadRequestException(
+        "No se puede publicar una votacion cuyo horario de inicio ya paso. Debes eliminarla si quedo incompleta.",
+      );
+    }
+
 
     const [rolesCount, optionsCount, currentPadron, hasWindows] = await Promise.all([
       this.eventRoleModel.countDocuments({ eventId: event._id }),
@@ -907,14 +986,22 @@ export class VotingEventsService {
       };
     }
 
-    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event);
+    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
+      includeDisabled: true,
+    });
     let userCredentials: Record<string, Record<string, string>> = {};
     let nullifiers: string[] = [];
     if (convotatedUsers.length > 0) {
       convotatedUsers.forEach((user) => {
-        const nullifier = randomUUID();
-        nullifiers.push(nullifier);
-        userCredentials[String(user.dni)] = { nullifier };
+        const perUserData: Record<string, string> = {
+          eligible: user.enabled ? 'true' : 'false',
+        };
+        if (user.enabled) {
+          const nullifier = randomUUID();
+          nullifiers.push(nullifier);
+          perUserData.nullifier = nullifier;
+        }
+        userCredentials[String(user.dni)] = perUserData;
       });
     }
     await this.notificationsService.notifyConvocationIfEligible(event, userCredentials);
@@ -955,6 +1042,16 @@ export class VotingEventsService {
       sent: out.sent ?? 0,
       skipped: (out as any).skipped ?? null,
     };
+  }
+
+  private assertDraftEditable(event: VotingEventDocument, action: string) {
+    this.assertDraftState(event, action);
+
+    if (event.votingStart instanceof Date && event.votingStart.getTime() <= Date.now()) {
+      throw new BadRequestException(
+        "No se permite " + action + " porque la hora de inicio ya paso. Solo puedes eliminar esta votacion.",
+      );
+    }
   }
 
   private assertDraftState(event: VotingEventDocument, action: string) {

@@ -31,6 +31,12 @@ export class InstitutionalVotingPublicController {
     description: 'Filtra por tenant/institución. Si se omite, devuelve de todos los tenants visibles.',
   })
   @ApiQuery({
+    name: 'carnet',
+    required: false,
+    description:
+      'Si se envía, devuelve solo eventos donde ese carnet está empadronado y habilitado en el padrón vigente aprobado.',
+  })
+  @ApiQuery({
     name: 'limit',
     required: false,
     description: 'Máximo por grupo (upcoming/active/results). Default 10, máximo 50.',
@@ -42,11 +48,13 @@ export class InstitutionalVotingPublicController {
   })
   publicLanding(
     @Query('tenantId') tenantId?: string,
+    @Query('carnet') carnet?: string,
     @Query('limit') limit = 10,
   ) {
     return this.institutionalVotingService.getPublicLanding(
       tenantId,
       Number(limit),
+      carnet,
     );
   }
 

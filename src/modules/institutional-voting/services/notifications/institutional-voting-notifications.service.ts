@@ -24,16 +24,39 @@ export class InstitutionalVotingNotificationsService {
     private readonly padronUsersService: PadronUsersService,
   ) {}
 
+  private buildPublicElectionPath(eventId: string) {
+    return `/elections/${eventId}/public`;
+  }
+
+  private buildPublicElectionUrl(eventId: string) {
+    const base = String(process.env.PUBLIC_RESULTS_WEB_BASE_URL || '').trim();
+    if (!base) {
+      return '';
+    }
+
+    return `${base.replace(/\/+$/, '')}${this.buildPublicElectionPath(eventId)}`;
+  }
+
   async notifyConvocationIfEligible(event: VotingEventDocument, additionalPerUserDniData: Record<string, Record<string, string>> = {}) {
     if (event.convocationNotifiedAt) return { sent: 0, skipped: 'already_notified' };
+    const eventId = String(event._id);
+    const publicUrl = this.buildPublicElectionUrl(eventId);
     const out = await this.notifyToCurrentPadron(event, {
       type: 'convocation',
       title: 'Nueva convocatoria de votacion',
       body: `Ya puedes participar en ${event.name}`,
       data: {
         type: 'INSTITUTIONAL_EVENT_PUBLISHED',
-        eventId: String(event._id),
-        deepLink: `myapp://event/${String(event._id)}`,
+        eventId,
+        eventName: event.name,
+        votingStart: event.votingStart?.toISOString?.() ?? '',
+        votingEnd: event.votingEnd?.toISOString?.() ?? '',
+        resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
+        bannerTitle: 'Nueva convocatoria de votacion',
+        bannerSubtitle: 'Revisa la fecha y participa a tiempo',
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        deepLink: `myapp://event/${eventId}`,
       },
     }, additionalPerUserDniData);
 
@@ -47,14 +70,24 @@ export class InstitutionalVotingNotificationsService {
 
   async notifyResultsAvailableIfEligible(event: VotingEventDocument) {
     if (event.resultsNotifiedAt) return { sent: 0, skipped: 'already_notified' };
+    const eventId = String(event._id);
+    const publicUrl = this.buildPublicElectionUrl(eventId);
     const out = await this.notifyToCurrentPadron(event, {
       type: 'results_available',
       title: 'Resultados disponibles',
       body: `Consulta los resultados de ${event.name}`,
       data: {
         type: 'INSTITUTIONAL_RESULTS_AVAILABLE',
-        eventId: String(event._id),
-        link: `/results/${String(event._id)}`,
+        eventId,
+        eventName: event.name,
+        votingStart: event.votingStart?.toISOString?.() ?? '',
+        votingEnd: event.votingEnd?.toISOString?.() ?? '',
+        resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
+        bannerTitle: 'Resultados publicados',
+        bannerSubtitle: 'Consulta el resumen y el detalle completo',
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        link: this.buildPublicElectionPath(eventId),
       },
     });
 
@@ -98,7 +131,9 @@ export class InstitutionalVotingNotificationsService {
     },
     additionalPerUserDniData: Record<string, Record<string, string>> = {},
   ) {
-    const recipients = await this.padronUsersService.getPadronUsersFromEvent(event);
+    const recipients = await this.padronUsersService.getPadronUsersFromEvent(event, {
+      includeDisabled: true,
+    });
 
 
     if (!recipients.length) {
@@ -113,6 +148,7 @@ export class InstitutionalVotingNotificationsService {
       body: payload.body,
       data: {
         ...payload.data,
+        eligible: u.enabled ? 'true' : 'false',
         ...(additionalPerUserDniData[u.dni] || {}),
       },
       status: 'NEW' as const,
@@ -124,6 +160,7 @@ export class InstitutionalVotingNotificationsService {
         const topic = `user_${String(u._id)}`;
         const data = {
           ...payload.data,
+          eligible: u.enabled ? 'true' : 'false',
           ...(additionalPerUserDniData[u.dni] || {}),
         };
 

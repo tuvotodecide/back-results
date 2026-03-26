@@ -31,8 +31,8 @@ export class InstitutionalVotingService {
     return this.votingEventsService.listEvents(requester, tenantId);
   }
 
-  getPublicLanding(tenantId?: string, limit?: number) {
-    return this.votingEventsService.getPublicLanding(tenantId, limit);
+  getPublicLanding(tenantId?: string, limit?: number, carnet?: string) {
+    return this.votingEventsService.getPublicLanding(tenantId, limit, carnet);
   }
 
   getPublicEventDetail(eventId: string) {

@@ -183,8 +183,8 @@ export class InstitutionalVotingAccessService {
       throw new BadRequestException('votingStart debe ser anterior a votingEnd');
     }
 
-    if (resultsPublishAt < votingEnd) {
-      throw new BadRequestException('resultsPublishAt debe ser mayor o igual a votingEnd');
+    if (resultsPublishAt <= votingEnd) {
+      throw new BadRequestException('resultsPublishAt debe ser mayor a votingEnd');
     }
 
     if (enforceWindowRule) {
