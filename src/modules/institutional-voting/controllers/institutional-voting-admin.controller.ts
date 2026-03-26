@@ -113,11 +113,11 @@ export class InstitutionalVotingAdminController {
       'Cambia estado a PUBLISHED si cumple precondiciones (cargos, opciones, padrón y horarios).',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
-  @ApiBody({ type: [PublishEventItemDto] })
+  @ApiBody({ type: [String] })
   @ApiResponse({ status: 200, description: 'Evento publicado.' })
   @ApiResponse({ status: 400, description: 'Faltan precondiciones para publicar.' })
-  publishEvent(@Param('eventId') eventId: string, @Req() req: any) {
-    return this.institutionalVotingService.publishEvent(eventId, req.user);
+  publishEvent(@Param('eventId') eventId: string, @Body() dto: string[], @Req() req: any) {
+    return this.institutionalVotingService.publishEvent(eventId, dto, req.user);
   }
 
   @Post(':eventId/roles')

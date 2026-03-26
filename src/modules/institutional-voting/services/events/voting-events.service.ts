@@ -41,7 +41,7 @@ import { ConfigService } from '@nestjs/config';
 import { VoteReaderService } from '../core/vote-reader.service';
 import { User, UserDocument } from '@/modules/users/schemas/user.schema';
 import { PadronUsersService } from '../core/padron-users.service';
-import { randomUUID } from 'crypto';
+import { shuffle } from '@/utils/array.util';
 
 @Injectable()
 export class VotingEventsService {
@@ -456,12 +456,9 @@ export class VotingEventsService {
       this.votingOptionModel.find({ eventId: event._id }).sort({ createdAt: 1, _id: 1 }).lean(),
     ]);
 
-    // const chainRequestId = this.configService.get<string>('app.votingRequestId');
-
     return {
       id: String(event._id),
       tenantId: String(event.tenantId),
-      chainRequestId:123,
       name: event.name,
       objective: event.objective,
       state: event.state,
@@ -924,7 +921,7 @@ export class VotingEventsService {
     };
   }
 
-  async publishEvent(eventId: string, requester: any) {
+  async publishEvent(eventId: string, nullifiers: string[], requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
 
@@ -936,6 +933,11 @@ export class VotingEventsService {
         Boolean(event.votingStart && event.votingEnd && event.resultsPublishAt),
       ),
     ]);
+
+    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
+      includeDisabled: true,
+    });
+    const enoughtNullifiers = convotatedUsers.length <= nullifiers.length;
 
     const comparisonReportOk = currentPadron
       ? await this.comparisonReportModel.exists({
@@ -959,6 +961,9 @@ export class VotingEventsService {
       if (!comparisonReportOk) {
         pending.push('padron_validation');
       }
+      if (!enoughtNullifiers) {
+        pending.push('nullifiers');
+      }
     }
     if (!hasWindows) pending.push('horarios');
 
@@ -980,20 +985,15 @@ export class VotingEventsService {
       };
     }
 
-    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
-      includeDisabled: true,
-    });
     let userCredentials: Record<string, Record<string, string>> = {};
-    let nullifiers: string[] = [];
+    let shuffledNullifiers = shuffle(nullifiers);
     if (convotatedUsers.length > 0) {
-      convotatedUsers.forEach((user) => {
+      convotatedUsers.forEach((user, index) => {
         const perUserData: Record<string, string> = {
           eligible: user.enabled ? 'true' : 'false',
         };
         if (user.enabled) {
-          const nullifier = randomUUID();
-          nullifiers.push(nullifier);
-          perUserData.nullifier = nullifier;
+          perUserData.nullifier = shuffledNullifiers[index];
         }
         userCredentials[String(user.dni)] = perUserData;
       });

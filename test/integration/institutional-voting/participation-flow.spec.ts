@@ -90,6 +90,7 @@ describe('Institutional voting integration - participation flow', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(published.status).toBe(201);
 
@@ -140,6 +141,7 @@ describe('Institutional voting integration - participation flow', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(published.status).toBe(400);
     expect(published.body.pending).toEqual(
@@ -174,7 +176,7 @@ describe('Institutional voting integration - participation flow', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, ['nullifier-ABC-789']);
 
     const disabled = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -226,7 +228,7 @@ describe('Institutional voting integration - participation flow', () => {
       .post(`/api/v1/voting/events/${futureEventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, futureEventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, futureEventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const outOfWindow = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${futureEventId}/participations`)

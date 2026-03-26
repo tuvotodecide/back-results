@@ -94,6 +94,7 @@ describe('Institutional voting integration - publication and results', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
 
     expect(published.status).toBe(201);
@@ -131,6 +132,7 @@ describe('Institutional voting integration - publication and results', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
 
     expect(published.status).toBe(201);
@@ -209,7 +211,7 @@ describe('Institutional voting integration - publication and results', () => {
       resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
     });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
     await lifecycle.processLifecycle();
@@ -234,7 +236,7 @@ describe('Institutional voting integration - publication and results', () => {
       resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
     });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
 
     const notificationsService = ctx.app.get(InstitutionalVotingNotificationsService);
     const notifySpy = jest
