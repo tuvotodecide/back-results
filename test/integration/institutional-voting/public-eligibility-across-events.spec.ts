@@ -132,6 +132,7 @@ describe('Institutional voting integration - public eligibility across events', 
       ctx.httpServer,
       ctx.adminToken,
       eligibleEventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(eligiblePublished.status).toBe(201);
 
@@ -148,6 +149,7 @@ describe('Institutional voting integration - public eligibility across events', 
       ctx.httpServer,
       ctx.adminToken,
       disabledEventId,
+      ['nullifier-ABC-789'],
     );
     expect(disabledPublished.status).toBe(201);
 
@@ -179,6 +181,7 @@ describe('Institutional voting integration - public eligibility across events', 
       ctx.httpServer,
       ctx.adminToken,
       privateEventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(privatePublished.status).toBe(201);
     await setPublicEligibility(privateEventId, false);
@@ -265,6 +268,7 @@ describe('Institutional voting integration - public eligibility across events', 
       ctx.httpServer,
       ctx.adminToken,
       ownEventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(ownPublished.status).toBe(201);
 
@@ -281,6 +285,7 @@ describe('Institutional voting integration - public eligibility across events', 
       ctx.httpServer,
       ctx.adminToken,
       otherEventId,
+      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(otherPublished.status).toBe(201);
 
