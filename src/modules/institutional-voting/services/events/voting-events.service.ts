@@ -940,7 +940,7 @@ export class VotingEventsService {
     ]);
 
     const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
-      includeDisabled: true,
+      includeDisabled: false,
     });
     const enoughtNullifiers = convotatedUsers.length <= nullifiers.length;
 
@@ -1008,7 +1008,6 @@ export class VotingEventsService {
     return {
       id: String(event._id),
       state: event.state,
-      nullifiers,
     };
   }
 

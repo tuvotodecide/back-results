@@ -384,6 +384,20 @@ export class InstitutionalVotingAdminController {
     );
   }
 
+  @Get(':eventId/padron/voters/summary')
+  @ApiOperation({
+    summary: 'Obtener resumen del padrón vigente',
+    description: 'Devuelve un resumen del padrón actual con totales de votantes habilitados y deshabilitados.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiResponse({ status: 200, description: 'Resumen del padrón vigente.' })
+  getCurrentPadronSummary(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.getCurrentPadronSummary(eventId, req.user);
+  }
+
   @Get(':eventId/padron/download')
   @ApiOperation({
     summary: 'Descargar padrón CSV',
