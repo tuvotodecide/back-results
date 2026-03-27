@@ -222,6 +222,38 @@ export class PadronService {
     };
   }
 
+  async getCurrentPadronSummary(
+    eventId: string,
+    requester: any,
+  ) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    const currentVersion = await this.padronVersionModel
+      .findOne({ eventId: event._id, isCurrent: true })
+      .lean();
+
+    if (!currentVersion) {
+      return {
+        total: 0,
+        enabledToVote: 0,
+        disabledToVote: 0,
+      };
+    }
+
+    const [total, enabledToVote, disabledToVote] = await Promise.all([
+      this.padronEntryModel.countDocuments({ padronVersionId: currentVersion._id }),
+      this.padronEntryModel.countDocuments({ padronVersionId: currentVersion._id, enabled: true }),
+      this.padronEntryModel.countDocuments({ padronVersionId: currentVersion._id, enabled: false }),
+    ]);
+
+    return {
+      total,
+      enabledToVote,
+      disabledToVote,
+    };
+  }
+
   async downloadPadronCsv(eventId: string, requester: any, padronVersionId?: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);

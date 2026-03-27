@@ -125,6 +125,10 @@ export class InstitutionalVotingService {
     return this.padronService.listCurrentPadronVoters(eventId, requester, page, limit);
   }
 
+  getCurrentPadronSummary(eventId: string, requester: any) {
+    return this.padronService.getCurrentPadronSummary(eventId, requester);
+  }
+
   downloadPadronCsv(eventId: string, requester: any, padronVersionId?: string) {
     return this.padronService.downloadPadronCsv(eventId, requester, padronVersionId);
   }
