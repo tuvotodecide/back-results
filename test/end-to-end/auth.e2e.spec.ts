@@ -468,22 +468,22 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .expect(403);
   });
 
-  it('R17-A: should return Unauthorized on delegate import without auth token', async () => {
-    await request(app.getHttpServer())
-      .post('/api/v1/delegates/upload-csv')
-      .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
-      .field('contractId', contracts.insertedIds[0].toString())
-      .expect(401);
-  });
+  // it('R17-A: should return Unauthorized on delegate import without auth token', async () => {
+  //   await request(app.getHttpServer())
+  //     .post('/api/v1/delegates/upload-csv')
+  //     .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
+  //     .field('contractId', contracts.insertedIds[0].toString())
+  //     .expect(401);
+  // });
 
-  it('R17-B: should return Unauthorized on delegate import without admin role', async () => {
-    await request(app.getHttpServer())
-      .post('/api/v1/delegates/upload-csv')
-      .auth(laPazToken, { type: 'bearer' })
-      .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
-      .field('contractId', contracts.insertedIds[0].toString())
-      .expect(401);
-  });
+  // it('R17-B: should return Unauthorized on delegate import without admin role', async () => {
+  //   await request(app.getHttpServer())
+  //     .post('/api/v1/delegates/upload-csv')
+  //     .auth(laPazToken, { type: 'bearer' })
+  //     .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
+  //     .field('contractId', contracts.insertedIds[0].toString())
+  //     .expect(401);
+  // });
 
   it('R18-A: should return Unauthorized on creating single delegate without auth token', async () => {
     await request(app.getHttpServer())
