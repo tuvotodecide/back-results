@@ -1,3 +1,9 @@
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 import { Test } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { UsersController } from '@/modules/users/controllers/users.controller';
@@ -26,6 +32,8 @@ describe('UsersController', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    logModel.find.mockReturnValue(chain([]));
+    logModel.countDocuments.mockResolvedValue(0);
     const mod = await Test.createTestingModule({
       controllers: [UsersController],
       providers: [
@@ -81,7 +89,9 @@ describe('UsersController', () => {
     const result = await ctrl.listNotificationsByDni('4', 2 as any, 1 as any);
     expect(result.page).toBe(2);
     expect(result.total).toBe(1);
-    expect(logModel.find).toHaveBeenCalledWith({ topic: 'loc_507f1f' });
+    expect(logModel.find).toHaveBeenCalledWith({
+      topic: { $in: ['loc_507f1f', 'user_U4'] },
+    });
   });
   it('getVotePlace: delega en service', async () => {
   svc.getVotePlaceByDni.mockResolvedValue({

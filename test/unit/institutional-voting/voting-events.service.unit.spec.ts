@@ -1,7 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { BadRequestException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { VotingEventsService } from '@/modules/institutional-voting/services/events/voting-events.service';
 import { VotingEvent } from '@/modules/institutional-voting/schemas/voting-event.schema';
@@ -12,10 +11,8 @@ import { PadronEntry } from '@/modules/institutional-voting/schemas/padron-entry
 import { ComparisonReport } from '@/modules/institutional-voting/schemas/comparison-report.schema';
 import { Participation } from '@/modules/institutional-voting/schemas/participation.schema';
 import { EventResultsSnapshot } from '@/modules/institutional-voting/schemas/event-results-snapshot.schema';
-import { User } from '@/modules/users/schemas/user.schema';
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
-import { PadronUsersService } from '@/modules/institutional-voting/services/core/padron-users.service';
 import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
 
 describe('VotingEventsService (unit)', () => {
@@ -29,11 +26,8 @@ describe('VotingEventsService (unit)', () => {
   let comparisonReportModel: any;
   let participationModel: any;
   let resultsSnapshotModel: any;
-  let userModel: any;
   let accessService: any;
   let notificationsService: any;
-  let padronUsersService: any;
-  let configService: any;
   let voteReaderService: any;
 
   beforeEach(async () => {
@@ -45,6 +39,7 @@ describe('VotingEventsService (unit)', () => {
     eventRoleModel = {
       countDocuments: jest.fn(),
       create: jest.fn(),
+      find: jest.fn(),
       findOne: jest.fn(),
       deleteMany: jest.fn(),
       deleteOne: jest.fn(),
@@ -53,6 +48,8 @@ describe('VotingEventsService (unit)', () => {
       countDocuments: jest.fn(),
       create: jest.fn(),
       exists: jest.fn(),
+      find: jest.fn(),
+      findOne: jest.fn(),
       findOneAndUpdate: jest.fn(),
       updateMany: jest.fn(),
       deleteMany: jest.fn(),
@@ -80,10 +77,6 @@ describe('VotingEventsService (unit)', () => {
     resultsSnapshotModel = {
       deleteMany: jest.fn(),
     };
-    userModel = {
-      find: jest.fn(),
-      findOne: jest.fn(),
-    };
     accessService = {
       getEventOrThrow: jest.fn(),
       getTenantOrThrow: jest.fn(),
@@ -93,12 +86,6 @@ describe('VotingEventsService (unit)', () => {
     };
     notificationsService = {
       notifyConvocationIfEligible: jest.fn(),
-    };
-    padronUsersService = {
-      getPadronUsersFromEvent: jest.fn(),
-    };
-    configService = {
-      get: jest.fn(),
     };
     voteReaderService = {
       getResults: jest.fn(),
@@ -121,15 +108,12 @@ describe('VotingEventsService (unit)', () => {
           provide: getModelToken(EventResultsSnapshot.name),
           useValue: resultsSnapshotModel,
         },
-        { provide: getModelToken(User.name), useValue: userModel },
         { provide: InstitutionalVotingAccessService, useValue: accessService },
         {
           provide: InstitutionalVotingNotificationsService,
           useValue: notificationsService,
         },
-        { provide: ConfigService, useValue: configService },
         { provide: VoteReaderService, useValue: voteReaderService },
-        { provide: PadronUsersService, useValue: padronUsersService },
       ],
     }).compile();
 
@@ -175,34 +159,38 @@ describe('VotingEventsService (unit)', () => {
     expect(result.state).toBe('DRAFT');
   });
 
-  it('rechaza publicar si faltan precondiciones críticas', async () => {
+  it('rechaza pasar a READY_FOR_REVIEW si faltan precondiciones críticas', async () => {
     const findOneLean = jest.fn().mockResolvedValue(null);
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
       state: 'DRAFT',
+      name: 'Eleccion incompleta',
+      objective: 'Pendiente de configuracion',
       save: jest.fn(),
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
-    eventRoleModel.countDocuments.mockResolvedValue(0);
-    votingOptionModel.countDocuments.mockResolvedValue(0);
+    eventRoleModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+    votingOptionModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
     padronVersionModel.findOne.mockReturnValue({ lean: findOneLean });
 
     await expect(
-      service.publishEvent(String(event._id), { sub: 'admin-1' }),
+      service.markReadyForReview(String(event._id), { sub: 'admin-1' }),
     ).rejects.toThrow(BadRequestException);
 
     try {
-      await service.publishEvent(String(event._id), { sub: 'admin-1' });
+      await service.markReadyForReview(String(event._id), { sub: 'admin-1' });
     } catch (error: any) {
-      expect(error.getResponse()).toEqual({
-        message: 'Faltan precondiciones para publicar',
-        pending: ['cargos', 'opciones', 'padron', 'horarios'],
-      });
+      expect(error.getResponse()).toEqual(
+        expect.objectContaining({
+          message: 'Faltan precondiciones para pasar a READY_FOR_REVIEW',
+          pending: expect.arrayContaining(['cargos', 'opciones', 'padron', 'horarios']),
+        }),
+      );
     }
   });
 
-  it('publica el evento sin reenviar convocatoria si ya fue notificada', async () => {
+  it('confirma publicación oficial sin renotificar cuando la revisión ya fue notificada', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
       totals: { validCount: 1, invalidCount: 0, duplicateCount: 0 },
@@ -210,16 +198,23 @@ describe('VotingEventsService (unit)', () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
-      state: 'DRAFT',
+      state: 'READY_FOR_REVIEW',
+      name: 'Eleccion 2026',
+      objective: 'Elegir directiva',
       votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000),
+      publishDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
       convocationNotifiedAt: new Date(),
       save: jest.fn().mockResolvedValue(undefined),
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
-    eventRoleModel.countDocuments.mockResolvedValue(1);
-    votingOptionModel.countDocuments.mockResolvedValue(1);
+    eventRoleModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ name: 'Presidente' }]),
+    });
+    votingOptionModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ active: true, candidates: [{ roleName: 'Presidente' }] }]),
+    });
     padronVersionModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
@@ -229,13 +224,10 @@ describe('VotingEventsService (unit)', () => {
 
     expect(event.save).toHaveBeenCalled();
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      id: String(event._id),
-      state: 'PUBLISHED',
-    });
+    expect(result.state).toBe('OFFICIALLY_PUBLISHED');
   });
 
-  it('bloquea publicar el evento mientras el padrón siga pendiente de aprobación operativa', async () => {
+  it('bloquea publicación oficial mientras el padrón siga pendiente de aprobación operativa', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
       totals: { validCount: 2, invalidCount: 0, duplicateCount: 0 },
@@ -243,16 +235,23 @@ describe('VotingEventsService (unit)', () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
-      state: 'DRAFT',
+      state: 'READY_FOR_REVIEW',
+      name: 'Eleccion 2026',
+      objective: 'Elegir directiva',
       votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000),
+      publishDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
       save: jest.fn().mockResolvedValue(undefined),
     };
 
     accessService.getEventOrThrow.mockResolvedValue(event);
-    eventRoleModel.countDocuments.mockResolvedValue(1);
-    votingOptionModel.countDocuments.mockResolvedValue(1);
+    eventRoleModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ name: 'Presidente' }]),
+    });
+    votingOptionModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ active: true, candidates: [{ roleName: 'Presidente' }] }]),
+    });
     padronVersionModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
@@ -266,7 +265,7 @@ describe('VotingEventsService (unit)', () => {
     expect(event.save).not.toHaveBeenCalled();
   });
 
-  it('publica y emite credenciales/notificación cuando hay usuarios elegibles', async () => {
+  it('abre revisión y notifica a empadronados cuando la elección está completa', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
       totals: { validCount: 2, invalidCount: 0, duplicateCount: 0 },
@@ -276,82 +275,57 @@ describe('VotingEventsService (unit)', () => {
       tenantId: new Types.ObjectId(),
       state: 'DRAFT',
       name: 'Eleccion 2026',
+      objective: 'Elegir directiva',
       votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000),
+      publishDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
       save: jest.fn().mockResolvedValue(undefined),
     };
-    const convokedUsers = [
-      { dni: '123456', enabled: true },
-      { dni: 'ABC789', enabled: false },
-    ];
 
     accessService.getEventOrThrow.mockResolvedValue(event);
-    eventRoleModel.countDocuments.mockResolvedValue(1);
-    votingOptionModel.countDocuments.mockResolvedValue(1);
+    eventRoleModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ name: 'Presidente' }]),
+    });
+    votingOptionModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ active: true, candidates: [{ roleName: 'Presidente' }] }]),
+    });
     padronVersionModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
     comparisonReportModel.exists.mockResolvedValue(true);
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue(convokedUsers);
     notificationsService.notifyConvocationIfEligible.mockResolvedValue({ sent: 2 });
 
-    const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
+    const result = await service.markReadyForReview(String(event._id), { sub: 'admin-1' });
 
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(
-      event,
-      { includeDisabled: true },
-    );
-    expect(notificationsService.notifyConvocationIfEligible).toHaveBeenCalledWith(
-      event,
-      {
-        '123456': expect.objectContaining({
-          eligible: 'true',
-          nullifier: expect.any(String),
-        }),
-        ABC789: {
-          eligible: 'false',
-        },
-      },
-    );
-    expect(result).toEqual({
-      id: String(event._id),
-      state: 'PUBLISHED',
-      nullifiers: [expect.any(String)],
-    });
+    expect(notificationsService.notifyConvocationIfEligible).toHaveBeenCalledWith(event);
+    expect(result.state).toBe('READY_FOR_REVIEW');
   });
 
-  it('publica sin emitir credenciales si no hay usuarios vinculados al padrón', async () => {
-    const currentPadron = {
-      _id: new Types.ObjectId(),
-      totals: { validCount: 1, invalidCount: 0, duplicateCount: 0 },
-    };
+  it('permite actualizar el evento en READY_FOR_REVIEW sin volver a DRAFT', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
-      state: 'DRAFT',
-      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000),
-      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000),
-      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000),
+      state: 'READY_FOR_REVIEW',
+      name: 'Evento inicial',
+      objective: 'Objetivo inicial',
       save: jest.fn().mockResolvedValue(undefined),
     };
 
     accessService.getEventOrThrow.mockResolvedValue(event);
-    eventRoleModel.countDocuments.mockResolvedValue(1);
-    votingOptionModel.countDocuments.mockResolvedValue(1);
-    padronVersionModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue(currentPadron),
-    });
-    comparisonReportModel.exists.mockResolvedValue(true);
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
+    const result = await service.updateEvent(
+      String(event._id),
+      { name: ' Evento actualizado ', objective: ' Objetivo nuevo ' },
+      { sub: 'admin-1' },
+    );
 
-    const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
-
-    expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
+    expect(event.save).toHaveBeenCalled();
     expect(result).toEqual({
       id: String(event._id),
-      state: 'PUBLISHED',
-      nullifiers: [],
+      tenantId: String(event.tenantId),
+      name: 'Evento actualizado',
+      objective: 'Objetivo nuevo',
+      state: 'READY_FOR_REVIEW',
     });
   });
 
@@ -449,6 +423,128 @@ describe('VotingEventsService (unit)', () => {
       service.createOption(
         String(event._id),
         { name: 'Lista Azul', color: '#2563EB', candidates: [] },
+        { sub: 'admin-1' },
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(votingOptionModel.create).not.toHaveBeenCalled();
+  });
+
+  it('crea opciones con multiples colores y deriva color principal', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    votingOptionModel.create.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      eventId: event._id,
+      tenantId: event.tenantId,
+      name: 'Lista Azul',
+      color: '#2563EB',
+      colors: ['#2563EB', '#FFFFFF'],
+      candidates: [],
+      active: true,
+      toObject() {
+        return this;
+      },
+    });
+
+    const created = await service.createOption(
+      String(event._id),
+      { name: 'Lista Azul', colors: ['#2563eb', '#ffffff'], candidates: [] },
+      { sub: 'admin-1' },
+    );
+
+    expect(created.color).toBe('#2563EB');
+    expect(created.colors).toEqual(['#2563EB', '#FFFFFF']);
+    expect(votingOptionModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        color: '#2563EB',
+        colors: ['#2563EB', '#FFFFFF'],
+      }),
+    );
+  });
+
+  it('actualiza opciones con colors[] manteniendo compatibilidad de respuesta', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'READY_FOR_REVIEW',
+    };
+    const option = {
+      _id: new Types.ObjectId(),
+      eventId: event._id,
+      tenantId: event.tenantId,
+      name: 'Lista Verde',
+      normalizedName: 'lista verde',
+      color: '#00AA00',
+      colors: ['#00AA00'],
+      logoUrl: null,
+      candidates: [],
+      active: true,
+      save: jest.fn().mockResolvedValue(undefined),
+      toObject() {
+        return this;
+      },
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    votingOptionModel.findOne.mockResolvedValue(option);
+
+    const updated = await service.updateOption(
+      String(event._id),
+      String(option._id),
+      { colors: ['#00ff00', '#ffffff'] },
+      { sub: 'admin-1' },
+    );
+
+    expect(option.color).toBe('#00FF00');
+    expect(option.colors).toEqual(['#00FF00', '#FFFFFF']);
+    expect(updated.color).toBe('#00FF00');
+    expect(updated.colors).toEqual(['#00FF00', '#FFFFFF']);
+  });
+
+  it('normaliza lectura legacy de opciones con color unico', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    votingOptionModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: new Types.ObjectId(),
+          eventId: event._id,
+          tenantId: event.tenantId,
+          name: 'Lista Legacy',
+          color: '#f97316',
+          candidates: [],
+          active: true,
+        },
+      ]),
+    });
+
+    const listed = await service.listOptions(String(event._id), { sub: 'admin-1' });
+
+    expect(listed.data[0].color).toBe('#F97316');
+    expect(listed.data[0].colors).toEqual(['#F97316']);
+  });
+
+  it('rechaza colores invalidos al crear opciones', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    await expect(
+      service.createOption(
+        String(event._id),
+        { name: 'Lista Invalida', colors: ['azul'], candidates: [] },
         { sub: 'admin-1' },
       ),
     ).rejects.toThrow(BadRequestException);
@@ -669,7 +765,7 @@ describe('VotingEventsService (unit)', () => {
     expect(padronEntryModel.find).toHaveBeenCalledWith(
       expect.objectContaining({
         carnetNorm: 'ABC123',
-        enabled: { $ne: false },
+        padronVersionId: { $in: [eligibleVersionId, hiddenVersionId] },
       }),
       { padronVersionId: 1 },
     );

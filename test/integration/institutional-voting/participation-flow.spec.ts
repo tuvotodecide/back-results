@@ -3,10 +3,12 @@ import { institutionalVotingFixtures } from '../../fixtures.institutional-voting
 import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
+  markInstitutionalEventReadyForReview,
   publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../../utils/institutional-voting.helpers';
+import { Types } from 'mongoose';
 
 describe('Institutional voting integration - participation flow', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
@@ -26,9 +28,9 @@ describe('Institutional voting integration - participation flow', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 60_000).toISOString(),
-        votingEnd: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
         ...overrides,
       },
     );
@@ -48,6 +50,21 @@ describe('Institutional voting integration - participation flow', () => {
     return eventId;
   }
 
+  async function updateEventDatesInDb(
+    eventId: string,
+    payload: {
+      votingStart?: Date;
+      votingEnd?: Date;
+      resultsPublishAt?: Date;
+      publishDeadline?: Date;
+    },
+  ) {
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      { $set: payload },
+    );
+  }
+
   it('integra elegibilidad, aprobación de padrón, publicación y participación idempotente', async () => {
     const eventId = await createPublishableEvent();
 
@@ -62,7 +79,7 @@ describe('Institutional voting integration - participation flow', () => {
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(beforeApproval.status).toBe(200);
-    expect(beforeApproval.body.status).toBe('ROLL_IN_VALIDATION');
+    expect(beforeApproval.body.status).toBe('PUBLIC_CHECK_DISABLED');
 
     await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${eventId}/public-eligibility`)
@@ -73,12 +90,19 @@ describe('Institutional voting integration - participation flow', () => {
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(stillPending.status).toBe(200);
-    expect(stillPending.body.status).toBe('ROLL_IN_VALIDATION');
+    expect(stillPending.body.status).toBe('PUBLIC_CHECK_DISABLED');
 
     await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
+
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect([200, 201]).toContain(ready.status);
 
     const eligible = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
@@ -90,9 +114,14 @@ describe('Institutional voting integration - participation flow', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(published.status).toBe(201);
+
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 60_000),
+      votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+    });
 
     const canVote = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/participations/status`)
@@ -141,11 +170,10 @@ describe('Institutional voting integration - participation flow', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(published.status).toBe(400);
-    expect(published.body.pending).toEqual(
-      expect.arrayContaining(['padron_validation']),
+    expect(published.body.message).toBe(
+      'Solo se puede confirmar la publicación oficial desde READY_FOR_REVIEW',
     );
 
     const denied = await request(ctx.httpServer)
@@ -176,7 +204,20 @@ describe('Institutional voting integration - participation flow', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, ['nullifier-ABC-789']);
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect([200, 201]).toContain(ready.status);
+
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 60_000),
+      votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+    });
 
     const disabled = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -212,11 +253,7 @@ describe('Institutional voting integration - participation flow', () => {
     expect(draftDenied.status).toBe(403);
     expect(draftDenied.body.error).toBe('EVENT_NOT_PUBLISHED');
 
-    const futureEventId = await createPublishableEvent({
-      votingStart: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      votingEnd: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-      resultsPublishAt: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
-    });
+    const futureEventId = await createPublishableEvent();
 
     await uploadPadronCsv(
       ctx.httpServer,
@@ -228,7 +265,18 @@ describe('Institutional voting integration - participation flow', () => {
       .post(`/api/v1/voting/events/${futureEventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, futureEventId, institutionalVotingFixtures.nullifiersForPadron);
+    const futureReady = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      futureEventId,
+    );
+    expect([200, 201]).toContain(futureReady.status);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, futureEventId);
+    await updateEventDatesInDb(futureEventId, {
+      votingStart: new Date(Date.now() + 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() + 2 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+    });
 
     const outOfWindow = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${futureEventId}/participations`)

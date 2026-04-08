@@ -2,16 +2,25 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
 export type RoledUserDocument = RoledUser & Document & { _id: Types.ObjectId };
-export const userRoles = ['MAYOR', 'GOVERNOR', 'ADMIN'] as const;
+export const userRoles = ['USER', 'MAYOR', 'GOVERNOR', 'ADMIN'] as const;
 export type UserRole = typeof userRoles[number];
+export const territorialAccessStatuses = [
+  'NONE',
+  'PENDING_EMAIL_VERIFICATION',
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'REVOKED',
+] as const;
+export type TerritorialAccessStatus = typeof territorialAccessStatuses[number];
 
 @Schema({ timestamps: true, collection: 'roled_users' })
 export class RoledUser {
   @Prop({ required: true, trim: true })
-  dni: string;
+  dni!: string;
 
   @Prop({ default: false })
-  active: boolean;
+  active!: boolean;
 
   @Prop({ default: null })
   verificationToken?: string;
@@ -25,23 +34,30 @@ export class RoledUser {
   @Prop({ type: Date, default: null })
   passwordResetTokenExpiresAt?: Date;
 
-  createdAt: Date;
-  updatedAt: Date;
+  createdAt!: Date;
+  updatedAt!: Date;
 
   @Prop({ required: true, trim: true })
-  email: string;
+  email!: string;
 
   @Prop({ required: true, trim: true })
-  name: string;
+  name!: string;
 
   @Prop({ required: true, trim: true })
-  password: string;
+  password!: string;
 
   @Prop({
-    enum: ['MAYOR', 'GOVERNOR', 'ADMIN'],
+    enum: ['USER', 'MAYOR', 'GOVERNOR', 'ADMIN'],
     required: true,
   })
-  role: UserRole;
+  role!: UserRole;
+
+  @Prop({
+    enum: territorialAccessStatuses,
+    default: 'NONE',
+    index: true,
+  })
+  territorialAccessStatus?: TerritorialAccessStatus;
 
   @Prop({ type: Types.ObjectId, ref: 'Department', default: null })
   votingDepartmentId?: Types.ObjectId | null;
@@ -54,6 +70,21 @@ export class RoledUser {
 
   @Prop({ type: String, default: null, trim: true, index: true })
   institutionNameNorm?: string | null;
+
+  @Prop({ type: Date, default: null })
+  territorialApprovedAt?: Date | null;
+
+  @Prop({ type: Date, default: null })
+  territorialRejectedAt?: Date | null;
+
+  @Prop({ type: Date, default: null })
+  territorialRevokedAt?: Date | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'RoledUser', default: null })
+  territorialApprovedBy?: Types.ObjectId | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  territorialReason?: string | null;
 }
 
 export const RoledUserSchema = SchemaFactory.createForClass(RoledUser);

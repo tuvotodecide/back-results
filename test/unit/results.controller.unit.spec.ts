@@ -65,6 +65,6 @@ describe('ResultsController (unit)', () => {
   it('live/quick-count llama service con live', async () => {
     svc.getQuickCount.mockResolvedValue({ ok: true });
     await ctl.getLiveQuickCount('id');
-    expect(svc.getQuickCount).toHaveBeenCalledWith('id', 'live');
+    expect(svc.getQuickCount).toHaveBeenCalledWith('id', 'live', undefined);
   });
 });

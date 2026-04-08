@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { CreateVotingEventDto } from '../dto/create-voting-event.dto';
+import { MaterializePadronCertificateDto } from '../dto/materialize-padron-certificate.dto';
+import { ConfirmOfficialPublicationDto } from '../dto/official-publication.dto';
 import { CreateEventNewsDto } from '../dto/event-news.dto';
 import { CreateEventRoleDto } from '../dto/event-role.dto';
+import {
+  CreatePadronStagingEntryDto,
+  UpdatePadronStagingEntryDto,
+} from '../dto/padron-staging-entry.dto';
 import { CreateParticipationDto } from '../dto/participation.dto';
 import { UpsertEventResultsSnapshotDto } from '../dto/results-snapshot.dto';
 import { UpdateEventRoleDto } from '../dto/update-event-role.dto';
@@ -55,8 +61,24 @@ export class InstitutionalVotingService {
     return this.votingEventsService.deleteEvent(eventId, requester);
   }
 
-  publishEvent(eventId: string, data: string[], requester: any) {
-    return this.votingEventsService.publishEvent(eventId, data, requester);
+  validateReviewReadiness(eventId: string, requester: any) {
+    return this.votingEventsService.validateReviewReadiness(eventId, requester);
+  }
+
+  markReadyForReview(eventId: string, requester: any) {
+    return this.votingEventsService.markReadyForReview(eventId, requester);
+  }
+
+  confirmOfficialPublication(
+    eventId: string,
+    dto: ConfirmOfficialPublicationDto,
+    requester: any,
+  ) {
+    return this.votingEventsService.confirmOfficialPublication(eventId, dto, requester);
+  }
+
+  publishEvent(eventId: string, requester: any, dto: ConfirmOfficialPublicationDto = {}) {
+    return this.votingEventsService.confirmOfficialPublication(eventId, dto, requester);
   }
 
   createRole(eventId: string, dto: CreateEventRoleDto, requester: any) {
@@ -115,6 +137,72 @@ export class InstitutionalVotingService {
 
   importPadron(eventId: string, csvContent: string, requester: any) {
     return this.padronService.importPadron(eventId, csvContent, requester);
+  }
+
+  uploadPadronFile(eventId: string, file: any, requester: any) {
+    return this.padronService.uploadPadronFile(eventId, file, requester);
+  }
+
+  uploadPadronPdf(eventId: string, file: any, requester: any) {
+    return this.padronService.uploadPadronFile(eventId, file, requester);
+  }
+
+  getPadronImport(eventId: string, importJobId: string, requester: any) {
+    return this.padronService.getPadronImport(eventId, importJobId, requester);
+  }
+
+  listPadronStaging(eventId: string, requester: any, page?: number, limit?: number) {
+    return this.padronService.listPadronStaging(eventId, requester, page, limit);
+  }
+
+  addPadronStagingEntry(
+    eventId: string,
+    dto: CreatePadronStagingEntryDto,
+    requester: any,
+  ) {
+    return this.padronService.addPadronStagingEntry(eventId, dto, requester);
+  }
+
+  updatePadronStagingEntry(
+    eventId: string,
+    entryId: string,
+    dto: UpdatePadronStagingEntryDto,
+    requester: any,
+  ) {
+    return this.padronService.updatePadronStagingEntry(eventId, entryId, dto, requester);
+  }
+
+  deletePadronStagingEntry(eventId: string, entryId: string, requester: any) {
+    return this.padronService.deletePadronStagingEntry(eventId, entryId, requester);
+  }
+
+  confirmPadronStaging(eventId: string, requester: any) {
+    return this.padronService.confirmPadronStaging(eventId, requester);
+  }
+
+  getPadronSummary(eventId: string, requester: any) {
+    return this.padronService.getPadronSummary(eventId, requester);
+  }
+
+  getPadronCertificateMetadata(eventId: string, requester: any, padronVersionId?: string) {
+    return this.padronService.getPadronCertificateMetadata(eventId, requester, padronVersionId);
+  }
+
+  materializePadronCertificate(
+    eventId: string,
+    dto: MaterializePadronCertificateDto,
+    requester: any,
+  ) {
+    return this.padronService.materializePadronCertificate(
+      eventId,
+      requester,
+      dto.padronVersionId,
+      dto.forceRegenerate === true,
+    );
+  }
+
+  downloadPadronCertificate(eventId: string, requester: any, padronVersionId?: string) {
+    return this.padronService.downloadPadronCertificate(eventId, requester, padronVersionId);
   }
 
   listPadronVersions(eventId: string, requester: any) {

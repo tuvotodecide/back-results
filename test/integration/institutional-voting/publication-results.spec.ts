@@ -1,12 +1,12 @@
 import request from 'supertest';
 import { Types } from 'mongoose';
-import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 import { InstitutionalVotingLifecycleService } from '@/modules/institutional-voting/services/events/institutional-voting-lifecycle.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
 import { institutionalVotingFixtures } from '../../fixtures.institutional-voting';
 import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
+  markInstitutionalEventReadyForReview,
   publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
@@ -23,6 +23,21 @@ describe('Institutional voting integration - publication and results', () => {
     await teardownInstitutionalVotingContext(ctx);
   });
 
+  async function updateEventDatesInDb(
+    eventId: string,
+    payload: {
+      votingStart?: Date;
+      votingEnd?: Date;
+      resultsPublishAt?: Date;
+      publishDeadline?: Date;
+    },
+  ) {
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      { $set: payload },
+    );
+  }
+
   async function preparePublishedEvent(overrides: Record<string, unknown> = {}) {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
@@ -30,9 +45,9 @@ describe('Institutional voting integration - publication and results', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 60_000).toISOString(),
-        votingEnd: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
         ...overrides,
       },
     );
@@ -61,10 +76,17 @@ describe('Institutional voting integration - publication and results', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect([200, 201]).toContain(ready.status);
+
     return eventId;
   }
 
-  it('publica el evento y emite credenciales/notificaciones para usuarios vinculados', async () => {
+  it('abre revisión y luego confirma publicación oficial para usuarios vinculados', async () => {
     const linkedUsers = [
       {
         dni: '123456',
@@ -88,40 +110,35 @@ describe('Institutional voting integration - publication and results', () => {
     }
 
     const eventId = await preparePublishedEvent();
-    const issuerMock = ctx.app.get(IssuerService) as { issueCredential: jest.Mock };
 
     const published = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
 
     expect(published.status).toBe(201);
-    expect(issuerMock.issueCredential).toHaveBeenCalledWith(
-      ['123456', 'ABC789'],
-      expect.objectContaining({ name: institutionalVotingFixtures.event.name }),
-    );
 
     const notifications = await ctx.conn
       .collection('user_notifications')
       .find({
-        'data.type': 'INSTITUTIONAL_EVENT_PUBLISHED',
+        'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
         'data.eventId': eventId,
       })
       .toArray();
 
     expect(notifications).toHaveLength(2);
-    expect(notifications[0].data).toHaveProperty('credentialData');
+    expect(notifications[0].data).toHaveProperty('state', 'READY_FOR_REVIEW');
 
     const eventInDb = await ctx.conn
       .collection('voting_events')
       .findOne({ _id: new Types.ObjectId(eventId) });
-    expect(eventInDb?.state).toBe('PUBLISHED');
+    expect(eventInDb?.state).toBe('OFFICIALLY_PUBLISHED');
     expect(eventInDb?.convocationNotifiedAt).toBeTruthy();
+    expect(eventInDb?.officialPublishedAt).toBeTruthy();
   });
 
-  it('no genera notificaciones de convocatoria cuando no existen usuarios vinculados', async () => {
+  it('genera notificaciones de revisión aunque no existan usuarios previamente vinculados', async () => {
     await ctx.conn.collection('users').deleteMany({
       dni: { $in: ['123456', 'ABC789'] },
     });
@@ -132,16 +149,15 @@ describe('Institutional voting integration - publication and results', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
 
     expect(published.status).toBe(201);
 
     const notifications = await ctx.conn
       .collection('user_notifications')
-      .find({ 'data.eventId': eventId, 'data.type': 'INSTITUTIONAL_EVENT_PUBLISHED' })
+      .find({ 'data.eventId': eventId, 'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN' })
       .toArray();
-    expect(notifications).toHaveLength(0);
+    expect(notifications).toHaveLength(2);
   });
 
   it('bloquea resultados antes de la fecha permitida y luego los expone con snapshot', async () => {
@@ -164,18 +180,13 @@ describe('Institutional voting integration - publication and results', () => {
     expect(blocked.status).toBe(403);
     expect(blocked.body.error).toBe('RESULTS_NOT_AVAILABLE');
 
-    const createdVisible = await createInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      ctx.createdTenantId,
-      {
-        ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-        votingEnd: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
-        resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
-      },
-    );
-    const visibleEventId = createdVisible.body.id as string;
+    const visibleEventId = await preparePublishedEvent();
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, visibleEventId);
+    await updateEventDatesInDb(visibleEventId, {
+      votingStart: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() - 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
 
     await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${visibleEventId}/results/snapshot`)
@@ -206,12 +217,17 @@ describe('Institutional voting integration - publication and results', () => {
     );
 
     const eventId = await preparePublishedEvent({
-      votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
     });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
 
     const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
     await lifecycle.processLifecycle();
@@ -231,12 +247,17 @@ describe('Institutional voting integration - publication and results', () => {
 
   it('publica resultados oficialmente aunque falle la notificación final y reintenta después', async () => {
     const eventId = await preparePublishedEvent({
-      votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-      resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
     });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
 
     const notificationsService = ctx.app.get(InstitutionalVotingNotificationsService);
     const notifySpy = jest

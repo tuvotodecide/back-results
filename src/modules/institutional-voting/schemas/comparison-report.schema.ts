@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type ComparisonReportDocument = ComparisonReport & Document;
+export type ComparisonReportDocument = ComparisonReport & Document & { _id: Types.ObjectId };
 
 export type ComparisonStatus = 'PENDING' | 'OK' | 'FAILED';
 

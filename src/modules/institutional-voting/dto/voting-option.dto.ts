@@ -1,12 +1,20 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsHexColor, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsHexColor,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 
 class CreateCandidateDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name!: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
@@ -16,18 +24,31 @@ class CreateCandidateDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  roleName: string;
+  roleName!: string;
 }
 
 export class CreateVotingOptionDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name!: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional({
+    description: 'Color principal legacy. Si se envía colors[], se deriva desde colors[0].',
+  })
+  @IsOptional()
   @IsHexColor()
-  color: string;
+  color?: string;
+
+  @ApiPropertyOptional({
+    description: 'Paleta de colores de la opción. El primer color se toma como principal.',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsHexColor({ each: true })
+  colors?: string[];
 
   @ApiProperty({ required: false })
   @IsOptional()

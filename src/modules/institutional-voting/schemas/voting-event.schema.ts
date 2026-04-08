@@ -1,10 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type VotingEventDocument = VotingEvent & Document;
+export type VotingEventDocument = VotingEvent & Document & { _id: Types.ObjectId };
 
 export type VotingEventState =
   | 'DRAFT'
+  | 'READY_FOR_REVIEW'
+  | 'OFFICIALLY_PUBLISHED'
+  | 'PUBLICATION_EXPIRED'
   | 'PUBLISHED'
   | 'CLOSED'
   | 'RESULTS_PUBLISHED';
@@ -31,7 +34,15 @@ export class VotingEvent {
 
   @Prop({
     required: true,
-    enum: ['DRAFT', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'],
+    enum: [
+      'DRAFT',
+      'READY_FOR_REVIEW',
+      'OFFICIALLY_PUBLISHED',
+      'PUBLICATION_EXPIRED',
+      'PUBLISHED',
+      'CLOSED',
+      'RESULTS_PUBLISHED',
+    ],
     default: 'DRAFT',
     index: true,
   })
@@ -42,6 +53,30 @@ export class VotingEvent {
 
   @Prop({ type: Date, required: false })
   convocationNotifiedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  readyForReviewAt?: Date;
+
+  @Prop({ type: Date, required: false, index: true })
+  publishDeadline?: Date;
+
+  @Prop({ type: Date, required: false })
+  officialPublishedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  publicationExpiredAt?: Date;
+
+  @Prop({ type: Boolean, default: false })
+  publicationConfirmed?: boolean;
+
+  @Prop({ type: String, required: false, trim: true })
+  officialPublicationTxHash?: string;
+
+  @Prop({ type: String, required: false, trim: true })
+  officialPublicationWallet?: string;
+
+  @Prop({ type: String, required: false, trim: true })
+  officialPublicationChainId?: string;
 
   @Prop({ type: Date, required: false })
   resultsNotifiedAt?: Date;
@@ -56,3 +91,4 @@ export class VotingEvent {
 export const VotingEventSchema = SchemaFactory.createForClass(VotingEvent);
 
 VotingEventSchema.index({ tenantId: 1, state: 1, votingStart: 1, votingEnd: 1 });
+VotingEventSchema.index({ state: 1, publishDeadline: 1 });

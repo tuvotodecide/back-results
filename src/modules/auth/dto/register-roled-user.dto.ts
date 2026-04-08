@@ -7,7 +7,11 @@ import {
   IsString,
   MinLength,
 } from 'class-validator';
-import { UserRole, userRoles } from '../schemas/roledUser.schema';
+import {
+  TerritorialAccessStatus,
+  UserRole,
+  userRoles,
+} from '../schemas/roledUser.schema';
 
 export class RegisterRoledUserDto {
   @ApiProperty({ example: '12345678' })
@@ -58,4 +62,7 @@ export class RoledUserResponseDto {
   @ApiPropertyOptional() votingDepartmentId?: string;
   @ApiPropertyOptional() votingMunicipalityId?: string;
   @ApiPropertyOptional() institutionName?: string;
+  @ApiPropertyOptional() territorialAccessStatus?: TerritorialAccessStatus;
+  @ApiPropertyOptional() registrationOutcome?: string;
+  @ApiPropertyOptional() message?: string;
 }

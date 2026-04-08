@@ -1,5 +1,7 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsString,
   IsNotEmpty,
   IsOptional,
@@ -43,11 +45,25 @@ export class CreatePoliticalPartyDto {
   logoUrl?: string;
 
   @ApiProperty({
-    description: 'Color hexadecimal del partido',
+    description: 'Color hexadecimal principal legacy del partido. Si se envía colors[], se deriva desde colors[0].',
     example: '#2196F3',
+    required: false,
   })
+  @IsOptional()
   @IsHexColor()
-  color: string;
+  color?: string;
+
+  @ApiProperty({
+    description: 'Paleta de colores del partido. El primer color se toma como principal.',
+    example: ['#2196F3', '#FFFFFF'],
+    required: false,
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsHexColor({ each: true })
+  colors?: string[];
 
   @ApiProperty({
     description: 'Estado activo del partido',

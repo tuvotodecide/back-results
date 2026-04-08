@@ -125,7 +125,7 @@ export class ParticipationService {
   private async resolveParticipationStatus(eventId: string, carnetNorm: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
 
-    if (event.state !== 'PUBLISHED') {
+    if (!['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state)) {
       return { status: 'EVENT_NOT_PUBLISHED', canVote: false, alreadyVoted: false };
     }
 

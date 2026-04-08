@@ -1,12 +1,21 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ConfigModule } from '@nestjs/config';
 import request from 'supertest';
 
 import { ElectionsModule } from '../../src/modules/elections/elections.module';
 import { PoliticalModule } from '../../src/modules/political/political.module';
+import appConfig from '../../src/config/app.config';
 
 import { InMemoryMongo } from '../utils/mongo';
+import { TestLoggerModule } from '../utils/module-helpers';
+
+jest.mock('@/core/guards/admin-only.guard', () => ({
+  AdminOnlyGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
 
 describe('Aceptación: PoliticalParties', () => {
   let app: INestApplication;
@@ -36,6 +45,8 @@ describe('Aceptación: PoliticalParties', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [
         MongooseModule.forRootAsync({ useFactory: async () => ({ uri: mongo.uri }) }),
+        ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        TestLoggerModule,
         ElectionsModule,
         PoliticalModule,
       ],
@@ -46,7 +57,7 @@ describe('Aceptación: PoliticalParties', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    await app?.close();
     await mongo.stop();
   });
 
@@ -54,7 +65,7 @@ describe('Aceptación: PoliticalParties', () => {
     await mongo.clear();
   });
 
-  it('CRUD básico + 409 por partyId duplicado', async () => {
+  it('CRUD básico + colors[] + 409 por partyId duplicado', async () => {
     // Crear
     const create = await request(app.getHttpServer())
       .post(`${baseUrl}`)
@@ -62,11 +73,13 @@ describe('Aceptación: PoliticalParties', () => {
         partyId: 'LIBRE',
         fullName: 'Alianza Libre',
         shortName: 'LIBRE',
-        color: '#2196F3',
+        colors: ['#2196F3', '#FFFFFF'],
         active: true,
       });
     expect([200, 201]).toContain(create.status);
     const id = create.body._id;
+    expect(create.body.color).toBe('#2196F3');
+    expect(create.body.colors).toEqual(['#2196F3', '#FFFFFF']);
 
     // Duplicado partyId a 409
     const dup = await request(app.getHttpServer())
@@ -90,18 +103,20 @@ describe('Aceptación: PoliticalParties', () => {
     const one = await request(app.getHttpServer()).get(`${baseUrl}/${id}`);
     expect(one.status).toBe(200);
     expect(one.body.partyId).toBe('LIBRE');
+    expect(one.body.colors).toEqual(['#2196F3', '#FFFFFF']);
 
     // Obtener por partyId
     const byPid = await request(app.getHttpServer()).get(`${baseUrl}/by-party-id/LIBRE`);
     expect(byPid.status).toBe(200);
     expect(byPid.body.shortName).toBe('LIBRE');
 
-    // Update (cambia color y active)
+    // Update (cambia paleta y active)
     const upd = await request(app.getHttpServer())
       .patch(`${baseUrl}/${id}`)
-      .send({ color: '#ff0000', active: false });
+      .send({ colors: ['#ff0000', '#000000'], active: false });
     expect(upd.status).toBe(200);
-    expect(upd.body.color).toBe('#ff0000');
+    expect(upd.body.color).toBe('#FF0000');
+    expect(upd.body.colors).toEqual(['#FF0000', '#000000']);
     expect(upd.body.active).toBe(false);
 
     // Activos
@@ -115,6 +130,56 @@ describe('Aceptación: PoliticalParties', () => {
 
     const notFound = await request(app.getHttpServer()).get(`${baseUrl}/${id}`);
     expect(notFound.status).toBe(404);
+  });
+
+  it('mantiene compatibilidad con payload legacy de color unico', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`${baseUrl}`)
+      .send({
+        partyId: 'LEGACY',
+        fullName: 'Partido Legacy',
+        shortName: 'LEGACY',
+        color: '#123abc',
+        active: true,
+      });
+
+    expect([200, 201]).toContain(create.status);
+    expect(create.body.color).toBe('#123ABC');
+    expect(create.body.colors).toEqual(['#123ABC']);
+
+    const one = await request(app.getHttpServer()).get(`${baseUrl}/${create.body._id}`);
+    expect(one.status).toBe(200);
+    expect(one.body.color).toBe('#123ABC');
+    expect(one.body.colors).toEqual(['#123ABC']);
+  });
+
+  it('rechaza colores invalidos en create/update', async () => {
+    const invalidCreate = await request(app.getHttpServer())
+      .post(`${baseUrl}`)
+      .send({
+        partyId: 'INVALID',
+        fullName: 'Partido Invalido',
+        shortName: 'INVALID',
+        colors: ['azul'],
+      });
+
+    expect(invalidCreate.status).toBe(400);
+
+    const create = await request(app.getHttpServer())
+      .post(`${baseUrl}`)
+      .send({
+        partyId: 'VALID',
+        fullName: 'Partido Valido',
+        shortName: 'VALID',
+        color: '#111111',
+      });
+    expect([200, 201]).toContain(create.status);
+
+    const invalidUpdate = await request(app.getHttpServer())
+      .patch(`${baseUrl}/${create.body._id}`)
+      .send({ colors: [] });
+
+    expect(invalidUpdate.status).toBe(400);
   });
 
   it('ElectionParties: assign-bulk / by-election / patch / remove-bulk', async () => {
@@ -157,15 +222,19 @@ describe('Aceptación: PoliticalParties', () => {
     expect(Array.isArray(byElection.body)).toBe(true);
     const epOne = byElection.body.find((x: any) => x.partyId === 'A');
     expect(epOne).toBeTruthy();
+    expect(epOne.color).toBe('#111111');
+    expect(epOne.colors).toEqual(['#111111']);
     const epId = epOne._id;
 
-    // Patch: ballotNumber + color + desactivar
+    // Patch: ballotNumber + colors + desactivar
     const patch = await request(app.getHttpServer())
       .patch(`${epBase}/${epId}`)
-      .send({ ballotNumber: 10, color: '#00ff00', active: false });
+      .send({ ballotNumber: 10, colors: ['#00ff00', '#ffffff'], active: false });
     expect(patch.status).toBe(200);
     expect(patch.body.ballotNumber).toBe(10);
     expect(patch.body.active).toBe(false);
+    expect(patch.body.color).toBe('#00FF00');
+    expect(patch.body.colors).toEqual(['#00FF00', '#FFFFFF']);
 
     const remove = await request(app.getHttpServer())
       .delete(`${epBase}/remove-bulk`)

@@ -16,6 +16,10 @@ import {
   InstitutionalAdminApplication,
   InstitutionalAdminApplicationSchema,
 } from '../institutional-admin-applications/schemas/institutional-admin-application.schema';
+import {
+  InstitutionalTenant,
+  InstitutionalTenantSchema,
+} from '../institutional-tenants/schemas/institutional-tenant.schema';
 
 @Module({
   imports: [
@@ -29,6 +33,12 @@ import {
       {
         name: InstitutionalAdminApplication.name,
         schema: InstitutionalAdminApplicationSchema,
+      },
+    ]),
+    MongooseModule.forFeature([
+      {
+        name: InstitutionalTenant.name,
+        schema: InstitutionalTenantSchema,
       },
     ]),
     JwtModule.registerAsync({

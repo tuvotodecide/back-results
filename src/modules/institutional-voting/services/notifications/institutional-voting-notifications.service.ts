@@ -43,20 +43,13 @@ export class InstitutionalVotingNotificationsService {
     const publicUrl = this.buildPublicElectionUrl(eventId);
     const out = await this.notifyToCurrentPadron(event, {
       type: 'convocation',
-      title: 'Nueva convocatoria de votacion',
-      body: `Ya puedes participar en ${event.name}`,
+      title: 'Revision de padron disponible',
+      body: `Revisa tu habilitacion para ${event.name}`,
       data: {
-        type: 'INSTITUTIONAL_EVENT_PUBLISHED',
-        eventId,
-        eventName: event.name,
-        votingStart: event.votingStart?.toISOString?.() ?? '',
-        votingEnd: event.votingEnd?.toISOString?.() ?? '',
-        resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
-        bannerTitle: 'Nueva convocatoria de votacion',
-        bannerSubtitle: 'Revisa la fecha y participa a tiempo',
-        publicPath: this.buildPublicElectionPath(eventId),
-        publicUrl,
-        deepLink: `myapp://event/${eventId}`,
+        type: 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
+        eventId: String(event._id),
+        state: String(event.state),
+        deepLink: `myapp://event/${String(event._id)}`,
       },
     }, additionalPerUserDniData);
 

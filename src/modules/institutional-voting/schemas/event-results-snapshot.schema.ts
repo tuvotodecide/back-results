@@ -1,7 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type EventResultsSnapshotDocument = EventResultsSnapshot & Document;
+export type EventResultsSnapshotDocument =
+  EventResultsSnapshot & Document & { _id: Types.ObjectId };
 
 @Schema({ _id: false })
 export class EventResultOption {

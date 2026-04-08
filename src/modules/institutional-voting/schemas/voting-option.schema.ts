@@ -6,40 +6,43 @@ export type VotingOptionDocument = VotingOption & Document;
 @Schema({ _id: false })
 export class OptionCandidate {
   @Prop({ required: true, trim: true })
-  name: string;
+  name!: string;
 
   @Prop({ required: false, trim: true })
   photoUrl?: string;
 
   @Prop({ required: true, trim: true })
-  roleName: string;
+  roleName!: string;
 }
 
 @Schema({ timestamps: true, collection: 'voting_options' })
 export class VotingOption {
   @Prop({ type: Types.ObjectId, ref: 'VotingEvent', required: true, index: true })
-  eventId: Types.ObjectId;
+  eventId!: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalTenant', required: true, index: true })
-  tenantId: Types.ObjectId;
+  tenantId!: Types.ObjectId;
 
   @Prop({ required: true, trim: true })
-  name: string;
+  name!: string;
 
   @Prop({ required: true, trim: true })
-  normalizedName: string;
+  normalizedName!: string;
 
   @Prop({ required: true, trim: true })
-  color: string;
+  color!: string;
+
+  @Prop({ type: [String], default: [] })
+  colors?: string[];
 
   @Prop({ required: false, trim: true })
   logoUrl?: string;
 
   @Prop({ type: [OptionCandidate], default: [] })
-  candidates: OptionCandidate[];
+  candidates!: OptionCandidate[];
 
   @Prop({ default: true, index: true })
-  active: boolean;
+  active!: boolean;
 }
 
 export const VotingOptionSchema = SchemaFactory.createForClass(VotingOption);

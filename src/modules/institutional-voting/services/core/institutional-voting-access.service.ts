@@ -54,6 +54,7 @@ export class InstitutionalVotingAccessService {
         tenantId,
         userId: new Types.ObjectId(requesterId),
         active: true,
+        $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
       })
       .lean();
 
@@ -89,6 +90,7 @@ export class InstitutionalVotingAccessService {
           tenantId,
           userId: new Types.ObjectId(requesterId),
           active: true,
+          $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
         })
         .lean();
 
@@ -113,6 +115,7 @@ export class InstitutionalVotingAccessService {
         {
           userId: new Types.ObjectId(requesterId),
           active: true,
+          $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
         },
         { tenantId: 1 },
       )

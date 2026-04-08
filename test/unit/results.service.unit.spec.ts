@@ -3,22 +3,40 @@ import { getModelToken } from '@nestjs/mongoose';
 import { ResultsService } from '@/modules/results/services/results.service';
 import { Ballot } from '@/modules/ballot/schemas/ballot.schema';
 import { ElectoralTable } from '@/modules/geographic/schemas/electoral-table.schema';
+import { Department } from '@/modules/geographic/schemas/department.schema';
+import { Municipality } from '@/modules/geographic/schemas/municipality.schema';
+import { Province } from '@/modules/geographic/schemas/province.schema';
+import { ElectoralSeat } from '@/modules/geographic/schemas/electoral-seat.schema';
+import { ElectoralLocation } from '@/modules/geographic/schemas/electoral-location.schema';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
 
 const mkAgg = (result: any) => ({
   aggregate: jest.fn().mockReturnValue({
     allowDiskUse: jest
       .fn()
-      .mockReturnValue({ exec: jest.fn().mockResolvedValue(result) }),
+      .mockReturnValue({
+        option: jest.fn().mockReturnValue({
+          exec: jest.fn().mockResolvedValue(result),
+        }),
+        exec: jest.fn().mockResolvedValue(result),
+      }),
   }),
   createIndexes: jest.fn().mockResolvedValue(undefined),
   countDocuments: jest.fn(),
+  findById: jest.fn().mockReturnValue({
+    lean: jest.fn().mockResolvedValue(null),
+  }),
 });
 
 describe('ResultsService (unit)', () => {
   let svc: ResultsService;
   const ballotModel = mkAgg([]);
   const tableModel = mkAgg([]);
+  const departmentModel = mkAgg([]);
+  const municipalityModel = mkAgg([]);
+  const provinceModel = mkAgg([]);
+  const electoralSeatModel = mkAgg([]);
+  const electoralLocationModel = mkAgg([]);
   const electionCfg = {
     getActiveConfigs: jest.fn(),
     getActiveConfig: jest.fn(),
@@ -30,6 +48,14 @@ describe('ResultsService (unit)', () => {
         ResultsService,
         { provide: getModelToken(Ballot.name), useValue: ballotModel },
         { provide: getModelToken(ElectoralTable.name), useValue: tableModel },
+        { provide: getModelToken(Department.name), useValue: departmentModel },
+        { provide: getModelToken(Municipality.name), useValue: municipalityModel },
+        { provide: getModelToken(Province.name), useValue: provinceModel },
+        { provide: getModelToken(ElectoralSeat.name), useValue: electoralSeatModel },
+        {
+          provide: getModelToken(ElectoralLocation.name),
+          useValue: electoralLocationModel,
+        },
         { provide: ElectionConfigService, useValue: electionCfg },
       ],
     }).compile();
@@ -133,7 +159,10 @@ describe('ResultsService (unit)', () => {
     });
 
     (tableModel.aggregate as jest.Mock).mockReturnValueOnce({
-      allowDiskUse: () => ({ exec: () => Promise.resolve([{ n: 10 }]) }),
+      allowDiskUse: () => ({
+        option: () => ({ exec: () => Promise.resolve([{ n: 10 }]) }),
+        exec: () => Promise.resolve([{ n: 10 }]),
+      }),
     });
 
     const out = await svc.getResultsByLocation({

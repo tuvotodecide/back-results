@@ -30,10 +30,7 @@ export class AdminOnlyGuard implements CanActivate {
     }
 
     if (payload?.role !== 'ADMIN') {
-      // Aquí debe ser 403, no 400
-      throw new UnauthorizedException('Unauthorized');
-      // throw new ForbiddenException('Admin role required');      
-
+      throw new ForbiddenException('Admin role required');
     }
 
     request['user'] = payload;

@@ -24,7 +24,21 @@ export class InstitutionalVotingLifecycleService {
 
     await this.votingEventModel.updateMany(
       {
-        state: 'PUBLISHED',
+        state: { $in: ['DRAFT', 'READY_FOR_REVIEW'] },
+        publishDeadline: { $lte: now },
+      },
+      {
+        $set: {
+          state: 'PUBLICATION_EXPIRED',
+          publicationExpiredAt: now,
+          publicationConfirmed: false,
+        },
+      },
+    );
+
+    await this.votingEventModel.updateMany(
+      {
+        state: { $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED'] },
         votingEnd: { $lte: now },
       },
       {
@@ -34,7 +48,7 @@ export class InstitutionalVotingLifecycleService {
 
     const publishable = await this.votingEventModel
       .find({
-        state: { $in: ['PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+        state: { $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
         resultsPublishAt: { $lte: now },
         resultsNotifiedAt: { $exists: false },
       })

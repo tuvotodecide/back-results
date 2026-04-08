@@ -8,6 +8,8 @@ import { ElectoralLocationService } from '@/modules/geographic/services/electora
 import { ElectoralTableService } from '@/modules/geographic/services/electoral-table.service';
 import { PoliticalPartyService } from '@/modules/political/services/political-party.service';
 import { ElectionConfigService } from '@/modules/elections/services/election-config.service';
+import { TableCodeValidationService } from '@/modules/table-code-validation/services/table-code-validation.service';
+import { LoggerService } from '@/core/services/logger.service';
 
 const chainFind = () => ({
   find: jest.fn().mockReturnThis(),
@@ -65,6 +67,16 @@ describe('BallotService (unit)', () => {
       .fn()
       .mockResolvedValue([{ id: '68a627c7dba4a531da8a1224' }]),
   };
+  const tableCodeValidationService = {
+    ensurePending: jest.fn().mockResolvedValue(undefined),
+  };
+  const logger = {
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    verbose: jest.fn(),
+  };
 
   beforeEach(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -76,6 +88,11 @@ describe('BallotService (unit)', () => {
         { provide: ElectoralTableService, useValue: tableSvc },
         { provide: PoliticalPartyService, useValue: partySvc },
         { provide: ElectionConfigService, useValue: electionConfig },
+        {
+          provide: TableCodeValidationService,
+          useValue: tableCodeValidationService,
+        },
+        { provide: LoggerService, useValue: logger },
       ],
     }).compile();
 
@@ -329,6 +346,9 @@ describe('BallotService (unit)', () => {
     jest
       .spyOn<any, any>(service as any, 'validateBallotData')
       .mockResolvedValue(undefined);
+    (ballotModel.find as jest.Mock).mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    });
     await expect(
       service.previousValidate({ ipfsUri: 'ipfs://x' } as any),
     ).resolves.toBe(true);

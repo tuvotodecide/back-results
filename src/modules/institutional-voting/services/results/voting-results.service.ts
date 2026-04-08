@@ -20,6 +20,10 @@ export class VotingResultsService {
     const event = await this.accessService.getEventOrThrow(eventId);
     const now = new Date();
 
+    if (!['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'].includes(event.state)) {
+      throw new ForbiddenException({ error: 'RESULTS_NOT_AVAILABLE' });
+    }
+
     if (!event.resultsPublishAt || now < event.resultsPublishAt) {
       throw new ForbiddenException({ error: 'RESULTS_NOT_AVAILABLE' });
     }
@@ -43,6 +47,10 @@ export class VotingResultsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    if (!['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'].includes(event.state)) {
+      throw new ForbiddenException({ error: 'RESULTS_SNAPSHOT_NOT_ALLOWED' });
+    }
 
     const updated = await this.snapshotModel.findOneAndUpdate(
       { eventId: new Types.ObjectId(eventId) },

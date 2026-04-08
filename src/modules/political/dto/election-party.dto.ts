@@ -1,4 +1,13 @@
-import { IsArray, IsMongoId, IsOptional, IsString, IsBoolean, IsNumber } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsHexColor,
+  IsMongoId,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class AssignElectionPartiesBulkDto {
   @IsMongoId() electionId!: string;
@@ -25,5 +34,6 @@ export class UpdateElectionPartyDto {
   @IsOptional() @IsBoolean() active?: boolean;
   @IsOptional() @IsNumber() ballotNumber?: number;
   @IsOptional() @IsString() allianceName?: string;
-  @IsOptional() @IsString() color?: string;
+  @IsOptional() @IsHexColor() color?: string;
+  @IsOptional() @IsArray() @ArrayNotEmpty() @IsHexColor({ each: true }) colors?: string[];
 }

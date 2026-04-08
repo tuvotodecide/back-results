@@ -5,7 +5,12 @@ import {
   RegisterRoledUserDto,
   RoledUserResponseDto,
 } from '../dto/register-roled-user.dto';
-import { ProfileResponseDto, SignInDto, SignInResponseDto } from '../dto/sign-in.dto';
+import {
+  AccessStatusDto,
+  ProfileResponseDto,
+  SignInDto,
+  SignInResponseDto,
+} from '../dto/sign-in.dto';
 import { MessageResponseDto, RequestPasswordResetDto, ResetPasswordDto } from '../dto/password-reset.dto';
 import { RoledUserDocument } from '../schemas/roledUser.schema';
 import { Public } from '@/core/decorators/public.decorator';
@@ -83,6 +88,14 @@ export class AuthController {
     return req.user;
   }
 
+  @Get('access-status')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Obtener el resumen de accesos del usuario autenticado' })
+  @ApiResponse({ status: 200, type: AccessStatusDto })
+  async getAccessStatus(@Request() req): Promise<AccessStatusDto> {
+    return this.authService.getAccessStatus(req.user.sub);
+  }
+
   @Post('test/roleduser')
   @UseGuards(AdminOnlyGuard)
   @HttpCode(HttpStatus.CREATED)
@@ -122,6 +135,7 @@ export class AuthController {
       votingMunicipalityId: user.votingMunicipalityId
         ? (user.votingMunicipalityId as any).toString()
         : null,
+      territorialAccessStatus: user.territorialAccessStatus ?? 'NONE',
     };
   }
 }

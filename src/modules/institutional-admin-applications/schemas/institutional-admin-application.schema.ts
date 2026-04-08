@@ -1,13 +1,15 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
-export type InstitutionalAdminApplicationDocument = InstitutionalAdminApplication & Document;
+export type InstitutionalAdminApplicationDocument =
+  InstitutionalAdminApplication & Document & { _id: Types.ObjectId };
 
 export type InstitutionalAdminApplicationStatus =
   | 'PENDING_EMAIL_VERIFICATION'
   | 'PENDING_APPROVAL'
   | 'APPROVED'
-  | 'REJECTED';
+  | 'REJECTED'
+  | 'REVOKED';
 
 @Schema({ timestamps: true, collection: 'institutional_admin_applications' })
 export class InstitutionalAdminApplication {
@@ -31,7 +33,7 @@ export class InstitutionalAdminApplication {
 
   @Prop({
     required: true,
-    enum: ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED'],
+    enum: ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'REVOKED'],
     default: 'PENDING_EMAIL_VERIFICATION',
     index: true,
   })
@@ -57,6 +59,15 @@ export class InstitutionalAdminApplication {
 
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: false })
   userId?: Types.ObjectId;
+
+  @Prop({ type: Date, required: false })
+  rejectedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  revokedAt?: Date;
+
+  @Prop({ required: false, trim: true })
+  reason?: string;
 }
 
 export const InstitutionalAdminApplicationSchema = SchemaFactory.createForClass(

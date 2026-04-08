@@ -4,10 +4,13 @@ import { InstitutionalVotingLifecycleService } from '@/modules/institutional-vot
 import { institutionalVotingFixtures } from '../fixtures.institutional-voting';
 import {
   bootstrapInstitutionalVotingContext,
+  confirmInstitutionalOfficialPublication,
   createInstitutionalEvent,
+  markInstitutionalEventReadyForReview,
   publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
+  validateInstitutionalEventReadiness,
 } from '../utils/institutional-voting.helpers';
 
 describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
@@ -54,9 +57,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
   ) {
     const eventId = await createConfiguredEvent({
       ...institutionalVotingFixtures.event,
-      votingStart: new Date(Date.now() - 60_000).toISOString(),
-      votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
-      resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       ...payloadOverrides,
     });
 
@@ -73,6 +76,14 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
     expect([200, 201]).toContain(comparison.status);
+
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect([200, 201]).toContain(ready.status);
+    expect(ready.body.state).toBe('READY_FOR_REVIEW');
 
     return eventId;
   }
@@ -103,6 +114,21 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
         { upsert: true },
       );
     }
+  }
+
+  async function updateEventDatesInDb(
+    eventId: string,
+    payload: {
+      votingStart?: Date;
+      votingEnd?: Date;
+      resultsPublishAt?: Date;
+      publishDeadline?: Date;
+    },
+  ) {
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      { $set: payload },
+    );
   }
 
   it('EVT-001: crear evento debe devolver DRAFT', async () => {
@@ -206,10 +232,12 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({
         name: 'Lista Naranja',
-        color: '#F97316',
+        colors: ['#F97316', '#FED7AA'],
         candidates: [{ name: 'Maria Nina', roleName: 'Secretario' }],
       });
     expect(optionRes.status).toBe(201);
+    expect(optionRes.body.color).toBe('#F97316');
+    expect(optionRes.body.colors).toEqual(['#F97316', '#FED7AA']);
     const optionId = optionRes.body.id;
 
     const detail = await request(ctx.httpServer)
@@ -218,6 +246,8 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(detail.status).toBe(200);
     expect(detail.body.roles.length).toBeGreaterThan(0);
     expect(detail.body.options.length).toBeGreaterThan(0);
+    expect(detail.body.options[0].color).toBe('#F97316');
+    expect(detail.body.options[0].colors).toEqual(['#F97316', '#FED7AA']);
 
     const patchEvent = await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${eventId}`)
@@ -253,6 +283,8 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .send({ name: 'Lista Naranja 2', color: '#EA580C' });
     expect(patchOption.status).toBe(200);
     expect(patchOption.body.name).toBe('Lista Naranja 2');
+    expect(patchOption.body.color).toBe('#EA580C');
+    expect(patchOption.body.colors).toEqual(['#EA580C']);
 
     const listRoles = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/roles`)
@@ -265,6 +297,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' });
     expect(listOptions.status).toBe(200);
     expect(Array.isArray(listOptions.body.data)).toBe(true);
+    expect(listOptions.body.data[0].colors).toEqual(['#EA580C']);
 
     const deleteOption = await request(ctx.httpServer)
       .delete(`/api/v1/voting/events/${eventId}/options/${optionId}`)
@@ -301,9 +334,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 60_000).toISOString(),
-        votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       },
     );
     expect(created.status).toBe(201);
@@ -329,14 +362,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     );
     expect(upload.status).toBe(201);
 
-    const publishBeforeApproval = await publishInstitutionalEvent(
+    const readyBeforeApproval = await markInstitutionalEventReadyForReview(
       ctx.httpServer,
       ctx.tenantAdminToken,
       eventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
-    expect(publishBeforeApproval.status).toBe(400);
-    expect(publishBeforeApproval.body.pending).toEqual(
+    expect(readyBeforeApproval.status).toBe(400);
+    expect(readyBeforeApproval.body.pending).toEqual(
       expect.arrayContaining(['padron_validation']),
     );
 
@@ -350,17 +382,16 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     const approved = await approveComparisonReport(eventId, ctx.adminToken, 'OK');
     expect([200, 201]).toContain(approved.status);
 
-    const publishAfterApproval = await publishInstitutionalEvent(
+    const readyAfterApproval = await markInstitutionalEventReadyForReview(
       ctx.httpServer,
       ctx.tenantAdminToken,
       eventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
-    expect(publishAfterApproval.status).toBe(201);
-    expect(publishAfterApproval.body.state).toBe('PUBLISHED');
+    expect(readyAfterApproval.status).toBe(201);
+    expect(readyAfterApproval.body.state).toBe('READY_FOR_REVIEW');
   });
 
-  it('EVT-002: publicar falla si faltan precondiciones y devuelve pending[]', async () => {
+  it('EVT-002: pasar a READY_FOR_REVIEW falla si faltan precondiciones y devuelve pending[]', async () => {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -372,21 +403,30 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     );
     const eventId = created.body.id;
 
-    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, []);
-    expect(publish.status).toBe(400);
-    expect(publish.body).toHaveProperty('pending');
-    expect(publish.body.pending).toEqual(
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect(ready.status).toBe(400);
+    expect(ready.body).toHaveProperty('pending');
+    expect(ready.body.pending).toEqual(
       expect.arrayContaining(['cargos', 'opciones', 'padron', 'horarios']),
     );
   });
 
-  it('EVT-003: publicar exitosamente deja el evento en PUBLISHED, habilita consulta pública y genera convocatoria', async () => {
+  it('EVT-003: confirmar publicación oficial deja el evento en OFFICIALLY_PUBLISHED y mantiene la revisión ya notificada', async () => {
     await seedLinkedUsers(['123456', 'ABC789']);
     const eventId = await createPublishReadyEvent();
 
-    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
+    const publish = await confirmInstitutionalOfficialPublication(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      { txHash: '0xabc123', wallet: '0xAdmin', chainId: '1' },
+    );
     expect(publish.status).toBe(201);
-    expect(publish.body.state).toBe('PUBLISHED');
+    expect(publish.body.state).toBe('OFFICIALLY_PUBLISHED');
 
     const publicEligibility = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
@@ -397,7 +437,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     const notifications = await ctx.conn
       .collection('user_notifications')
       .find({
-        'data.type': 'INSTITUTIONAL_EVENT_PUBLISHED',
+        'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
         'data.eventId': eventId,
       })
       .toArray();
@@ -406,29 +446,193 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     const eventInDb = await ctx.conn
       .collection('voting_events')
       .findOne({ _id: new Types.ObjectId(eventId) });
-    expect(eventInDb?.state).toBe('PUBLISHED');
+    expect(eventInDb?.state).toBe('OFFICIALLY_PUBLISHED');
     expect(eventInDb?.convocationNotifiedAt).toBeTruthy();
+    expect(eventInDb?.officialPublishedAt).toBeTruthy();
     expect(eventInDb?.publicEligibilityEnabled).toBe(true);
   });
 
-  it('EVT-004: publicar exitosamente sin usuarios preexistentes genera convocatoria para el padron vigente', async () => {
-    await ctx.conn.collection('users').deleteMany({
-      dni: { $in: ['123456', 'ABC789'] },
-    });
+  it('EVT-004: READY_FOR_REVIEW notifica y sigue editable sin volver a DRAFT', async () => {
+    await seedLinkedUsers(['123456', 'ABC789']);
     const eventId = await createPublishReadyEvent();
 
-    const publish = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
-    expect(publish.status).toBe(201);
-    expect(publish.body.state).toBe('PUBLISHED');
-
-    const notifications = await ctx.conn
+    const notificationsAfterReady = await ctx.conn
       .collection('user_notifications')
       .find({
-        'data.type': 'INSTITUTIONAL_EVENT_PUBLISHED',
+        'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
         'data.eventId': eventId,
       })
       .toArray();
+    expect(notificationsAfterReady).toHaveLength(2);
+
+    const patchEvent = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ objective: 'Objetivo ajustado en revisión' });
+    expect(patchEvent.status).toBe(200);
+    expect(patchEvent.body.state).toBe('READY_FOR_REVIEW');
+
+    const detailAfterPatch = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(detailAfterPatch.status).toBe(200);
+    expect(detailAfterPatch.body.state).toBe('READY_FOR_REVIEW');
+
+    const publish = await confirmInstitutionalOfficialPublication(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      { txHash: '0xpublish2' },
+    );
+    expect(publish.status).toBe(201);
+    expect(publish.body.state).toBe('OFFICIALLY_PUBLISHED');
+
+    const notificationsAfterPublish = await ctx.conn
+      .collection('user_notifications')
+      .find({
+        'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
+        'data.eventId': eventId,
+      })
+      .toArray();
+    expect(notificationsAfterPublish).toHaveLength(2);
+  });
+
+  it('EVT-005: validar readiness expone faltantes y READY_FOR_REVIEW habilita revisión de padrón', async () => {
+    await seedLinkedUsers(['123456', 'ABC789']);
+    const eventId = await createConfiguredEvent({
+      ...institutionalVotingFixtures.event,
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
+    });
+
+    const readinessBefore = await validateInstitutionalEventReadiness(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect(readinessBefore.status).toBe(200);
+    expect(readinessBefore.body.isReady).toBe(false);
+    expect(readinessBefore.body.pending).toEqual(
+      expect.arrayContaining(['padron']),
+    );
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+    await approveComparisonReport(eventId, ctx.adminToken, 'OK');
+
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect(ready.status).toBe(201);
+    expect(ready.body.state).toBe('READY_FOR_REVIEW');
+
+    const notifications = await ctx.conn
+      .collection('user_notifications')
+      .find({ 'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN', 'data.eventId': eventId })
+      .toArray();
     expect(notifications).toHaveLength(2);
+
+    const publicEligibility = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
+      .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
+    expect(publicEligibility.status).toBe(200);
+    expect(publicEligibility.body.status).toBe('ELIGIBLE');
+  });
+
+  it('EVT-006: intento de publicación oficial fuera de plazo expira el evento', async () => {
+    const eventId = await createPublishReadyEvent();
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() + 23 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() + 25 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 26 * 60 * 60 * 1000),
+      publishDeadline: new Date(Date.now() - 60_000),
+    });
+
+    const publish = await confirmInstitutionalOfficialPublication(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      { txHash: '0xlate' },
+    );
+    expect(publish.status).toBe(400);
+    expect(publish.body.message).toContain('venció el plazo');
+
+    const eventInDb = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: new Types.ObjectId(eventId) });
+    expect(eventInDb?.state).toBe('PUBLICATION_EXPIRED');
+    expect(eventInDb?.publicationExpiredAt).toBeTruthy();
+  });
+
+  it('EVT-007: lifecycle marca PUBLICATION_EXPIRED automáticamente al vencer el deadline', async () => {
+    const eventId = await createPublishReadyEvent();
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() + 23 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 25 * 60 * 60 * 1000),
+      publishDeadline: new Date(Date.now() - 60_000),
+    });
+
+    const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
+    await lifecycle.processLifecycle();
+
+    const eventInDb = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: new Types.ObjectId(eventId) });
+    expect(eventInDb?.state).toBe('PUBLICATION_EXPIRED');
+  });
+
+  it('EVT-008: bloquea edición estructural en OFFICIALLY_PUBLISHED', async () => {
+    const eventId = await createPublishReadyEvent();
+    await confirmInstitutionalOfficialPublication(ctx.httpServer, ctx.adminToken, eventId, {
+      txHash: '0xblocked',
+    });
+
+    const patchEvent = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ name: 'No debe editarse' });
+    expect(patchEvent.status).toBe(400);
+
+    const createRole = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/roles`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ name: 'Nuevo Cargo' });
+    expect(createRole.status).toBe(400);
+  });
+
+  it('EVT-009: bloquea edición estructural en PUBLICATION_EXPIRED', async () => {
+    const eventId = await createPublishReadyEvent();
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() + 23 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 25 * 60 * 60 * 1000),
+      publishDeadline: new Date(Date.now() - 60_000),
+    });
+
+    const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
+    await lifecycle.processLifecycle();
+
+    const patchEvent = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ name: 'No debe editarse' });
+    expect(patchEvent.status).toBe(400);
+
+    const upload = await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      institutionalVotingFixtures.padronCsv,
+    );
+    expect(upload.status).toBe(400);
   });
 
   it('BLT-001/002: crear cargo y rechazar duplicado', async () => {
@@ -574,7 +778,12 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
   });
 
   it('PAD-006: elegibilidad pública negativa devuelve NOT_ELIGIBLE y DISABLED', async () => {
-    const eventId = await createConfiguredEvent(institutionalVotingFixtures.event);
+    const eventId = await createConfiguredEvent({
+      ...institutionalVotingFixtures.event,
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
+    });
 
     await uploadPadronCsv(
       ctx.httpServer,
@@ -592,6 +801,14 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
+
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect([200, 201]).toContain(ready.status);
+    expect(ready.body.state).toBe('READY_FOR_REVIEW');
 
     const disabled = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
@@ -613,9 +830,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 60_000).toISOString(),
-        votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       },
     );
     const eventId = created.body.id;
@@ -642,7 +859,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
+    await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 60_000),
+      votingEnd: new Date(Date.now() + 3_600_000),
+      resultsPublishAt: new Date(Date.now() + 7_200_000),
+    });
 
     const statusBefore = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/participations/status`)
@@ -674,9 +897,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 60_000).toISOString(),
-        votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       },
     );
     const eventId = created.body.id;
@@ -703,7 +926,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
+    await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 60_000),
+      votingEnd: new Date(Date.now() + 3_600_000),
+      resultsPublishAt: new Date(Date.now() + 7_200_000),
+    });
 
     const denied = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -739,8 +968,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
   it('PAR-004: votante inhabilitado no puede participar', async () => {
     const eventId = await createPublishReadyEvent('carnet,habilitado\nABC-789,no\n');
-    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, ['nullifier-ACB-789']);
+    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
     expect(published.status).toBe(201);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 60_000),
+      votingEnd: new Date(Date.now() + 3_600_000),
+      resultsPublishAt: new Date(Date.now() + 7_200_000),
+    });
 
     const denied = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -754,9 +988,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
   it('PAR-005: no se puede participar cuando el evento sigue en DRAFT', async () => {
     const eventId = await createConfiguredEvent({
       ...institutionalVotingFixtures.event,
-      votingStart: new Date(Date.now() - 60_000).toISOString(),
-      votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
-      resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
     });
 
     await uploadPadronCsv(
@@ -787,9 +1021,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() + 3_600_000).toISOString(),
-        votingEnd: new Date(Date.now() + 7_200_000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 10_800_000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       },
     );
     const eventId = created.body.id;
@@ -812,7 +1046,8 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
+    await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
 
     const voteOutOfWindow = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -828,9 +1063,26 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.httpServer,
       ctx.adminToken,
       ctx.createdTenantId,
-      institutionalVotingFixtures.event,
+      {
+        ...institutionalVotingFixtures.event,
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
+      },
     );
     const eventId = created.body.id;
+
+    const role = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/roles`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.rolePresident);
+    expect(role.status).toBe(201);
+
+    const option = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/options`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.optionBlue);
+    expect(option.status).toBe(201);
 
     await uploadPadronCsv(
       ctx.httpServer,
@@ -843,7 +1095,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(beforeToggle.status).toBe(200);
-    expect(beforeToggle.body.status).toBe('ROLL_IN_VALIDATION');
+    expect(beforeToggle.body.status).toBe('PUBLIC_CHECK_DISABLED');
 
     await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${eventId}/public-eligibility`)
@@ -854,6 +1106,14 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .post(`/api/v1/voting/events/${eventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
+
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect([200, 201]).toContain(ready.status);
+    expect(ready.body.state).toBe('READY_FOR_REVIEW');
 
     const afterToggle = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/eligibility/public`)
@@ -907,19 +1167,19 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       institutionalVotingFixtures.padronCsv,
       { name: ownEligibleName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownEligibleEventId, institutionalVotingFixtures.nullifiersForPadron);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownEligibleEventId);
 
     const ownDisabledEventId = await createPublishReadyEvent(
       'carnet,habilitado\nABC-789,no\n',
       { name: ownDisabledName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownDisabledEventId, institutionalVotingFixtures.nullifiersForPadron);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownDisabledEventId);
 
     const ownPrivateEventId = await createPublishReadyEvent(
       institutionalVotingFixtures.padronCsv,
       { name: ownPrivateName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId, institutionalVotingFixtures.nullifiersForPadron);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId);
     await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${ownPrivateEventId}/public-eligibility`)
       .auth(ctx.adminToken, { type: 'bearer' })
@@ -941,9 +1201,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       {
         ...institutionalVotingFixtures.event,
         name: otherEligibleName,
-        votingStart: new Date(Date.now() - 60_000).toISOString(),
-        votingEnd: new Date(Date.now() + 3_600_000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 7_200_000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       },
     );
     const otherEligibleEventId = otherCreated.body.id;
@@ -966,7 +1226,12 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .post(`/api/v1/voting/events/${otherEligibleEventId}/comparison-report/status`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, otherEligibleEventId, institutionalVotingFixtures.nullifiersForPadron);
+    await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      otherEligibleEventId,
+    );
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, otherEligibleEventId);
 
     const allVisible = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')
@@ -1034,18 +1299,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(beforePublishAt.status).toBe(403);
     expect(beforePublishAt.body.error).toBe('RESULTS_NOT_AVAILABLE');
 
-    const createdAvailable = await createInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      ctx.createdTenantId,
-      {
-        ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 7_200_000).toISOString(),
-        votingEnd: new Date(Date.now() - 3_600_000).toISOString(),
-        resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
-      },
-    );
-    const availableEventId = createdAvailable.body.id;
+    const availableEventId = await createPublishReadyEvent();
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, availableEventId);
+    await updateEventDatesInDb(availableEventId, {
+      votingStart: new Date(Date.now() - 7_200_000),
+      votingEnd: new Date(Date.now() - 3_600_000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
 
     await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${availableEventId}/results/snapshot`)
@@ -1064,13 +1324,14 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
   it('RES-003: el ciclo institucional cierra la votación y publica resultados finales', async () => {
     await seedLinkedUsers(['ABC789']);
-    const eventId = await createPublishReadyEvent(institutionalVotingFixtures.padronCsv, {
-      votingStart: new Date(Date.now() - 7_200_000).toISOString(),
-      votingEnd: new Date(Date.now() - 3_600_000).toISOString(),
-      resultsPublishAt: new Date(Date.now() - 60_000).toISOString(),
-    });
+    const eventId = await createPublishReadyEvent();
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId, institutionalVotingFixtures.nullifiersForPadron);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 7_200_000),
+      votingEnd: new Date(Date.now() - 3_600_000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
 
     const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
     await lifecycle.processLifecycle();

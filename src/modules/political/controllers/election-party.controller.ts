@@ -125,7 +125,7 @@ export class ElectionPartyController {
   @ApiOperation({
     summary: 'Actualizar metadatos de un partido en una elección',
     description:
-      'Actualiza número de papeleta, alianza, color o estado activo',
+      'Actualiza número de papeleta, alianza, color/color legacy, paleta colors[] o estado activo',
   })
   @ApiResponse({
     status: 200,

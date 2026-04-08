@@ -5,6 +5,32 @@ import { CacheModule } from '@nestjs/cache-manager';
 
 import request from 'supertest';
 
+jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
+  ZkAuthModule: class {},
+}));
+
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
+  ZkAuthService: jest.fn().mockImplementation(() => ({})),
+}));
+
+jest.mock('@/core/guards/admin-only.guard', () => ({
+  AdminOnlyGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/core/guards/jwt-auth.guard', () => ({
+  JwtAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 // Módulo real de Elections (usa el modelo real ElectionConfig)
 import { ElectionsModule } from '../../src/modules/elections/elections.module';
 
@@ -139,7 +165,7 @@ describe('Aceptación: Elections / Guards', () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    await app?.close();
     await mongo.stop();
   });
 
@@ -422,13 +448,18 @@ describe('Aceptación: Elections / Guards', () => {
     const activeOnes = (list.body as any[]).filter((x) => x.isActive === true);
     expect(activeOnes.length).toBe(2);
 
-    // GET /elections/config/active (en tu código devuelve una sola, la más reciente)
+    // GET /elections/config/active devuelve todas las activas ordenadas desc por createdAt
     const active = await request(app.getHttpServer()).get(
       `${baseUrl}/elections/config/active`,
     );
     expect(active.status).toBe(200);
-    // Como se ordena por createdAt desc en service.getActiveConfig(), debería ser la última creada
-    expect([c1.id, c2.id]).toContain(active.body?.id);
+    expect(Array.isArray(active.body)).toBe(true);
+    expect(active.body).toHaveLength(2);
+    // Como se ordena por createdAt desc en service.getActiveConfigs(), la última creada va primero
+    expect(active.body[0]?.id).toBe(c2.id);
+    expect([c1.id, c2.id]).toEqual(
+      expect.arrayContaining(active.body.map((item: any) => item.id)),
+    );
   });
 
   it('GET /elections/config/status responde flags correctos', async () => {
@@ -451,8 +482,19 @@ describe('Aceptación: Elections / Guards', () => {
     );
 
     expect(status).toBe(200);
-    expect(body?.hasActiveConfig).toBe(true);
-    expect(body?.isVotingPeriod).toBe(true);
-    expect(body?.isResultsPeriod).toBe(false);
+    expect(body?.hasActiveConfigs).toBe(true);
+    expect(Array.isArray(body?.elections)).toBe(true);
+    expect(body.elections.length).toBeGreaterThanOrEqual(1);
+    for (const election of body.elections) {
+      expect(typeof election?.isVotingPeriod).toBe('boolean');
+      expect(typeof election?.isResultsPeriod).toBe('boolean');
+    }
+
+    const presidential = body.elections.find(
+      (item: any) => item?.type === 'presidential',
+    );
+    expect(presidential).toBeDefined();
+    expect(presidential?.isVotingPeriod).toBe(true);
+    expect(presidential?.isResultsPeriod).toBe(false);
   });
 });

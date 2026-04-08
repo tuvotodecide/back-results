@@ -6,10 +6,10 @@ export type ElectionPartyDocument = ElectionParty & Document;
 @Schema({ timestamps: true, collection: 'election_parties' })
 export class ElectionParty {
   @Prop({ type: Types.ObjectId, required: true, index: true })
-  electionId: Types.ObjectId;
+  electionId!: Types.ObjectId;
 
   @Prop({ required: true })
-  partyId: string;
+  partyId!: string;
 
   // Campos territoriales para filtrado granular
   // Si ambos son null = partido aplica a nivel nacional
@@ -29,7 +29,7 @@ export class ElectionParty {
   municipalityName?: string | null;
 
   @Prop({ default: true })
-  active: boolean;
+  active!: boolean;
 
   @Prop({ type: Number, default: null })
   assignmentOrder?: number | null;
@@ -37,6 +37,7 @@ export class ElectionParty {
   @Prop() ballotNumber?: number;
   @Prop() allianceName?: string;
   @Prop() color?: string;
+  @Prop({ type: [String], default: [] }) colors?: string[];
 }
 
 export const ElectionPartySchema = SchemaFactory.createForClass(ElectionParty);

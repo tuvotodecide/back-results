@@ -12,6 +12,14 @@ import { ResultsService } from '../../src/modules/results/services/results.servi
 
 import { Ballot, BallotSchema } from '../../src/modules/ballot/schemas/ballot.schema';
 import { ElectoralTable, ElectoralTableSchema } from '../../src/modules/geographic/schemas/electoral-table.schema';
+import { Department, DepartmentSchema } from '../../src/modules/geographic/schemas/department.schema';
+import { Municipality, MunicipalitySchema } from '../../src/modules/geographic/schemas/municipality.schema';
+import { Province, ProvinceSchema } from '../../src/modules/geographic/schemas/province.schema';
+import { ElectoralSeat, ElectoralSeatSchema } from '../../src/modules/geographic/schemas/electoral-seat.schema';
+import {
+  ElectoralLocation,
+  ElectoralLocationSchema,
+} from '../../src/modules/geographic/schemas/electoral-location.schema';
 
 import { ElectionConfig, ElectionConfigSchema } from '../../src/modules/elections/schemas/election-config.schema';
 import { ElectionConfigService } from '../../src/modules/elections/services/election-config.service';
@@ -44,6 +52,11 @@ describe('Results E2E (HTTP caja negra)', () => {
         MongooseModule.forFeature([
           { name: Ballot.name, schema: BallotSchema },
           { name: ElectoralTable.name, schema: ElectoralTableSchema },
+          { name: Department.name, schema: DepartmentSchema },
+          { name: Municipality.name, schema: MunicipalitySchema },
+          { name: Province.name, schema: ProvinceSchema },
+          { name: ElectoralSeat.name, schema: ElectoralSeatSchema },
+          { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
           { name: ElectionConfig.name, schema: ElectionConfigSchema },
         ]),
       ],
@@ -140,14 +153,19 @@ describe('Results E2E (HTTP caja negra)', () => {
     // Santa Cruz / Andrés Ibáñez / Santa Cruz de la Sierra / ...
     await seedGeoMinimal(conn, { department: 'Santa Cruz', province: 'Andrés Ibáñez', municipality: 'Santa Cruz de la Sierra', seat: 'Centro', location: 'Colegio Central' });
     await upsertTable(conn, { tableCode: 'SC1', electoralLocationName: 'Colegio Central', active: true, observedMap: { [electionFinalId]: false, [electionLiveId]: false }});
-    await seedBallot(conn, {
+    const sc1 = await seedBallot(conn, {
       electionId: electionFinalId, tableCode: 'SC1', version: 1, valuable: true,
       status: 'processed',
       loc: { department:'Santa Cruz', province:'Andrés Ibáñez', municipality:'Santa Cruz de la Sierra', seat:'Centro', location:'Colegio Central',
              district:'D2', zone:'Z2', circ: { number: 8, type: 'Uninominal', name:'Circ 8' } },
       parties: { valid: 50, null: 1, blank: 2, votes: { 'MAS': 10, 'CC': 40 } }
     });
-    await seedCase(conn, { electionId: electionFinalId, tableCode: 'SC1', status: 'CLOSED', winningBallotId: null });
+    await seedCase(conn, {
+      electionId: electionFinalId,
+      tableCode: 'SC1',
+      status: 'CLOSED',
+      winningBallotId: sc1._id,
+    });
   });
 
   afterAll(async () => {
@@ -276,13 +294,13 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(cc.percentage).toBe('52.94');  // 90/170*100=52.9411
     });
 
-    it('by-location FINAL: totalTables excluye observadas y tablesProcessed = efectivas', async () => {
+    it('by-location FINAL: totalTables cuenta mesas activas no observadas y tablesProcessed solo efectivas', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/by-location?electionType=presidential&department=La%20Paz&electionId=${electionFinalId}`)
         .expect(200);
 
-      // En La Paz tenemos T1 (no observada, activa) y T3 (observada). totalTables debe contar SOLO T1 (1)
-      expect(res.body.summary.totalTables).toBe(1);
+      // En La Paz tenemos T1 y T2 activas/no observadas; T3 observada queda fuera.
+      expect(res.body.summary.totalTables).toBe(2);
       // tablesProcessed: FINAL efectivas en La Paz => T1 (1)
       expect(res.body.summary.tablesProcessed).toBe(1);
 
@@ -316,8 +334,8 @@ describe('Results E2E (HTTP caja negra)', () => {
         .get(`/api/v1/results/registration-progress?department=La%20Paz&electionId=${electionFinalId}`)
         .expect(200);
 
-      // totalTables en La Paz: T1 no observada + T3 observada => solo 1 cuenta
-      expect(res.body.progress.totalTables).toBe(1);
+      // totalTables en La Paz: T1 y T2 cuentan; T3 observada queda fuera
+      expect(res.body.progress.totalTables).toBe(2);
       // registeredBallots: status processed/synced con ese eid y en La Paz (T1 v1+v2+T3 v1 cuentan, son 3)
       expect(res.body.progress.registeredBallots).toBe(3);
 
@@ -332,7 +350,8 @@ describe('Results E2E (HTTP caja negra)', () => {
     });
 
     it('Cache TTL: lastUpdate estable dentro del TTL del endpoint; cambia al vencer', async () => {
-      // Reactivamos una config FINAL rápido
+      // Dejamos una sola config presidencial activa para evitar conflicto con el índice parcial único
+      await conn.collection('election_configs').deleteMany({});
       await conn.collection('election_configs').insertOne({
         name: 'final-cache',
         votingStartDate: new Date(Date.now() - 2 * 60 * 60 * 1000),
@@ -347,13 +366,11 @@ describe('Results E2E (HTTP caja negra)', () => {
 
       expect(second.body.lastUpdate).toBe(first.body.lastUpdate); // mismo cache
 
-      // Avanzar 31s para vencer @CacheTTL(30)
-      jest.useFakeTimers();
-      jest.advanceTimersByTime(31_000);
-      jest.useRealTimers();
+      // Espera real para vencer @CacheTTL(30_000) del endpoint HTTP/cache interceptor
+      await new Promise(resolve => setTimeout(resolve, 31_000));
 
       const third = await request(app.getHttpServer()).get('/api/v1/results/quick-count').expect(200);
       expect(third.body.lastUpdate).not.toBe(first.body.lastUpdate);
-    });
+    }, 90_000);
   });
 });

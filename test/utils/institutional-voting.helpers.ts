@@ -32,6 +32,15 @@ jest.mock('@/core/guards/zk-auth.guard', () => ({
   })),
 }));
 
+jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
+  ZkAuthService: jest.fn().mockImplementation(() => ({
+    generateRequest: jest.fn().mockReturnValue({ apiKey: 'mock-api-key', request: {} }),
+    zkAuthCallback: jest.fn().mockResolvedValue({}),
+    saveApiKey: jest.fn().mockResolvedValue(undefined),
+    isApiKeyValid: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 export type InstitutionalVotingContext = {
   app: INestApplication;
   moduleRef: TestingModule;
@@ -44,8 +53,7 @@ export type InstitutionalVotingContext = {
 };
 
 export async function bootstrapInstitutionalVotingContext(): Promise<InstitutionalVotingContext> {
-  const mongod = await MongoMemoryServer.create();
-  const mongoUri = mongod.getUri();
+  let mongod: MongoMemoryServer | null = null;
 
   const firebaseAdminMock = {
     messaging: jest.fn(() => ({
@@ -71,109 +79,119 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     }),
   };*/
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [
-      ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
-      MongooseModule.forRoot(mongoUri),
-      CacheModule.register({ isGlobal: true }),
-      JwtModule.registerAsync({
-        global: true,
-        useFactory: (configService: ConfigService) => ({
-          secret: configService.get('app.jwt.secret'),
-          signOptions: {
-            expiresIn: configService.get('app.jwt.expirationTime'),
-          },
+  try {
+    mongod = await MongoMemoryServer.create({
+      instance: {
+        launchTimeout: 120000,
+      },
+    });
+    const mongoUri = mongod.getUri();
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        MongooseModule.forRoot(mongoUri),
+        CacheModule.register({ isGlobal: true }),
+        JwtModule.registerAsync({
+          global: true,
+          useFactory: (configService: ConfigService) => ({
+            secret: configService.get('app.jwt.secret'),
+            signOptions: {
+              expiresIn: configService.get('app.jwt.expirationTime'),
+            },
+          }),
+          inject: [ConfigService],
         }),
-        inject: [ConfigService],
+        TestLoggerModule,
+        AuthModule,
+        ElectionsModule,
+        GeographicModule,
+        InstitutionalTenantsModule,
+        InstitutionalAdminApplicationsModule,
+        InstitutionalVotingModule,
+      ],
+      providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
+    })
+      .overrideProvider('FIREBASE_ADMIN')
+      .useValue(firebaseAdminMock)
+      .overrideProvider(VoteReaderService)
+      .useValue(voteReaderServiceMock)
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        transform: true,
+        transformOptions: { enableImplicitConversion: true },
       }),
-      TestLoggerModule,
-      AuthModule,
-      ElectionsModule,
-      GeographicModule,
-      InstitutionalTenantsModule,
-      InstitutionalAdminApplicationsModule,
-      InstitutionalVotingModule,
-    ],
-    providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
-  })
-    .overrideProvider('FIREBASE_ADMIN')
-    .useValue(firebaseAdminMock)
-    .overrideProvider(VoteReaderService)
-    .useValue(voteReaderServiceMock)
-    //.overrideProvider(IssuerService)
-    //.useValue(issuerServiceMock)
-    .compile();
+    );
 
-  const app = moduleRef.createNestApplication();
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
+    await app.init();
 
-  await app.init();
+    const conn = moduleRef.get<Connection>(getConnectionToken());
+    const httpServer = app.getHttpServer();
 
-  const conn = moduleRef.get<Connection>(getConnectionToken());
-  const httpServer = app.getHttpServer();
+    await seedLocations(conn);
+    const users = await seedUsers(conn);
+    const admin = await seedAdmin(conn);
+    if (!admin) {
+      throw new Error('Admin user not seeded properly');
+    }
 
-  await seedLocations(conn);
-  const users = await seedUsers(conn);
-  const admin = await seedAdmin(conn);
-  if (!admin) {
-    throw new Error('Admin user not seeded properly');
+    const loginRes = await request(httpServer).post('/api/v1/auth/login').send({
+      email: admin.email,
+      password: 'secret123',
+    });
+
+    const adminToken = loginRes.body?.accessToken as string;
+
+    const tenantRes = await request(httpServer)
+      .post('/api/v1/institutional-tenants')
+      .auth(adminToken, { type: 'bearer' })
+      .send({
+        name: `Tenant E2E ${Date.now()}`,
+        description: 'Tenant para pruebas institucionales',
+      });
+
+    const governorUserId = users.get('governorLaPaz')._id.toString() as string;
+    const governorEmail = users.get('governorLaPaz').email as string;
+
+    await request(httpServer)
+      .post(`/api/v1/institutional-tenants/${tenantRes.body?.id}/admins`)
+      .auth(adminToken, { type: 'bearer' })
+      .send({
+        userId: governorUserId,
+        active: true,
+      });
+
+    const tenantAdminLoginRes = await request(httpServer).post('/api/v1/auth/login').send({
+      email: governorEmail,
+      password: 'secret123',
+    });
+
+    return {
+      app,
+      moduleRef,
+      conn,
+      mongod,
+      httpServer,
+      adminToken,
+      tenantAdminToken: tenantAdminLoginRes.body?.accessToken as string,
+      createdTenantId: tenantRes.body?.id,
+    };
+  } catch (error) {
+    await mongod?.stop();
+    throw error;
   }
-
-  const loginRes = await request(httpServer).post('/api/v1/auth/login').send({
-    email: admin.email,
-    password: 'secret123',
-  });
-
-  const adminToken = loginRes.body?.accessToken as string;
-
-  const tenantRes = await request(httpServer)
-    .post('/api/v1/institutional-tenants')
-    .auth(adminToken, { type: 'bearer' })
-    .send({
-      name: `Tenant E2E ${Date.now()}`,
-      description: 'Tenant para pruebas institucionales',
-    });
-
-  const governorUserId = users.get('governorLaPaz')._id.toString() as string;
-  const governorEmail = users.get('governorLaPaz').email as string;
-
-  await request(httpServer)
-    .post(`/api/v1/institutional-tenants/${tenantRes.body?.id}/admins`)
-    .auth(adminToken, { type: 'bearer' })
-    .send({
-      userId: governorUserId,
-      active: true,
-    });
-
-  const tenantAdminLoginRes = await request(httpServer).post('/api/v1/auth/login').send({
-    email: governorEmail,
-    password: 'secret123',
-  });
-
-  return {
-    app,
-    moduleRef,
-    conn,
-    mongod,
-    httpServer,
-    adminToken,
-    tenantAdminToken: tenantAdminLoginRes.body?.accessToken as string,
-    createdTenantId: tenantRes.body?.id,
-  };
 }
 
 export async function teardownInstitutionalVotingContext(
-  ctx: InstitutionalVotingContext,
+  ctx?: Partial<InstitutionalVotingContext> | null,
 ): Promise<void> {
-  await ctx.app?.close();
-  await ctx.conn?.close();
-  await ctx.mongod?.stop();
+  await ctx?.app?.close();
+  await ctx?.conn?.close();
+  await ctx?.mongod?.stop();
 }
 
 export async function createInstitutionalEvent(
@@ -192,12 +210,45 @@ export async function publishInstitutionalEvent(
   httpServer: any,
   token: string,
   eventId: string,
-  nullifiers: string[],
+  payload: Record<string, unknown> = {},
 ) {
   return request(httpServer)
     .post(`/api/v1/voting/events/${eventId}/publish`)
     .auth(token, { type: 'bearer' })
-    .send(nullifiers);
+    .send(payload);
+}
+
+export async function validateInstitutionalEventReadiness(
+  httpServer: any,
+  token: string,
+  eventId: string,
+) {
+  return request(httpServer)
+    .get(`/api/v1/voting/events/${eventId}/review-readiness`)
+    .auth(token, { type: 'bearer' });
+}
+
+export async function markInstitutionalEventReadyForReview(
+  httpServer: any,
+  token: string,
+  eventId: string,
+) {
+  return request(httpServer)
+    .post(`/api/v1/voting/events/${eventId}/ready-for-review`)
+    .auth(token, { type: 'bearer' })
+    .send({});
+}
+
+export async function confirmInstitutionalOfficialPublication(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  payload: Record<string, unknown> = {},
+) {
+  return request(httpServer)
+    .post(`/api/v1/voting/events/${eventId}/official-publication/confirm`)
+    .auth(token, { type: 'bearer' })
+    .send(payload);
 }
 
 export async function uploadPadronCsv(
@@ -210,4 +261,146 @@ export async function uploadPadronCsv(
     .post(`/api/v1/voting/events/${eventId}/padron/import`)
     .auth(token, { type: 'bearer' })
     .attach('file', Buffer.from(csvContent, 'utf-8'), 'padron.csv');
+}
+
+export async function uploadPadronSource(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  content: Buffer | string,
+  fileName = 'padron.pdf',
+  contentType = 'application/pdf',
+) {
+  return request(httpServer)
+    .post(`/api/v1/voting/events/${eventId}/padron/imports`)
+    .auth(token, { type: 'bearer' })
+    .attach('file', Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf-8'), {
+      filename: fileName,
+      contentType,
+    });
+}
+
+export async function uploadPadronPdf(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  pdfContent: Buffer | string,
+  fileName = 'padron.pdf',
+) {
+  return uploadPadronSource(httpServer, token, eventId, pdfContent, fileName, 'application/pdf');
+}
+
+export async function uploadPadronImage(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  imageContent: Buffer | string,
+  fileName = 'padron.png',
+  contentType = 'image/png',
+) {
+  return uploadPadronSource(httpServer, token, eventId, imageContent, fileName, contentType);
+}
+
+export async function getPadronImport(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  importJobId: string,
+) {
+  return request(httpServer)
+    .get(`/api/v1/voting/events/${eventId}/padron/imports/${importJobId}`)
+    .auth(token, { type: 'bearer' });
+}
+
+export async function listPadronStaging(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  query: { page?: number; limit?: number } = {},
+) {
+  return request(httpServer)
+    .get(`/api/v1/voting/events/${eventId}/padron/staging`)
+    .auth(token, { type: 'bearer' })
+    .query(query);
+}
+
+export async function addPadronStagingEntry(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  payload: { ci: string; enabled?: boolean },
+) {
+  return request(httpServer)
+    .post(`/api/v1/voting/events/${eventId}/padron/staging`)
+    .auth(token, { type: 'bearer' })
+    .send(payload);
+}
+
+export async function updatePadronStagingEntry(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  entryId: string,
+  payload: { ci?: string; enabled?: boolean },
+) {
+  return request(httpServer)
+    .patch(`/api/v1/voting/events/${eventId}/padron/staging/${entryId}`)
+    .auth(token, { type: 'bearer' })
+    .send(payload);
+}
+
+export async function deletePadronStagingEntry(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  entryId: string,
+) {
+  return request(httpServer)
+    .delete(`/api/v1/voting/events/${eventId}/padron/staging/${entryId}`)
+    .auth(token, { type: 'bearer' });
+}
+
+export async function confirmPadronStaging(
+  httpServer: any,
+  token: string,
+  eventId: string,
+) {
+  return request(httpServer)
+    .post(`/api/v1/voting/events/${eventId}/padron/staging/confirm`)
+    .auth(token, { type: 'bearer' })
+    .send({});
+}
+
+export async function getPadronSummary(
+  httpServer: any,
+  token: string,
+  eventId: string,
+) {
+  return request(httpServer)
+    .get(`/api/v1/voting/events/${eventId}/padron/summary`)
+    .auth(token, { type: 'bearer' });
+}
+
+export async function getPadronCertificateMetadata(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  padronVersionId?: string,
+) {
+  return request(httpServer)
+    .get(`/api/v1/voting/events/${eventId}/padron/certificate`)
+    .auth(token, { type: 'bearer' })
+    .query(padronVersionId ? { padronVersionId } : {});
+}
+
+export async function materializePadronCertificate(
+  httpServer: any,
+  token: string,
+  eventId: string,
+  payload: { padronVersionId?: string; forceRegenerate?: boolean } = {},
+) {
+  return request(httpServer)
+    .post(`/api/v1/voting/events/${eventId}/padron/certificate/materialize`)
+    .auth(token, { type: 'bearer' })
+    .send(payload);
 }

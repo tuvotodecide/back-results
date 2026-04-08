@@ -16,6 +16,18 @@ import { EventRole, EventRoleSchema } from './schemas/event-role.schema';
 import { VotingOption, VotingOptionSchema } from './schemas/voting-option.schema';
 import { PadronVersion, PadronVersionSchema } from './schemas/padron-version.schema';
 import { PadronEntry, PadronEntrySchema } from './schemas/padron-entry.schema';
+import {
+  PadronImportJob,
+  PadronImportJobSchema,
+} from './schemas/padron-import-job.schema';
+import {
+  PadronStagingEntry,
+  PadronStagingEntrySchema,
+} from './schemas/padron-staging-entry.schema';
+import {
+  PadronCertificate,
+  PadronCertificateSchema,
+} from './schemas/padron-certificate.schema';
 import { ComparisonReport, ComparisonReportSchema } from './schemas/comparison-report.schema';
 import { Participation, ParticipationSchema } from './schemas/participation.schema';
 import {
@@ -42,6 +54,8 @@ import {
 } from '../notifications/schemas/notification-log.schema';
 import { HttpModule } from '@nestjs/axios';
 import { PadronUsersService } from './services/core/padron-users.service';
+import { PadronCertificatePdfService } from './services/core/padron-certificate-pdf.service';
+import { PadronPdfParserService } from './services/core/padron-pdf-parser.service';
 import { FirebaseModule } from '@/core/firebase/firebase.module';
 import { VoteReaderService } from './services/core/vote-reader.service';
 
@@ -53,6 +67,9 @@ import { VoteReaderService } from './services/core/vote-reader.service';
       { name: VotingOption.name, schema: VotingOptionSchema },
       { name: PadronVersion.name, schema: PadronVersionSchema },
       { name: PadronEntry.name, schema: PadronEntrySchema },
+      { name: PadronImportJob.name, schema: PadronImportJobSchema },
+      { name: PadronStagingEntry.name, schema: PadronStagingEntrySchema },
+      { name: PadronCertificate.name, schema: PadronCertificateSchema },
       { name: ComparisonReport.name, schema: ComparisonReportSchema },
       { name: Participation.name, schema: ParticipationSchema },
       { name: EventResultsSnapshot.name, schema: EventResultsSnapshotSchema },
@@ -75,6 +92,8 @@ import { VoteReaderService } from './services/core/vote-reader.service';
     InstitutionalVotingService,
     InstitutionalVotingAccessService,
     PadronUsersService,
+    PadronCertificatePdfService,
+    PadronPdfParserService,
     VoteReaderService,
     VotingEventsService,
     InstitutionalVotingLifecycleService,

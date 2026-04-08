@@ -75,9 +75,16 @@ export class ContractsController {
     }
 
     if (dto.approve) {
-      // Aprobar: activar usuario
-      user.active = true;
+      user.territorialAccessStatus = 'APPROVED';
+      user.territorialApprovedAt = new Date();
+      user.territorialRejectedAt = null;
+      user.territorialRevokedAt = null;
+      user.territorialReason = null;
+      user.territorialApprovedBy = req.user?.sub
+        ? new Types.ObjectId(req.user.sub)
+        : null;
       await user.save();
+      await this.authService.syncUserActiveState(user._id);
 
       // Aquí podrías crear automáticamente el contrato si ya sabes los datos
       // O dejarlo para que el Superadmin lo cree manualmente después
@@ -98,9 +105,16 @@ export class ContractsController {
         },
       };
     } else {
-      // Rechazar: desactivar y opcionalmente registrar razón
-      user.active = false;
+      user.territorialAccessStatus = 'REJECTED';
+      user.territorialRejectedAt = new Date();
+      user.territorialApprovedAt = null;
+      user.territorialRevokedAt = null;
+      user.territorialReason = dto.reason?.trim() || null;
+      user.territorialApprovedBy = req.user?.sub
+        ? new Types.ObjectId(req.user.sub)
+        : null;
       await user.save();
+      await this.authService.syncUserActiveState(user._id);
 
       // Aquí podrías guardar la razón del rechazo en un campo adicional
       // o en una colección de auditoría

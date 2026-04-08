@@ -22,6 +22,7 @@ import {
 import { Public } from '@/core/decorators/public.decorator';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
+import { ReviewInstitutionalAdminApplicationDto } from '../dto/review-institutional-admin-application.dto';
 import { VerifyInstitutionalAdminApplicationDto } from '../dto/verify-institutional-admin-application.dto';
 import { InstitutionalAdminApplicationsService } from '../services/institutional-admin-applications.service';
 
@@ -75,6 +76,17 @@ export class InstitutionalAdminApplicationsController {
     return this.institutionalAdminApplicationsService.listApplications(status);
   }
 
+  @Get('pending')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Listar solicitudes institucionales pendientes',
+    description: 'Retorna solo solicitudes en estado pendiente de aprobación.',
+  })
+  @ApiResponse({ status: 200, description: 'Listado de solicitudes pendientes.' })
+  listPendingApplications() {
+    return this.institutionalAdminApplicationsService.listPendingApplications();
+  }
+
   @Post(':applicationId/approve')
   @UseGuards(AdminOnlyGuard)
   @ApiOperation({
@@ -86,6 +98,66 @@ export class InstitutionalAdminApplicationsController {
   @ApiResponse({ status: 200, description: 'Solicitud aprobada correctamente.' })
   approve(@Param('applicationId') applicationId: string, @Req() req: any) {
     return this.institutionalAdminApplicationsService.approveApplication(applicationId, req.user);
+  }
+
+  @Post(':applicationId/reject')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Rechazar solicitud institucional',
+    description: 'Marca la solicitud como rechazada y deja el membership tenant en REJECTED cuando exista.',
+  })
+  @ApiParam({ name: 'applicationId', description: 'ID de la solicitud institucional.' })
+  @ApiBody({ type: ReviewInstitutionalAdminApplicationDto })
+  reject(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.rejectApplication(
+      applicationId,
+      req.user,
+      dto.reason,
+    );
+  }
+
+  @Post(':applicationId/revoke')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Revocar acceso institucional',
+    description: 'Revoca un acceso tenant previamente aprobado.',
+  })
+  @ApiParam({ name: 'applicationId', description: 'ID de la solicitud institucional.' })
+  @ApiBody({ type: ReviewInstitutionalAdminApplicationDto })
+  revoke(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.revokeApplication(
+      applicationId,
+      req.user,
+      dto.reason,
+    );
+  }
+
+  @Post(':applicationId/reopen')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Reabrir solicitud institucional',
+    description: 'Regresa una solicitud rechazada o revocada al estado pendiente.',
+  })
+  @ApiParam({ name: 'applicationId', description: 'ID de la solicitud institucional.' })
+  @ApiBody({ type: ReviewInstitutionalAdminApplicationDto })
+  reopen(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.reopenApplication(
+      applicationId,
+      req.user,
+      dto.reason,
+    );
   }
 
   @Post('test/approved-admin')

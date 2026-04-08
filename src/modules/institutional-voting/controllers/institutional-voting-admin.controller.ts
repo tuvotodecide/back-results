@@ -27,7 +27,13 @@ import {
 } from '@nestjs/swagger';
 import { InstitutionalVotingService } from '../services/institutional-voting.service';
 import { CreateVotingEventDto } from '../dto/create-voting-event.dto';
+import { MaterializePadronCertificateDto } from '../dto/materialize-padron-certificate.dto';
+import { ConfirmOfficialPublicationDto } from '../dto/official-publication.dto';
 import { CreateEventRoleDto } from '../dto/event-role.dto';
+import {
+  CreatePadronStagingEntryDto,
+  UpdatePadronStagingEntryDto,
+} from '../dto/padron-staging-entry.dto';
 import { UpdatePublicEligibilityDto } from '../dto/public-eligibility-toggle.dto';
 import { UpsertEventResultsSnapshotDto } from '../dto/results-snapshot.dto';
 import { UpdateEventRoleDto } from '../dto/update-event-role.dto';
@@ -47,12 +53,12 @@ export class InstitutionalVotingAdminController {
   @ApiOperation({
     summary: 'Listar eventos de votación para el usuario autenticado',
     description:
-      'Retorna eventos del tenant asignado al usuario. SuperAdmin puede filtrar por tenantId.',
+      'Retorna eventos del tenant asignado al usuario. ADMIN puede filtrar por tenantId.',
   })
   @ApiQuery({
     name: 'tenantId',
     required: false,
-    description: 'ID del tenant para filtrar eventos (uso principal de superadmin).',
+    description: 'ID del tenant para filtrar eventos (uso principal de ADMIN).',
   })
   @ApiResponse({ status: 200, description: 'Listado de eventos de votación.' })
   listEvents(@Req() req: any, @Query('tenantId') tenantId?: string) {
@@ -106,18 +112,63 @@ export class InstitutionalVotingAdminController {
     return this.institutionalVotingService.deleteEvent(eventId, req.user);
   }
 
-  @Post(':eventId/publish')
+  @Get(':eventId/review-readiness')
   @ApiOperation({
-    summary: 'Publicar evento de votación',
+    summary: 'Validar si el evento está listo para revisión',
     description:
-      'Cambia estado a PUBLISHED si cumple precondiciones (cargos, opciones, padrón y horarios).',
+      'Evalúa completitud estructural del evento y retorna faltantes antes de pasar a READY_FOR_REVIEW.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
-  @ApiBody({ type: [String] })
-  @ApiResponse({ status: 200, description: 'Evento publicado.' })
-  @ApiResponse({ status: 400, description: 'Faltan precondiciones para publicar.' })
-  publishEvent(@Param('eventId') eventId: string, @Body() dto: string[], @Req() req: any) {
-    return this.institutionalVotingService.publishEvent(eventId, dto, req.user);
+  @ApiResponse({ status: 200, description: 'Resultado de validación de readiness.' })
+  validateReviewReadiness(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.validateReviewReadiness(eventId, req.user);
+  }
+
+  @Post(':eventId/ready-for-review')
+  @ApiOperation({
+    summary: 'Marcar evento como READY_FOR_REVIEW',
+    description:
+      'Valida completitud, pasa el evento a READY_FOR_REVIEW y notifica a los empadronados para revisión previa a la publicación oficial.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiResponse({ status: 200, description: 'Evento marcado como listo para revisión.' })
+  markReadyForReview(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.markReadyForReview(eventId, req.user);
+  }
+
+  @Post(':eventId/official-publication/confirm')
+  @ApiOperation({
+    summary: 'Confirmar publicación oficial del evento',
+    description:
+      'Confirma la publicación oficial luego del paso externo de MetaMask y cambia el estado a OFFICIALLY_PUBLISHED, bloqueando edición estructural.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: ConfirmOfficialPublicationDto })
+  @ApiResponse({ status: 200, description: 'Publicación oficial confirmada.' })
+  @ApiResponse({ status: 400, description: 'No cumple condiciones para publicación oficial.' })
+  confirmOfficialPublication(
+    @Param('eventId') eventId: string,
+    @Body() dto: ConfirmOfficialPublicationDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.confirmOfficialPublication(eventId, dto, req.user);
+  }
+
+  @Post(':eventId/publish')
+  @ApiOperation({
+    summary: 'Alias legado para confirmar publicación oficial',
+    description:
+      'Compatibilidad temporal: reutiliza la confirmación oficial y requiere que el evento esté en READY_FOR_REVIEW.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: ConfirmOfficialPublicationDto, required: false })
+  @ApiResponse({ status: 200, description: 'Publicación oficial confirmada.' })
+  publishEvent(
+    @Param('eventId') eventId: string,
+    @Body() dto: ConfirmOfficialPublicationDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.confirmOfficialPublication(eventId, dto, req.user);
   }
 
   @Post(':eventId/roles')
@@ -180,7 +231,7 @@ export class InstitutionalVotingAdminController {
   @Post(':eventId/options')
   @ApiOperation({
     summary: 'Crear opción/lista/partido',
-    description: 'Registra una opción de boleta para el evento.',
+    description: 'Registra una opción de boleta para el evento. Acepta color legacy o colors[] como paleta.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
   @ApiBody({ type: CreateVotingOptionDto })
@@ -203,7 +254,7 @@ export class InstitutionalVotingAdminController {
   @Patch(':eventId/options/:optionId')
   @ApiOperation({
     summary: 'Actualizar opción/lista/partido',
-    description: 'Permite editar nombre, color o logo de una opción existente.',
+    description: 'Permite editar nombre, color/color legacy, paleta colors[] o logo de una opción existente.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
   @ApiParam({ name: 'optionId', description: 'ID de la opción.' })
@@ -275,9 +326,9 @@ export class InstitutionalVotingAdminController {
 
   @Post(':eventId/padron/import')
   @ApiOperation({
-    summary: 'Importar padrón CSV del evento',
+    summary: 'Importar padrón CSV del evento (legacy)',
     description:
-      'Carga padrón masivo de carnets para el evento. Genera versión, hash y métricas (válidos/duplicados/inválidos).',
+      'Flujo legacy: carga padrón CSV y lo confirma directamente como versión vigente. El flujo principal nuevo usa PDF + staging.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
   @ApiConsumes('multipart/form-data')
@@ -307,6 +358,262 @@ export class InstitutionalVotingAdminController {
       file.buffer.toString('utf-8'),
       req.user,
     );
+  }
+
+  @Post(':eventId/padron/imports')
+  @ApiOperation({
+    summary: 'Subir padrón PDF o imagen y crear staging editable',
+    description:
+      'Carga un PDF o una imagen de tabla, lo procesa con el parser encapsulado y crea un staging editable antes de confirmar la versión vigente.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo PDF, JPG, JPEG, PNG o WEBP',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Documento procesado y staging creado.' })
+  @UseInterceptors(FileInterceptor('file'))
+  uploadPadronFile(
+    @Param('eventId') eventId: string,
+    @UploadedFile() file: any,
+    @Req() req: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Archivo requerido');
+    }
+
+    return this.institutionalVotingService.uploadPadronFile(eventId, file, req.user);
+  }
+
+  @Post(':eventId/padron/imports/pdf')
+  @ApiOperation({
+    summary: 'Alias legacy para subir padrón desde documento',
+    description:
+      'Compatibilidad temporal: acepta PDF e imagen y reutiliza el mismo flujo principal de staging editable.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo PDF, JPG, JPEG, PNG o WEBP',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Documento procesado y staging creado.' })
+  @UseInterceptors(FileInterceptor('file'))
+  uploadPadronPdfAlias(
+    @Param('eventId') eventId: string,
+    @UploadedFile() file: any,
+    @Req() req: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Archivo requerido');
+    }
+
+    return this.institutionalVotingService.uploadPadronFile(eventId, file, req.user);
+  }
+
+  @Get(':eventId/padron/imports/:importJobId')
+  @ApiOperation({
+    summary: 'Consultar estado de importación PDF',
+    description:
+      'Devuelve metadata del import, estado del procesamiento, resumen y errores de parseo.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiParam({ name: 'importJobId', description: 'ID del import job.' })
+  getPadronImport(
+    @Param('eventId') eventId: string,
+    @Param('importJobId') importJobId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.getPadronImport(eventId, importJobId, req.user);
+  }
+
+  @Get(':eventId/padron/staging')
+  @ApiOperation({
+    summary: 'Listar staging activo del padrón',
+    description:
+      'Retorna el staging editable activo del padrón con paginación.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({ name: 'page', required: false, description: 'Página (default 1).' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Tamaño de página (default 50).' })
+  listPadronStaging(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+  ) {
+    return this.institutionalVotingService.listPadronStaging(
+      eventId,
+      req.user,
+      Number(page),
+      Number(limit),
+    );
+  }
+
+  @Post(':eventId/padron/staging')
+  @ApiOperation({
+    summary: 'Agregar entrada al staging del padrón',
+    description: 'Agrega manualmente una entrada al staging activo del padrón.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: CreatePadronStagingEntryDto })
+  addPadronStagingEntry(
+    @Param('eventId') eventId: string,
+    @Body() dto: CreatePadronStagingEntryDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.addPadronStagingEntry(eventId, dto, req.user);
+  }
+
+  @Patch(':eventId/padron/staging/:entryId')
+  @ApiOperation({
+    summary: 'Editar entrada del staging del padrón',
+    description: 'Permite modificar CI y/o habilitación de una entrada del staging activo.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiParam({ name: 'entryId', description: 'ID de la entrada de staging.' })
+  @ApiBody({ type: UpdatePadronStagingEntryDto })
+  updatePadronStagingEntry(
+    @Param('eventId') eventId: string,
+    @Param('entryId') entryId: string,
+    @Body() dto: UpdatePadronStagingEntryDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.updatePadronStagingEntry(
+      eventId,
+      entryId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Delete(':eventId/padron/staging/:entryId')
+  @ApiOperation({
+    summary: 'Eliminar entrada del staging del padrón',
+    description: 'Elimina una entrada del staging activo del padrón.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiParam({ name: 'entryId', description: 'ID de la entrada de staging.' })
+  deletePadronStagingEntry(
+    @Param('eventId') eventId: string,
+    @Param('entryId') entryId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.deletePadronStagingEntry(eventId, entryId, req.user);
+  }
+
+  @Post(':eventId/padron/staging/confirm')
+  @ApiOperation({
+    summary: 'Confirmar staging como padrón vigente',
+    description:
+      'Convierte el staging activo en la nueva versión vigente del padrón del evento.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  confirmPadronStaging(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.confirmPadronStaging(eventId, req.user);
+  }
+
+  @Get(':eventId/padron/summary')
+  @ApiOperation({
+    summary: 'Consultar resumen del padrón del evento',
+    description:
+      'Resume la versión vigente y el staging activo del padrón para el evento.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  getPadronSummary(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.getPadronSummary(eventId, req.user);
+  }
+
+  @Get(':eventId/padron/certificate')
+  @ApiOperation({
+    summary: 'Consultar metadatos de constancia PDF del padrón',
+    description:
+      'Retorna metadatos de la constancia asociada a una versión confirmada del padrón. Si no existe, informa si puede materializarse.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({
+    name: 'padronVersionId',
+    required: false,
+    description: 'Versión específica del padrón. Si se omite, usa la vigente.',
+  })
+  getPadronCertificateMetadata(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+    @Query('padronVersionId') padronVersionId?: string,
+  ) {
+    return this.institutionalVotingService.getPadronCertificateMetadata(
+      eventId,
+      req.user,
+      padronVersionId,
+    );
+  }
+
+  @Post(':eventId/padron/certificate/materialize')
+  @ApiOperation({
+    summary: 'Materializar o regenerar constancia PDF del padrón',
+    description:
+      'Genera la constancia PDF desde una versión confirmada del padrón. Se usa también para backfill legacy o regeneración controlada.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: MaterializePadronCertificateDto })
+  materializePadronCertificate(
+    @Param('eventId') eventId: string,
+    @Body() dto: MaterializePadronCertificateDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.materializePadronCertificate(
+      eventId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Get(':eventId/padron/certificate/download')
+  @ApiOperation({
+    summary: 'Descargar constancia PDF del padrón',
+    description:
+      'Descarga la constancia PDF asociada a una versión confirmada del padrón.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({
+    name: 'padronVersionId',
+    required: false,
+    description: 'Versión específica del padrón. Si se omite, usa la vigente.',
+  })
+  async downloadPadronCertificate(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+    @Query('padronVersionId') padronVersionId?: string,
+  ) {
+    const result = await this.institutionalVotingService.downloadPadronCertificate(
+      eventId,
+      req.user,
+      padronVersionId,
+    );
+
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+    return result.pdfBuffer;
   }
 
   @Patch(':eventId/schedule')

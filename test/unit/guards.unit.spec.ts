@@ -3,10 +3,15 @@ import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.gu
 import { PreliminaryResultsGuard } from '@/modules/elections/guards/preliminary-results.guard';
 import { ForbiddenException } from '@nestjs/common';
 
-const mkCtx = (query: any = {}, body: any = {}) =>
+const mkCtx = (
+  query: any = {},
+  body: any = {},
+  params: any = {},
+  headers: any = {},
+) =>
   ({
     switchToHttp: () => ({
-      getRequest: () => ({ query, body }),
+      getRequest: () => ({ query, body, params, headers }),
     }),
   }) as any;
 

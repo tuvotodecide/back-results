@@ -4,6 +4,7 @@ import { institutionalVotingFixtures } from '../../fixtures.institutional-voting
 import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
+  markInstitutionalEventReadyForReview,
   publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
@@ -41,9 +42,9 @@ describe('Institutional voting integration - public eligibility across events', 
       {
         ...institutionalVotingFixtures.event,
         name,
-        votingStart: new Date(Date.now() - 60_000).toISOString(),
-        votingEnd: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       },
     );
 
@@ -71,7 +72,7 @@ describe('Institutional voting integration - public eligibility across events', 
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(200);
   }
 
   async function setPublicEligibility(eventId: string, enabled: boolean) {
@@ -128,11 +129,16 @@ describe('Institutional voting integration - public eligibility across events', 
       institutionalVotingFixtures.padronCsv,
     );
     await markComparisonOk(eligibleEventId);
+    const eligibleReady = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eligibleEventId,
+    );
+    expect([200, 201]).toContain(eligibleReady.status);
     const eligiblePublished = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
       eligibleEventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(eligiblePublished.status).toBe(201);
 
@@ -145,11 +151,16 @@ describe('Institutional voting integration - public eligibility across events', 
       'carnet,habilitado\nABC-789,no\n',
     );
     await markComparisonOk(disabledEventId);
+    const disabledReady = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      disabledEventId,
+    );
+    expect([200, 201]).toContain(disabledReady.status);
     const disabledPublished = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
       disabledEventId,
-      ['nullifier-ABC-789'],
     );
     expect(disabledPublished.status).toBe(201);
 
@@ -177,11 +188,16 @@ describe('Institutional voting integration - public eligibility across events', 
       institutionalVotingFixtures.padronCsv,
     );
     await markComparisonOk(privateEventId);
+    const privateReady = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      privateEventId,
+    );
+    expect([200, 201]).toContain(privateReady.status);
     const privatePublished = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
       privateEventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(privatePublished.status).toBe(201);
     await setPublicEligibility(privateEventId, false);
@@ -197,15 +213,15 @@ describe('Institutional voting integration - public eligibility across events', 
     expect(response.body.carnet).toBe('ABC789');
     expect(response.body.events).toHaveLength(5);
 
-    const byName = new Map(
+    const byName = new Map<string, any>(
       response.body.events.map((event: any) => [event.name, event]),
     );
 
-    const eligibleEvent = byName.get(eligibleName);
-    const disabledEvent = byName.get(disabledName);
-    const pendingEvent = byName.get(pendingName);
-    const noPadronEvent = byName.get(noPadronName);
-    const privateEvent = byName.get(privateName);
+    const eligibleEvent = byName.get(eligibleName) as any;
+    const disabledEvent = byName.get(disabledName) as any;
+    const pendingEvent = byName.get(pendingName) as any;
+    const noPadronEvent = byName.get(noPadronName) as any;
+    const privateEvent = byName.get(privateName) as any;
 
     expect(eligibleEvent).toEqual(
       expect.objectContaining({
@@ -264,11 +280,16 @@ describe('Institutional voting integration - public eligibility across events', 
       institutionalVotingFixtures.padronCsv,
     );
     await markComparisonOk(ownEventId);
+    const ownReady = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      ownEventId,
+    );
+    expect([200, 201]).toContain(ownReady.status);
     const ownPublished = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
       ownEventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(ownPublished.status).toBe(201);
 
@@ -281,11 +302,16 @@ describe('Institutional voting integration - public eligibility across events', 
       institutionalVotingFixtures.padronCsv,
     );
     await markComparisonOk(otherEventId);
+    const otherReady = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      otherEventId,
+    );
+    expect([200, 201]).toContain(otherReady.status);
     const otherPublished = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
       otherEventId,
-      institutionalVotingFixtures.nullifiersForPadron,
     );
     expect(otherPublished.status).toBe(201);
 

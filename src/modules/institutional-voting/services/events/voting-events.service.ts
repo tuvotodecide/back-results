@@ -9,6 +9,7 @@ import { Model, Types } from 'mongoose';
 import { CreateVotingEventDto } from '../../dto/create-voting-event.dto';
 import { CreateEventNewsDto } from '../../dto/event-news.dto';
 import { CreateEventRoleDto } from '../../dto/event-role.dto';
+import { ConfirmOfficialPublicationDto } from '../../dto/official-publication.dto';
 import { normalizeCarnet } from '../../utils/carnet-normalizer';
 import { UpdateEventRoleDto } from '../../dto/update-event-role.dto';
 import { UpdateOptionCandidatesDto } from '../../dto/update-option-candidates.dto';
@@ -35,16 +36,30 @@ import {
   VotingOption,
   VotingOptionDocument,
 } from '../../schemas/voting-option.schema';
+import {
+  readColorPalette,
+  resolveColorPaletteInput,
+} from '@/shared/utils/color-palette.util';
+import { VoteReaderService } from '../core/vote-reader.service';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
-import { ConfigService } from '@nestjs/config';
-import { VoteReaderService } from '../core/vote-reader.service';
-import { User, UserDocument } from '@/modules/users/schemas/user.schema';
-import { PadronUsersService } from '../core/padron-users.service';
-import { shuffle } from '@/utils/array.util';
 
 @Injectable()
 export class VotingEventsService {
+  private mapVotingOption(option: any) {
+    const palette = readColorPalette(option);
+    return {
+      id: String(option._id),
+      eventId: String(option.eventId),
+      name: option.name,
+      color: palette.color,
+      colors: palette.colors,
+      logoUrl: option.logoUrl ?? null,
+      candidates: option.candidates ?? [],
+      active: option.active,
+    };
+  }
+
   constructor(
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
@@ -62,13 +77,9 @@ export class VotingEventsService {
     private readonly participationModel: Model<ParticipationDocument>,
     @InjectModel(EventResultsSnapshot.name)
     private readonly resultsSnapshotModel: Model<EventResultsSnapshotDocument>,
-    @InjectModel(User.name)
-    private readonly userModel: Model<UserDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
-    private readonly configService: ConfigService,
     private readonly voteReaderService: VoteReaderService,
-    private readonly padronUsersService: PadronUsersService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -90,7 +101,9 @@ export class VotingEventsService {
       votingEnd,
       resultsPublishAt,
       state: 'DRAFT',
+      publishDeadline: this.computePublishDeadline(votingStart),
       publicEligibilityEnabled: true,
+      publicationConfirmed: false,
     });
 
     return {
@@ -101,6 +114,7 @@ export class VotingEventsService {
       votingStart: created.votingStart,
       votingEnd: created.votingEnd,
       resultsPublishAt: created.resultsPublishAt,
+      publishDeadline: created.publishDeadline ?? null,
       state: created.state,
     };
   }
@@ -130,6 +144,11 @@ export class VotingEventsService {
         votingStart: event.votingStart ?? null,
         votingEnd: event.votingEnd ?? null,
         resultsPublishAt: event.resultsPublishAt ?? null,
+        publishDeadline: event.publishDeadline ?? null,
+        readyForReviewAt: event.readyForReviewAt ?? null,
+        officialPublishedAt: event.officialPublishedAt ?? null,
+        publicationExpiredAt: event.publicationExpiredAt ?? null,
+        publicationConfirmed: Boolean(event.publicationConfirmed),
         publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       })),
     };
@@ -139,7 +158,7 @@ export class VotingEventsService {
     const now = new Date();
     const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
     const query: Record<string, unknown> = {
-      state: { $in: ['PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+      state: { $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
     };
 
     if (tenantId) {
@@ -165,10 +184,12 @@ export class VotingEventsService {
 
     const mapped = events.map((event) => {
       const isUpcoming = Boolean(
-        event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
+        ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
+          event.votingStart &&
+          now < event.votingStart,
       );
       const isActive = Boolean(
-        event.state === 'PUBLISHED' &&
+        ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
           event.votingStart &&
           event.votingEnd &&
           now >= event.votingStart &&
@@ -273,7 +294,7 @@ export class VotingEventsService {
 
   async getPublicEventDetail(eventId: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
-    if (event.state === 'DRAFT') {
+    if (['DRAFT', 'READY_FOR_REVIEW', 'PUBLICATION_EXPIRED'].includes(event.state)) {
       throw new NotFoundException('Evento no disponible publicamente');
     }
 
@@ -287,10 +308,12 @@ export class VotingEventsService {
 
     const now = new Date();
     const isUpcoming = Boolean(
-      event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
+      ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
+        event.votingStart &&
+        now < event.votingStart,
     );
     const isActive = Boolean(
-      event.state === 'PUBLISHED' &&
+      ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
         event.votingStart &&
         event.votingEnd &&
         now >= event.votingStart &&
@@ -325,12 +348,7 @@ export class VotingEventsService {
         maxWinners: role.maxWinners,
       })),
       options: options.map((option) => ({
-        id: String(option._id),
-        name: option.name,
-        color: option.color,
-        logoUrl: option.logoUrl ?? null,
-        candidates: option.candidates ?? [],
-        active: option.active,
+        ...this.mapVotingOption(option),
       })),
       results,
     };
@@ -344,7 +362,9 @@ export class VotingEventsService {
 
     const now = new Date();
     const query: Record<string, unknown> = {
-      state: { $in: ['PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+      state: {
+        $in: ['READY_FOR_REVIEW', 'OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'],
+      },
     };
 
     if (tenantId) {
@@ -406,10 +426,12 @@ export class VotingEventsService {
       const inPadron = typeof versionEligibility !== 'undefined';
 
       const isUpcoming = Boolean(
-        event.state === 'PUBLISHED' && event.votingStart && now < event.votingStart,
+        ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
+          event.votingStart &&
+          now < event.votingStart,
       );
       const isActive = Boolean(
-        event.state === 'PUBLISHED' &&
+        ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
           event.votingStart &&
           event.votingEnd &&
           now >= event.votingStart &&
@@ -465,6 +487,12 @@ export class VotingEventsService {
       votingStart: event.votingStart ?? null,
       votingEnd: event.votingEnd ?? null,
       resultsPublishAt: event.resultsPublishAt ?? null,
+      publishDeadline: event.publishDeadline ?? null,
+      readyForReviewAt: event.readyForReviewAt ?? null,
+      officialPublishedAt: event.officialPublishedAt ?? null,
+      publicationExpiredAt: event.publicationExpiredAt ?? null,
+      publicationConfirmed: Boolean(event.publicationConfirmed),
+      canEditStructure: this.isStructuralEditableState(event.state),
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       roles: roles.map((role) => ({
         id: String(role._id),
@@ -472,12 +500,7 @@ export class VotingEventsService {
         maxWinners: role.maxWinners,
       })),
       options: options.map((option) => ({
-        id: String(option._id),
-        name: option.name,
-        color: option.color,
-        logoUrl: option.logoUrl ?? null,
-        candidates: option.candidates ?? [],
-        active: option.active,
+        ...this.mapVotingOption(option),
       })),
     };
   }
@@ -485,7 +508,7 @@ export class VotingEventsService {
   async updateEvent(eventId: string, dto: UpdateVotingEventDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'editar el evento');
+    await this.assertStructuralEditableState(event, 'editar el evento');
 
     if (dto.name !== undefined) {
       event.name = dto.name.trim();
@@ -509,7 +532,7 @@ export class VotingEventsService {
   async deleteEvent(eventId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftState(event, 'eliminar el evento');
+    await this.assertStructuralEditableState(event, 'eliminar el evento');
 
     const versions = await this.padronVersionModel
       .find({ eventId: event._id }, { _id: 1 })
@@ -538,30 +561,31 @@ export class VotingEventsService {
   async createRole(eventId: string, dto: CreateEventRoleDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'crear cargos');
+    await this.assertStructuralEditableState(event, 'crear cargos');
 
     const normalizedName = this.accessService.normalizeName(dto.name);
 
+    let created;
     try {
-      const created = await this.eventRoleModel.create({
+      created = await this.eventRoleModel.create({
         eventId: event._id,
         name: dto.name.trim(),
         normalizedName,
         maxWinners: dto.maxWinners || 1,
       });
-
-      return {
-        id: String(created._id),
-        eventId: String(created.eventId),
-        name: created.name,
-        maxWinners: created.maxWinners,
-      };
     } catch (error: any) {
       if (error?.code === 11000) {
         throw new ConflictException('Ya existe un cargo con ese nombre en el evento');
       }
       throw error;
     }
+
+    return {
+      id: String(created._id),
+      eventId: String(created.eventId),
+      name: created.name,
+      maxWinners: created.maxWinners,
+    };
   }
 
   async listRoles(eventId: string, requester: any) {
@@ -586,7 +610,7 @@ export class VotingEventsService {
   async updateRole(eventId: string, roleId: string, dto: UpdateEventRoleDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'editar cargos');
+    await this.assertStructuralEditableState(event, 'editar cargos');
 
     if (!Types.ObjectId.isValid(roleId)) {
       throw new BadRequestException('roleId invalido');
@@ -642,7 +666,7 @@ export class VotingEventsService {
   async deleteRole(eventId: string, roleId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'eliminar cargos');
+    await this.assertStructuralEditableState(event, 'eliminar cargos');
 
     if (!Types.ObjectId.isValid(roleId)) {
       throw new BadRequestException('roleId invalido');
@@ -678,37 +702,36 @@ export class VotingEventsService {
   async createOption(eventId: string, dto: CreateVotingOptionDto, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'crear opciones');
+    await this.assertStructuralEditableState(event, 'crear opciones');
 
     const normalizedName = this.accessService.normalizeName(dto.name);
 
+    const palette = resolveColorPaletteInput(dto, {
+      requireAtLeastOne: true,
+      fieldLabel: 'colors',
+    });
+
+    let created;
     try {
-      const created = await this.votingOptionModel.create({
+      created = await this.votingOptionModel.create({
         eventId: event._id,
         tenantId: event.tenantId,
         name: dto.name.trim(),
         normalizedName,
-        color: dto.color,
+        color: palette.color,
+        colors: palette.colors,
         logoUrl: dto.logoUrl,
         candidates: dto.candidates || [],
         active: true,
       });
-
-      return {
-        id: String(created._id),
-        eventId: String(created.eventId),
-        name: created.name,
-        color: created.color,
-        logoUrl: created.logoUrl,
-        candidates: created.candidates,
-        active: created.active,
-      };
     } catch (error: any) {
       if (error?.code === 11000) {
         throw new ConflictException('Ya existe una opcion con ese nombre en el evento');
       }
       throw error;
     }
+
+    return this.mapVotingOption(created.toObject ? created.toObject() : created);
   }
 
   async listOptions(eventId: string, requester: any) {
@@ -721,15 +744,7 @@ export class VotingEventsService {
       .lean();
 
     return {
-      data: options.map((option) => ({
-        id: String(option._id),
-        eventId: String(option.eventId),
-        name: option.name,
-        color: option.color,
-        logoUrl: option.logoUrl ?? null,
-        candidates: option.candidates ?? [],
-        active: option.active,
-      })),
+      data: options.map((option) => this.mapVotingOption(option)),
     };
   }
 
@@ -741,7 +756,7 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'editar opciones');
+    await this.assertStructuralEditableState(event, 'editar opciones');
 
     if (!Types.ObjectId.isValid(optionId)) {
       throw new BadRequestException('optionId invalido');
@@ -761,8 +776,13 @@ export class VotingEventsService {
       option.normalizedName = this.accessService.normalizeName(dto.name);
     }
 
-    if (dto.color !== undefined) {
-      option.color = dto.color;
+    if (dto.color !== undefined || dto.colors !== undefined) {
+      const palette = resolveColorPaletteInput(dto, {
+        requireAtLeastOne: true,
+        fieldLabel: 'colors',
+      });
+      option.color = palette.color!;
+      option.colors = palette.colors;
     }
 
     if (dto.logoUrl !== undefined) {
@@ -778,15 +798,7 @@ export class VotingEventsService {
       throw error;
     }
 
-    return {
-      id: String(option._id),
-      eventId: String(option.eventId),
-      name: option.name,
-      color: option.color,
-      logoUrl: option.logoUrl ?? null,
-      candidates: option.candidates ?? [],
-      active: option.active,
-    };
+    return this.mapVotingOption(option.toObject ? option.toObject() : option);
   }
 
   async replaceOptionCandidates(
@@ -797,7 +809,7 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'actualizar candidatos');
+    await this.assertStructuralEditableState(event, 'actualizar candidatos');
 
     if (!Types.ObjectId.isValid(optionId)) {
       throw new BadRequestException('optionId invalido');
@@ -839,7 +851,7 @@ export class VotingEventsService {
   async deactivateOption(eventId: string, optionId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'desactivar opciones');
+    await this.assertStructuralEditableState(event, 'desactivar opciones');
 
     const updated = await this.votingOptionModel
       .findOneAndUpdate(
@@ -862,7 +874,7 @@ export class VotingEventsService {
   async deleteOption(eventId: string, optionId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    this.assertDraftEditable(event, 'eliminar opciones');
+    await this.assertStructuralEditableState(event, 'eliminar opciones');
 
     if (!Types.ObjectId.isValid(optionId)) {
       throw new BadRequestException('optionId invalido');
@@ -890,17 +902,7 @@ export class VotingEventsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    const shouldNotifyScheduleChange = event.state === 'PUBLISHED';
-    const now = Date.now();
-    const startsInMoreThan24Hours =
-      event.votingStart instanceof Date &&
-      event.votingStart.getTime() - now >= 24 * 60 * 60 * 1000;
-
-    if (event.state !== 'DRAFT' && !(event.state === 'PUBLISHED' && startsInMoreThan24Hours)) {
-      throw new BadRequestException(
-        'Solo se permite editar el cronograma en DRAFT o hasta 24 horas antes del inicio cuando la votacion ya fue publicada',
-      );
-    }
+    await this.assertStructuralEditableState(event, 'editar el cronograma');
 
     const { votingStart, votingEnd, resultsPublishAt } = this.accessService.parseAndValidateDates(
       payload.votingStart,
@@ -912,103 +914,138 @@ export class VotingEventsService {
     event.votingStart = votingStart;
     event.votingEnd = votingEnd;
     event.resultsPublishAt = resultsPublishAt;
+    event.publishDeadline = this.computePublishDeadline(votingStart);
     await event.save();
-
-    if (shouldNotifyScheduleChange) {
-      await this.notificationsService.notifyScheduleUpdatedToCurrentPadron(event);
-    }
 
     return {
       id: String(event._id),
       votingStart: event.votingStart,
       votingEnd: event.votingEnd,
       resultsPublishAt: event.resultsPublishAt,
+      publishDeadline: event.publishDeadline ?? null,
     };
   }
 
-  async publishEvent(eventId: string, nullifiers: string[], requester: any) {
+  async validateReviewReadiness(eventId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    await this.expireEventIfPastDeadline(event);
 
-    const [rolesCount, optionsCount, currentPadron, hasWindows] = await Promise.all([
-      this.eventRoleModel.countDocuments({ eventId: event._id }),
-      this.votingOptionModel.countDocuments({ eventId: event._id, active: true }),
-      this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
-      Promise.resolve(
-        Boolean(event.votingStart && event.votingEnd && event.resultsPublishAt),
-      ),
-    ]);
+    const readiness = await this.evaluateReviewReadiness(event);
 
-    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
-      includeDisabled: false,
-    });
-    const enoughtNullifiers = convotatedUsers.length <= nullifiers.length;
+    return {
+      id: String(event._id),
+      tenantId: String(event.tenantId),
+      state: event.state,
+      isReady: readiness.pending.length === 0,
+      pending: readiness.pending,
+      publishDeadline: event.publishDeadline ?? null,
+      canConfirmOfficialPublication:
+        readiness.pending.length === 0 && this.canStillBeOfficiallyPublished(event),
+    };
+  }
 
-    const comparisonReportOk = currentPadron
-      ? await this.comparisonReportModel.exists({
-          padronVersionId: currentPadron._id,
-          status: 'OK',
-        })
-      : false;
+  async markReadyForReview(eventId: string, requester: any) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    await this.expireEventIfPastDeadline(event);
 
-    const pending: string[] = [];
-    if (rolesCount === 0) pending.push('cargos');
-    if (optionsCount === 0) pending.push('opciones');
-    if (!currentPadron) {
-      pending.push('padron');
-    } else {
-      if (Number(currentPadron?.totals?.validCount ?? 0) <= 0) {
-        pending.push('padron');
-      }
-      if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) {
-        pending.push('padron_invalid');
-      }
-      if (!comparisonReportOk) {
-        pending.push('padron_validation');
-      }
-      if (!enoughtNullifiers) {
-        pending.push('nullifiers');
-      }
+    if (event.state === 'PUBLICATION_EXPIRED') {
+      throw new BadRequestException(
+        'La elección ya no puede pasar a revisión porque venció el plazo de publicación oficial',
+      );
     }
-    if (!hasWindows) pending.push('horarios');
 
-    if (pending.length > 0) {
+    if (!['DRAFT', 'READY_FOR_REVIEW'].includes(event.state)) {
+      throw new BadRequestException(
+        'Solo se puede pasar a READY_FOR_REVIEW desde DRAFT o mantenerlo en revisión',
+      );
+    }
+
+    const readiness = await this.evaluateReviewReadiness(event);
+    if (readiness.pending.length > 0) {
       throw new BadRequestException({
-        message: 'Faltan precondiciones para publicar',
-        pending,
+        message: 'Faltan precondiciones para pasar a READY_FOR_REVIEW',
+        pending: readiness.pending,
       });
     }
 
-    event.state = 'PUBLISHED';
+    event.state = 'READY_FOR_REVIEW';
+    event.readyForReviewAt = new Date();
     event.publicEligibilityEnabled = true;
     await event.save();
-
-    if(event.convocationNotifiedAt) {
-      return {
-        id: String(event._id),
-        state: event.state,
-      };
-    }
-
-    let userCredentials: Record<string, Record<string, string>> = {};
-    let shuffledNullifiers = shuffle(nullifiers);
-    if (convotatedUsers.length > 0) {
-      convotatedUsers.forEach((user, index) => {
-        const perUserData: Record<string, string> = {
-          eligible: user.enabled ? 'true' : 'false',
-        };
-        if (user.enabled) {
-          perUserData.nullifier = shuffledNullifiers[index];
-        }
-        userCredentials[String(user.dni)] = perUserData;
-      });
-    }
-    await this.notificationsService.notifyConvocationIfEligible(event, userCredentials);
+    await this.notificationsService.notifyConvocationIfEligible(event);
 
     return {
       id: String(event._id),
       state: event.state,
+      readyForReviewAt: event.readyForReviewAt,
+      publishDeadline: event.publishDeadline ?? null,
+      pending: [],
     };
+  }
+
+  async confirmOfficialPublication(
+    eventId: string,
+    dto: ConfirmOfficialPublicationDto,
+    requester: any,
+  ) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    await this.expireEventIfPastDeadline(event);
+
+    if (event.state === 'OFFICIALLY_PUBLISHED' || event.state === 'PUBLISHED') {
+      return this.mapPublicationStateResponse(event);
+    }
+
+    if (event.state === 'PUBLICATION_EXPIRED') {
+      throw new BadRequestException({
+        message: 'La elección ya no puede publicarse oficialmente porque venció el plazo de 24 horas',
+        state: event.state,
+      });
+    }
+
+    if (event.state !== 'READY_FOR_REVIEW') {
+      throw new BadRequestException(
+        'Solo se puede confirmar la publicación oficial desde READY_FOR_REVIEW',
+      );
+    }
+
+    const readiness = await this.evaluateReviewReadiness(event);
+    if (readiness.pending.length > 0) {
+      throw new BadRequestException({
+        message: 'El evento dejó de cumplir las condiciones para publicación oficial',
+        pending: readiness.pending,
+      });
+    }
+
+    if (!this.canStillBeOfficiallyPublished(event)) {
+      await this.markAsPublicationExpired(event);
+      throw new BadRequestException({
+        message: 'La elección ya no puede publicarse oficialmente porque venció el plazo de 24 horas',
+        state: event.state,
+      });
+    }
+
+    event.state = 'OFFICIALLY_PUBLISHED';
+    event.publicEligibilityEnabled = true;
+    event.officialPublishedAt = new Date();
+    event.publicationConfirmed = true;
+    event.publicationExpiredAt = undefined;
+    event.officialPublicationTxHash = dto.txHash?.trim() || undefined;
+    event.officialPublicationWallet = dto.wallet?.trim() || undefined;
+    event.officialPublicationChainId = dto.chainId?.trim() || undefined;
+    await event.save();
+
+    return this.mapPublicationStateResponse(event);
+  }
+
+  async publishEvent(
+    eventId: string,
+    requester: any,
+    dto: ConfirmOfficialPublicationDto = {},
+  ) {
+    return this.confirmOfficialPublication(eventId, dto, requester);
   }
 
   async setPublicEligibility(eventId: string, enabled: boolean, requester: any) {
@@ -1042,13 +1079,139 @@ export class VotingEventsService {
     };
   }
 
-  private assertDraftEditable(event: VotingEventDocument, action: string) {
-    this.assertDraftState(event, action);
+  private async assertStructuralEditableState(event: VotingEventDocument, action: string) {
+    await this.expireEventIfPastDeadline(event);
+    if (!this.isStructuralEditableState(event.state)) {
+      throw new BadRequestException(
+        `Solo se permite ${action} cuando el evento esta en DRAFT o READY_FOR_REVIEW`,
+      );
+    }
   }
 
-  private assertDraftState(event: VotingEventDocument, action: string) {
-    if (event.state !== 'DRAFT') {
-      throw new BadRequestException(`Solo se permite ${action} cuando el evento esta en DRAFT`);
+  private isStructuralEditableState(state: string) {
+    return state === 'DRAFT' || state === 'READY_FOR_REVIEW';
+  }
+
+  private computePublishDeadline(votingStart?: Date | null) {
+    if (!votingStart) return undefined;
+    return new Date(votingStart.getTime() - 24 * 60 * 60 * 1000);
+  }
+
+  private canStillBeOfficiallyPublished(event: VotingEventDocument | any) {
+    if (!event.publishDeadline) return false;
+    return new Date() < new Date(event.publishDeadline);
+  }
+
+  private async expireEventIfPastDeadline(event: VotingEventDocument) {
+    if (
+      ['DRAFT', 'READY_FOR_REVIEW'].includes(event.state) &&
+      event.publishDeadline &&
+      new Date() >= event.publishDeadline
+    ) {
+      await this.markAsPublicationExpired(event);
     }
+  }
+
+  private async markAsPublicationExpired(event: VotingEventDocument) {
+    if (event.state === 'PUBLICATION_EXPIRED') {
+      return;
+    }
+
+    event.state = 'PUBLICATION_EXPIRED';
+    event.publicationExpiredAt = new Date();
+    event.publicationConfirmed = false;
+    await event.save();
+  }
+
+  private mapPublicationStateResponse(event: VotingEventDocument) {
+    return {
+      id: String(event._id),
+      state: event.state,
+      officialPublishedAt: event.officialPublishedAt ?? null,
+      publishDeadline: event.publishDeadline ?? null,
+      publicationConfirmed: Boolean(event.publicationConfirmed),
+      officialPublicationTxHash: event.officialPublicationTxHash ?? null,
+      officialPublicationWallet: event.officialPublicationWallet ?? null,
+      officialPublicationChainId: event.officialPublicationChainId ?? null,
+    };
+  }
+
+  private async evaluateReviewReadiness(event: VotingEventDocument) {
+    const [roles, activeOptions, currentPadron] = await Promise.all([
+      this.eventRoleModel.find({ eventId: event._id }).lean(),
+      this.votingOptionModel.find({ eventId: event._id, active: true }).lean(),
+      this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
+    ]);
+
+    const pending: string[] = [];
+    const roleNames = roles.map((role) => this.accessService.normalizeName(role.name));
+    const roleNameSet = new Set(roleNames);
+
+    if (!event.name?.trim() || !event.objective?.trim()) {
+      pending.push('datos_base');
+    }
+
+    if (!event.votingStart || !event.votingEnd || !event.resultsPublishAt) {
+      pending.push('horarios');
+    } else {
+      if (!(event.votingStart < event.votingEnd && event.votingEnd <= event.resultsPublishAt)) {
+        pending.push('horarios');
+      }
+      if (!event.publishDeadline) {
+        pending.push('publish_deadline');
+      }
+    }
+
+    if (roles.length === 0) pending.push('cargos');
+    if (activeOptions.length === 0) pending.push('opciones');
+
+    if (!currentPadron) {
+      pending.push('padron');
+    } else {
+      if (Number(currentPadron?.totals?.validCount ?? 0) <= 0) pending.push('padron');
+      if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) pending.push('padron_invalid');
+
+      const comparisonReportOk = await this.comparisonReportModel.exists({
+        padronVersionId: currentPadron._id,
+        status: 'OK',
+      });
+      if (!comparisonReportOk) pending.push('padron_validation');
+    }
+
+    if (roles.length > 0 && activeOptions.length > 0) {
+      const coveredRoles = new Set<string>();
+      let invalidCandidateRole = false;
+      let optionWithoutCandidates = false;
+
+      for (const option of activeOptions) {
+        const candidates = option.candidates ?? [];
+        if (candidates.length === 0) {
+          optionWithoutCandidates = true;
+          continue;
+        }
+
+        for (const candidate of candidates) {
+          const normalizedRole = this.accessService.normalizeName(candidate.roleName);
+          if (!roleNameSet.has(normalizedRole)) {
+            invalidCandidateRole = true;
+            continue;
+          }
+          coveredRoles.add(normalizedRole);
+        }
+      }
+
+      if (optionWithoutCandidates) pending.push('candidatos');
+      if (invalidCandidateRole) pending.push('candidatos_invalidos');
+      if (roleNames.some((roleName) => !coveredRoles.has(roleName))) {
+        pending.push('cobertura_cargos');
+      }
+    }
+
+    const dedupedPending = Array.from(new Set(pending));
+
+    return {
+      pending: dedupedPending,
+      isReady: dedupedPending.length === 0,
+    };
   }
 }

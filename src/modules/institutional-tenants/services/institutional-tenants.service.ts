@@ -85,7 +85,13 @@ export class InstitutionalTenantsService {
       },
       {
         $set: {
+          status: active ? 'APPROVED' : 'REVOKED',
           active,
+          approvedAt: active ? new Date() : null,
+          revokedAt: active ? null : new Date(),
+          rejectedAt: null,
+          requestedAt: active ? new Date() : null,
+          reason: null,
         },
       },
       { upsert: true, new: true },

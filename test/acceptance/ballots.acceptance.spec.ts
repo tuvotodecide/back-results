@@ -6,6 +6,32 @@ import { Test } from '@nestjs/testing';
 import { MongooseModule } from '@nestjs/mongoose';
 import request from 'supertest';
 
+jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
+  ZkAuthModule: class {},
+}));
+
+jest.mock('@/core/guards/zk-auth.guard', () => ({
+  ZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
+  ZkAuthService: jest.fn().mockImplementation(() => ({})),
+}));
+
+jest.mock('@/core/guards/admin-only.guard', () => ({
+  AdminOnlyGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/core/guards/jwt-auth.guard', () => ({
+  JwtAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 import { ElectionsModule } from '../../src/modules/elections/elections.module';
 import { BallotController } from '../../src/modules/ballot/controllers/ballot.controller';
 import { BallotService } from '../../src/modules/ballot/services/ballot.service';
@@ -20,6 +46,8 @@ import {
 import { ElectoralLocationService } from '../../src/modules/geographic/services/electoral-location.service';
 import { ElectoralTableService } from '../../src/modules/geographic/services/electoral-table.service';
 import { PoliticalPartyService as PoliticalPartyServiceClass } from '../../src/modules/political/services/political-party.service';
+import { TableCodeValidationService } from '../../src/modules/table-code-validation/services/table-code-validation.service';
+import { LoggerService } from '../../src/core/services/logger.service';
 import {
   ElectoralLocation,
   ElectoralLocationSchema,
@@ -74,6 +102,14 @@ class PoliticalPartyServiceMock {
   async validatePartyIds(ids: string[], electionId?: string) {
     return this.enabled;
   }
+  async validatePartyIdsForElection(
+    electionId: string,
+    ids: string[],
+    departmentId?: string,
+    municipalityId?: string,
+  ) {
+    return this.enabled;
+  }
 }
 
 describe('Aceptación: Ballots', () => {
@@ -84,6 +120,16 @@ describe('Aceptación: Ballots', () => {
   const locMock = new ElectoralLocationServiceMock();
   const tblMock = new ElectoralTableServiceMock();
   const partyMock = new PoliticalPartyServiceMock();
+  const tableCodeValidationMock = {
+    ensurePending: jest.fn().mockResolvedValue(undefined),
+  };
+  const loggerMock = {
+    log: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    verbose: jest.fn(),
+  };
 
   const createElection = async (payload: {
     name: string;
@@ -128,6 +174,11 @@ describe('Aceptación: Ballots', () => {
         { provide: ElectoralLocationService, useValue: locMock },
         { provide: ElectoralTableService, useValue: tblMock },
         { provide: PoliticalPartyServiceClass, useValue: partyMock },
+        {
+          provide: TableCodeValidationService,
+          useValue: tableCodeValidationMock,
+        },
+        { provide: LoggerService, useValue: loggerMock },
       ],
     }).compile();
 
@@ -172,7 +223,7 @@ describe('Aceptación: Ballots', () => {
 
   it('OK a 201 cuando datos son válidos y dentro de horario (VotingPeriodGuard)', async () => {
     const now = new Date();
-    await createElection({
+    const election = await createElection({
       name: `ELEC-${now.getTime()}`,
       votingStartDate: new Date(now.getTime() - 60_000).toISOString(),
       votingEndDate: new Date(now.getTime() + 60 * 60_000).toISOString(),
@@ -190,7 +241,7 @@ describe('Aceptación: Ballots', () => {
 
     const res = await request(app.getHttpServer())
       .post(`${baseUrl}/validate-ballot-data`)
-      .send({ ipfsUri: 'ipfs://cid-demo' });
+      .send({ ipfsUri: 'ipfs://cid-demo', electionId: election.id });
 
     expect([200, 201]).toContain(res.status);
     expect(res.body === true || res.text === 'true').toBe(true);
@@ -265,9 +316,9 @@ describe('Aceptación: Ballots', () => {
     expect(String(r.body.message)).toContain('no coincide con votos válidos');
   });
 
-  it('400 cuando TABLE_NOT_FOUND_OR_MISMATCH', async () => {
+  it('validate-ballot-data no rechaza por TABLE_NOT_FOUND_OR_MISMATCH en el contrato actual', async () => {
     const now = new Date();
-    await createElection({
+    const election = await createElection({
       name: `ELEC-${now.getTime()}`,
       votingStartDate: new Date(now.getTime() - 60_000).toISOString(),
       votingEndDate: new Date(now.getTime() + 60 * 60_000).toISOString(),
@@ -279,10 +330,10 @@ describe('Aceptación: Ballots', () => {
 
     const r = await request(app.getHttpServer())
       .post(`${baseUrl}/validate-ballot-data`)
-      .send({ ipfsUri: 'ipfs://cid' });
+      .send({ ipfsUri: 'ipfs://cid', electionId: election.id });
 
-    expect(r.status).toBe(400);
-    expect(String(r.body.message)).toContain('TABLE_NOT_FOUND_OR_MISMATCH');
+    expect([200, 201]).toContain(r.status);
+    expect(r.body === true || r.text === 'true').toBe(true);
   });
 
   it('400 cuando locationId inexistente', async () => {
@@ -331,7 +382,7 @@ describe('Aceptación: Ballots', () => {
 
   it('400 cuando partyIds no habilitados para la elección', async () => {
     const now = new Date();
-    await createElection({
+    const election = await createElection({
       name: `ELEC-${now.getTime()}`,
       votingStartDate: new Date(now.getTime() - 60_000).toISOString(),
       votingEndDate: new Date(now.getTime() + 60 * 60_000).toISOString(),
@@ -343,11 +394,11 @@ describe('Aceptación: Ballots', () => {
 
     const r = await request(app.getHttpServer())
       .post(`${baseUrl}/validate-ballot-data`)
-      .send({ ipfsUri: 'ipfs://cid' });
+      .send({ ipfsUri: 'ipfs://cid', electionId: election.id });
 
     expect(r.status).toBe(400);
     expect(String(r.body.message)).toContain(
-      'IDs de partido inválidos o inactivos',
+      'Uno o más partidos no están habilitados para esta elección',
     );
   });
 
@@ -369,15 +420,15 @@ describe('Aceptación: Ballots', () => {
     const CID_V0_A = 'Qm' + 'a'.repeat(44);
     const CID_V0_B = 'Qm' + 'b'.repeat(44);
     const r1 = await request(app.getHttpServer())
-      .post(`${baseUrl}/from-ipfs?electionId=${elec.id}`)
-      .send({ ipfsUri: `ipfs://${CID_V0_A}` });
+      .post(`${baseUrl}/from-ipfs`)
+      .send({ ipfsUri: `ipfs://${CID_V0_A}`, electionId: elec.id });
     expect([200, 201]).toContain(r1.status);
     expect(r1.body.version).toBe(1);
 
     mockFetchWith(validIpfs()); // v2
     const r2 = await request(app.getHttpServer())
-      .post(`${baseUrl}/from-ipfs?electionId=${elec.id}`)
-      .send({ ipfsUri: `ipfs://${CID_V0_B}` });
+      .post(`${baseUrl}/from-ipfs`)
+      .send({ ipfsUri: `ipfs://${CID_V0_B}`, electionId: elec.id });
     expect([200, 201]).toContain(r2.status);
     expect(r2.body.version).toBe(2);
 

@@ -225,9 +225,11 @@ describe('Auth E2E testing + contracts and delegates', () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
       .send(req)
-      .expect(400);
+      .expect(409);
 
-    expect(res.body.message).toBe('Usuario ya registrado para el DNI o correo electrónico proporcionado');
+    expect(res.body.message).toBe(
+      'El email y el DNI ya están asociados a usuarios distintos; no se puede unificar automáticamente',
+    );
   });
 
   it('R3-B: should return BadRequest when registering with existing dni', async () => {
@@ -243,9 +245,11 @@ describe('Auth E2E testing + contracts and delegates', () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
       .send(req)
-      .expect(400);
+      .expect(409);
 
-    expect(res.body.message).toBe('Usuario ya registrado para el DNI o correo electrónico proporcionado');
+    expect(res.body.message).toBe(
+      'El email y el DNI ya están asociados a usuarios distintos; no se puede unificar automáticamente',
+    );
   });
 
   it('R4-A: should return BadRequest for verify email without token', async () => {
@@ -302,7 +306,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       })
       .expect(401);
     
-    expect(res.body.message).toBe('El usuario no está activo');
+    expect(res.body.message).toBe('La solicitud territorial está pendiente de aprobación');
   });
 
   it('R7-A: should return Unauthorized on approve user without auth token', async () => {
@@ -313,13 +317,13 @@ describe('Auth E2E testing + contracts and delegates', () => {
     expect(res.body.message).toBe('Unauthorized');
   });
 
-  it('R7-B: should return Unauthorized on approve user without admin role', async () => {
+  it('R7-B: should return Forbidden on approve user without admin role', async () => {
     const res = await request(app.getHttpServer())
       .post(`/api/v1/contracts/users/${registeredUser._id}/approve`)
       .auth(laPazToken, { type: 'bearer' })
-      .expect(401);
+      .expect(403);
     
-    expect(res.body.message).toBe('Unauthorized');
+    expect(res.body.message).toBe('Admin role required');
   });
 
   it('R8: should approve user as admin', async () => {
@@ -367,7 +371,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       })
       .expect(401);
     
-    expect(res.body.message).toBe('El usuario no está activo');
+    expect(res.body.message).toBe('La solicitud territorial fue rechazada');
   });
 
   it('R12: should return Unauthorized on reset password without email verified', async () => {
@@ -471,18 +475,16 @@ describe('Auth E2E testing + contracts and delegates', () => {
   it('R17-A: should return Unauthorized on delegate import without auth token', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delegates/upload-csv')
-      .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
       .field('contractId', contracts.insertedIds[0].toString())
       .expect(401);
   });
 
-  it('R17-B: should return Unauthorized on delegate import without admin role', async () => {
+  it('R17-B: should return Forbidden on delegate import without admin role', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delegates/upload-csv')
       .auth(laPazToken, { type: 'bearer' })
-      .attach('file', path.join(__dirname, '../assets/testDelegates.csv'))
       .field('contractId', contracts.insertedIds[0].toString())
-      .expect(401);
+      .expect(403);
   });
 
   it('R18-A: should return Unauthorized on creating single delegate without auth token', async () => {
@@ -494,14 +496,14 @@ describe('Auth E2E testing + contracts and delegates', () => {
       }).expect(401);
   });
 
-  it('R18-B: should return Unauthorized on creating single delegate without admin role', async () => {
+  it('R18-B: should return Forbidden on creating single delegate without admin role', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/delegates')
       .auth(laPazToken, { type: 'bearer' })
       .send({
         ...testDelegateObject,
         contractId: contracts.insertedIds[0].toString(),
-      }).expect(401);
+      }).expect(403);
   });
 
 
@@ -591,7 +593,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       }).expect(401);
   });
 
-  it('R21-B: should return Unauthorized on delete delegate without admin role', async () => {
+  it('R21-B: should return Forbidden on delete delegate without admin role', async () => {
     const contractId = contracts.insertedIds[0].toString();
 
     await request(app.getHttpServer())
@@ -600,7 +602,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .send({
         dni: '1',
         contractId
-      }).expect(401);
+      }).expect(403);
   });
 
   it('R22: should delete a delegate with admin role', async () => {
@@ -691,7 +693,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .expect(401);
   });
 
-  it('R24-B: should return Unauthorized on creating a contract without admin role', async () => {
+  it('R24-B: should return Forbidden on creating a contract without admin role', async () => {
     const contract = {
       ...testActiveContract,
       clientId: users.get('governorLaPaz')._id.toString(),
@@ -703,7 +705,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .post('/api/v1/contracts')
       .auth(laPazToken, { type: 'bearer' })
       .send(contract)
-      .expect(401);
+      .expect(403);
   });
 
   it('R25: should create a contract with admin user', async () => {
@@ -744,11 +746,11 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .expect(401);
   });
 
-  it('R27: should return Unauthorized on deactivate contract without admin role', async () => {
+  it('R27: should return Forbidden on deactivate contract without admin role', async () => {
     await request(app.getHttpServer())
       .patch(`/api/v1/contracts/507f1f77bcf86cd799439013/deactivate`) //no existing id
       .auth(laPazToken, { type: 'bearer' })
-      .expect(401);
+      .expect(403);
   });
 
   it('R28: should deactivate contract with admin role', async () => {

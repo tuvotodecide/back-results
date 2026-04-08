@@ -11,37 +11,33 @@ import { PadronService } from '@/modules/institutional-voting/services/padron/pa
 import { PadronVersion } from '@/modules/institutional-voting/schemas/padron-version.schema';
 import { PadronEntry } from '@/modules/institutional-voting/schemas/padron-entry.schema';
 import { ComparisonReport } from '@/modules/institutional-voting/schemas/comparison-report.schema';
+import { PadronImportJob } from '@/modules/institutional-voting/schemas/padron-import-job.schema';
+import { PadronStagingEntry } from '@/modules/institutional-voting/schemas/padron-staging-entry.schema';
+import { PadronCertificate } from '@/modules/institutional-voting/schemas/padron-certificate.schema';
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
+import { PadronCertificatePdfService } from '@/modules/institutional-voting/services/core/padron-certificate-pdf.service';
+import { PadronPdfParserService } from '@/modules/institutional-voting/services/core/padron-pdf-parser.service';
 
 describe('PadronService (unit)', () => {
   let service: PadronService;
 
-  let padronVersionModel: {
-    updateMany: jest.Mock;
-    create: jest.Mock;
-    findOne: jest.Mock;
-    find: jest.Mock;
-  };
-  let padronEntryModel: {
-    insertMany: jest.Mock;
-    findOne: jest.Mock;
-    find: jest.Mock;
-  };
-  let comparisonReportModel: {
-    create: jest.Mock;
-    exists: jest.Mock;
-    updateOne: jest.Mock;
-  };
-  let accessService: {
-    getEventOrThrow: jest.Mock;
-    assertTenantWriteAccess: jest.Mock;
-    assertGlobalAdminAccess: jest.Mock;
-  };
+  let padronVersionModel: any;
+  let padronEntryModel: any;
+  let comparisonReportModel: any;
+  let padronImportJobModel: any;
+  let padronStagingEntryModel: any;
+  let padronCertificateModel: any;
+  let accessService: any;
+  let padronCertificatePdfService: any;
+  let padronPdfParserService: any;
 
-  const event = {
+  const baseEvent = {
     _id: new Types.ObjectId(),
     tenantId: new Types.ObjectId(),
+    state: 'DRAFT',
     publicEligibilityEnabled: true,
+    publishDeadline: new Date(Date.now() + 48 * 60 * 60 * 1000),
+    save: jest.fn().mockResolvedValue(undefined),
   };
 
   beforeEach(async () => {
@@ -55,16 +51,47 @@ describe('PadronService (unit)', () => {
       insertMany: jest.fn(),
       findOne: jest.fn(),
       find: jest.fn(),
+      countDocuments: jest.fn(),
     };
     comparisonReportModel = {
-      create: jest.fn(),
       exists: jest.fn(),
+      findOne: jest.fn(),
       updateOne: jest.fn(),
+    };
+    padronImportJobModel = {
+      create: jest.fn(),
+      updateMany: jest.fn(),
+      updateOne: jest.fn(),
+      findOne: jest.fn(),
+      findById: jest.fn(),
+    };
+    padronStagingEntryModel = {
+      insertMany: jest.fn(),
+      countDocuments: jest.fn(),
+      exists: jest.fn(),
+      create: jest.fn(),
+      find: jest.fn(),
+      findOne: jest.fn(),
+      findOneAndDelete: jest.fn(),
+    };
+    padronCertificateModel = {
+      findOne: jest.fn(),
+      create: jest.fn(),
+      updateOne: jest.fn(),
+      findById: jest.fn(),
     };
     accessService = {
       getEventOrThrow: jest.fn(),
       assertTenantWriteAccess: jest.fn(),
       assertGlobalAdminAccess: jest.fn(),
+    };
+    padronCertificatePdfService = {
+      buildPdf: jest.fn(() => Buffer.from('%PDF-1.4\nmock\n', 'utf-8')),
+    };
+    padronPdfParserService = {
+      validateSourceFile: jest.fn(),
+      getSourceType: jest.fn(() => 'PDF'),
+      parseDocument: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -72,18 +99,20 @@ describe('PadronService (unit)', () => {
         PadronService,
         { provide: getModelToken(PadronVersion.name), useValue: padronVersionModel },
         { provide: getModelToken(PadronEntry.name), useValue: padronEntryModel },
-        {
-          provide: getModelToken(ComparisonReport.name),
-          useValue: comparisonReportModel,
-        },
+        { provide: getModelToken(ComparisonReport.name), useValue: comparisonReportModel },
+        { provide: getModelToken(PadronImportJob.name), useValue: padronImportJobModel },
+        { provide: getModelToken(PadronStagingEntry.name), useValue: padronStagingEntryModel },
+        { provide: getModelToken(PadronCertificate.name), useValue: padronCertificateModel },
         { provide: InstitutionalVotingAccessService, useValue: accessService },
+        { provide: PadronCertificatePdfService, useValue: padronCertificatePdfService },
+        { provide: PadronPdfParserService, useValue: padronPdfParserService },
       ],
     }).compile();
 
     service = moduleRef.get(PadronService);
   });
 
-  it('importa padrón, genera versión vigente y crea validación pendiente', async () => {
+  it('mantiene compatibilidad con importación CSV legacy y crea versión vigente', async () => {
     const csv = ['carnet,habilitado', '123456,si', '123.456,si', '999999,no', '---,si'].join(
       '\n',
     );
@@ -91,166 +120,356 @@ describe('PadronService (unit)', () => {
     const versionId = new Types.ObjectId();
     const expectedDigest = createHash('sha256').update(csv).digest('hex');
 
-    accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
     padronVersionModel.create.mockResolvedValue({
       _id: versionId,
       fileDigest: expectedDigest,
       createdAt: new Date('2026-01-01T12:00:00.000Z'),
       createdBy: new Types.ObjectId(requester.sub),
-      tenantId: event.tenantId,
+      tenantId: baseEvent.tenantId,
       totals: {
         validCount: 2,
         duplicateCount: 1,
         invalidCount: 1,
       },
       isCurrent: true,
+      sourceType: 'CSV_LEGACY',
+    });
+    padronCertificateModel.findOne.mockResolvedValue(null);
+    padronEntryModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { carnetNorm: '123456', enabled: true },
+          { carnetNorm: '999999', enabled: false },
+        ]),
+      }),
+    });
+    padronCertificateModel.create.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      eventId: baseEvent._id,
+      padronVersionId: versionId,
+      generatedAt: new Date('2026-01-01T13:00:00.000Z'),
+      generationMode: 'ON_CONFIRMATION',
+      fileName: `padron-constancia-${String(versionId)}.pdf`,
+      mimeType: 'application/pdf',
+      fileSha256: 'sha',
+      fileSize: 12,
+      sourceType: 'CSV_LEGACY',
+      totalCount: 2,
+      enabledCount: 1,
+      disabledCount: 1,
+      storageKind: 'INLINE_BASE64',
     });
 
-    const result = await service.importPadron(String(event._id), csv, requester);
+    const result = await service.importPadron(String(baseEvent._id), csv, requester);
 
     expect(accessService.assertTenantWriteAccess).toHaveBeenCalledWith(
-      event.tenantId,
+      baseEvent.tenantId,
       requester,
     );
     expect(padronVersionModel.updateMany).toHaveBeenCalledWith(
-      { eventId: event._id, isCurrent: true },
+      { eventId: baseEvent._id, isCurrent: true },
       { $set: { isCurrent: false } },
     );
     expect(padronEntryModel.insertMany).toHaveBeenCalledWith(
       [
         expect.objectContaining({
           padronVersionId: versionId,
-          eventId: event._id,
+          eventId: baseEvent._id,
           carnetNorm: '123456',
           enabled: true,
         }),
         expect.objectContaining({
           padronVersionId: versionId,
-          eventId: event._id,
+          eventId: baseEvent._id,
           carnetNorm: '999999',
           enabled: false,
         }),
       ],
       { ordered: false },
     );
-    expect(comparisonReportModel.create).toHaveBeenCalledWith({
-      eventId: event._id,
-      padronVersionId: versionId,
-      status: 'PENDING',
-    });
+    expect(comparisonReportModel.updateOne).toHaveBeenCalledWith(
+      { padronVersionId: versionId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          eventId: baseEvent._id,
+          padronVersionId: versionId,
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(result.sourceType).toBe('CSV_LEGACY');
     expect(result.fileDigest).toBe(expectedDigest);
-    expect(result.totals).toEqual({
-      validCount: 2,
-      duplicateCount: 1,
-      invalidCount: 1,
-    });
+    expect(padronCertificatePdfService.buildPdf).toHaveBeenCalled();
+    expect(result.certificate).toEqual(
+      expect.objectContaining({
+        exists: true,
+        sourceType: 'CSV_LEGACY',
+      }),
+    );
   });
 
-  it('rechaza importar padrón sin usuario identificado', async () => {
-    accessService.getEventOrThrow.mockResolvedValue(event);
+  it('procesa PDF, crea staging y devuelve el import job resumido', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const file = {
+      originalname: 'padron.pdf',
+      mimetype: 'application/pdf',
+      size: 64,
+      buffer: Buffer.from('%PDF-1.4\n123456 si\n789000 no\n', 'utf-8'),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.create.mockResolvedValue({
+      _id: importJobId,
+    });
+    padronPdfParserService.parseDocument.mockResolvedValue({
+      rows: [
+        { ci: '123456', enabled: true, sourceRow: 1 },
+        { ci: '789000', enabled: false, sourceRow: 2 },
+      ],
+      errors: [],
+      provider: 'local-fallback',
+      model: null,
+      usedFallback: true,
+    });
+    padronImportJobModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        eventId: baseEvent._id,
+        tenantId: baseEvent.tenantId,
+        sourceType: 'PDF',
+        status: 'PARSED',
+        isActiveDraft: true,
+        originalFileName: file.originalname,
+        originalFileMimeType: file.mimetype,
+        originalFileSize: file.size,
+        originalFileSha256: createHash('sha256').update(file.buffer).digest('hex'),
+        parserProvider: 'local-fallback',
+        parserModel: null,
+        parserUsedFallback: true,
+        summary: {
+          parsedCount: 2,
+          validCount: 2,
+          duplicateCount: 0,
+          invalidCount: 0,
+          stagingCount: 2,
+          enabledCount: 1,
+          disabledCount: 1,
+        },
+        errors: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    });
+    padronStagingEntryModel.countDocuments.mockResolvedValue(2);
+
+    const result = await service.uploadPadronPdf(String(baseEvent._id), file, requester);
+
+    expect(padronPdfParserService.validateSourceFile).toHaveBeenCalledWith(file);
+    expect(padronPdfParserService.getSourceType).toHaveBeenCalledWith(file);
+    expect(padronImportJobModel.updateMany).toHaveBeenCalledWith(
+      { eventId: baseEvent._id, isActiveDraft: true },
+      { $set: { isActiveDraft: false } },
+    );
+    expect(padronStagingEntryModel.insertMany).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          importJobId,
+          eventId: baseEvent._id,
+          ciNorm: '123456',
+          enabled: true,
+        }),
+        expect.objectContaining({
+          importJobId,
+          eventId: baseEvent._id,
+          ciNorm: '789000',
+          enabled: false,
+        }),
+      ],
+      { ordered: false },
+    );
+    expect(padronImportJobModel.updateOne).toHaveBeenCalledWith(
+      { _id: importJobId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'PARSED',
+        }),
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        importJobId: String(importJobId),
+        status: 'PARSED',
+      }),
+    );
+  });
+
+  it('marca el import job como FAILED cuando el parser del PDF falla', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const file = {
+      originalname: 'padron.pdf',
+      mimetype: 'application/pdf',
+      size: 64,
+      buffer: Buffer.from('%PDF-1.4\nobj\nendobj\n', 'utf-8'),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.create.mockResolvedValue({
+      _id: importJobId,
+    });
+    padronPdfParserService.parseDocument.mockRejectedValue(new Error('Gemini unavailable'));
+    padronImportJobModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        eventId: baseEvent._id,
+        tenantId: baseEvent.tenantId,
+        sourceType: 'PDF',
+        status: 'FAILED',
+        isActiveDraft: true,
+        originalFileName: file.originalname,
+        originalFileMimeType: file.mimetype,
+        originalFileSize: file.size,
+        originalFileSha256: createHash('sha256').update(file.buffer).digest('hex'),
+        parserProvider: 'local-fallback',
+        parserModel: null,
+        parserUsedFallback: true,
+        summary: {
+          parsedCount: 0,
+          validCount: 0,
+          duplicateCount: 0,
+          invalidCount: 0,
+          stagingCount: 0,
+          enabledCount: 0,
+          disabledCount: 0,
+        },
+        errors: [{ code: 'PARSER_ERROR', message: 'Gemini unavailable' }],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    });
+    padronStagingEntryModel.countDocuments.mockResolvedValue(0);
+
+    const result = await service.uploadPadronPdf(String(baseEvent._id), file, requester);
+
+    expect(padronImportJobModel.updateOne).toHaveBeenCalledWith(
+      { _id: importJobId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'FAILED',
+        }),
+      }),
+    );
+    expect(result.status).toBe('FAILED');
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'PARSER_ERROR',
+        }),
+      ]),
+    );
+  });
+
+  it('procesa imagen clara con el mismo flujo y la clasifica como IMAGE', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const file = {
+      originalname: 'padron.png',
+      mimetype: 'image/png',
+      size: 128,
+      buffer: Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from('\n123456 si\n789000 no\n', 'utf-8'),
+      ]),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronPdfParserService.getSourceType.mockReturnValue('IMAGE');
+    padronImportJobModel.create.mockResolvedValue({
+      _id: importJobId,
+    });
+    padronPdfParserService.parseDocument.mockResolvedValue({
+      rows: [
+        { ci: '123456', enabled: true, sourceRow: 1 },
+        { ci: '789000', enabled: false, sourceRow: 2 },
+      ],
+      errors: [],
+      provider: 'deterministic-text',
+      model: null,
+      usedFallback: false,
+    });
+    padronImportJobModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        eventId: baseEvent._id,
+        tenantId: baseEvent.tenantId,
+        sourceType: 'IMAGE',
+        status: 'PARSED',
+        isActiveDraft: true,
+        originalFileName: file.originalname,
+        originalFileMimeType: file.mimetype,
+        originalFileSize: file.size,
+        originalFileSha256: createHash('sha256').update(file.buffer).digest('hex'),
+        parserProvider: 'deterministic-text',
+        parserModel: null,
+        parserUsedFallback: false,
+        summary: {
+          parsedCount: 2,
+          validCount: 2,
+          duplicateCount: 0,
+          invalidCount: 0,
+          stagingCount: 2,
+          enabledCount: 1,
+          disabledCount: 1,
+        },
+        errors: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    });
+    padronStagingEntryModel.countDocuments.mockResolvedValue(2);
+
+    const result = await service.uploadPadronFile(String(baseEvent._id), file, requester);
+
+    expect(padronPdfParserService.validateSourceFile).toHaveBeenCalledWith(file);
+    expect(padronPdfParserService.getSourceType).toHaveBeenCalledWith(file);
+    expect(padronImportJobModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceType: 'IMAGE',
+        originalFileMimeType: 'image/png',
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: 'PARSED',
+      }),
+    );
+  });
+
+  it('rechaza confirmar staging sin entradas válidas', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          status: 'FAILED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
 
     await expect(
-      service.importPadron(String(event._id), 'carnet\n123456\n', {}),
-    ).rejects.toThrow(ForbiddenException);
-  });
-
-  it('indica no habilitado cuando no existe padrón vigente', async () => {
-    accessService.getEventOrThrow.mockResolvedValue(event);
-    padronVersionModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue(null),
-    });
-
-    const result = await service.checkEligibility(String(event._id), '123.456');
-
-    expect(result).toEqual({
-      status: 'NOT_ELIGIBLE',
-      normalizedCarnet: '123456',
-      referenceVersion: null,
-    });
-  });
-
-  it('bloquea la consulta pública cuando el evento no la habilita', async () => {
-    accessService.getEventOrThrow.mockResolvedValue({
-      ...event,
-      publicEligibilityEnabled: false,
-    });
-
-    const result = await service.checkPublicEligibility(String(event._id), '123456');
-
-    expect(result).toEqual({
-      status: 'PUBLIC_CHECK_DISABLED',
-      referenceVersion: null,
-    });
-  });
-
-  it('informa padrón en validación cuando no existe versión vigente pública', async () => {
-    accessService.getEventOrThrow.mockResolvedValue(event);
-    padronVersionModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue(null),
-    });
-
-    const result = await service.checkPublicEligibility(String(event._id), '123456');
-
-    expect(result).toEqual({
-      status: 'ROLL_IN_VALIDATION',
-      referenceVersion: null,
-    });
-  });
-
-  it('informa padrón en validación cuando la validación operativa no está aprobada', async () => {
-    const currentVersion = { _id: new Types.ObjectId() };
-    accessService.getEventOrThrow.mockResolvedValue(event);
-    padronVersionModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue(currentVersion),
-    });
-    comparisonReportModel.exists.mockResolvedValue(false);
-
-    const result = await service.checkPublicEligibility(String(event._id), '123456');
-
-    expect(result).toEqual({
-      status: 'ROLL_IN_VALIDATION',
-      referenceVersion: String(currentVersion._id),
-    });
-  });
-
-  it('responde habilitado, inhabilitado o no habilitado según el padrón vigente', async () => {
-    const currentVersion = { _id: new Types.ObjectId() };
-    accessService.getEventOrThrow.mockResolvedValue(event);
-    padronVersionModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue(currentVersion),
-    });
-    comparisonReportModel.exists.mockResolvedValue(true);
-
-    padronEntryModel.findOne.mockReturnValueOnce({
-      lean: jest.fn().mockResolvedValue({ enabled: true }),
-    });
-    const eligible = await service.checkPublicEligibility(String(event._id), '123456');
-
-    padronEntryModel.findOne.mockReturnValueOnce({
-      lean: jest.fn().mockResolvedValue({ enabled: false }),
-    });
-    const disabled = await service.checkPublicEligibility(String(event._id), '123456');
-
-    padronEntryModel.findOne.mockReturnValueOnce({
-      lean: jest.fn().mockResolvedValue(null),
-    });
-    const notEligible = await service.checkPublicEligibility(
-      String(event._id),
-      '123456',
-    );
-
-    expect(eligible).toEqual({
-      status: 'ELIGIBLE',
-      referenceVersion: String(currentVersion._id),
-    });
-    expect(disabled).toEqual({
-      status: 'DISABLED',
-      referenceVersion: String(currentVersion._id),
-    });
-    expect(notEligible).toEqual({
-      status: 'NOT_ELIGIBLE',
-      referenceVersion: String(currentVersion._id),
-    });
+      service.confirmPadronStaging(String(baseEvent._id), requester),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('actualiza el estado de aprobación de una versión específica del padrón', async () => {
@@ -258,11 +477,11 @@ describe('PadronService (unit)', () => {
     const version = {
       _id: new Types.ObjectId(),
     };
-    accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
     padronVersionModel.findOne.mockResolvedValue(version);
 
     const result = await service.updateComparisonReportStatus(
-      String(event._id),
+      String(baseEvent._id),
       'OK',
       requester,
       String(version._id),
@@ -278,7 +497,7 @@ describe('PadronService (unit)', () => {
       { upsert: true },
     );
     expect(result).toEqual({
-      eventId: String(event._id),
+      eventId: String(baseEvent._id),
       padronVersionId: String(version._id),
       status: 'OK',
     });
@@ -286,12 +505,12 @@ describe('PadronService (unit)', () => {
 
   it('rechaza consultar una versión inexistente del padrón', async () => {
     const requester = { sub: String(new Types.ObjectId()), role: 'ADMIN' };
-    accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
     padronVersionModel.findOne.mockResolvedValue(null);
 
     await expect(
       service.updateComparisonReportStatus(
-        String(event._id),
+        String(baseEvent._id),
         'FAILED',
         requester,
         String(new Types.ObjectId()),
@@ -302,12 +521,14 @@ describe('PadronService (unit)', () => {
   it('rechaza cambiar el comparison report si el solicitante no es administrador global', async () => {
     const requester = { sub: String(new Types.ObjectId()), role: 'GOVERNOR' };
     accessService.assertGlobalAdminAccess.mockImplementation(() => {
-      throw new ForbiddenException('Solo un administrador global puede aprobar o rechazar el padrón');
+      throw new ForbiddenException(
+        'Solo un administrador global puede aprobar o rechazar el padrón',
+      );
     });
 
     await expect(
       service.updateComparisonReportStatus(
-        String(event._id),
+        String(baseEvent._id),
         'OK',
         requester,
         String(new Types.ObjectId()),
@@ -318,9 +539,9 @@ describe('PadronService (unit)', () => {
   });
 
   it('rechaza carnet inválido al consultar elegibilidad', async () => {
-    accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
 
-    await expect(service.checkEligibility(String(event._id), '')).rejects.toThrow(
+    await expect(service.checkEligibility(String(baseEvent._id), '')).rejects.toThrow(
       BadRequestException,
     );
   });

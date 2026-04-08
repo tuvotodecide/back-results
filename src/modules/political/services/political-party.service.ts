@@ -1,9 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-import {
-  Injectable,
-  ConflictException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -22,6 +18,10 @@ import {
 import { UpdateElectionPartyDto } from '../dto/election-party.dto';
 import { Department } from '../../geographic/schemas/department.schema';
 import { Municipality } from '../../geographic/schemas/municipality.schema';
+import {
+  readColorPalette,
+  resolveColorPaletteInput,
+} from '@/shared/utils/color-palette.util';
 
 @Injectable()
 export class PoliticalPartyService {
@@ -83,10 +83,45 @@ export class PoliticalPartyService {
     private municipalityModel: Model<Municipality>,
   ) {}
 
+  private mapPoliticalParty(party: any) {
+    const palette = readColorPalette(party);
+    return {
+      ...party,
+      _id: party?._id,
+      color: palette.color,
+      colors: palette.colors,
+    };
+  }
+
+  private mapElectionParty(assignment: any, party?: any) {
+    const palette = readColorPalette({
+      colors: assignment?.colors ?? party?.colors,
+      color: assignment?.color || party?.color || null,
+    });
+    return {
+      ...assignment,
+      _id: assignment?._id,
+      shortName: party?.shortName ?? assignment?.shortName ?? null,
+      fullName: party?.fullName ?? assignment?.fullName ?? null,
+      logoUrl: party?.logoUrl ?? assignment?.logoUrl ?? null,
+      color: palette.color,
+      colors: palette.colors,
+    };
+  }
+
   async create(createDto: CreatePoliticalPartyDto): Promise<PoliticalParty> {
     try {
-      const party = new this.politicalPartyModel(createDto);
-      return await party.save();
+      const palette = resolveColorPaletteInput(createDto, {
+        requireAtLeastOne: true,
+        fieldLabel: 'colors',
+      });
+      const party = new this.politicalPartyModel({
+        ...createDto,
+        color: palette.color,
+        colors: palette.colors,
+      });
+      const saved = await party.save();
+      return this.mapPoliticalParty(saved.toObject ? saved.toObject() : saved) as PoliticalParty;
     } catch (error) {
       if (error.code === 11000) {
         throw new ConflictException('El ID del partido ya existe');
@@ -110,23 +145,24 @@ export class PoliticalPartyService {
       ];
     }
 
-    return this.politicalPartyModel.find(filter).sort({ partyId: 1 }).exec();
+    const parties = await this.politicalPartyModel.find(filter).sort({ partyId: 1 }).lean().exec();
+    return parties.map((party) => this.mapPoliticalParty(party)) as PoliticalParty[];
   }
 
   async findOne(id: string): Promise<PoliticalParty> {
-    const party = await this.politicalPartyModel.findById(id).exec();
+    const party = await this.politicalPartyModel.findById(id).lean().exec();
     if (!party) {
       throw new NotFoundException('Partido político no encontrado');
     }
-    return party;
+    return this.mapPoliticalParty(party) as PoliticalParty;
   }
 
   async findByPartyId(partyId: string): Promise<PoliticalParty> {
-    const party = await this.politicalPartyModel.findOne({ partyId }).exec();
+    const party = await this.politicalPartyModel.findOne({ partyId }).lean().exec();
     if (!party) {
       throw new NotFoundException('Partido político no encontrado');
     }
-    return party;
+    return this.mapPoliticalParty(party) as PoliticalParty;
   }
 
   async update(
@@ -134,10 +170,20 @@ export class PoliticalPartyService {
     updateDto: UpdatePoliticalPartyDto,
   ): Promise<PoliticalParty> {
     try {
+      const updatePayload: Record<string, unknown> = { ...updateDto };
+      if (updateDto.colors !== undefined || updateDto.color !== undefined) {
+        const palette = resolveColorPaletteInput(updateDto, {
+          requireAtLeastOne: true,
+          fieldLabel: 'colors',
+        });
+        updatePayload.color = palette.color;
+        updatePayload.colors = palette.colors;
+      }
+
       const party = await this.politicalPartyModel
         .findByIdAndUpdate(
           id,
-          { $set: updateDto },
+          { $set: updatePayload },
           { new: true, runValidators: true },
         )
         .exec();
@@ -146,7 +192,7 @@ export class PoliticalPartyService {
         throw new NotFoundException('Partido político no encontrado');
       }
 
-      return party;
+      return this.mapPoliticalParty(party?.toObject ? party.toObject() : party) as PoliticalParty;
     } catch (error) {
       if (error.code === 11000) {
         throw new ConflictException('El ID del partido ya existe');
@@ -163,10 +209,12 @@ export class PoliticalPartyService {
   }
 
   async getActiveParties(): Promise<PoliticalParty[]> {
-    return this.politicalPartyModel
+    const parties = await this.politicalPartyModel
       .find({ active: true })
       .sort({ partyId: 1 })
+      .lean()
       .exec();
+    return parties.map((party) => this.mapPoliticalParty(party)) as PoliticalParty[];
   }
 
   async validatePartyIds(
@@ -307,18 +355,80 @@ export class PoliticalPartyService {
       .find({ electionId: eid })
       .lean()
       .exec();
+
+    const partyIds = Array.from(
+      new Set(
+        assignments
+          .map((assignment: any) => String(assignment?.partyId || '').trim())
+          .filter(Boolean),
+      ),
+    );
+
+    const parties = partyIds.length
+      ? await this.politicalPartyModel
+          .find({ partyId: { $in: partyIds } })
+          .select({
+            _id: 0,
+            partyId: 1,
+            shortName: 1,
+            fullName: 1,
+            logoUrl: 1,
+            color: 1,
+            colors: 1,
+          })
+          .collation(this.partyIdCollation)
+          .lean()
+          .exec()
+      : [];
+
+    const partyMap = new Map(
+      parties.map((party: any) => [String(party.partyId || '').trim(), party]),
+    );
+
     return this.sortAssignments(
-      assignments.sort((a: any, b: any) => Number(Boolean(b.active)) - Number(Boolean(a.active))),
+      assignments
+        .sort((a: any, b: any) => Number(Boolean(b.active)) - Number(Boolean(a.active)))
+        .map((assignment: any) =>
+          this.mapElectionParty(
+            assignment,
+            partyMap.get(String(assignment?.partyId || '').trim()),
+          ),
+        ),
     );
   }
 
-  // Editar metadatos por elección (número de papeleta, alianza, color, active)
+  // Editar metadatos por elección (número de papeleta, alianza, color/colors, active)
   async updateElectionParty(id: string, dto: UpdateElectionPartyDto) {
+    const updatePayload: Record<string, unknown> = { ...dto };
+    if (dto.colors !== undefined || dto.color !== undefined) {
+      const palette = resolveColorPaletteInput(dto, {
+        requireAtLeastOne: true,
+        fieldLabel: 'colors',
+      });
+      updatePayload.color = palette.color;
+      updatePayload.colors = palette.colors;
+    }
+
     const updated = await this.electionPartyModel
-      .findByIdAndUpdate(id, { $set: dto }, { new: true })
+      .findByIdAndUpdate(id, { $set: updatePayload }, { new: true })
       .exec();
     if (!updated) throw new NotFoundException('ElectionParty no encontrado');
-    return updated;
+    const updatedObject = updated?.toObject ? updated.toObject() : updated;
+    const party = await this.politicalPartyModel
+      .findOne({ partyId: updatedObject.partyId })
+      .select({
+        _id: 0,
+        partyId: 1,
+        shortName: 1,
+        fullName: 1,
+        logoUrl: 1,
+        color: 1,
+        colors: 1,
+      })
+      .collation(this.partyIdCollation)
+      .lean()
+      .exec();
+    return this.mapElectionParty(updatedObject, party);
   }
 
   // Validación CLAVE: que los partyIds estén habilitados para ESA elección y territorio
@@ -445,6 +555,7 @@ export class PoliticalPartyService {
         fullName: 1,
         logoUrl: 1,
         color: 1,
+        colors: 1,
       })
       .collation(this.partyIdCollation)
       .lean()
@@ -456,12 +567,17 @@ export class PoliticalPartyService {
 
     return orderedAssignments.map((assignment: any) => {
       const party = partyMap.get(String(assignment?.partyId || '').trim());
+      const palette = readColorPalette({
+        colors: assignment?.colors ?? party?.colors,
+        color: assignment?.color || party?.color || null,
+      });
       return {
         ...assignment,
         shortName: party?.shortName || assignment?.partyId || null,
         fullName: party?.fullName || null,
         logoUrl: party?.logoUrl || null,
-        color: assignment?.color || party?.color || null,
+        color: palette.color,
+        colors: palette.colors,
       };
     });
   }
