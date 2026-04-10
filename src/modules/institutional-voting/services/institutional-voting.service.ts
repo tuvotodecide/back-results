@@ -55,8 +55,8 @@ export class InstitutionalVotingService {
     return this.votingEventsService.deleteEvent(eventId, requester);
   }
 
-  publishEvent(eventId: string, data: string[], requester: any) {
-    return this.votingEventsService.publishEvent(eventId, data, requester);
+  publishEvent(eventId: string, requester: any) {
+    return this.votingEventsService.publishEvent(eventId, requester);
   }
 
   createRole(eventId: string, dto: CreateEventRoleDto, requester: any) {

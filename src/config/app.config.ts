@@ -64,5 +64,6 @@ export default registerAs('app', () => ({
 
   blockchain: {
     chain: process.env.CHAIN || 'base-sepolia',
+    privateKey: process.env.BLOCKCHAIN_PRIVATE_KEY,
   },
 }));
