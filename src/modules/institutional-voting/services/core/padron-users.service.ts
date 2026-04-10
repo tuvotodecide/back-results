@@ -8,7 +8,7 @@ import { User, UserDocument } from "@/modules/users/schemas/user.schema";
 import { normalizeCarnet } from "../../utils/carnet-normalizer";
 import { VotingEventDocument } from "../../schemas/voting-event.schema";
 
-type PadronResolvedUser = {
+export type PadronResolvedUser = {
   _id: Types.ObjectId;
   dni: string;
   active: boolean;

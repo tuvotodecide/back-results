@@ -44,6 +44,7 @@ import { HttpModule } from '@nestjs/axios';
 import { PadronUsersService } from './services/core/padron-users.service';
 import { FirebaseModule } from '@/core/firebase/firebase.module';
 import { VoteReaderService } from './services/core/vote-reader.service';
+import { VoteWritterService } from './services/core/vote-writter.service';
 
 @Module({
   imports: [
@@ -76,6 +77,7 @@ import { VoteReaderService } from './services/core/vote-reader.service';
     InstitutionalVotingAccessService,
     PadronUsersService,
     VoteReaderService,
+    VoteWritterService,
     VotingEventsService,
     InstitutionalVotingLifecycleService,
     InstitutionalVotingNotificationsService,

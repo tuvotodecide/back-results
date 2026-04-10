@@ -37,11 +37,10 @@ import {
 } from '../../schemas/voting-option.schema';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
-import { ConfigService } from '@nestjs/config';
 import { VoteReaderService } from '../core/vote-reader.service';
-import { User, UserDocument } from '@/modules/users/schemas/user.schema';
 import { PadronUsersService } from '../core/padron-users.service';
 import { shuffle } from '@/utils/array.util';
+import { VoteWritterService } from '../core/vote-writter.service';
 
 @Injectable()
 export class VotingEventsService {
@@ -62,12 +61,10 @@ export class VotingEventsService {
     private readonly participationModel: Model<ParticipationDocument>,
     @InjectModel(EventResultsSnapshot.name)
     private readonly resultsSnapshotModel: Model<EventResultsSnapshotDocument>,
-    @InjectModel(User.name)
-    private readonly userModel: Model<UserDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
-    private readonly configService: ConfigService,
     private readonly voteReaderService: VoteReaderService,
+    private readonly voteWritterService: VoteWritterService,
     private readonly padronUsersService: PadronUsersService,
   ) {}
 
@@ -909,6 +906,8 @@ export class VotingEventsService {
       true,
     );
 
+    await this.voteWritterService.updateVoteSchedule(String(event._id), votingStart!, votingEnd!, resultsPublishAt!);
+
     event.votingStart = votingStart;
     event.votingEnd = votingEnd;
     event.resultsPublishAt = resultsPublishAt;
@@ -926,13 +925,13 @@ export class VotingEventsService {
     };
   }
 
-  async publishEvent(eventId: string, nullifiers: string[], requester: any) {
+  async publishEvent(eventId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
 
-    const [rolesCount, optionsCount, currentPadron, hasWindows] = await Promise.all([
+    const [rolesCount, options, currentPadron, hasWindows] = await Promise.all([
       this.eventRoleModel.countDocuments({ eventId: event._id }),
-      this.votingOptionModel.countDocuments({ eventId: event._id, active: true }),
+      this.votingOptionModel.find({ eventId: event._id, active: true }),
       this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
       Promise.resolve(
         Boolean(event.votingStart && event.votingEnd && event.resultsPublishAt),
@@ -942,7 +941,6 @@ export class VotingEventsService {
     const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
       includeDisabled: false,
     });
-    const enoughtNullifiers = convotatedUsers.length <= nullifiers.length;
 
     const comparisonReportOk = currentPadron
       ? await this.comparisonReportModel.exists({
@@ -953,7 +951,7 @@ export class VotingEventsService {
 
     const pending: string[] = [];
     if (rolesCount === 0) pending.push('cargos');
-    if (optionsCount === 0) pending.push('opciones');
+    if (options.length === 0) pending.push('opciones');
     if (!currentPadron) {
       pending.push('padron');
     } else {
@@ -965,9 +963,6 @@ export class VotingEventsService {
       }
       if (!comparisonReportOk) {
         pending.push('padron_validation');
-      }
-      if (!enoughtNullifiers) {
-        pending.push('nullifiers');
       }
     }
     if (!hasWindows) pending.push('horarios');
@@ -990,15 +985,16 @@ export class VotingEventsService {
       };
     }
 
+    const nullifiers = await this.voteWritterService.createVote(event, convotatedUsers, options);
+
     let userCredentials: Record<string, Record<string, string>> = {};
-    let shuffledNullifiers = shuffle(nullifiers);
     if (convotatedUsers.length > 0) {
       convotatedUsers.forEach((user, index) => {
         const perUserData: Record<string, string> = {
           eligible: user.enabled ? 'true' : 'false',
         };
         if (user.enabled) {
-          perUserData.nullifier = shuffledNullifiers[index];
+          perUserData.nullifier = nullifiers[index];
         }
         userCredentials[String(user.dni)] = perUserData;
       });
