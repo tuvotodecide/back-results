@@ -20,6 +20,10 @@ import { seedLocations } from './seeds/locationsSeed';
 import { seedAdmin, seedUsers } from './seeds/usersSeed';
 import { TestLoggerModule } from './module-helpers';
 import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
+import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
+import { VotingOptionDocument } from '@/modules/institutional-voting/schemas/voting-option.schema';
+import { PadronResolvedUser } from '@/modules/institutional-voting/services/core/padron-users.service';
+import { VotingEventDocument } from '@/modules/institutional-voting/schemas/voting-event.schema';
 
 // Evitar cargar ZK real (dependencias ESM/circuitos) en el entorno de test.
 jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
@@ -62,6 +66,18 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     }),
   };
 
+  const voteWritterServiceMock = {
+    createVote: jest.fn(async (event: VotingEventDocument, voters: PadronResolvedUser[], options: VotingOptionDocument[]) => {
+      const voteNullifiers = voters.filter(v => v.active).map(() => {
+        const uint32 = new Uint32Array(1);
+        crypto.getRandomValues(uint32);
+        return uint32[0].toString();
+      });
+      return voteNullifiers;
+    }),
+    updateVoteSchedule: jest.fn(),
+  };
+
   /*
   const issuerServiceMock = {
     issueCredential: jest.fn(async (dnis: string[]) => {
@@ -100,8 +116,8 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     .useValue(firebaseAdminMock)
     .overrideProvider(VoteReaderService)
     .useValue(voteReaderServiceMock)
-    //.overrideProvider(IssuerService)
-    //.useValue(issuerServiceMock)
+    .overrideProvider(VoteWritterService)
+    .useValue(voteWritterServiceMock)
     .compile();
 
   const app = moduleRef.createNestApplication();
