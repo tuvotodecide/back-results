@@ -64,7 +64,7 @@ export class VoteWritterService {
     eventName: string | undefined,
   ) {
     if (!this.smartAccountClient) {
-      throw new Error('SmartAccountClient not initialized');
+      throw new Error('SmartAccountClient not initialized, call getAccount() first.');
     }
 
     const txHash = await this.smartAccountClient.sendTransaction(callData);
