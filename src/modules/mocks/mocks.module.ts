@@ -1,9 +1,5 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import {
-  PinataDataMockController,
-  PinataMockController,
-} from './controllers/pinata-mock.controller';
 import { TestingController } from './controllers/testing.controller';
 import { TestingSeederService } from './services/testing-seeder.service';
 import {
@@ -91,7 +87,7 @@ import {
       { name: Delegate.name, schema: DelegateSchema },
     ]),
   ],
-  controllers: [PinataMockController, PinataDataMockController, TestingController],
+  controllers: [TestingController],
   providers: [TestingSeederService],
 })
 export class MocksModule {}

@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
 import { User, UserDocument } from '../schemas/user.schema';
 import { ElectoralTable } from '@/modules/geographic/schemas/electoral-table.schema';
@@ -31,6 +32,7 @@ export class UsersService {
     private electoralTableModel: Model<ElectoralTable>,
     @InjectModel(ElectoralLocation.name)
     private electoralLocationModel: Model<ElectoralLocation>,
+    private readonly configService: ConfigService,
   ) {}
 
   async findByDni(dni: string): Promise<UserDocument> {
@@ -245,9 +247,12 @@ export class UsersService {
     chainId: number;
     contractAddress: string;
   }> {
-    const privateKey =
-      '0xb66326fad8402e1a5997bb08666e6df3059752376efa4d38a023e48bdc52d1eb';
-    const chainKey = process.env.CHAINA;
+    const privateKey = this.configService.get<string>(
+      'app.blockchain.participationPrivateKey',
+    );
+    const chainKey = this.configService.get<string>(
+      'app.blockchain.operationChainKey',
+    );
 
     if (!privateKey) {
       throw new InternalServerErrorException(

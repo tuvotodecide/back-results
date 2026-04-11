@@ -8,23 +8,13 @@ import { DatabaseModule } from '../database/database.module';
 import { LoggerService } from './services/logger.service';
 import { HealthService } from './services/health.service';
 import { HealthController } from './controllers/health.controller';
-import appConfig from '../config/app.config';
 import Keyv from 'keyv';
 import { createClient, RedisClientType } from 'redis';
 
 @Global()
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      load: [appConfig],
-      envFilePath: '.env',
-      validationOptions: {
-        allowUnknown: true,
-        abortEarly: true,
-      },
-    }),
-
+    ConfigModule,
     DatabaseModule,
     CacheModule.registerAsync<any>({
       imports: [ConfigModule],

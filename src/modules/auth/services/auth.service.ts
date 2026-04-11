@@ -219,7 +219,7 @@ export class AuthService {
     user.passwordResetTokenExpiresAt = resetTokenExpiresAt;
     await user.save();
 
-    await this.sendPasswordResetEmail(user.email, user.name, resetToken);
+    await this.sendPasswordResetEmail(user.email, user.name, resetToken, user.role);
   }
 
   async resetPassword(dto: ResetPasswordDto): Promise<void> {
@@ -733,7 +733,11 @@ export class AuthService {
   }
 
   private async sendVerificationEmail(to: string, name: string, token: string): Promise<void> {
-    const verificationLink = this.buildEmailLink(token, 'app.mail.verificationBaseUrl');
+    const verificationLink = this.buildEmailLink(
+      token,
+      this.configService.get<string>('app.mail.verificationBaseUrl'),
+      '/resultados/verificar-correo',
+    );
 
     await this.mailService.sendEmail(to, 'Verificación de correo electrónico', 'verify-email', {
       name: name.split(' ')[0],
@@ -741,8 +745,18 @@ export class AuthService {
     });
   }
 
-  private async sendPasswordResetEmail(to: string, name: string, token: string): Promise<void> {
-    const resetLink = this.buildEmailLink(token, 'app.mail.passwordResetBaseUrl');
+  private async sendPasswordResetEmail(
+    to: string,
+    name: string,
+    token: string,
+    role: string,
+  ): Promise<void> {
+    const resetPath = role === 'ADMIN' ? '/votacion/restablecer' : '/resultados/restablecer';
+    const resetLink = this.buildEmailLink(
+      token,
+      this.configService.get<string>('app.mail.passwordResetBaseUrl'),
+      resetPath,
+    );
 
     await this.mailService.sendEmail(to, 'Restablecer contraseña', 'reset-password', {
       name: name.split(' ')[0],
@@ -750,20 +764,24 @@ export class AuthService {
     });
   }
 
-  private buildEmailLink(token: string, baseUrlEnvName: string): string | null {
-    const baseUrl = this.configService.get<string>(baseUrlEnvName);
-
+  private buildEmailLink(
+    token: string,
+    baseUrl: string | undefined,
+    canonicalPath: string,
+  ): string | null {
     if (!baseUrl) {
       throw new Error('Base URL no configurada');
     }
 
     try {
       const url = new URL(baseUrl);
+      url.pathname = canonicalPath;
+      url.search = '';
       url.searchParams.set('token', token);
       return url.toString();
     } catch {
-      const separator = baseUrl.includes('?') ? '&' : '?';
-      return `${baseUrl}${separator}token=${token}`;
+      const normalizedBase = baseUrl.replace(/\/$/, '');
+      return `${normalizedBase}${canonicalPath}?token=${token}`;
     }
   }
 }

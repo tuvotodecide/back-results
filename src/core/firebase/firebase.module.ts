@@ -1,16 +1,17 @@
 import { Module, Global } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as admin from 'firebase-admin';
 
 @Global()
 @Module({
+  imports: [ConfigModule],
   providers: [
     {
       provide: 'FIREBASE_ADMIN',
-      useFactory: () => {
-        const projectId = process.env.FB_PROJECT_ID;
-        const clientEmail = process.env.FB_CLIENT_EMAIL;
-        // Importante: reemplazar \n escapados
-        const privateKey = (process.env.FB_PRIVATE_KEY || '').replace(/\\n/g, '\n');
+      useFactory: (configService: ConfigService) => {
+        const projectId = configService.get<string>('app.firebase.projectId');
+        const clientEmail = configService.get<string>('app.firebase.clientEmail');
+        const privateKey = configService.get<string>('app.firebase.privateKey');
 
         if (!projectId || !clientEmail || !privateKey) {
           throw new Error('Firebase Admin env vars missing (FB_PROJECT_ID/FB_CLIENT_EMAIL/FB_PRIVATE_KEY)');
@@ -27,6 +28,7 @@ import * as admin from 'firebase-admin';
         }
         return admin;
       },
+      inject: [ConfigService],
     },
   ],
   exports: ['FIREBASE_ADMIN'],

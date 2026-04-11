@@ -20,7 +20,7 @@ export class HealthService {
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       environment: this.configService.get<string>('app.nodeEnv'),
-      version: process.env.npm_package_version || '1.0.0',
+      version: this.configService.get<string>('app.version') || '1.0.0',
       services: {
         database: mongoStatus,
         // Redis status se agregará en el módulo de cache

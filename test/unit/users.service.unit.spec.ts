@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { UsersService } from '@/modules/users/services/users.service';
 import { User } from '@/modules/users/schemas/user.schema';
@@ -29,6 +30,10 @@ describe('UsersService', () => {
     findOne: jest.fn(),
   };
 
+  const configService = {
+    get: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -41,6 +46,7 @@ describe('UsersService', () => {
           provide: getModelToken(ElectoralLocation.name),
           useValue: locationModel,
         },
+        { provide: ConfigService, useValue: configService },
       ],
     }).compile();
 

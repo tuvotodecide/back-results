@@ -655,16 +655,13 @@ export class InstitutionalAdminApplicationsService {
   }
 
   private async sendVerificationEmail(to: string, name: string, token: string) {
-    const verificationBaseUrl =
-      this.configService.get<string>('app.mail.institutionalAdminVerificationBaseUrl') ||
-      this.configService.get<string>('app.mail.verificationBaseUrl') ||
-      '';
+    const verificationBaseUrl = this.configService.get<string>('app.mail.verificationBaseUrl') || '';
 
     if (!verificationBaseUrl) {
       return;
     }
 
-    const url = this.buildUrlWithToken(verificationBaseUrl, token);
+    const url = this.buildUrlWithToken(verificationBaseUrl, token, '/votacion/verificar-correo');
 
     await this.mailService.sendEmail(
       to,
@@ -677,14 +674,16 @@ export class InstitutionalAdminApplicationsService {
     );
   }
 
-  private buildUrlWithToken(baseUrl: string, token: string): string {
+  private buildUrlWithToken(baseUrl: string, token: string, canonicalPath: string): string {
     try {
       const url = new URL(baseUrl);
+      url.pathname = canonicalPath;
+      url.search = '';
       url.searchParams.set('token', token);
       return url.toString();
     } catch {
-      const separator = baseUrl.includes('?') ? '&' : '?';
-      return `${baseUrl}${separator}token=${token}`;
+      const normalizedBase = baseUrl.replace(/\/$/, '');
+      return `${normalizedBase}${canonicalPath}?token=${token}`;
     }
   }
 

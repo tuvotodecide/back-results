@@ -35,6 +35,8 @@ export class InternalPushController {
     @Headers('x-internal-secret') secret: string,
     @Body() dto: DirectPushDto,
   ) {
+    // Mantener este contrato tal cual hasta validar a todos los emisores de
+    // eventos internos que dependen de este header y de su semántica actual.
     if (secret !== process.env.INTERNAL_PUSH_SECRET) {
       throw new UnauthorizedException('bad secret');
     }

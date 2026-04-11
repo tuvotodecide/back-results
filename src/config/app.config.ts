@@ -4,6 +4,7 @@ import { registerAs } from '@nestjs/config';
 export default registerAs('app', () => ({
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
+  version: process.env.npm_package_version || '1.0.0',
 
   database: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/electoral_db',
@@ -64,6 +65,8 @@ export default registerAs('app', () => ({
 
   blockchain: {
     chain: process.env.CHAIN || 'base-sepolia',
+    operationChainKey: process.env.CHAINA || '',
+    participationPrivateKey: process.env.NFT_PARTICIPATION_PRIVATE_KEY || '',
   },
 
   ai: {
@@ -71,5 +74,11 @@ export default registerAs('app', () => ({
       apiKey: process.env.GEMINI_API_KEY || '',
       model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     },
+  },
+
+  firebase: {
+    projectId: process.env.FB_PROJECT_ID || '',
+    clientEmail: process.env.FB_CLIENT_EMAIL || '',
+    privateKey: (process.env.FB_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   },
 }));
