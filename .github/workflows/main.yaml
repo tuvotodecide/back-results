@@ -32,6 +32,7 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
+      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
       SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
     steps:
       - name: Checkout
@@ -56,6 +57,7 @@ jobs:
       - name: Get .env File
         run: |
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
+          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
@@ -175,6 +177,7 @@ jobs:
       CONTAINER_NAME: back_results
       IMAGE_TAG: ${{ github.sha }}
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
+      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -189,6 +192,7 @@ jobs:
         run: |
           set -euo pipefail
           SSM_NAME="${{ env.SSM_ENV_PARAM_NAME }}"
+          SSM_NAME_SEC="${{ env.SSM_ENV_PARAM_NAME_SEC }}"
           echo "Deploying ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }} to ${{ env.EC2_INSTANCE_ID }}"
           echo "Using SSM parameter: ${SSM_NAME}"
 
@@ -200,6 +204,7 @@ jobs:
           docker stop ${CONTAINER_NAME} || true
           docker rm ${CONTAINER_NAME} || true
           aws ssm get-parameter --name ${SSM_NAME} --with-decryption --query Parameter.Value --output text > .env
+          aws ssm get-parameter --name ${SSM_NAME_SEC} --with-decryption --query Parameter.Value --output text >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
           docker run -d --name ${CONTAINER_NAME} -p ${EXTERNAL_PORT}:3000 --env-file .env -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem --restart unless-stopped ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
@@ -220,7 +225,7 @@ jobs:
           sed -i "s|\${CONTAINER_NAME}|${{ env.CONTAINER_NAME }}|g" remote_cmds.txt
           sed -i "s|\${EXTERNAL_PORT}|${{ env.EXTERNAL_PORT }}|g" remote_cmds.txt
           sed -i "s|\${SSM_NAME}|${SSM_NAME}|g" remote_cmds.txt
-
+          sed -i "s|\${SSM_NAME_SEC}|${SSM_NAME_SEC}|g" remote_cmds.txt
           CMDS_JSON=$(jq -R -s -c 'split("\n") | map(select(length>0))' < remote_cmds.txt)
 
           CMD_ID=$(aws ssm send-command \
@@ -287,6 +292,7 @@ jobs:
       CONTAINER_NAME: back_results_prod
       IMAGE_TAG: ${{ github.ref_name }}
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME_PROD }}
+      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_PROD_SEC }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -301,6 +307,7 @@ jobs:
         run: |
           set -euo pipefail
           SSM_NAME="${{ env.SSM_ENV_PARAM_NAME }}"
+          SSM_NAME_SEC="${{ env.SSM_ENV_PARAM_NAME_SEC }}"
           echo "Deploying ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }} to ${{ env.EC2_INSTANCE_ID }}"
           echo "Using SSM parameter: ${SSM_NAME}"
 
@@ -311,6 +318,7 @@ jobs:
           docker stop ${CONTAINER_NAME} || true
           docker rm ${CONTAINER_NAME} || true
           aws ssm get-parameter --name ${SSM_NAME} --with-decryption --query Parameter.Value --output text > .env
+          aws ssm get-parameter --name ${SSM_NAME_SEC} --with-decryption --query Parameter.Value --output text >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
           docker run -d --name ${CONTAINER_NAME} -p ${EXTERNAL_PORT}:3000 --env-file .env -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem --restart unless-stopped ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
@@ -331,7 +339,7 @@ jobs:
           sed -i "s|\${CONTAINER_NAME}|${{ env.CONTAINER_NAME }}|g" remote_cmds.txt
           sed -i "s|\${EXTERNAL_PORT}|${{ env.EXTERNAL_PORT }}|g" remote_cmds.txt
           sed -i "s|\${SSM_NAME}|${SSM_NAME}|g" remote_cmds.txt
-
+          sed -i "s|\${SSM_NAME_SEC}|${SSM_NAME_SEC}|g" remote_cmds.txt
           CMDS_JSON=$(jq -R -s -c 'split("\n") | map(select(length>0))' < remote_cmds.txt)
 
           CMD_ID=$(aws ssm send-command \

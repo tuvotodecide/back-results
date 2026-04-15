@@ -1,23 +1,26 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsDateString,
+  IsIn,
   IsMongoId,
   IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
 } from 'class-validator';
 
 export class CreateContractDto {
   @ApiProperty({ description: 'ID del cliente (RoledUser)' })
   @IsMongoId()
   @IsNotEmpty()
-  clientId: string;
+  clientId!: string;
 
   @ApiProperty({ description: 'ID de la elección' })
   @IsMongoId()
   @IsNotEmpty()
-  electionId: string;
+  electionId!: string;
 
   @ApiPropertyOptional({ description: 'ID del departamento (para Gobernadores)' })
   @IsMongoId()
@@ -31,7 +34,7 @@ export class CreateContractDto {
 
   @ApiProperty({ description: 'Fecha de inicio del contrato' })
   @IsDateString()
-  startDate: string;
+  startDate!: string;
 
   @ApiPropertyOptional({ description: 'Fecha de fin del contrato' })
   @IsDateString()
@@ -42,18 +45,55 @@ export class CreateContractDto {
 export class ApproveUserDto {
   @ApiProperty({ description: 'Aprobar (true) o rechazar (false)' })
   @IsBoolean()
-  approve: boolean;
+  approve!: boolean;
 
   @ApiPropertyOptional({ description: 'Razón del rechazo (si aplica)' })
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() || undefined : undefined,
+  )
   @IsString()
   @IsOptional()
+  reason?: string;
+}
+
+export class TerritorialAccessQueryDto {
+  @ApiPropertyOptional({
+    enum: [
+      'NONE',
+      'PENDING_EMAIL_VERIFICATION',
+      'PENDING_APPROVAL',
+      'APPROVED',
+      'REJECTED',
+      'REVOKED',
+    ],
+  })
+  @IsOptional()
+  @IsIn([
+    'NONE',
+    'PENDING_EMAIL_VERIFICATION',
+    'PENDING_APPROVAL',
+    'APPROVED',
+    'REJECTED',
+    'REVOKED',
+  ])
+  status?: string;
+}
+
+export class ReviewTerritorialAccessDto {
+  @ApiPropertyOptional({ description: 'Razón opcional para rechazo o revocación' })
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() || undefined : undefined,
+  )
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
   reason?: string;
 }
 
 export class CheckCoverageDto {
   @ApiProperty()
   @IsMongoId()
-  electionId: string;
+  electionId!: string;
 
   @ApiPropertyOptional()
   @IsMongoId()
@@ -68,10 +108,10 @@ export class CheckCoverageDto {
 
 export class CheckAttestationAvailabilityDto {
   @ApiProperty({ description: 'Latitud del usuario', example: -16.5 })
-  latitude: number;
+  latitude!: number;
 
   @ApiProperty({ description: 'Longitud del usuario', example: -68.15 })
-  longitude: number;
+  longitude!: number;
 
   @ApiProperty({ 
     description: 'Distancia máxima en metros', 

@@ -5,6 +5,7 @@ import { Module, Global } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
 import { DatabaseModule } from '../database/database.module';
+import { AppConfigModule } from '../config/app-config.module';
 import { LoggerService } from './services/logger.service';
 import { HealthService } from './services/health.service';
 import { HealthController } from './controllers/health.controller';
@@ -14,7 +15,7 @@ import { createClient, RedisClientType } from 'redis';
 @Global()
 @Module({
   imports: [
-    ConfigModule,
+    AppConfigModule,
     DatabaseModule,
     CacheModule.registerAsync<any>({
       imports: [ConfigModule],

@@ -47,9 +47,14 @@ export class InstitutionalVotingNotificationsService {
       body: `Revisa tu habilitacion para ${event.name}`,
       data: {
         type: 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
-        eventId: String(event._id),
+        eventId,
+        electionId: eventId,
+        eventName: event.name,
         state: String(event.state),
-        deepLink: `myapp://event/${String(event._id)}`,
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        link: this.buildPublicElectionPath(eventId),
+        deepLink: `myapp://event/${eventId}`,
       },
     }, additionalPerUserDniData);
 

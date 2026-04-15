@@ -67,6 +67,7 @@ export default registerAs('app', () => ({
     chain: process.env.CHAIN || 'base-sepolia',
     operationChainKey: process.env.CHAINA || '',
     participationPrivateKey: process.env.NFT_PARTICIPATION_PRIVATE_KEY || '',
+    privateKey: process.env.BLOCKCHAIN_PRIVATE_KEY || '',
   },
 
   ai: {

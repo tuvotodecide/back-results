@@ -51,7 +51,9 @@ describe('Tenant access phase 1 (e2e)', () => {
   let mongod: MongoMemoryServer;
   let conn: Connection;
   let adminToken: string;
+  let accessApproverToken: string;
   let governorToken: string;
+  let mayorToken: string;
   let governorUserId: string;
 
   beforeAll(async () => {
@@ -91,6 +93,20 @@ describe('Tenant access phase 1 (e2e)', () => {
     await seedLocations(conn);
     const users = await seedUsers(conn);
     const admin = await seedAdmin(conn);
+    await conn.collection('roled_users').insertOne({
+      dni: '7',
+      active: true,
+      verificationToken: null,
+      verificationTokenExpiresAt: null,
+      passwordResetToken: null,
+      passwordResetTokenExpiresAt: null,
+      email: 'access.approver@example.com',
+      name: 'Access Approver',
+      password: '$2b$10$YR43oUJ.897w6HOUH4nMkeJkWfg0FHxthUT.oygCzejA4BTTJZdlu',
+      role: 'ACCESS_APPROVER',
+      votingDepartmentId: null,
+      votingMunicipalityId: null,
+    });
     governorUserId = users.get('governorLaPaz')._id.toString();
 
     const adminLogin = await request(app.getHttpServer())
@@ -99,11 +115,23 @@ describe('Tenant access phase 1 (e2e)', () => {
       .expect(200);
     adminToken = adminLogin.body.accessToken;
 
+    const accessApproverLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'access.approver@example.com', password: 'secret123' })
+      .expect(200);
+    accessApproverToken = accessApproverLogin.body.accessToken;
+
     const governorLogin = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: users.get('governorLaPaz').email, password: 'secret123' })
       .expect(200);
     governorToken = governorLogin.body.accessToken;
+
+    const mayorLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: users.get('mayorCbba').email, password: 'secret123' })
+      .expect(200);
+    mayorToken = mayorLogin.body.accessToken;
   });
 
   afterAll(async () => {
@@ -189,6 +217,57 @@ describe('Tenant access phase 1 (e2e)', () => {
 
     return registerRes.body;
   }
+
+  async function registerPendingTerritorialUser(payload: {
+    dni: string;
+    email: string;
+    name: string;
+    departmentId?: string;
+    municipalityId?: string;
+  }) {
+    MailMockService.sendEmail.mockClear();
+
+    const registerRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({
+        dni: payload.dni,
+        email: payload.email,
+        name: payload.name,
+        password: 'secret123',
+        votingDepartmentId: payload.departmentId,
+        votingMunicipalityId: payload.municipalityId,
+      })
+      .expect(201);
+
+    const verifyToken = getLastMailToken();
+    expect(verifyToken).toBeTruthy();
+
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/verify-email')
+      .query({ token: verifyToken })
+      .expect(200);
+
+    return registerRes.body;
+  }
+
+  it('login de ACCESS_APPROVER devuelve contexto de aprobaciones', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'access.approver@example.com', password: 'secret123' })
+      .expect(200);
+
+    expect(loginRes.body.role).toBe('ACCESS_APPROVER');
+    expect(loginRes.body.availableContexts).toEqual([
+      expect.objectContaining({
+        type: 'ACCESS_APPROVALS',
+        role: 'ACCESS_APPROVER',
+      }),
+    ]);
+    expect(loginRes.body.requiresContextSelection).toBe(false);
+    expect(loginRes.body.defaultContext).toEqual(
+      expect.objectContaining({ type: 'ACCESS_APPROVALS' }),
+    );
+  });
 
   it('login devuelve contextos múltiples para usuario territorial con acceso tenant aprobado', async () => {
     const tenantRes = await request(app.getHttpServer())
@@ -351,13 +430,140 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(loginRes.body.message).toBe('El acceso institucional fue revocado');
   });
 
-  it('responde 403 cuando un no-ADMIN intenta consumir endpoints protegidos por AdminOnlyGuard', async () => {
-    const forbiddenRes = await request(app.getHttpServer())
-      .get('/api/v1/institutional-admin-applications/pending')
-      .auth(governorToken, { type: 'bearer' })
-      .expect(403);
+  it('ACCESS_APPROVER gestiona solicitudes institucionales sin poder crear tenants manualmente', async () => {
+    const email = `approver-tenant-${Date.now()}@example.com`;
+    const application = await createAndVerifyApplication({
+      dni: `AT${Date.now()}`,
+      email,
+      name: 'Approver Tenant',
+      institutionName: `Institution Approver ${Date.now()}`,
+    });
 
-    expect(forbiddenRes.body.message).toBe('Admin role required');
+    const pendingRes = await request(app.getHttpServer())
+      .get('/api/v1/institutional-admin-applications/pending')
+      .auth(accessApproverToken, { type: 'bearer' })
+      .expect(200);
+
+    expect(pendingRes.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: application.createRes.body.id,
+          email,
+          status: 'PENDING_APPROVAL',
+        }),
+      ]),
+    );
+
+    const detailRes = await request(app.getHttpServer())
+      .get(`/api/v1/institutional-admin-applications/${application.createRes.body.id}`)
+      .auth(accessApproverToken, { type: 'bearer' })
+      .expect(200);
+
+    expect(detailRes.body).toEqual(
+      expect.objectContaining({
+        id: application.createRes.body.id,
+        email,
+        status: 'PENDING_APPROVAL',
+      }),
+    );
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
+      .auth(accessApproverToken, { type: 'bearer' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/institutional-tenants')
+      .auth(accessApproverToken, { type: 'bearer' })
+      .send({
+        name: `Forbidden Tenant ${Date.now()}`,
+        description: 'No debe poder crear tenants manualmente',
+      })
+      .expect(403);
+  });
+
+  it('ACCESS_APPROVER gestiona solicitudes territoriales', async () => {
+    const lapaz = await conn.collection<Department>('departments').findOne({ name: 'La Paz' });
+    const territorialUser = await registerPendingTerritorialUser({
+      dni: `AP${Date.now()}`,
+      email: `approver-territorial-${Date.now()}@example.com`,
+      name: 'Approver Territorial',
+      departmentId: lapaz?._id.toString(),
+    });
+
+    const listRes = await request(app.getHttpServer())
+      .get('/api/v1/contracts/territorial-access-requests')
+      .query({ status: 'PENDING_APPROVAL' })
+      .auth(accessApproverToken, { type: 'bearer' })
+      .expect(200);
+
+    expect(listRes.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: territorialUser._id,
+          territorialAccessStatus: 'PENDING_APPROVAL',
+        }),
+      ]),
+    );
+
+    const detailRes = await request(app.getHttpServer())
+      .get(`/api/v1/contracts/territorial-access-requests/${territorialUser._id}`)
+      .auth(accessApproverToken, { type: 'bearer' })
+      .expect(200);
+
+    expect(detailRes.body).toEqual(
+      expect.objectContaining({
+        id: territorialUser._id,
+        territorialAccessStatus: 'PENDING_APPROVAL',
+      }),
+    );
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/contracts/users/${territorialUser._id}/approve`)
+      .auth(accessApproverToken, { type: 'bearer' })
+      .send({ approve: true, reason: 'Aprobado por ACCESS_APPROVER' })
+      .expect(201);
+
+    const revokeRes = await request(app.getHttpServer())
+      .post(`/api/v1/contracts/territorial-access-requests/${territorialUser._id}/revoke`)
+      .auth(accessApproverToken, { type: 'bearer' })
+      .send({ reason: 'Revocado por ACCESS_APPROVER' })
+      .expect(201);
+
+    expect(revokeRes.body.user).toEqual(
+      expect.objectContaining({
+        id: territorialUser._id,
+        territorialAccessStatus: 'REVOKED',
+      }),
+    );
+  });
+
+  it('USER, MAYOR y GOVERNOR no pueden consumir endpoints de aprobaciones', async () => {
+    const userApplication = await createAndVerifyApplication({
+      dni: `U${Date.now()}`,
+      email: `tenant-user-${Date.now()}@example.com`,
+      name: 'Tenant User',
+      institutionName: `Institution User ${Date.now()}`,
+    });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${userApplication.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+
+    const userLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: userApplication.createRes.body.email, password: 'secret123' })
+      .expect(200);
+
+    for (const token of [userLogin.body.accessToken, mayorToken, governorToken]) {
+      const forbiddenRes = await request(app.getHttpServer())
+        .get('/api/v1/institutional-admin-applications/pending')
+        .auth(token, { type: 'bearer' })
+        .expect(403);
+
+      expect(forbiddenRes.body.message).toBe('Access approver role required');
+    }
   });
 
   it('crea un usuario territorial nuevo sin duplicar y lo deja pendiente hasta aprobación ADMIN', async () => {

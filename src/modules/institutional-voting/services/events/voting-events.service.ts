@@ -43,6 +43,7 @@ import {
 import { VoteReaderService } from '../core/vote-reader.service';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
+import { shuffle } from '@/utils/array.util';
 
 @Injectable()
 export class VotingEventsService {
@@ -149,6 +150,9 @@ export class VotingEventsService {
         officialPublishedAt: event.officialPublishedAt ?? null,
         publicationExpiredAt: event.publicationExpiredAt ?? null,
         publicationConfirmed: Boolean(event.publicationConfirmed),
+        officialPublicationTxHash: event.officialPublicationTxHash ?? null,
+        officialPublicationWallet: event.officialPublicationWallet ?? null,
+        officialPublicationChainId: event.officialPublicationChainId ?? null,
         publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       })),
     };
@@ -492,6 +496,9 @@ export class VotingEventsService {
       officialPublishedAt: event.officialPublishedAt ?? null,
       publicationExpiredAt: event.publicationExpiredAt ?? null,
       publicationConfirmed: Boolean(event.publicationConfirmed),
+      officialPublicationTxHash: event.officialPublicationTxHash ?? null,
+      officialPublicationWallet: event.officialPublicationWallet ?? null,
+      officialPublicationChainId: event.officialPublicationChainId ?? null,
       canEditStructure: this.isStructuralEditableState(event.state),
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       roles: roles.map((role) => ({
@@ -532,7 +539,7 @@ export class VotingEventsService {
   async deleteEvent(eventId: string, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    await this.assertStructuralEditableState(event, 'eliminar el evento');
+    await this.assertDeletableState(event);
 
     const versions = await this.padronVersionModel
       .find({ eventId: event._id }, { _id: 1 })
@@ -932,16 +939,18 @@ export class VotingEventsService {
     await this.expireEventIfPastDeadline(event);
 
     const readiness = await this.evaluateReviewReadiness(event);
+    const publicationExpired = event.state === 'PUBLICATION_EXPIRED';
+    const pending = publicationExpired
+      ? Array.from(new Set([...readiness.pending, 'publication_window_expired']))
+      : readiness.pending;
 
     return {
       id: String(event._id),
-      tenantId: String(event.tenantId),
       state: event.state,
-      isReady: readiness.pending.length === 0,
-      pending: readiness.pending,
+      isReady: readiness.isReady && !publicationExpired,
+      pending,
       publishDeadline: event.publishDeadline ?? null,
-      canConfirmOfficialPublication:
-        readiness.pending.length === 0 && this.canStillBeOfficiallyPublished(event),
+      publicationWindow: this.mapPublicationWindow(event),
     };
   }
 
@@ -951,59 +960,52 @@ export class VotingEventsService {
     await this.expireEventIfPastDeadline(event);
 
     if (event.state === 'PUBLICATION_EXPIRED') {
-      throw new BadRequestException(
-        'La elección ya no puede pasar a revisión porque venció el plazo de publicación oficial',
-      );
+      throw new BadRequestException({
+        message: 'La elección ya no puede abrir revisión porque venció el plazo de 24 horas',
+        state: event.state,
+      });
     }
 
     if (!['DRAFT', 'READY_FOR_REVIEW'].includes(event.state)) {
       throw new BadRequestException(
-        'Solo se puede pasar a READY_FOR_REVIEW desde DRAFT o mantenerlo en revisión',
+        'Solo se puede abrir revisión cuando el evento está en DRAFT o READY_FOR_REVIEW',
       );
     }
 
     const readiness = await this.evaluateReviewReadiness(event);
-    if (readiness.pending.length > 0) {
+    if (!readiness.isReady) {
       throw new BadRequestException({
         message: 'Faltan precondiciones para pasar a READY_FOR_REVIEW',
         pending: readiness.pending,
       });
     }
 
-    event.state = 'READY_FOR_REVIEW';
-    event.readyForReviewAt = new Date();
-    event.publicEligibilityEnabled = true;
-    await event.save();
+    if (event.state !== 'READY_FOR_REVIEW') {
+      event.state = 'READY_FOR_REVIEW';
+      event.readyForReviewAt = new Date();
+      event.publicEligibilityEnabled = true;
+      await event.save();
+    }
+
     await this.notificationsService.notifyConvocationIfEligible(event);
 
     return {
       id: String(event._id),
       state: event.state,
-      readyForReviewAt: event.readyForReviewAt,
+      readyForReviewAt: event.readyForReviewAt ?? null,
       publishDeadline: event.publishDeadline ?? null,
-      pending: [],
+      publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+      publicationWindow: this.mapPublicationWindow(event),
     };
   }
 
   async confirmOfficialPublication(
     eventId: string,
-    dto: ConfirmOfficialPublicationDto,
+    dto: ConfirmOfficialPublicationDto = {},
     requester: any,
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
-    await this.expireEventIfPastDeadline(event);
-
-    if (event.state === 'OFFICIALLY_PUBLISHED' || event.state === 'PUBLISHED') {
-      return this.mapPublicationStateResponse(event);
-    }
-
-    if (event.state === 'PUBLICATION_EXPIRED') {
-      throw new BadRequestException({
-        message: 'La elección ya no puede publicarse oficialmente porque venció el plazo de 24 horas',
-        state: event.state,
-      });
-    }
 
     if (event.state !== 'READY_FOR_REVIEW') {
       throw new BadRequestException(
@@ -1012,9 +1014,9 @@ export class VotingEventsService {
     }
 
     const readiness = await this.evaluateReviewReadiness(event);
-    if (readiness.pending.length > 0) {
+    if (!readiness.isReady) {
       throw new BadRequestException({
-        message: 'El evento dejó de cumplir las condiciones para publicación oficial',
+        message: 'Faltan precondiciones para confirmar la publicación oficial',
         pending: readiness.pending,
       });
     }
@@ -1088,6 +1090,15 @@ export class VotingEventsService {
     }
   }
 
+  private async assertDeletableState(event: VotingEventDocument) {
+    await this.expireEventIfPastDeadline(event);
+    if (!['DRAFT', 'READY_FOR_REVIEW', 'PUBLICATION_EXPIRED'].includes(event.state)) {
+      throw new BadRequestException(
+        'Solo se permite eliminar eventos en DRAFT, READY_FOR_REVIEW o PUBLICATION_EXPIRED',
+      );
+    }
+  }
+
   private isStructuralEditableState(state: string) {
     return state === 'DRAFT' || state === 'READY_FOR_REVIEW';
   }
@@ -1133,6 +1144,29 @@ export class VotingEventsService {
       officialPublicationTxHash: event.officialPublicationTxHash ?? null,
       officialPublicationWallet: event.officialPublicationWallet ?? null,
       officialPublicationChainId: event.officialPublicationChainId ?? null,
+      publicationWindow: this.mapPublicationWindow(event),
+    };
+  }
+
+  private mapPublicationWindow(event: VotingEventDocument | any) {
+    const publishDeadline = event.publishDeadline ?? null;
+    const now = new Date();
+
+    return {
+      deadline: publishDeadline,
+      canConfirmOfficialPublication:
+        event.state === 'READY_FOR_REVIEW' &&
+        Boolean(publishDeadline) &&
+        now < new Date(publishDeadline),
+      expired:
+        event.state === 'PUBLICATION_EXPIRED' ||
+        Boolean(publishDeadline && now >= new Date(publishDeadline)),
+      hoursUntilDeadline: publishDeadline
+        ? Math.max(
+            0,
+            (new Date(publishDeadline).getTime() - now.getTime()) / (60 * 60 * 1000),
+          )
+        : null,
     };
   }
 

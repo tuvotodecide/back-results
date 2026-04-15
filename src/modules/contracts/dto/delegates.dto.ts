@@ -1,7 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsBoolean,
-  IsDateString,
   IsMongoId,
   IsNotEmpty,
   IsOptional,
@@ -12,24 +10,24 @@ export class UploadDelegatesCsvDto {
   @ApiProperty({ description: 'Contenido del archivo CSV' })
   @IsString()
   @IsNotEmpty()
-  csvContent: string;
+  csvContent!: string;
 
   @ApiProperty({ description: 'ID del contrato' })
   @IsMongoId()
   @IsNotEmpty()
-  contractId: string;
+  contractId!: string;
 }
 
 export class AddDelegateDto {
   @ApiProperty({ description: 'DNI del delegado' })
   @IsString()
   @IsNotEmpty()
-  dni: string;
+  dni!: string;
 
   @ApiProperty({ description: 'ID del contrato' })
   @IsMongoId()
   @IsNotEmpty()
-  contractId: string;
+  contractId!: string;
 
   @ApiPropertyOptional()
   @IsString()
@@ -51,10 +49,10 @@ export class RemoveDelegateDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  dni: string;
+  dni!: string;
 
   @ApiProperty()
   @IsMongoId()
   @IsNotEmpty()
-  contractId: string;
+  contractId!: string;
 }

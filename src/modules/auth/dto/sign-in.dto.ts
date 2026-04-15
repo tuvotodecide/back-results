@@ -11,9 +11,9 @@ export type TenantAccessStatus = typeof tenantAccessStatuses[number];
 
 export class AuthContextDto {
   @ApiProperty({
-    enum: ['GLOBAL_ADMIN', 'TERRITORIAL', 'TENANT'],
+    enum: ['GLOBAL_ADMIN', 'ACCESS_APPROVALS', 'TERRITORIAL', 'TENANT'],
   })
-  type: 'GLOBAL_ADMIN' | 'TERRITORIAL' | 'TENANT';
+  type: 'GLOBAL_ADMIN' | 'ACCESS_APPROVALS' | 'TERRITORIAL' | 'TENANT';
 
   @ApiPropertyOptional({ enum: userRoles })
   role?: UserRole;

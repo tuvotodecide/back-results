@@ -20,6 +20,10 @@ import { seedLocations } from './seeds/locationsSeed';
 import { seedAdmin, seedUsers } from './seeds/usersSeed';
 import { TestLoggerModule } from './module-helpers';
 import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
+import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
+import { VotingOptionDocument } from '@/modules/institutional-voting/schemas/voting-option.schema';
+import { PadronResolvedUser } from '@/modules/institutional-voting/services/core/padron-users.service';
+import { VotingEventDocument } from '@/modules/institutional-voting/schemas/voting-event.schema';
 
 // Evitar cargar ZK real (dependencias ESM/circuitos) en el entorno de test.
 jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
@@ -70,6 +74,18 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     }),
   };
 
+  const voteWritterServiceMock = {
+    createVote: jest.fn(async (event: VotingEventDocument, voters: PadronResolvedUser[], options: VotingOptionDocument[]) => {
+      const voteNullifiers = voters.filter(v => v.active).map(() => {
+        const uint32 = new Uint32Array(1);
+        crypto.getRandomValues(uint32);
+        return uint32[0].toString();
+      });
+      return voteNullifiers;
+    }),
+    updateVoteSchedule: jest.fn(),
+  };
+
   /*
   const issuerServiceMock = {
     issueCredential: jest.fn(async (dnis: string[]) => {
@@ -87,36 +103,47 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     });
     const mongoUri = mongod.getUri();
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [
-        ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
-        MongooseModule.forRoot(mongoUri),
-        CacheModule.register({ isGlobal: true }),
-        JwtModule.registerAsync({
-          global: true,
-          useFactory: (configService: ConfigService) => ({
-            secret: configService.get('app.jwt.secret'),
-            signOptions: {
-              expiresIn: configService.get('app.jwt.expirationTime'),
-            },
-          }),
-          inject: [ConfigService],
+  try {
+    mongod = await MongoMemoryServer.create({
+      instance: {
+        launchTimeout: 120000,
+      },
+    });
+    const mongoUri = mongod.getUri();
+
+  const moduleRef = await Test.createTestingModule({
+    imports: [
+      ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+      MongooseModule.forRoot(mongoUri),
+      CacheModule.register({ isGlobal: true }),
+      JwtModule.registerAsync({
+        global: true,
+        useFactory: (configService: ConfigService) => ({
+          secret: configService.get('app.jwt.secret'),
+          signOptions: {
+            expiresIn: configService.get('app.jwt.expirationTime'),
+          },
         }),
-        TestLoggerModule,
-        AuthModule,
-        ElectionsModule,
-        GeographicModule,
-        InstitutionalTenantsModule,
-        InstitutionalAdminApplicationsModule,
-        InstitutionalVotingModule,
-      ],
-      providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
-    })
-      .overrideProvider('FIREBASE_ADMIN')
-      .useValue(firebaseAdminMock)
-      .overrideProvider(VoteReaderService)
-      .useValue(voteReaderServiceMock)
-      .compile();
+        inject: [ConfigService],
+      }),
+      TestLoggerModule,
+      AuthModule,
+      ElectionsModule,
+      GeographicModule,
+      InstitutionalTenantsModule,
+      InstitutionalAdminApplicationsModule,
+      InstitutionalVotingModule,
+    ],
+    providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
+  })
+    .overrideProvider('FIREBASE_ADMIN')
+    .useValue(firebaseAdminMock)
+    .overrideProvider(VoteReaderService)
+    .useValue(voteReaderServiceMock)
+    //.overrideProvider(IssuerService)
+    //.useValue(issuerServiceMock)
+    .compile();
+    
 
     const app = moduleRef.createNestApplication();
     app.useGlobalPipes(

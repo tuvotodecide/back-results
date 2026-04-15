@@ -59,25 +59,30 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterRoledUserDto): Promise<RoledUserDocument> {
-    await this.validateTerritorialRegistration(dto);
+    try {
+      await this.validateTerritorialRegistration(dto);
 
-    const email = dto.email.trim().toLowerCase();
-    const dni = dto.dni.trim();
-    const requestedRole = dto.votingDepartmentId ? 'GOVERNOR' : 'MAYOR';
-    const existingUser = await this.resolveUserByEmailOrDni(email, dni);
+      const email = dto.email.trim().toLowerCase();
+      const dni = dto.dni.trim();
+      const requestedRole = dto.votingDepartmentId ? 'GOVERNOR' : 'MAYOR';
+      const existingUser = await this.resolveUserByEmailOrDni(email, dni);
 
-    if (existingUser && this.hasDifferentUserIdentity(existingUser, email, dni)) {
-      throw new ConflictException(
-        'El email y el DNI ya están asociados a usuarios distintos; no se puede unificar automáticamente',
-      );
+      if (existingUser && this.hasDifferentUserIdentity(existingUser, email, dni)) {
+        throw new ConflictException(
+          'El email y el DNI ya están asociados a usuarios distintos; no se puede unificar automáticamente',
+        );
+      }
+
+      if (existingUser) {
+        this.assertTerritorialRequestConsistency(existingUser, dto, requestedRole);
+        return this.updateExistingUserTerritorialRequest(existingUser, dto, requestedRole);
+      }
+
+      return this.createNewTerritorialUser(dto, requestedRole);
+    } catch (error) {
+      this.rethrowIdentityDuplicate(error);
+      throw error;
     }
-
-    if (existingUser) {
-      this.assertTerritorialRequestConsistency(existingUser, dto, requestedRole);
-      return this.updateExistingUserTerritorialRequest(existingUser, dto, requestedRole);
-    }
-
-    return this.createNewTerritorialUser(dto, requestedRole);
   }
 
   async verifyEmail(token: string): Promise<RoledUserDocument> {
@@ -112,25 +117,10 @@ export class AuthService {
     const user = await this.roledUserModel.findOne({ email });
 
     if (!user) {
-      const application = await this.institutionalAdminApplicationModel
-        .findOne({ email })
-        .sort({ createdAt: -1, _id: -1 })
-        .lean();
-
-      if (application?.status === 'PENDING_EMAIL_VERIFICATION') {
-        throw new UnauthorizedException({
-          message: 'El correo electrónico no ha sido verificado',
-          code: 'EMAIL_NOT_VERIFIED',
-        });
+      const application = await this.findLatestInstitutionalApplicationByEmail(email);
+      if (application) {
+        this.throwInstitutionalApplicationAccessError(application.status);
       }
-
-      if (application?.status === 'PENDING_APPROVAL') {
-        throw new UnauthorizedException({
-          message: 'La solicitud institucional está pendiente de aprobación',
-          code: 'TENANT_ACCESS_PENDING',
-        });
-      }
-
       throw new ForbiddenException('Credenciales inválidas');
     }
 
@@ -199,7 +189,9 @@ export class AuthService {
   }
 
   async requestPasswordReset(dto: RequestPasswordResetDto): Promise<void> {
-    const user = await this.roledUserModel.findOne({ email: dto.email.trim().toLowerCase() });
+    const user = await this.roledUserModel.findOne({
+      email: dto.email.trim().toLowerCase(),
+    });
 
     if (!user || user.verificationToken) {
       throw new UnauthorizedException('El correo electrónico no ha sido verificado');
@@ -245,12 +237,16 @@ export class AuthService {
 
   async createRoledUser(dto: RegisterRoledUserDto): Promise<RoledUserDocument> {
     await this.validateTerritorialRegistration(dto);
+    const password = this.requirePassword(
+      dto.password,
+      'password es requerido para crear un usuario territorial nuevo',
+    );
 
     const user = await this.roledUserModel.create({
       dni: dto.dni.trim(),
       email: dto.email.trim().toLowerCase(),
       name: dto.name.trim(),
-      password: bcrypt.hashSync(dto.password, 10),
+      password: bcrypt.hashSync(password, 10),
       role: dto.votingDepartmentId ? 'GOVERNOR' : 'MAYOR',
       territorialAccessStatus: 'APPROVED',
       territorialApprovedAt: new Date(),
@@ -284,6 +280,7 @@ export class AuthService {
 
     const shouldRemainActive =
       user.role === 'ADMIN' ||
+      user.role === 'ACCESS_APPROVER' ||
       this.hasApprovedTerritorialAccess(user) ||
       Boolean(hasApprovedTenantMembership);
 
@@ -297,6 +294,10 @@ export class AuthService {
     dto: RegisterRoledUserDto,
     requestedRole: 'MAYOR' | 'GOVERNOR',
   ): Promise<RoledUserDocument> {
+    const password = this.requirePassword(
+      dto.password,
+      'password es requerido para crear una identidad territorial nueva',
+    );
     const verificationToken = randomBytes(32).toString('hex');
     const verificationTokenExpiresAt = new Date(
       Date.now() +
@@ -307,7 +308,7 @@ export class AuthService {
       dni: dto.dni.trim(),
       email: dto.email.trim().toLowerCase(),
       name: dto.name.trim(),
-      password: bcrypt.hashSync(dto.password, 10),
+      password: bcrypt.hashSync(password, 10),
       role: requestedRole,
       territorialAccessStatus: 'PENDING_EMAIL_VERIFICATION',
       votingDepartmentId: dto.votingDepartmentId
@@ -398,6 +399,14 @@ export class AuthService {
         type: 'GLOBAL_ADMIN',
         role: user.role,
         label: 'Administrador global',
+      });
+    }
+
+    if (user.role === 'ACCESS_APPROVER') {
+      contexts.push({
+        type: 'ACCESS_APPROVALS',
+        role: user.role,
+        label: 'Aprobador de accesos',
       });
     }
 
@@ -693,6 +702,72 @@ export class AuthService {
     }
 
     return byEmail || byDni || null;
+  }
+
+  private async findLatestInstitutionalApplicationByEmail(
+    email: string,
+  ): Promise<InstitutionalAdminApplicationDocument | null> {
+    return this.institutionalAdminApplicationModel
+      .findOne({ email })
+      .sort({ createdAt: -1, _id: -1 });
+  }
+
+  private throwInstitutionalApplicationAccessError(status: string): never {
+    if (status === 'PENDING_EMAIL_VERIFICATION') {
+      throw new UnauthorizedException({
+        message: 'El correo electrónico no ha sido verificado',
+        code: 'EMAIL_NOT_VERIFIED',
+      });
+    }
+
+    if (status === 'PENDING_APPROVAL') {
+      throw new UnauthorizedException({
+        message: 'La solicitud institucional está pendiente de aprobación',
+        code: 'TENANT_ACCESS_PENDING',
+      });
+    }
+
+    if (status === 'REJECTED') {
+      throw new UnauthorizedException({
+        message: 'La solicitud institucional fue rechazada',
+        code: 'TENANT_ACCESS_REJECTED',
+      });
+    }
+
+    if (status === 'REVOKED') {
+      throw new UnauthorizedException({
+        message: 'El acceso institucional fue revocado',
+        code: 'TENANT_ACCESS_REVOKED',
+      });
+    }
+
+    if (status === 'APPROVED') {
+      throw new UnauthorizedException({
+        message:
+          'La solicitud institucional fue aprobada pero la identidad autenticable aún no está reconciliada en roled_users',
+        code: 'IDENTITY_RECONCILIATION_REQUIRED',
+      });
+    }
+
+    throw new ForbiddenException('Credenciales inválidas');
+  }
+
+  private rethrowIdentityDuplicate(error: unknown): void {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as any).code === 11000
+    ) {
+      throw new ConflictException('Ya existe un usuario con ese email o DNI');
+    }
+  }
+
+  private requirePassword(password: string | undefined, message: string): string {
+    if (!password) {
+      throw new BadRequestException(message);
+    }
+    return password;
   }
 
   private hasDifferentUserIdentity(user: RoledUserDocument, email: string, dni: string): boolean {

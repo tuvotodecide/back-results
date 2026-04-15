@@ -13,7 +13,6 @@ import { UsersModule } from './modules/users/users.module';
 import { APP_GUARD } from '@nestjs/core';
 import { FirebaseModule } from './core/firebase/firebase.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
-import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './modules/auth/auth.module';
 import { MailModule } from './modules/mail/mail.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
@@ -27,24 +26,12 @@ import { WorksheetModule } from './modules/worksheet/worksheet.module';
 import { InstitutionalVotingModule } from './modules/institutional-voting/institutional-voting.module';
 import { InstitutionalTenantsModule } from './modules/institutional-tenants/institutional-tenants.module';
 import { InstitutionalAdminApplicationsModule } from './modules/institutional-admin-applications/institutional-admin-applications.module';
-import appConfig from './config/app.config';
-
-const configModule = ConfigModule.forRoot({
-  isGlobal: true,
-  load: [appConfig],
-  envFilePath: '.env',
-  validationOptions: {
-    allowUnknown: true,
-    abortEarly: true,
-  },
-});
 
 const mockModules =
   process.env.ENABLE_MOCKS?.toLowerCase() === 'true' ? [MocksModule] : [];
 
 @Module({
   imports: [
-    configModule,
     ScheduleModule.forRoot(),
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'assets'),

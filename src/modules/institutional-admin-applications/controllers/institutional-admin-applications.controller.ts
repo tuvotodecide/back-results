@@ -20,6 +20,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Public } from '@/core/decorators/public.decorator';
+import { AccessApproverGuard } from '@/core/guards/access-approver.guard';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { ReviewInstitutionalAdminApplicationDto } from '../dto/review-institutional-admin-application.dto';
@@ -60,7 +61,7 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Get()
-  @UseGuards(AdminOnlyGuard)
+  @UseGuards(AccessApproverGuard)
   @ApiOperation({
     summary: 'Listar solicitudes institucionales',
     description: 'Lista solicitudes institucionales con filtro opcional por estado.',
@@ -77,7 +78,7 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Get('pending')
-  @UseGuards(AdminOnlyGuard)
+  @UseGuards(AccessApproverGuard)
   @ApiOperation({
     summary: 'Listar solicitudes institucionales pendientes',
     description: 'Retorna solo solicitudes en estado pendiente de aprobación.',
@@ -87,8 +88,20 @@ export class InstitutionalAdminApplicationsController {
     return this.institutionalAdminApplicationsService.listPendingApplications();
   }
 
+  @Get(':applicationId')
+  @UseGuards(AccessApproverGuard)
+  @ApiOperation({
+    summary: 'Ver detalle de solicitud institucional',
+    description: 'Retorna el detalle de una solicitud institucional por ID.',
+  })
+  @ApiParam({ name: 'applicationId', description: 'ID de la solicitud institucional.' })
+  @ApiResponse({ status: 200, description: 'Detalle de solicitud institucional.' })
+  getApplicationDetail(@Param('applicationId') applicationId: string) {
+    return this.institutionalAdminApplicationsService.getApplicationDetail(applicationId);
+  }
+
   @Post(':applicationId/approve')
-  @UseGuards(AdminOnlyGuard)
+  @UseGuards(AccessApproverGuard)
   @ApiOperation({
     summary: 'Aprobar solicitud institucional',
     description:
@@ -101,7 +114,7 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Post(':applicationId/reject')
-  @UseGuards(AdminOnlyGuard)
+  @UseGuards(AccessApproverGuard)
   @ApiOperation({
     summary: 'Rechazar solicitud institucional',
     description: 'Marca la solicitud como rechazada y deja el membership tenant en REJECTED cuando exista.',
@@ -110,7 +123,7 @@ export class InstitutionalAdminApplicationsController {
   @ApiBody({ type: ReviewInstitutionalAdminApplicationDto })
   reject(
     @Param('applicationId') applicationId: string,
-    @Body() dto: ReviewInstitutionalAdminApplicationDto,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto = {},
     @Req() req: any,
   ) {
     return this.institutionalAdminApplicationsService.rejectApplication(
@@ -121,7 +134,7 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Post(':applicationId/revoke')
-  @UseGuards(AdminOnlyGuard)
+  @UseGuards(AccessApproverGuard)
   @ApiOperation({
     summary: 'Revocar acceso institucional',
     description: 'Revoca un acceso tenant previamente aprobado.',
@@ -130,7 +143,7 @@ export class InstitutionalAdminApplicationsController {
   @ApiBody({ type: ReviewInstitutionalAdminApplicationDto })
   revoke(
     @Param('applicationId') applicationId: string,
-    @Body() dto: ReviewInstitutionalAdminApplicationDto,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto = {},
     @Req() req: any,
   ) {
     return this.institutionalAdminApplicationsService.revokeApplication(
@@ -150,7 +163,7 @@ export class InstitutionalAdminApplicationsController {
   @ApiBody({ type: ReviewInstitutionalAdminApplicationDto })
   reopen(
     @Param('applicationId') applicationId: string,
-    @Body() dto: ReviewInstitutionalAdminApplicationDto,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto = {},
     @Req() req: any,
   ) {
     return this.institutionalAdminApplicationsService.reopenApplication(

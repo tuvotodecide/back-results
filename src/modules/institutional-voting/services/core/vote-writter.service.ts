@@ -1,0 +1,158 @@
+import { availableNetworks } from "@/api/params";
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { createSmartAccountClient, SmartAccountClient } from "permissionless";
+import { createPimlicoClient } from "permissionless/clients/pimlico";
+import { createPublicClient, http } from "viem";
+import { entryPoint07Address, toCoinbaseSmartAccount } from "viem/account-abstraction";
+import { privateKeyToAccount } from "viem/accounts";
+import { VotingEventDocument } from "../../schemas/voting-event.schema";
+import { VoteContractCalls } from "@/api/vote";
+import { PadronResolvedUser } from "./padron-users.service";
+import { VotingOptionDocument } from "../../schemas/voting-option.schema";
+
+@Injectable()
+export class VoteWritterService {
+  private readonly chain: string;
+  private readonly pk: string;
+  private smartAccountClient?: SmartAccountClient = undefined;
+  private publicClient: any = undefined;
+  private readonly RECEIPT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
+  private readonly RECEIPT_POLL_INTERVAL_MS = 2000;
+  
+  constructor(private readonly configService: ConfigService) {
+    this.chain = this.configService.get<string>('app.blockchain.chain')!;
+    this.pk = this.configService.get<string>('app.blockchain.privateKey')!;
+    this.getAccount();
+  }
+
+  async getAccount() {
+    const privateKey = this.pk;
+    const {chain: chainConfig, bundler} = availableNetworks[this.chain];
+
+    this.publicClient = createPublicClient({
+      chain: chainConfig,
+      transport: http(bundler),
+    });
+
+    const account = await toCoinbaseSmartAccount({
+      client: this.publicClient,
+      owners: [privateKeyToAccount(privateKey as `0x${string}`)],
+      version: '1.1',
+    });
+
+    const pimlicoClient = createPimlicoClient({
+      chain: chainConfig,
+      transport: http(bundler),
+      entryPoint: {
+        address: entryPoint07Address,
+        version: '0.7',
+      },
+    });
+
+    this.smartAccountClient = createSmartAccountClient({
+      account,
+      chain: chainConfig,
+      bundlerTransport: http(bundler),
+      paymaster: pimlicoClient,
+    });
+  }
+
+  async executeOperation(
+    callData: any,
+    waitEvent: ((chainId: string, eventName: string, fromBlock: number) => Promise<any>) | undefined,
+    eventName: string | undefined,
+  ) {
+    if (!this.smartAccountClient) {
+      throw new Error('SmartAccountClient not initialized, call getAccount() first.');
+    }
+
+    const txHash = await this.smartAccountClient.sendTransaction(callData);
+    const receipt = await this.waitForReceiptWithFallback(txHash);
+
+    let returnData: any;
+    if (waitEvent && eventName) {
+      returnData = await waitEvent(this.chain, eventName, receipt.blockNumber);
+    }
+
+    const block = await this.publicClient.getBlock({blockNumber: receipt.blockNumber});
+    const date = new Date(Number(block.timestamp) * 1000);
+    return {returnData, receipt, date: date.toLocaleString()};
+  }
+
+  async waitForReceiptWithFallback(txHash: `0x${string}`) {
+    try {
+      return await this.publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: this.RECEIPT_WAIT_TIMEOUT_MS,
+        pollingInterval: this.RECEIPT_POLL_INTERVAL_MS,
+      });
+    } catch (error) {
+      if (!this.isReceiptTimeoutError(error)) {
+        throw error;
+      }
+
+      try {
+        return await this.publicClient.getTransactionReceipt({ hash: txHash });
+      } catch {
+        const timeoutError = new Error(
+          `Timed out while waiting for transaction receipt for ${txHash}`,
+        );
+        timeoutError.name = 'WaitForTransactionReceiptTimeoutError';
+        timeoutError.cause = error;
+        throw timeoutError;
+      }
+    }
+  };
+
+  isReceiptTimeoutError(error: any) {
+    const name = String(error?.name || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    return (
+      name.includes('waitfortransactionreceipttimeouterror') ||
+      message.includes('waitfortransactionreceipttimeouterror') ||
+      message.includes('timed out while waiting for transaction')
+    );
+  };
+
+  dateToUnixTimestamp(date: Date): number {
+    return Math.floor(date.getTime() / 1000);
+  }
+
+  async createVote(event: VotingEventDocument, voters: PadronResolvedUser[], options: VotingOptionDocument[]) {
+    const voteNullifiers = voters.filter(v => v.active).map(() => {
+      const uint32 = new Uint32Array(1);
+      crypto.getRandomValues(uint32);
+      return uint32[0].toString();
+    });
+
+    const optionsWithBlank = options.map(option => option.name);
+    optionsWithBlank.push('BLANK');
+
+    const callData = VoteContractCalls.createVote(
+      this.chain,
+      (event._id as any).toString(),
+      event.name,
+      this.dateToUnixTimestamp(event.votingStart!),
+      this.dateToUnixTimestamp(event.votingEnd!),
+      this.dateToUnixTimestamp(event.resultsPublishAt!),
+      voteNullifiers,
+      optionsWithBlank
+    );
+
+    await this.executeOperation(callData, undefined, undefined);
+    return voteNullifiers;
+  }
+
+  async updateVoteSchedule(eventId: string, start: Date, end: Date, publishAt: Date) {
+    const callData = VoteContractCalls.updateVoteSchedule(
+      this.chain,
+      eventId,
+      this.dateToUnixTimestamp(start),
+      this.dateToUnixTimestamp(end),
+      this.dateToUnixTimestamp(publishAt)
+    );
+
+    await this.executeOperation(callData, undefined, undefined);
+  }
+}

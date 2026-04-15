@@ -1,4 +1,6 @@
+import 'dotenv/config';
 import { arbitrum, arbitrumSepolia, base, baseSepolia } from 'viem/chains';
+
 const FACTORY = process.env.FACTORY;
 const SPONSORSHIP_POLICY = process.env.SPONSORSHIP_POLICY;
 export const sponsorshipPolicyId = SPONSORSHIP_POLICY;

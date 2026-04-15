@@ -87,14 +87,23 @@ export class InstitutionalAdminApplicationsService {
 
     let user = existingUser;
     if (!user) {
-      user = await this.roledUserModel.create({
-        dni,
-        email,
-        name: dto.name.trim(),
-        password: bcrypt.hashSync(dto.password, 10),
-        role: 'USER',
-        active: false,
-      });
+      const password = this.requirePassword(
+        dto.password,
+        'password es requerido para crear una identidad institucional nueva',
+      );
+      try {
+        user = await this.roledUserModel.create({
+          dni,
+          email,
+          name: dto.name.trim(),
+          password: bcrypt.hashSync(password, 10),
+          role: 'USER',
+          active: false,
+        });
+      } catch (error) {
+        this.rethrowIdentityDuplicate(error);
+        throw error;
+      }
     }
 
     const shouldRequireEmailVerification = !existingUser || Boolean(existingUser.verificationToken);
@@ -114,9 +123,14 @@ export class InstitutionalAdminApplicationsService {
 
     let created = latestSameInstitutionApplication;
     if (created && ['REJECTED', 'REVOKED'].includes(created.status)) {
+      const passwordHash = this.resolveApplicationPasswordHash(
+        user,
+        dto.password,
+        created.passwordHash,
+      );
       created.dni = dni;
       created.email = email;
-      created.passwordHash = bcrypt.hashSync(dto.password, 10);
+      created.passwordHash = passwordHash;
       created.name = dto.name.trim();
       created.institutionName = institutionName;
       created.institutionNameNorm = institutionNameNorm;
@@ -139,10 +153,11 @@ export class InstitutionalAdminApplicationsService {
       }
       throw new ConflictException('La solicitud institucional ya existe y sigue pendiente');
     } else {
+      const passwordHash = this.resolveApplicationPasswordHash(user, dto.password);
       created = await this.applicationModel.create({
         dni,
         email,
-        passwordHash: bcrypt.hashSync(dto.password, 10),
+        passwordHash,
         name: dto.name.trim(),
         institutionName,
         institutionNameNorm,
@@ -253,24 +268,14 @@ export class InstitutionalAdminApplicationsService {
       .lean();
 
     return {
-      data: rows.map((row) => ({
-        id: String(row._id),
-        dni: row.dni,
-        email: row.email,
-        name: row.name,
-        institutionName: row.institutionName,
-        status: row.status,
-        emailVerifiedAt: row.emailVerifiedAt ?? null,
-        approvedAt: row.approvedAt ?? null,
-        rejectedAt: row.rejectedAt ?? null,
-        revokedAt: row.revokedAt ?? null,
-        reason: row.reason ?? null,
-        tenantId: row.tenantId ? String(row.tenantId) : null,
-        userId: row.userId ? String(row.userId) : null,
-        createdAt: (row as any).createdAt ?? null,
-      })),
+      data: rows.map((row) => this.toApplicationResponse(row)),
       total: rows.length,
     };
+  }
+
+  async getApplicationDetail(applicationId: string) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    return this.toApplicationResponse(app);
   }
 
   async approveApplication(applicationId: string, requester: any) {
@@ -290,14 +295,19 @@ export class InstitutionalAdminApplicationsService {
     let user = await this.resolveUserByEmailOrDni(app.email, app.dni);
 
     if (!user) {
-      user = await this.roledUserModel.create({
-        dni: app.dni,
-        email: app.email,
-        name: app.name,
-        password: app.passwordHash,
-        role: 'USER',
-        active: false,
-      });
+      try {
+        user = await this.roledUserModel.create({
+          dni: app.dni,
+          email: app.email,
+          name: app.name,
+          password: app.passwordHash,
+          role: 'USER',
+          active: false,
+        });
+      } catch (error) {
+        this.rethrowIdentityDuplicate(error);
+        throw error;
+      }
     } else {
       user.active = true;
       user.verificationToken = undefined;
@@ -368,8 +378,10 @@ export class InstitutionalAdminApplicationsService {
 
   async rejectApplication(applicationId: string, requester: any, reason?: string) {
     const app = await this.getApplicationOrThrow(applicationId);
-    if (!['PENDING_APPROVAL', 'APPROVED', 'REVOKED'].includes(app.status)) {
-      throw new BadRequestException('La solicitud no puede rechazarse en su estado actual');
+    if (app.status !== 'PENDING_APPROVAL') {
+      throw new BadRequestException(
+        'Solo se puede rechazar una solicitud institucional pendiente de aprobación',
+      );
     }
 
     if (app.tenantId && app.userId) {
@@ -453,10 +465,11 @@ export class InstitutionalAdminApplicationsService {
     }
 
     app.status = 'PENDING_APPROVAL';
-    app.reason = reason?.trim() || undefined;
+    app.reason = undefined;
+    app.approvedAt = undefined;
     app.rejectedAt = undefined;
     app.revokedAt = undefined;
-    app.approvedBy = requester?.sub ? new Types.ObjectId(requester.sub) : undefined;
+    app.approvedBy = undefined;
     await app.save();
 
     if (app.tenantId && app.userId) {
@@ -471,7 +484,7 @@ export class InstitutionalAdminApplicationsService {
             rejectedAt: null,
             revokedAt: null,
             approvedBy: null,
-            reason: reason?.trim() || null,
+            reason: null,
           },
         },
         { upsert: true, new: true },
@@ -531,16 +544,26 @@ export class InstitutionalAdminApplicationsService {
       });
     }
 
-    const user = await this.roledUserModel.create({
-      dni,
-      email,
-      name,
-      password: bcrypt.hashSync(dto.password, 10),
-      role: 'USER',
-      active: true,
-      verificationToken: undefined,
-      verificationTokenExpiresAt: undefined,
-    });
+    let user: RoledUserDocument;
+    const password = this.requirePassword(
+      dto.password,
+      'password es requerido para crear un admin institucional de prueba',
+    );
+    try {
+      user = await this.roledUserModel.create({
+        dni,
+        email,
+        name,
+        password: bcrypt.hashSync(password, 10),
+        role: 'USER',
+        active: true,
+        verificationToken: undefined,
+        verificationTokenExpiresAt: undefined,
+      });
+    } catch (error) {
+      this.rethrowIdentityDuplicate(error);
+      throw error;
+    }
 
     const approvedAt = new Date();
 
@@ -719,6 +742,43 @@ export class InstitutionalAdminApplicationsService {
     return matches[0];
   }
 
+  private resolveApplicationPasswordHash(
+    existingUser: RoledUserDocument | null,
+    password?: string,
+    fallbackHash?: string,
+  ): string {
+    if (existingUser?.password) {
+      return existingUser.password;
+    }
+    if (password) {
+      return bcrypt.hashSync(password, 10);
+    }
+    if (fallbackHash) {
+      return fallbackHash;
+    }
+    throw new BadRequestException(
+      'password es requerido cuando no existe una identidad reutilizable en roled_users',
+    );
+  }
+
+  private requirePassword(password: string | undefined, message: string): string {
+    if (!password) {
+      throw new BadRequestException(message);
+    }
+    return password;
+  }
+
+  private rethrowIdentityDuplicate(error: unknown): void {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as any).code === 11000
+    ) {
+      throw new ConflictException('Ya existe un usuario con ese email o DNI');
+    }
+  }
+
   private async syncUserActiveState(userId: Types.ObjectId | string) {
     const normalizedUserId =
       typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
@@ -733,6 +793,7 @@ export class InstitutionalAdminApplicationsService {
 
     const shouldRemainActive =
       user.role === 'ADMIN' ||
+      user.role === 'ACCESS_APPROVER' ||
       user.territorialAccessStatus === 'APPROVED' ||
       ((!user.territorialAccessStatus || user.territorialAccessStatus === 'NONE') &&
         (user.role === 'MAYOR' || user.role === 'GOVERNOR') &&
@@ -747,5 +808,24 @@ export class InstitutionalAdminApplicationsService {
 
   private toObjectId(value: Types.ObjectId | string): Types.ObjectId {
     return value instanceof Types.ObjectId ? value : new Types.ObjectId(String(value));
+  }
+
+  private toApplicationResponse(row: any) {
+    return {
+      id: String(row._id),
+      dni: row.dni,
+      email: row.email,
+      name: row.name,
+      institutionName: row.institutionName,
+      status: row.status,
+      emailVerifiedAt: row.emailVerifiedAt ?? null,
+      approvedAt: row.approvedAt ?? null,
+      rejectedAt: row.rejectedAt ?? null,
+      revokedAt: row.revokedAt ?? null,
+      reason: row.reason ?? null,
+      tenantId: row.tenantId ? String(row.tenantId) : null,
+      userId: row.userId ? String(row.userId) : null,
+      createdAt: row.createdAt ?? null,
+    };
   }
 }

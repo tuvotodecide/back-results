@@ -12,12 +12,16 @@ import walletAbi from './contracts/SimpleAccount.json';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { createSmartAccountClient } from 'permissionless';
 
-if (!RAW_FACTORY_ADDRESS) {
-  throw new Error('FACTORY_ADDRESS no está configurado');
-}
-const FACTORY_ADDR = RAW_FACTORY_ADDRESS as Address;
 const CHAIN_KEY = (
-  process.env.CHAINA ) as keyof typeof availableNetworks;
+  process.env.CHAINA) as keyof typeof availableNetworks;
+
+function getFactoryAddress(): Address {
+  const factoryAddress = RAW_FACTORY_ADDRESS || process.env.FACTORY;
+  if (!factoryAddress) {
+    throw new Error('FACTORY_ADDRESS no está configurado');
+  }
+  return factoryAddress as Address;
+}
 
 export function getReadAccountContract(chain, address) {
   const client = createPublicClient({
@@ -43,7 +47,7 @@ export async function getAccount(privateKey, address, chain) {
   const account = await toSimpleSmartAccount({
     client: publicClient,
     address,
-    factoryAddress: FACTORY_ADDR,
+    factoryAddress: getFactoryAddress(),
     owner,
     entryPoint: { address: entryPoint07Address, version: '0.7' },
   });
@@ -157,10 +161,10 @@ export async function fetchUserAttestations(userId) {
       success: true,
       data: data,
     };
-  } catch (error) {
+  } catch (error:any) {
     return {
       success: false,
-      message: error.message || 'Error al cargar los atestiguamientos',
+      message: (error.message || 'Error al cargar los atestiguamientos')
     };
   }
 }

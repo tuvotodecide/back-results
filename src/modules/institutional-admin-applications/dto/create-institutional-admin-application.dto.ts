@@ -1,7 +1,8 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Length,
   Matches,
@@ -21,10 +22,16 @@ export class CreateInstitutionalAdminApplicationDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ minLength: 8, example: 'ClaveSegura123*' })
+  @ApiPropertyOptional({
+    minLength: 8,
+    example: 'ClaveSegura123*',
+    description:
+      'Requerida solo cuando el backend debe crear una identidad nueva en roled_users. Si la identidad ya existe y solo se solicita acceso institucional, puede omitirse.',
+  })
+  @IsOptional()
   @IsString()
   @MinLength(8)
-  password: string;
+  password?: string;
 
   @ApiProperty({ example: 'Juan Perez' })
   @IsString()

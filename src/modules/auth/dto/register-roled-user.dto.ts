@@ -28,10 +28,16 @@ export class RegisterRoledUserDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ minLength: 8, example: 'secret123' })
+  @ApiPropertyOptional({
+    minLength: 8,
+    example: 'secret123',
+    description:
+      'Requerida solo cuando el backend debe crear una identidad nueva en roled_users. Si la identidad ya existe y solo se amplía acceso, puede omitirse.',
+  })
+  @IsOptional()
   @IsString()
   @MinLength(8)
-  password: string;
+  password?: string;
 
   @ApiPropertyOptional({ example: '6794f4c6aa52f60011d54cd9' })
   @IsMongoId()
