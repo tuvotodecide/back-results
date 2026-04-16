@@ -48,6 +48,18 @@ export class InstitutionalVotingNotificationsService {
     return `${base.replace(/\/+$/, '')}${this.buildPublicElectionPath(eventId)}`;
   }
 
+  private formatHumanVotingStart(votingStart?: Date | null) {
+    if (!votingStart) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('es', {
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'UTC',
+    }).format(votingStart);
+  }
+
   async notifyConvocationIfEligible(event: VotingEventDocument, additionalPerUserDniData: Record<string, Record<string, string>> = {}) {
     if (event.convocationNotifiedAt) return { sent: 0, skipped: 'already_notified' };
     const eventId = String(event._id);
@@ -106,6 +118,33 @@ export class InstitutionalVotingNotificationsService {
     );
 
     return out;
+  }
+
+  async notifyOfficialPublicationConfirmed(event: VotingEventDocument) {
+    const eventId = String(event._id);
+    const publicUrl = this.buildPublicElectionUrl(eventId);
+    const humanVotingStart = this.formatHumanVotingStart(event.votingStart);
+    const body = humanVotingStart
+      ? `La elección ${event.name} iniciará el ${humanVotingStart}.`
+      : `La elección ${event.name} fue publicada oficialmente.`;
+
+    return this.notifyToCurrentPadron(event, {
+      type: 'official_publication_confirmed',
+      title: 'La elección fue publicada oficialmente',
+      body,
+      data: {
+        type: 'INSTITUTIONAL_OFFICIAL_PUBLICATION_CONFIRMED',
+        eventId,
+        eventName: event.name,
+        votingStart: event.votingStart?.toISOString?.() ?? '',
+        bannerTitle: 'Elección publicada oficialmente',
+        bannerSubtitle: body,
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        link: this.buildPublicElectionPath(eventId),
+        deepLink: `myapp://event/${eventId}`,
+      },
+    });
   }
 
   async notifyNewsToCurrentPadron(

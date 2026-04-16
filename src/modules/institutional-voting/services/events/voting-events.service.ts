@@ -1067,6 +1067,7 @@ export class VotingEventsService {
     event.officialPublicationWallet = dto.wallet?.trim() || undefined;
     event.officialPublicationChainId = dto.chainId?.trim() || undefined;
     await event.save();
+    await this.notificationsService.notifyOfficialPublicationConfirmed(event);
 
     return this.mapPublicationStateResponse(event);
   }

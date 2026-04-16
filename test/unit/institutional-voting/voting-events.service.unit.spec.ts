@@ -95,6 +95,7 @@ describe('VotingEventsService (unit)', () => {
     };
     notificationsService = {
       notifyConvocationIfEligible: jest.fn(),
+      notifyOfficialPublicationConfirmed: jest.fn(),
     };
     voteReaderService = {
       getResults: jest.fn(),
@@ -229,11 +230,13 @@ describe('VotingEventsService (unit)', () => {
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
     comparisonReportModel.exists.mockResolvedValue(true);
+    notificationsService.notifyOfficialPublicationConfirmed.mockResolvedValue({ sent: 2 });
 
     const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
 
     expect(event.save).toHaveBeenCalled();
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
+    expect(notificationsService.notifyOfficialPublicationConfirmed).toHaveBeenCalledWith(event);
     expect(result.state).toBe('OFFICIALLY_PUBLISHED');
   });
 
