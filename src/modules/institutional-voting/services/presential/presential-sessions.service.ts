@@ -176,6 +176,9 @@ export class PresentialSessionsService {
     const stationId = this.normalizeStationId(stationIdRaw);
 
     await this.expireStaleSessionsForEvent(event, stationId);
+    if (!event.presentialKioskEnabled) {
+      return this.buildCurrentStatePayload(event, stationId, null);
+    }
 
     let current = await this.getCurrentActiveSession(event._id, stationId);
     if (!current && event.presentialKioskEnabled && this.isEventActive(event)) {
@@ -364,6 +367,14 @@ export class PresentialSessionsService {
       eventId,
       presentialSessionId,
     );
+    const event = await this.votingEventModel.findById(session.eventId);
+    if (!event) {
+      throw new NotFoundException('Evento no encontrado');
+    }
+    if (!event.presentialKioskEnabled) {
+      throw new ForbiddenException({ error: 'KIOSK_DISABLED' });
+    }
+
     await this.expireSessionIfStale(session);
     const latest =
       (await this.presentialSessionModel.findById(session._id)) ?? session;

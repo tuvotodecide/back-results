@@ -123,6 +123,7 @@ export class VotingEventsService {
       resultsPublishAt: created.resultsPublishAt,
       publishDeadline: created.publishDeadline ?? null,
       state: created.state,
+      presentialKioskEnabled: Boolean(created.presentialKioskEnabled),
     };
   }
 
@@ -225,6 +226,7 @@ export class VotingEventsService {
         votingEnd: event.votingEnd ?? null,
         resultsPublishAt: event.resultsPublishAt ?? null,
         publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+        presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
         phase: isResults ? 'RESULTS' : isActive ? 'ACTIVE' : isUpcoming ? 'UPCOMING' : 'OTHER',
       };
     });
@@ -356,6 +358,7 @@ export class VotingEventsService {
       votingEnd: event.votingEnd ?? null,
       resultsPublishAt: event.resultsPublishAt ?? null,
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+      presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
       resultsAvailable,
       roles: roles.map((role) => ({
         id: String(role._id),
@@ -475,6 +478,7 @@ export class VotingEventsService {
         status,
         eligible: status === 'ELIGIBLE',
         referenceVersion,
+        presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
       };
     });
 
@@ -548,6 +552,16 @@ export class VotingEventsService {
       event.objective = dto.objective.trim();
     }
 
+    if (dto.presentialKioskEnabled !== undefined) {
+      event.presentialKioskEnabled = dto.presentialKioskEnabled;
+      if (!dto.presentialKioskEnabled) {
+        event.presentialKioskTokenHash = undefined;
+        event.presentialKioskIssuedAt = undefined;
+        event.presentialKioskLastUsedAt = undefined;
+        await this.cancelActivePresentialSessions(event);
+      }
+    }
+
     await event.save();
 
     return {
@@ -556,6 +570,7 @@ export class VotingEventsService {
       name: event.name,
       objective: event.objective,
       state: event.state,
+      presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
     };
   }
 
@@ -975,6 +990,7 @@ export class VotingEventsService {
       isReady: readiness.isReady && !publicationExpired,
       pending,
       publishDeadline: event.publishDeadline ?? null,
+      presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
       publicationWindow: this.mapPublicationWindow(event),
     };
   }
@@ -1022,6 +1038,7 @@ export class VotingEventsService {
       readyForReviewAt: event.readyForReviewAt ?? null,
       publishDeadline: event.publishDeadline ?? null,
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+      presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
       publicationWindow: this.mapPublicationWindow(event),
     };
   }
@@ -1112,6 +1129,21 @@ export class VotingEventsService {
     };
   }
 
+  private async cancelActivePresentialSessions(event: VotingEventDocument) {
+    await this.presentialSessionModel.updateMany(
+      {
+        eventId: event._id,
+        status: { $in: ['READY', 'CLAIMED'] },
+      },
+      {
+        $set: {
+          status: 'CANCELLED',
+          expiresAt: new Date(),
+        },
+      },
+    );
+  }
+
   private async assertStructuralEditableState(event: VotingEventDocument, action: string) {
     await this.expireEventIfPastDeadline(event);
     if (!this.accessService.canFullyEditEvent(event)) {
@@ -1166,6 +1198,7 @@ export class VotingEventsService {
       officialPublicationTxHash: event.officialPublicationTxHash ?? null,
       officialPublicationWallet: event.officialPublicationWallet ?? null,
       officialPublicationChainId: event.officialPublicationChainId ?? null,
+      presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
       publicationWindow: this.mapPublicationWindow(event),
     };
   }

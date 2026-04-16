@@ -34,7 +34,11 @@ import {
   SignInResponseDto,
   TenantAccessStatus,
 } from '../dto/sign-in.dto';
-import { RequestPasswordResetDto, ResetPasswordDto } from '../dto/password-reset.dto';
+import {
+  PasswordResetContext,
+  RequestPasswordResetDto,
+  ResetPasswordDto,
+} from '../dto/password-reset.dto';
 import {
   RoledUser,
   RoledUserDocument,
@@ -211,7 +215,7 @@ export class AuthService {
     user.passwordResetTokenExpiresAt = resetTokenExpiresAt;
     await user.save();
 
-    await this.sendPasswordResetEmail(user.email, user.name, resetToken, user.role);
+    await this.sendPasswordResetEmail(user.email, user.name, resetToken, user.role, dto.context);
   }
 
   async resetPassword(dto: ResetPasswordDto): Promise<void> {
@@ -825,8 +829,9 @@ export class AuthService {
     name: string,
     token: string,
     role: string,
+    context?: PasswordResetContext,
   ): Promise<void> {
-    const resetPath = role === 'ADMIN' ? '/votacion/restablecer' : '/resultados/restablecer';
+    const resetPath = this.resolvePasswordResetPath(role, context);
     const resetLink = this.buildEmailLink(
       token,
       this.configService.get<string>('app.mail.passwordResetBaseUrl'),
@@ -837,6 +842,18 @@ export class AuthService {
       name: name.split(' ')[0],
       resetLink,
     });
+  }
+
+  private resolvePasswordResetPath(role: string, context?: PasswordResetContext) {
+    if (context === PasswordResetContext.VOTACION) {
+      return '/votacion/restablecer';
+    }
+
+    if (context === PasswordResetContext.RESULTADOS) {
+      return '/resultados/restablecer';
+    }
+
+    return role === 'ADMIN' ? '/votacion/restablecer' : '/resultados/restablecer';
   }
 
   private buildEmailLink(

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class UpdateVotingEventDto {
   @ApiProperty({ required: false })
@@ -13,4 +13,9 @@ export class UpdateVotingEventDto {
   @IsString()
   @IsNotEmpty()
   objective?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  presentialKioskEnabled?: boolean;
 }

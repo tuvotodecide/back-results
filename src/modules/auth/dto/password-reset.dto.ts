@@ -1,10 +1,24 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+
+export enum PasswordResetContext {
+  VOTACION = 'votacion',
+  RESULTADOS = 'resultados',
+}
 
 export class RequestPasswordResetDto {
   @ApiProperty({ example: 'user@example.com' })
   @IsEmail()
   email: string;
+
+  @ApiPropertyOptional({
+    enum: PasswordResetContext,
+    description:
+      'Contexto desde donde se solicitó la recuperación para construir el enlace correcto.',
+  })
+  @IsOptional()
+  @IsEnum(PasswordResetContext)
+  context?: PasswordResetContext;
 }
 
 export class ResetPasswordDto {

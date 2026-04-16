@@ -78,6 +78,7 @@ describe('VotingEventsService (unit)', () => {
     };
     presentialSessionModel = {
       deleteMany: jest.fn(),
+      updateMany: jest.fn(),
     };
     resultsSnapshotModel = {
       deleteMany: jest.fn(),
@@ -339,6 +340,7 @@ describe('VotingEventsService (unit)', () => {
       name: 'Evento actualizado',
       objective: 'Objetivo nuevo',
       state: 'READY_FOR_REVIEW',
+      presentialKioskEnabled: false,
     });
   });
 
@@ -385,7 +387,49 @@ describe('VotingEventsService (unit)', () => {
       name: 'Evento actualizado',
       objective: 'Objetivo nuevo',
       state: 'DRAFT',
+      presentialKioskEnabled: false,
     });
+  });
+
+  it('permite apagar el kiosco presencial antes de la publicación y cancela sesiones activas', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+      name: 'Evento inicial',
+      objective: 'Objetivo inicial',
+      presentialKioskEnabled: true,
+      presentialKioskTokenHash: 'hash',
+      presentialKioskIssuedAt: new Date(),
+      presentialKioskLastUsedAt: new Date(),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    presentialSessionModel.updateMany.mockResolvedValue({ modifiedCount: 2 });
+
+    const result = await service.updateEvent(
+      String(event._id),
+      { presentialKioskEnabled: false },
+      { sub: 'admin-1' },
+    );
+
+    expect(presentialSessionModel.updateMany).toHaveBeenCalledWith(
+      {
+        eventId: event._id,
+        status: { $in: ['READY', 'CLAIMED'] },
+      },
+      {
+        $set: {
+          status: 'CANCELLED',
+          expiresAt: expect.any(Date),
+        },
+      },
+    );
+    expect(event.presentialKioskTokenHash).toBeUndefined();
+    expect(event.presentialKioskIssuedAt).toBeUndefined();
+    expect(event.presentialKioskLastUsedAt).toBeUndefined();
+    expect(event.save).toHaveBeenCalled();
+    expect(result.presentialKioskEnabled).toBe(false);
   });
 
   it('bloquea actualizar roles cuando el evento ya no está en borrador', async () => {

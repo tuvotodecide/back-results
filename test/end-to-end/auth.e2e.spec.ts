@@ -478,7 +478,19 @@ describe('Auth E2E testing + contracts and delegates', () => {
 
     await request(app.getHttpServer())
       .post('/api/v1/auth/forgot-password')
-      .send({ email: activeUser.email })
+      .send({ email: activeUser.email, context: 'votacion' })
+      .expect(200);
+
+    expect(MailMockService.sendEmail).toHaveBeenCalled();
+    expect(MailMockService.sendEmail.mock.calls[0][3].resetLink).toContain(
+      '/votacion/restablecer',
+    );
+
+    MailMockService.sendEmail.mockClear();
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: activeUser.email, context: 'resultados' })
       .expect(200);
 
     expect(MailMockService.sendEmail).toHaveBeenCalled();
@@ -498,8 +510,18 @@ describe('Auth E2E testing + contracts and delegates', () => {
     // Extract data for further tests
     const resetLink: string =
       MailMockService.sendEmail.mock.calls[0][3].resetLink;
+    expect(resetLink).toContain('/resultados/restablecer');
     const url = new URL(resetLink);
     passwordResetToken = url.searchParams.get('token')!;
+  });
+
+  it('R14-B: should reject unsupported password reset context', async () => {
+    const activeUser = users.get('mayorCbba');
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: activeUser.email, context: 'admin' })
+      .expect(400);
   });
 
   it('R15-A: should return BadRequest on reset password without token', async () => {
