@@ -66,6 +66,9 @@ export class VotingEvent {
   @Prop({ type: Date, required: false })
   publicationExpiredAt?: Date;
 
+  @Prop({ type: Date, required: false })
+  officialPublicationReminderSentAt?: Date;
+
   @Prop({ type: Boolean, default: false })
   publicationConfirmed?: boolean;
 
@@ -86,6 +89,18 @@ export class VotingEvent {
 
   @Prop({ type: String, required: false })
   resultsNotificationError?: string;
+
+  @Prop({ type: Boolean, default: false })
+  presentialKioskEnabled?: boolean;
+
+  @Prop({ type: String, required: false, trim: true })
+  presentialKioskTokenHash?: string;
+
+  @Prop({ type: Date, required: false })
+  presentialKioskIssuedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  presentialKioskLastUsedAt?: Date;
 }
 
 export const VotingEventSchema = SchemaFactory.createForClass(VotingEvent);

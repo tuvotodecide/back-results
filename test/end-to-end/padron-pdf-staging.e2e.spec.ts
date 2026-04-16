@@ -395,11 +395,24 @@ describe('Padron document import + staging E2E (phase 3)', () => {
 
     const summary = await getPadronSummary(ctx.httpServer, ctx.adminToken, eventId);
     expect(summary.status).toBe(200);
-    expect(summary.body.activeDraft).toBeNull();
     expect(summary.body.currentVersion).toEqual(
       expect.objectContaining({
         sourceType: 'PDF_IMPORT',
         comparisonStatus: 'PENDING',
+      }),
+    );
+    expect(summary.body.activeDraft).toEqual(
+      expect.objectContaining({
+        sourceType: 'SYSTEM',
+        status: 'PARSED',
+        isActiveDraft: true,
+      }),
+    );
+    expect(summary.body.activeDraft.importJobId).not.toBe(uploaded.body.importJobId);
+    expect(summary.body.editingRules).toEqual(
+      expect.objectContaining({
+        mode: 'FULL',
+        canEditEverything: true,
       }),
     );
 
@@ -517,6 +530,18 @@ describe('Padron document import + staging E2E (phase 3)', () => {
         sourceType: 'CSV_LEGACY',
       }),
     );
-    expect(summary.body.activeDraft).toBeNull();
+    expect(summary.body.activeDraft).toEqual(
+      expect.objectContaining({
+        sourceType: 'SYSTEM',
+        status: 'PARSED',
+        isActiveDraft: true,
+      }),
+    );
+    expect(summary.body.editingRules).toEqual(
+      expect.objectContaining({
+        mode: 'FULL',
+        canEditEverything: true,
+      }),
+    );
   });
 });

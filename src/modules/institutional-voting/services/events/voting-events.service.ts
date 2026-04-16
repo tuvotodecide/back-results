@@ -29,6 +29,10 @@ import { PadronEntry, PadronEntryDocument } from '../../schemas/padron-entry.sch
 import { PadronVersion, PadronVersionDocument } from '../../schemas/padron-version.schema';
 import { Participation, ParticipationDocument } from '../../schemas/participation.schema';
 import {
+  PresentialSession,
+  PresentialSessionDocument,
+} from '../../schemas/presential-session.schema';
+import {
   VotingEvent,
   VotingEventDocument,
 } from '../../schemas/voting-event.schema';
@@ -76,6 +80,8 @@ export class VotingEventsService {
     private readonly comparisonReportModel: Model<ComparisonReportDocument>,
     @InjectModel(Participation.name)
     private readonly participationModel: Model<ParticipationDocument>,
+    @InjectModel(PresentialSession.name)
+    private readonly presentialSessionModel: Model<PresentialSessionDocument>,
     @InjectModel(EventResultsSnapshot.name)
     private readonly resultsSnapshotModel: Model<EventResultsSnapshotDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
@@ -91,7 +97,7 @@ export class VotingEventsService {
       dto.votingStart,
       dto.votingEnd,
       dto.resultsPublishAt,
-      false,
+      true,
     );
 
     const created = await this.votingEventModel.create({
@@ -102,7 +108,7 @@ export class VotingEventsService {
       votingEnd,
       resultsPublishAt,
       state: 'DRAFT',
-      publishDeadline: this.computePublishDeadline(votingStart),
+      publishDeadline: this.accessService.computePublishDeadline(votingStart),
       publicEligibilityEnabled: true,
       publicationConfirmed: false,
     });
@@ -154,6 +160,11 @@ export class VotingEventsService {
         officialPublicationWallet: event.officialPublicationWallet ?? null,
         officialPublicationChainId: event.officialPublicationChainId ?? null,
         publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+        presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
+        canEditStructure: this.accessService.canFullyEditEvent(event),
+        canEditPadronDuringVoting: this.accessService.canModifyPadronDuringVoting(event),
+        canEditPadronInLimitedMode: this.accessService.canModifyPadronDuringVoting(event),
+        padronEditMode: this.resolvePadronEditMode(event),
       })),
     };
   }
@@ -499,8 +510,20 @@ export class VotingEventsService {
       officialPublicationTxHash: event.officialPublicationTxHash ?? null,
       officialPublicationWallet: event.officialPublicationWallet ?? null,
       officialPublicationChainId: event.officialPublicationChainId ?? null,
-      canEditStructure: this.isStructuralEditableState(event.state),
+      canEditStructure: this.accessService.canFullyEditEvent(event),
+      canEditPadronDuringVoting: this.accessService.canModifyPadronDuringVoting(event),
+      canEditPadronInLimitedMode: this.accessService.canModifyPadronDuringVoting(event),
+      padronEditMode: this.resolvePadronEditMode(event),
+      publicationWindow: this.mapPublicationWindow(event),
+      editingRules: {
+        canEditEverything: this.accessService.canFullyEditEvent(event),
+        canEditPadronDuringVoting: this.accessService.canModifyPadronDuringVoting(event),
+        canEditPadronInLimitedMode: this.accessService.canModifyPadronDuringVoting(event),
+        dateValidationMinHours: 36,
+        officialPublicationCutoffHours: 24,
+      },
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
+      presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
       roles: roles.map((role) => ({
         id: String(role._id),
         name: role.name,
@@ -552,6 +575,7 @@ export class VotingEventsService {
       this.padronEntryModel.deleteMany({ eventId: event._id }),
       this.padronVersionModel.deleteMany({ eventId: event._id }),
       this.participationModel.deleteMany({ eventId: event._id }),
+      this.presentialSessionModel.deleteMany({ eventId: event._id }),
       this.resultsSnapshotModel.deleteMany({ eventId: event._id }),
       this.votingEventModel.deleteOne({ _id: event._id }),
       versionIds.length
@@ -921,7 +945,8 @@ export class VotingEventsService {
     event.votingStart = votingStart;
     event.votingEnd = votingEnd;
     event.resultsPublishAt = resultsPublishAt;
-    event.publishDeadline = this.computePublishDeadline(votingStart);
+    event.publishDeadline = this.accessService.computePublishDeadline(votingStart);
+    event.officialPublicationReminderSentAt = undefined;
     await event.save();
 
     return {
@@ -983,7 +1008,9 @@ export class VotingEventsService {
     if (event.state !== 'READY_FOR_REVIEW') {
       event.state = 'READY_FOR_REVIEW';
       event.readyForReviewAt = new Date();
-      event.publicEligibilityEnabled = true;
+      if (typeof event.publicEligibilityEnabled !== 'boolean') {
+        event.publicEligibilityEnabled = true;
+      }
       await event.save();
     }
 
@@ -1030,7 +1057,9 @@ export class VotingEventsService {
     }
 
     event.state = 'OFFICIALLY_PUBLISHED';
-    event.publicEligibilityEnabled = true;
+    if (typeof event.publicEligibilityEnabled !== 'boolean') {
+      event.publicEligibilityEnabled = true;
+    }
     event.officialPublishedAt = new Date();
     event.publicationConfirmed = true;
     event.publicationExpiredAt = undefined;
@@ -1053,6 +1082,7 @@ export class VotingEventsService {
   async setPublicEligibility(eventId: string, enabled: boolean, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    await this.assertStructuralEditableState(event, 'editar la configuración pública del evento');
 
     event.publicEligibilityEnabled = Boolean(enabled);
     await event.save();
@@ -1083,9 +1113,9 @@ export class VotingEventsService {
 
   private async assertStructuralEditableState(event: VotingEventDocument, action: string) {
     await this.expireEventIfPastDeadline(event);
-    if (!this.isStructuralEditableState(event.state)) {
+    if (!this.accessService.canFullyEditEvent(event)) {
       throw new BadRequestException(
-        `Solo se permite ${action} cuando el evento esta en DRAFT o READY_FOR_REVIEW`,
+        `Solo se permite ${action} antes de la publicación oficial y mientras falten más de 24 horas para el inicio de la votación`,
       );
     }
   }
@@ -1097,15 +1127,6 @@ export class VotingEventsService {
         'Solo se permite eliminar eventos en DRAFT, READY_FOR_REVIEW o PUBLICATION_EXPIRED',
       );
     }
-  }
-
-  private isStructuralEditableState(state: string) {
-    return state === 'DRAFT' || state === 'READY_FOR_REVIEW';
-  }
-
-  private computePublishDeadline(votingStart?: Date | null) {
-    if (!votingStart) return undefined;
-    return new Date(votingStart.getTime() - 24 * 60 * 60 * 1000);
   }
 
   private canStillBeOfficiallyPublished(event: VotingEventDocument | any) {
@@ -1168,6 +1189,16 @@ export class VotingEventsService {
           )
         : null,
     };
+  }
+
+  private resolvePadronEditMode(event: VotingEventDocument | any) {
+    if (this.accessService.canFullyEditEvent(event)) {
+      return 'FULL';
+    }
+    if (this.accessService.canModifyPadronDuringVoting(event)) {
+      return 'VOTING_LIMITED';
+    }
+    return 'READ_ONLY';
   }
 
   private async evaluateReviewReadiness(event: VotingEventDocument) {

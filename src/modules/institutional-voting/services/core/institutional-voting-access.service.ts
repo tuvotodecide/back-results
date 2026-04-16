@@ -21,6 +21,9 @@ import {
 
 @Injectable()
 export class InstitutionalVotingAccessService {
+  private readonly scheduleLeadHours = 36;
+  private readonly officialPublicationLeadHours = 24;
+
   constructor(
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
@@ -193,14 +196,100 @@ export class InstitutionalVotingAccessService {
     if (enforceWindowRule) {
       const now = Date.now();
       const diff = votingStart.getTime() - now;
-      if (diff < 24 * 60 * 60 * 1000) {
+      if (diff < this.scheduleLeadHours * 60 * 60 * 1000) {
         throw new BadRequestException(
-          'La fecha de inicio debe poder modificarse hasta 24 horas antes de iniciar',
+          'La fecha de inicio debe tener al menos 36 horas de anticipación',
         );
       }
     }
 
     return { votingStart, votingEnd, resultsPublishAt };
+  }
+
+  computePublishDeadline(votingStart?: Date | null) {
+    if (!votingStart) return undefined;
+    return new Date(votingStart.getTime() - this.officialPublicationLeadHours * 60 * 60 * 1000);
+  }
+
+  isOfficiallyPublishedState(state?: string | null) {
+    return ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(String(state || ''));
+  }
+
+  isOfficialPublicationConfirmed(
+    event: Pick<VotingEvent, 'state' | 'publicationConfirmed'>,
+  ) {
+    return (
+      this.isOfficiallyPublishedState(event.state) ||
+      event.publicationConfirmed === true
+    );
+  }
+
+  isVotingActive(
+    event: Pick<VotingEvent, 'state' | 'votingStart' | 'votingEnd'>,
+    now = new Date(),
+  ) {
+    return (
+      this.isOfficiallyPublishedState(event.state) &&
+      Boolean(event.votingStart) &&
+      Boolean(event.votingEnd) &&
+      now >= new Date(event.votingStart as Date) &&
+      now <= new Date(event.votingEnd as Date)
+    );
+  }
+
+  canFullyEditEvent(
+    event: Pick<
+      VotingEvent,
+      'state' | 'publishDeadline' | 'votingStart' | 'votingEnd' | 'publicationConfirmed'
+    >,
+    now = new Date(),
+  ) {
+    if (['PUBLICATION_EXPIRED', 'CLOSED', 'RESULTS_PUBLISHED'].includes(String(event.state || ''))) {
+      return false;
+    }
+
+    if (this.isOfficialPublicationConfirmed(event)) {
+      return false;
+    }
+
+    if (this.isVotingActive(event, now)) {
+      return false;
+    }
+
+    if (!event.publishDeadline) {
+      return true;
+    }
+
+    return now < new Date(event.publishDeadline as Date);
+  }
+
+  canModifyPadronDuringVoting(
+    event: Pick<VotingEvent, 'state' | 'votingEnd' | 'publicationConfirmed'>,
+    now = new Date(),
+  ) {
+    if (!this.isOfficialPublicationConfirmed(event)) {
+      return false;
+    }
+
+    if (['PUBLICATION_EXPIRED', 'CLOSED', 'RESULTS_PUBLISHED'].includes(String(event.state || ''))) {
+      return false;
+    }
+
+    if (!event.votingEnd) {
+      return false;
+    }
+
+    return now <= new Date(event.votingEnd as Date);
+  }
+
+  hasPublicationWindowExpired(
+    event: Pick<VotingEvent, 'publishDeadline'>,
+    now = new Date(),
+  ) {
+    if (!event.publishDeadline) {
+      return false;
+    }
+    return now >= new Date(event.publishDeadline as Date);
   }
 
   normalizeName(input: string): string {

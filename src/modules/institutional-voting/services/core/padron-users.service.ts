@@ -105,4 +105,48 @@ export class PadronUsersService {
       enabled: Boolean(entryMap.get(recipient.dni)),
     }));
   }
+
+  async getUsersByCarnets(
+    carnets: string[],
+    options: { createMissing?: boolean } = {},
+  ): Promise<PadronResolvedUser[]> {
+    const normalized = Array.from(
+      new Set(
+        carnets
+          .map((carnet) => normalizeCarnet(carnet))
+          .filter((carnet): carnet is string => Boolean(carnet)),
+      ),
+    );
+
+    if (!normalized.length) {
+      return [];
+    }
+
+    if (options.createMissing !== false) {
+      await this.userModel.bulkWrite(
+        normalized.map((dni) => ({
+          updateOne: {
+            filter: { dni },
+            update: {
+              $setOnInsert: {
+                dni,
+                active: true,
+              },
+            },
+            upsert: true,
+          },
+        })),
+        { ordered: false },
+      );
+    }
+
+    const users = await this.userModel
+      .find({ dni: { $in: normalized }, active: true }, { _id: 1, dni: 1, active: 1 })
+      .lean();
+
+    return users.map((user) => ({
+      ...user,
+      enabled: true,
+    }));
+  }
 }

@@ -7,6 +7,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'crypto';
 import { Model, Types } from 'mongoose';
+import { AddCurrentPadronVoterDto } from '../../dto/padron-current-voter.dto';
 import { CreatePadronStagingEntryDto, UpdatePadronStagingEntryDto } from '../../dto/padron-staging-entry.dto';
 import { normalizeCarnet } from '../../utils/carnet-normalizer';
 import {
@@ -38,6 +39,7 @@ import {
   PadronPdfParserService,
   ParsedPadronRow,
 } from '../core/padron-pdf-parser.service';
+import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
 
 const ENABLED_HEADER = 'habilitado';
 
@@ -65,6 +67,7 @@ export class PadronService {
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly padronCertificatePdfService: PadronCertificatePdfService,
     private readonly padronPdfParserService: PadronPdfParserService,
+    private readonly notificationsService: InstitutionalVotingNotificationsService,
   ) {}
 
   async uploadPadronFile(eventId: string, file: any, requester: any) {
@@ -230,7 +233,7 @@ export class PadronService {
     const safeLimit = Math.min(500, Math.max(1, Number(limit) || 50));
     const skip = (safePage - 1) * safeLimit;
 
-    const importJob = await this.getActiveImportJob(event._id);
+    const importJob = await this.getOrCreateEditableDraftFromCurrentVersion(event, requester);
     if (!importJob) {
       return {
         importJob: null,
@@ -239,6 +242,7 @@ export class PadronService {
         limit: safeLimit,
         total: 0,
         totalPages: 0,
+        editingRules: this.buildPadronEditingRules(event),
       };
     }
 
@@ -259,6 +263,7 @@ export class PadronService {
       limit: safeLimit,
       total,
       totalPages: Math.ceil(total / safeLimit),
+      editingRules: this.buildPadronEditingRules(event),
     };
   }
 
@@ -387,6 +392,117 @@ export class PadronService {
     };
   }
 
+  async addCurrentPadronVoter(
+    eventId: string,
+    dto: AddCurrentPadronVoterDto,
+    requester: any,
+  ) {
+    const event = await this.getEventForVotingPadronChange(
+      eventId,
+      requester,
+      'agregar nuevos habilitados al padrón en modo limitado',
+    );
+
+    const carnetNorm = normalizeCarnet(dto.carnet);
+    if (!carnetNorm) {
+      throw new BadRequestException('CI inválido');
+    }
+    if (dto.enabled === false) {
+      throw new BadRequestException(
+        'En modo limitado solo se permite agregar nuevos usuarios ya habilitados',
+      );
+    }
+
+    const currentVersion = await this.resolveCurrentPadronVersionDoc(event._id as Types.ObjectId);
+    const existing = await this.padronEntryModel.findOne({
+      padronVersionId: currentVersion._id,
+      carnetNorm,
+    });
+
+    if (existing) {
+      throw new BadRequestException(
+        existing.enabled === false
+          ? 'El usuario ya existe deshabilitado; use la acción de habilitar'
+          : 'El usuario ya existe habilitado en el padrón vigente',
+      );
+    }
+
+    const created = await this.padronEntryModel.create({
+      padronVersionId: currentVersion._id,
+      eventId: event._id,
+      carnetNorm,
+      enabled: true,
+    });
+
+    await this.padronVersionModel.updateOne(
+      { _id: currentVersion._id },
+      { $set: { 'totals.validCount': (currentVersion.totals?.validCount ?? 0) + 1 } },
+    );
+    await this.invalidateCurrentPadronCertificate(currentVersion._id);
+    await this.notificationsService.notifyPadronAvailabilityEnabledForUser(
+      event,
+      carnetNorm,
+      'ADDED_ENABLED',
+    );
+
+    return {
+      id: String(created._id),
+      padronVersionId: String(currentVersion._id),
+      carnetNorm: created.carnetNorm,
+      enabled: true,
+      mode: 'VOTING_LIMITED',
+    };
+  }
+
+  async enableCurrentPadronVoter(eventId: string, voterId: string, requester: any) {
+    const event = await this.getEventForVotingPadronChange(
+      eventId,
+      requester,
+      'habilitar deshabilitados del padrón en modo limitado',
+    );
+
+    if (!Types.ObjectId.isValid(voterId)) {
+      throw new BadRequestException('voterId invalido');
+    }
+
+    const currentVersion = await this.resolveCurrentPadronVersionDoc(event._id as Types.ObjectId);
+    const voter = await this.padronEntryModel.findOne({
+      _id: new Types.ObjectId(voterId),
+      padronVersionId: currentVersion._id,
+    });
+
+    if (!voter) {
+      throw new NotFoundException('Votante no encontrado en el padrón vigente');
+    }
+
+    if (voter.enabled === true) {
+      return {
+        id: String(voter._id),
+        padronVersionId: String(currentVersion._id),
+        carnetNorm: voter.carnetNorm,
+        enabled: true,
+        mode: 'VOTING_LIMITED',
+      };
+    }
+
+    voter.enabled = true;
+    await voter.save();
+    await this.invalidateCurrentPadronCertificate(currentVersion._id);
+    await this.notificationsService.notifyPadronAvailabilityEnabledForUser(
+      event,
+      voter.carnetNorm,
+      'ENABLED_DURING_VOTING',
+    );
+
+    return {
+      id: String(voter._id),
+      padronVersionId: String(currentVersion._id),
+      carnetNorm: voter.carnetNorm,
+      enabled: true,
+      mode: 'VOTING_LIMITED',
+    };
+  }
+
   async confirmPadronStaging(eventId: string, requester: any) {
     const { event, importJob } = await this.getEditableActiveImportJobContext(
       eventId,
@@ -410,6 +526,9 @@ export class PadronService {
     const digest = createHash('sha256')
       .update(entries.map((entry) => `${entry.ciNorm},${entry.enabled ? '1' : '0'}`).join('\n'))
       .digest('hex');
+    const currentVersionBeforeConfirm = await this.padronVersionModel
+      .findOne({ eventId: event._id, isCurrent: true })
+      .lean();
 
     const version = await this.createCurrentPadronVersion({
       eventId: this.toObjectId(event._id),
@@ -426,7 +545,12 @@ export class PadronService {
         invalidCount: 0,
       },
       comparisonStatus: 'PENDING',
-      sourceType: importJob.sourceType === 'IMAGE' ? 'IMAGE_IMPORT' : 'PDF_IMPORT',
+      sourceType:
+        importJob.sourceType === 'IMAGE'
+          ? 'IMAGE_IMPORT'
+          : importJob.sourceType === 'SYSTEM'
+            ? currentVersionBeforeConfirm?.sourceType ?? 'CSV_LEGACY'
+            : 'PDF_IMPORT',
       importJobId: this.toObjectId(importJob._id),
       sourceFileName: importJob.originalFileName,
       sourceFileMimeType: importJob.originalFileMimeType,
@@ -469,10 +593,10 @@ export class PadronService {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
 
-    const [currentVersion, activeImportJob] = await Promise.all([
-      this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
-      this.getActiveImportJob(event._id),
-    ]);
+    const currentVersion = await this.padronVersionModel
+      .findOne({ eventId: event._id, isCurrent: true })
+      .lean();
+    const activeImportJob = await this.getOrCreateEditableDraftFromCurrentVersion(event, requester);
 
     const currentComparison = currentVersion
       ? await this.comparisonReportModel
@@ -493,6 +617,7 @@ export class PadronService {
     return {
       eventId: String(event._id),
       eventState: event.state,
+      editingRules: this.buildPadronEditingRules(event),
       currentVersion: currentVersion
         ? {
             padronVersionId: String(currentVersion._id),
@@ -759,6 +884,7 @@ export class PadronService {
         total: 0,
         totalPages: 0,
         padronVersionId: null,
+        editingRules: this.buildPadronEditingRules(event),
       };
     }
 
@@ -787,6 +913,7 @@ export class PadronService {
       total,
       totalPages: Math.ceil(total / safeLimit),
       padronVersionId: String(currentVersion._id),
+      editingRules: this.buildPadronEditingRules(event),
     };
   }
 
@@ -806,6 +933,7 @@ export class PadronService {
         total: 0,
         enabledToVote: 0,
         disabledToVote: 0,
+        editingRules: this.buildPadronEditingRules(event),
       };
     }
 
@@ -819,6 +947,7 @@ export class PadronService {
       total,
       enabledToVote,
       disabledToVote,
+      editingRules: this.buildPadronEditingRules(event),
     };
   }
 
@@ -1115,7 +1244,7 @@ export class PadronService {
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
     await this.assertStructuralEditableState(event, action);
 
-    const importJob = await this.getActiveImportJob(event._id);
+    const importJob = await this.getOrCreateEditableDraftFromCurrentVersion(event, requester);
     if (!importJob) {
       throw new NotFoundException('No existe un staging activo de padrón para este evento');
     }
@@ -1132,6 +1261,95 @@ export class PadronService {
       .findOne({ eventId, isActiveDraft: true })
       .sort({ createdAt: -1, _id: -1 })
       .lean();
+  }
+
+  private async getOrCreateEditableDraftFromCurrentVersion(event: any, requester?: any) {
+    let importJob = await this.getActiveImportJob(event._id);
+
+    if (!this.accessService.canFullyEditEvent(event)) {
+      if (importJob) {
+        await this.padronImportJobModel.updateOne(
+          { _id: importJob._id },
+          { $set: { isActiveDraft: false } },
+        );
+      }
+      return null;
+    }
+
+    if (importJob) {
+      return importJob;
+    }
+
+    const currentVersion = await this.padronVersionModel
+      .findOne({ eventId: event._id, isCurrent: true })
+      .lean();
+    if (!currentVersion) {
+      return null;
+    }
+
+    try {
+      const createdBy =
+        requester?.sub && Types.ObjectId.isValid(requester.sub)
+          ? new Types.ObjectId(requester.sub)
+          : currentVersion.createdBy;
+
+      const createdImportJob = await this.padronImportJobModel.create({
+        eventId: event._id,
+        tenantId: event.tenantId,
+        createdBy,
+        sourceType: 'SYSTEM',
+        status: 'PARSED',
+        isActiveDraft: true,
+        originalFileName: currentVersion.sourceFileName ?? `draft-from-${String(currentVersion._id)}.json`,
+        originalFileMimeType: currentVersion.sourceFileMimeType ?? 'application/json',
+        originalFileSize: 0,
+        originalFileSha256: currentVersion.fileDigest,
+        parserProvider: 'system-clone',
+        parserModel: null,
+        parserUsedFallback: true,
+        summary: {
+          parsedCount: currentVersion.totals?.validCount ?? 0,
+          validCount: currentVersion.totals?.validCount ?? 0,
+          duplicateCount: currentVersion.totals?.duplicateCount ?? 0,
+          invalidCount: currentVersion.totals?.invalidCount ?? 0,
+          stagingCount: currentVersion.totals?.validCount ?? 0,
+          enabledCount: 0,
+          disabledCount: 0,
+        },
+        errors: [],
+        processedAt: new Date(),
+      });
+
+      const entries = await this.padronEntryModel
+        .find({ padronVersionId: currentVersion._id }, { carnetNorm: 1, enabled: 1 })
+        .sort({ carnetNorm: 1, _id: 1 })
+        .lean();
+
+      if (entries.length) {
+        await this.padronStagingEntryModel.insertMany(
+          entries.map((entry) => ({
+            importJobId: createdImportJob._id,
+            eventId: event._id,
+            tenantId: event.tenantId,
+            ciNorm: entry.carnetNorm,
+            enabled: entry.enabled !== false,
+            sourceKind: 'CLONED',
+            createdBy,
+            lastEditedBy: createdBy,
+          })),
+          { ordered: false },
+        );
+      }
+
+      await this.refreshImportJobSummary(createdImportJob._id);
+    } catch (error: any) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+    }
+
+    importJob = await this.getActiveImportJob(event._id);
+    return importJob;
   }
 
   private async refreshImportJobSummary(importJobId: Types.ObjectId) {
@@ -1358,8 +1576,7 @@ export class PadronService {
   private async assertStructuralEditableState(event: any, action: string) {
     if (
       ['DRAFT', 'READY_FOR_REVIEW'].includes(event.state) &&
-      event.publishDeadline &&
-      new Date() >= new Date(event.publishDeadline)
+      this.accessService.hasPublicationWindowExpired(event)
     ) {
       event.state = 'PUBLICATION_EXPIRED';
       event.publicationExpiredAt = new Date();
@@ -1367,11 +1584,56 @@ export class PadronService {
       await event.save();
     }
 
-    if (!['DRAFT', 'READY_FOR_REVIEW'].includes(event.state)) {
+    if (!this.accessService.canFullyEditEvent(event)) {
       throw new BadRequestException(
-        `Solo se permite ${action} cuando el evento está en DRAFT o READY_FOR_REVIEW`,
+        `Solo se permite ${action} antes de la publicación oficial y mientras falten más de 24 horas para el inicio de la votación`,
       );
     }
+  }
+
+  private buildPadronEditingRules(event: any) {
+    const canEditEverything = this.accessService.canFullyEditEvent(event);
+    const canEditDuringVoting = this.accessService.canModifyPadronDuringVoting(event);
+
+    return {
+      canEditEverything,
+      canEditDuringVoting,
+      canEditPadronInLimitedMode: canEditDuringVoting,
+      mode: canEditEverything ? 'FULL' : canEditDuringVoting ? 'VOTING_LIMITED' : 'READ_ONLY',
+      fullEditDeadline: event.publishDeadline ?? null,
+      dateValidationMinHours: 36,
+      officialPublicationCutoffHours: 24,
+    };
+  }
+
+  private async getEventForVotingPadronChange(eventId: string, requester: any, action: string) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    if (!this.accessService.canModifyPadronDuringVoting(event)) {
+      throw new BadRequestException(
+        `Solo se permite ${action} después de la publicación oficial y hasta el cierre de la votación`,
+      );
+    }
+
+    return event;
+  }
+
+  private async resolveCurrentPadronVersionDoc(eventId: Types.ObjectId) {
+    const currentVersion = await this.padronVersionModel.findOne({
+      eventId,
+      isCurrent: true,
+    });
+
+    if (!currentVersion) {
+      throw new NotFoundException('No existe padrón vigente');
+    }
+
+    return currentVersion;
+  }
+
+  private async invalidateCurrentPadronCertificate(padronVersionId: Types.ObjectId) {
+    await this.padronCertificateModel.deleteMany({ padronVersionId });
   }
 
   private async resolvePadronVersion(eventObjectId: Types.ObjectId, padronVersionId?: string) {

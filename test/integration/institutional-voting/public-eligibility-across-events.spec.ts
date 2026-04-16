@@ -194,13 +194,13 @@ describe('Institutional voting integration - public eligibility across events', 
       privateEventId,
     );
     expect([200, 201]).toContain(privateReady.status);
+    await setPublicEligibility(privateEventId, false);
     const privatePublished = await publishInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
       privateEventId,
     );
     expect(privatePublished.status).toBe(201);
-    await setPublicEligibility(privateEventId, false);
 
     const response = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')

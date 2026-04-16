@@ -10,6 +10,7 @@ import { PadronVersion } from '@/modules/institutional-voting/schemas/padron-ver
 import { PadronEntry } from '@/modules/institutional-voting/schemas/padron-entry.schema';
 import { ComparisonReport } from '@/modules/institutional-voting/schemas/comparison-report.schema';
 import { Participation } from '@/modules/institutional-voting/schemas/participation.schema';
+import { PresentialSession } from '@/modules/institutional-voting/schemas/presential-session.schema';
 import { EventResultsSnapshot } from '@/modules/institutional-voting/schemas/event-results-snapshot.schema';
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
@@ -25,6 +26,7 @@ describe('VotingEventsService (unit)', () => {
   let padronEntryModel: any;
   let comparisonReportModel: any;
   let participationModel: any;
+  let presentialSessionModel: any;
   let resultsSnapshotModel: any;
   let accessService: any;
   let notificationsService: any;
@@ -74,6 +76,9 @@ describe('VotingEventsService (unit)', () => {
     participationModel = {
       deleteMany: jest.fn(),
     };
+    presentialSessionModel = {
+      deleteMany: jest.fn(),
+    };
     resultsSnapshotModel = {
       deleteMany: jest.fn(),
     };
@@ -82,6 +87,10 @@ describe('VotingEventsService (unit)', () => {
       getTenantOrThrow: jest.fn(),
       assertTenantWriteAccess: jest.fn(),
       parseAndValidateDates: jest.fn(),
+      computePublishDeadline: jest.fn((votingStart: Date) => new Date(votingStart.getTime() - 24 * 60 * 60 * 1000)),
+      canFullyEditEvent: jest.fn(() => true),
+      canModifyPadronDuringVoting: jest.fn(() => false),
+      hasPublicationWindowExpired: jest.fn(() => false),
       normalizeName: jest.fn((value: string) => value.trim().toLowerCase()),
     };
     notificationsService = {
@@ -104,6 +113,7 @@ describe('VotingEventsService (unit)', () => {
           useValue: comparisonReportModel,
         },
         { provide: getModelToken(Participation.name), useValue: participationModel },
+        { provide: getModelToken(PresentialSession.name), useValue: presentialSessionModel },
         {
           provide: getModelToken(EventResultsSnapshot.name),
           useValue: resultsSnapshotModel,
@@ -337,6 +347,7 @@ describe('VotingEventsService (unit)', () => {
       save: jest.fn(),
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.canFullyEditEvent.mockReturnValue(false);
 
     await expect(
       service.updateEvent(
@@ -381,6 +392,7 @@ describe('VotingEventsService (unit)', () => {
       state: 'PUBLISHED',
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.canFullyEditEvent.mockReturnValue(false);
 
     await expect(
       service.updateRole(
@@ -399,6 +411,7 @@ describe('VotingEventsService (unit)', () => {
       state: 'PUBLISHED',
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.canFullyEditEvent.mockReturnValue(false);
 
     await expect(
       service.createRole(
@@ -418,6 +431,7 @@ describe('VotingEventsService (unit)', () => {
       state: 'PUBLISHED',
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.canFullyEditEvent.mockReturnValue(false);
 
     await expect(
       service.createOption(
@@ -559,6 +573,7 @@ describe('VotingEventsService (unit)', () => {
       state: 'PUBLISHED',
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.canFullyEditEvent.mockReturnValue(false);
 
     await expect(
       service.deactivateOption(
@@ -579,6 +594,7 @@ describe('VotingEventsService (unit)', () => {
       save: jest.fn(),
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.canFullyEditEvent.mockReturnValue(false);
 
     await expect(
       service.updateSchedule(

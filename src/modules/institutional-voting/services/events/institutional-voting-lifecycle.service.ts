@@ -21,6 +21,25 @@ export class InstitutionalVotingLifecycleService {
   @Cron('*/1 * * * *')
   async processLifecycle() {
     const now = new Date();
+    const reminderWindowEnd = new Date(now.getTime() + 30 * 60 * 1000);
+
+    const remindable = await this.votingEventModel
+      .find({
+        state: { $in: ['DRAFT', 'READY_FOR_REVIEW'] },
+        publishDeadline: { $gt: now, $lte: reminderWindowEnd },
+        officialPublicationReminderSentAt: { $exists: false },
+      })
+      .limit(50);
+
+    for (const event of remindable) {
+      try {
+        await this.notificationsService.sendOfficialPublicationReminder(event);
+      } catch (error: any) {
+        this.logger.warn(
+          `No se pudo enviar recordatorio de publicación oficial para eventId=${String(event._id)}: ${error?.message ?? error}`,
+        );
+      }
+    }
 
     await this.votingEventModel.updateMany(
       {

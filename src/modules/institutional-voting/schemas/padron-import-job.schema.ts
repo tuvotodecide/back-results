@@ -10,7 +10,7 @@ export type PadronImportJobStatus =
   | 'FAILED'
   | 'CONFIRMED';
 
-export type PadronImportSourceType = 'PDF' | 'IMAGE';
+export type PadronImportSourceType = 'PDF' | 'IMAGE' | 'SYSTEM';
 
 @Schema({ _id: false })
 export class PadronImportSummary {
@@ -66,7 +66,7 @@ export class PadronImportJob {
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: true })
   createdBy!: Types.ObjectId;
 
-  @Prop({ required: true, enum: ['PDF', 'IMAGE'], default: 'PDF' })
+  @Prop({ required: true, enum: ['PDF', 'IMAGE', 'SYSTEM'], default: 'PDF' })
   sourceType!: PadronImportSourceType;
 
   @Prop({

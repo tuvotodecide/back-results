@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { InstitutionalVotingAdminController } from './controllers/institutional-voting-admin.controller';
 import { InstitutionalVotingNewsController } from './controllers/institutional-voting-news.controller';
 import { InstitutionalVotingPublicController } from './controllers/institutional-voting-public.controller';
+import { InstitutionalVotingPresentialController } from './controllers/institutional-voting-presential.controller';
 import { InstitutionalVotingService } from './services/institutional-voting.service';
 import { InstitutionalVotingAccessService } from './services/core/institutional-voting-access.service';
 import { VotingEventsService } from './services/events/voting-events.service';
@@ -30,6 +31,7 @@ import {
 } from './schemas/padron-certificate.schema';
 import { ComparisonReport, ComparisonReportSchema } from './schemas/comparison-report.schema';
 import { Participation, ParticipationSchema } from './schemas/participation.schema';
+import { PresentialSession, PresentialSessionSchema } from './schemas/presential-session.schema';
 import {
   EventResultsSnapshot,
   EventResultsSnapshotSchema,
@@ -43,7 +45,9 @@ import {
   TenantAdminAssignmentSchema,
 } from '../institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { ZkAuthModule } from '../zk-auth/zk-auth.module';
+import { MailModule } from '../mail/mail.module';
 import { User, UserSchema } from '../users/schemas/user.schema';
+import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
 import {
   UserNotification,
   UserNotificationSchema,
@@ -58,6 +62,7 @@ import { PadronCertificatePdfService } from './services/core/padron-certificate-
 import { PadronPdfParserService } from './services/core/padron-pdf-parser.service';
 import { FirebaseModule } from '@/core/firebase/firebase.module';
 import { VoteReaderService } from './services/core/vote-reader.service';
+import { PresentialSessionsService } from './services/presential/presential-sessions.service';
 
 @Module({
   imports: [
@@ -72,20 +77,24 @@ import { VoteReaderService } from './services/core/vote-reader.service';
       { name: PadronCertificate.name, schema: PadronCertificateSchema },
       { name: ComparisonReport.name, schema: ComparisonReportSchema },
       { name: Participation.name, schema: ParticipationSchema },
+      { name: PresentialSession.name, schema: PresentialSessionSchema },
       { name: EventResultsSnapshot.name, schema: EventResultsSnapshotSchema },
       { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
+      { name: RoledUser.name, schema: RoledUserSchema },
       { name: User.name, schema: UserSchema },
       { name: UserNotification.name, schema: UserNotificationSchema },
       { name: NotificationLog.name, schema: NotificationLogSchema },
     ]),
     ZkAuthModule,
+    MailModule,
     HttpModule,
     FirebaseModule,
   ],
   controllers: [
     InstitutionalVotingAdminController,
     InstitutionalVotingPublicController,
+    InstitutionalVotingPresentialController,
     InstitutionalVotingNewsController,
   ],
   providers: [
@@ -100,6 +109,7 @@ import { VoteReaderService } from './services/core/vote-reader.service';
     InstitutionalVotingNotificationsService,
     PadronService,
     ParticipationService,
+    PresentialSessionsService,
     VotingResultsService,
   ],
   exports: [InstitutionalVotingService],

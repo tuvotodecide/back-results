@@ -21,8 +21,8 @@ export class PadronStagingEntry {
   @Prop({ type: Boolean, default: true })
   enabled!: boolean;
 
-  @Prop({ required: true, enum: ['PARSED', 'MANUAL'], default: 'PARSED' })
-  sourceKind!: 'PARSED' | 'MANUAL';
+  @Prop({ required: true, enum: ['PARSED', 'MANUAL', 'CLONED'], default: 'PARSED' })
+  sourceKind!: 'PARSED' | 'MANUAL' | 'CLONED';
 
   @Prop({ type: Number, default: null })
   sourceRow?: number | null;

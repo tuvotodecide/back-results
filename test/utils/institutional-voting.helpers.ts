@@ -103,47 +103,40 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     });
     const mongoUri = mongod.getUri();
 
-  try {
-    mongod = await MongoMemoryServer.create({
-      instance: {
-        launchTimeout: 120000,
-      },
-    });
-    const mongoUri = mongod.getUri();
-
-  const moduleRef = await Test.createTestingModule({
-    imports: [
-      ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
-      MongooseModule.forRoot(mongoUri),
-      CacheModule.register({ isGlobal: true }),
-      JwtModule.registerAsync({
-        global: true,
-        useFactory: (configService: ConfigService) => ({
-          secret: configService.get('app.jwt.secret'),
-          signOptions: {
-            expiresIn: configService.get('app.jwt.expirationTime'),
-          },
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        MongooseModule.forRoot(mongoUri),
+        CacheModule.register({ isGlobal: true }),
+        JwtModule.registerAsync({
+          global: true,
+          useFactory: (configService: ConfigService) => ({
+            secret: configService.get('app.jwt.secret'),
+            signOptions: {
+              expiresIn: configService.get('app.jwt.expirationTime'),
+            },
+          }),
+          inject: [ConfigService],
         }),
-        inject: [ConfigService],
-      }),
-      TestLoggerModule,
-      AuthModule,
-      ElectionsModule,
-      GeographicModule,
-      InstitutionalTenantsModule,
-      InstitutionalAdminApplicationsModule,
-      InstitutionalVotingModule,
-    ],
-    providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
-  })
-    .overrideProvider('FIREBASE_ADMIN')
-    .useValue(firebaseAdminMock)
-    .overrideProvider(VoteReaderService)
-    .useValue(voteReaderServiceMock)
-    //.overrideProvider(IssuerService)
-    //.useValue(issuerServiceMock)
-    .compile();
-    
+        TestLoggerModule,
+        AuthModule,
+        ElectionsModule,
+        GeographicModule,
+        InstitutionalTenantsModule,
+        InstitutionalAdminApplicationsModule,
+        InstitutionalVotingModule,
+      ],
+      providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
+    })
+      .overrideProvider('FIREBASE_ADMIN')
+      .useValue(firebaseAdminMock)
+      .overrideProvider(VoteReaderService)
+      .useValue(voteReaderServiceMock)
+      .overrideProvider(VoteWritterService)
+      .useValue(voteWritterServiceMock)
+      //.overrideProvider(IssuerService)
+      //.useValue(issuerServiceMock)
+      .compile();
 
     const app = moduleRef.createNestApplication();
     app.useGlobalPipes(

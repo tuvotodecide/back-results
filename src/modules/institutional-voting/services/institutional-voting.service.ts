@@ -8,16 +8,24 @@ import {
   CreatePadronStagingEntryDto,
   UpdatePadronStagingEntryDto,
 } from '../dto/padron-staging-entry.dto';
+import { AddCurrentPadronVoterDto } from '../dto/padron-current-voter.dto';
 import { CreateParticipationDto } from '../dto/participation.dto';
+import {
+  CreatePresentialSessionDto,
+  ScanPresentialSessionDto,
+} from '../dto/presential-session.dto';
 import { UpsertEventResultsSnapshotDto } from '../dto/results-snapshot.dto';
 import { UpdateEventRoleDto } from '../dto/update-event-role.dto';
 import { UpdateOptionCandidatesDto } from '../dto/update-option-candidates.dto';
 import { UpdateVotingEventDto } from '../dto/update-voting-event.dto';
 import { UpdateVotingOptionDto } from '../dto/update-voting-option.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
+import { MessageEvent } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { VotingEventsService } from './events/voting-events.service';
 import { PadronService } from './padron/padron.service';
 import { ParticipationService } from './participation/participation.service';
+import { PresentialSessionsService } from './presential/presential-sessions.service';
 import { VotingResultsService } from './results/voting-results.service';
 
 @Injectable()
@@ -26,6 +34,7 @@ export class InstitutionalVotingService {
     private readonly votingEventsService: VotingEventsService,
     private readonly padronService: PadronService,
     private readonly participationService: ParticipationService,
+    private readonly presentialSessionsService: PresentialSessionsService,
     private readonly votingResultsService: VotingResultsService,
   ) {}
 
@@ -176,6 +185,14 @@ export class InstitutionalVotingService {
     return this.padronService.deletePadronStagingEntry(eventId, entryId, requester);
   }
 
+  addCurrentPadronVoter(eventId: string, dto: AddCurrentPadronVoterDto, requester: any) {
+    return this.padronService.addCurrentPadronVoter(eventId, dto, requester);
+  }
+
+  enableCurrentPadronVoter(eventId: string, voterId: string, requester: any) {
+    return this.padronService.enableCurrentPadronVoter(eventId, voterId, requester);
+  }
+
   confirmPadronStaging(eventId: string, requester: any) {
     return this.padronService.confirmPadronStaging(eventId, requester);
   }
@@ -241,12 +258,78 @@ export class InstitutionalVotingService {
     return this.padronService.checkPublicEligibility(eventId, carnet);
   }
 
-  createParticipation(eventId: string, dto: CreateParticipationDto, idempotencyKey?: string) {
-    return this.participationService.createParticipation(eventId, dto, idempotencyKey);
+  async createParticipation(
+    eventId: string,
+    dto: CreateParticipationDto,
+    idempotencyKey?: string,
+  ) {
+    if (dto.presentialSessionId) {
+      await this.presentialSessionsService.assertSessionCanRegisterParticipation(
+        eventId,
+        dto.presentialSessionId,
+        dto.carnet,
+      );
+    }
+
+    const out = await this.participationService.createParticipation(eventId, dto, idempotencyKey);
+
+    if (dto.presentialSessionId) {
+      await this.presentialSessionsService.completeSessionForParticipation(
+        eventId,
+        dto.presentialSessionId,
+        dto.carnet,
+      );
+    }
+
+    return out;
   }
 
   checkParticipationStatus(eventId: string, carnet: string) {
     return this.participationService.checkParticipationStatus(eventId, carnet);
+  }
+
+  createOrRotatePresentialSession(
+    eventId: string,
+    dto: CreatePresentialSessionDto | undefined,
+    requester: any,
+  ) {
+    return this.presentialSessionsService.createOrRotateCurrentSession(
+      eventId,
+      dto,
+      requester,
+    );
+  }
+
+  getCurrentPresentialSessionState(
+    eventId: string,
+    stationId: string | undefined,
+    kioskToken: string | undefined,
+    requester?: any,
+  ) {
+    return this.presentialSessionsService.getCurrentSessionState(
+      eventId,
+      stationId,
+      kioskToken,
+      requester,
+    );
+  }
+
+  createPresentialSessionStream(
+    eventId: string,
+    stationId: string | undefined,
+    kioskToken: string | undefined,
+    requester?: any,
+  ): Promise<Observable<MessageEvent>> {
+    return this.presentialSessionsService.createAuthorizedStream(
+      eventId,
+      stationId,
+      kioskToken,
+      requester,
+    );
+  }
+
+  scanPresentialSession(dto: ScanPresentialSessionDto) {
+    return this.presentialSessionsService.scanAndClaim(dto);
   }
 
   getResults(eventId: string) {

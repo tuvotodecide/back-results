@@ -34,6 +34,7 @@ import {
   CreatePadronStagingEntryDto,
   UpdatePadronStagingEntryDto,
 } from '../dto/padron-staging-entry.dto';
+import { AddCurrentPadronVoterDto } from '../dto/padron-current-voter.dto';
 import { UpdatePublicEligibilityDto } from '../dto/public-eligibility-toggle.dto';
 import { UpsertEventResultsSnapshotDto } from '../dto/results-snapshot.dto';
 import { UpdateEventRoleDto } from '../dto/update-event-role.dto';
@@ -41,6 +42,7 @@ import { UpdateOptionCandidatesDto } from '../dto/update-option-candidates.dto';
 import { UpdateVotingEventDto } from '../dto/update-voting-event.dto';
 import { UpdateVotingOptionDto } from '../dto/update-voting-option.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
+import { CreatePresentialSessionDto } from '../dto/presential-session.dto';
 import type { Response } from 'express';
 
 @ApiTags('Institutional Voting Admin')
@@ -244,6 +246,30 @@ export class InstitutionalVotingAdminController {
   @ApiResponse({ status: 200, description: 'Listado de opciones.' })
   listOptions(@Param('eventId') eventId: string, @Req() req: any) {
     return this.institutionalVotingService.listOptions(eventId, req.user);
+  }
+
+  @Post(':eventId/presential-sessions')
+  @ApiOperation({
+    summary:
+      'Habilitar kiosco presencial y generar/rotar la sesión QR actual del punto presencial',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: CreatePresentialSessionDto, required: false })
+  @ApiResponse({
+    status: 201,
+    description:
+      'Retorna el estado del kiosco, la sesión QR actual y el token limitado si fue regenerado.',
+  })
+  createOrRotatePresentialSession(
+    @Param('eventId') eventId: string,
+    @Body() dto: CreatePresentialSessionDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.createOrRotatePresentialSession(
+      eventId,
+      dto,
+      req.user,
+    );
   }
 
   @Patch(':eventId/options/:optionId')
@@ -698,6 +724,45 @@ export class InstitutionalVotingAdminController {
     @Req() req: any,
   ) {
     return this.institutionalVotingService.getCurrentPadronSummary(eventId, req.user);
+  }
+
+  @Post(':eventId/padron/voters')
+  @ApiOperation({
+    summary: 'Agregar nuevo votante habilitado durante la votación',
+    description:
+      'Durante la votación solo permite agregar un nuevo usuario ya habilitado al padrón vigente.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: AddCurrentPadronVoterDto })
+  @ApiResponse({ status: 201, description: 'Votante agregado al padrón vigente.' })
+  addCurrentPadronVoter(
+    @Param('eventId') eventId: string,
+    @Body() dto: AddCurrentPadronVoterDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.addCurrentPadronVoter(eventId, dto, req.user);
+  }
+
+  @Post(':eventId/padron/voters/:voterId/enable')
+  @ApiOperation({
+    summary: 'Habilitar votante deshabilitado durante la votación',
+    description:
+      'Durante la votación solo permite habilitar a un usuario que ya existe en el padrón vigente.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiParam({ name: 'voterId', description: 'ID del votante del padrón vigente.' })
+  @ApiResponse({ status: 200, description: 'Votante habilitado correctamente.' })
+  @HttpCode(200)
+  enableCurrentPadronVoter(
+    @Param('eventId') eventId: string,
+    @Param('voterId') voterId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.enableCurrentPadronVoter(
+      eventId,
+      voterId,
+      req.user,
+    );
   }
 
   @Get(':eventId/padron/download')

@@ -246,12 +246,12 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result.resultsPublishAt).toBeInstanceOf(Date);
   });
 
-  it('permite fechas exactamente en el límite mínimo de 24 horas', () => {
+  it('permite fechas exactamente en el límite mínimo de 36 horas', () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
-    const votingStart = new Date(now + 24 * 60 * 60 * 1000).toISOString();
-    const votingEnd = new Date(now + 25 * 60 * 60 * 1000).toISOString();
-    const resultsPublishAt = new Date(now + 26 * 60 * 60 * 1000).toISOString();
+    const votingStart = new Date(now + 36 * 60 * 60 * 1000).toISOString();
+    const votingEnd = new Date(now + 37 * 60 * 60 * 1000).toISOString();
+    const resultsPublishAt = new Date(now + 38 * 60 * 60 * 1000).toISOString();
 
     const result = service.parseAndValidateDates(votingStart, votingEnd, resultsPublishAt, true);
     nowSpy.mockRestore();
@@ -312,5 +312,29 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(() =>
       service.parseAndValidateDates('fecha-invalida', 'otra-fecha', 'otra-mas', false),
     ).toThrow(BadRequestException);
+  });
+
+  it('bloquea edición total una vez confirmada la publicación oficial aunque falten más de 24 horas', () => {
+    const now = new Date('2026-01-01T12:00:00.000Z');
+    const event = {
+      state: 'OFFICIALLY_PUBLISHED',
+      publicationConfirmed: true,
+      publishDeadline: new Date('2026-01-02T12:00:00.000Z'),
+      votingStart: new Date('2026-01-03T12:00:00.000Z'),
+      votingEnd: new Date('2026-01-03T14:00:00.000Z'),
+    } as any;
+
+    expect(service.canFullyEditEvent(event, now)).toBe(false);
+  });
+
+  it('permite modo limitado de padrón después de publicar oficialmente y antes del cierre', () => {
+    const now = new Date('2026-01-01T12:00:00.000Z');
+    const event = {
+      state: 'OFFICIALLY_PUBLISHED',
+      publicationConfirmed: true,
+      votingEnd: new Date('2026-01-03T14:00:00.000Z'),
+    } as any;
+
+    expect(service.canModifyPadronDuringVoting(event, now)).toBe(true);
   });
 });

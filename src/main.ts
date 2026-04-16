@@ -17,7 +17,16 @@ async function bootstrap() {
     origin: true,
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'x-kiosk-token',
+      'Cache-Control',
+      'cache-control',
+      'Pragma',
+      'Last-Event-ID',
+    ],
     exposedHeaders: ['Content-Disposition'],
     maxAge: 86400,
   });

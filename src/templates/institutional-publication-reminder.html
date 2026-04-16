@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Recordatorio de publicación oficial</title>
+  </head>
+  <body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+    <div style="max-width: 640px; margin: 0 auto; padding: 24px;">
+      <% if (logoUrl) { %>
+      <div style="margin-bottom: 24px;">
+        <img src="<%= logoUrl %>" alt="Logo" style="max-width: 180px;" />
+      </div>
+      <% } %>
+
+      <h1 style="font-size: 24px; margin-bottom: 16px;">Recordatorio de publicación oficial</h1>
+
+      <p>Hola <strong><%= recipientName || 'equipo administrador' %></strong>,</p>
+
+      <p>
+        La elección <strong><%= eventName %></strong> todavía no fue publicada oficialmente.
+      </p>
+
+      <p>
+        Debe confirmarse antes del límite operativo de 24 horas previas al inicio de votación.
+      </p>
+
+      <p>
+        <strong>Evento:</strong> <%= eventName %><br />
+        <strong>ID:</strong> <%= eventId %><br />
+        <strong>Deadline:</strong> <%= deadline %>
+      </p>
+
+      <p>
+        Ingresa al panel administrativo correspondiente y ejecuta la acción
+        <strong>Confirmar publicación oficial</strong>.
+      </p>
+    </div>
+  </body>
+</html>

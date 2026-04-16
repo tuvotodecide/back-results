@@ -2,8 +2,14 @@ import { Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as admin from 'firebase-admin';
+import { MailService } from '@/modules/mail/mail.service';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 import { UserNotification } from '@/modules/notifications/schemas/user-notification.schema';
+import {
+  TenantAdminAssignment,
+  TenantAdminAssignmentDocument,
+} from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
+import { RoledUser, RoledUserDocument } from '@/modules/auth/schemas/roledUser.schema';
 import {
   VotingEvent,
   VotingEventDocument,
@@ -21,7 +27,12 @@ export class InstitutionalVotingNotificationsService {
     private readonly notificationLogModel: Model<NotificationLog>,
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
+    @InjectModel(TenantAdminAssignment.name)
+    private readonly tenantAdminAssignmentModel: Model<TenantAdminAssignmentDocument>,
+    @InjectModel(RoledUser.name)
+    private readonly roledUserModel: Model<RoledUserDocument>,
     private readonly padronUsersService: PadronUsersService,
+    private readonly mailService: MailService,
   ) {}
 
   private buildPublicElectionPath(eventId: string) {
@@ -143,6 +154,98 @@ export class InstitutionalVotingNotificationsService {
     });
   }
 
+  async notifyPadronAvailabilityEnabledForUser(
+    event: VotingEventDocument,
+    carnet: string,
+    reason: 'ADDED_ENABLED' | 'ENABLED_DURING_VOTING',
+  ) {
+    const eventId = String(event._id);
+    const publicUrl = this.buildPublicElectionUrl(eventId);
+
+    return this.notifyUsersByCarnet(event, [carnet], {
+      type: 'padron_enabled_for_voting',
+      title: 'Ya puedes votar',
+      body: `Tu habilitación para ${event.name} ya está activa`,
+      data: {
+        type: 'INSTITUTIONAL_VOTING_ENABLED',
+        eventId,
+        eventName: event.name,
+        reason,
+        bannerTitle: 'Habilitación actualizada',
+        bannerSubtitle: 'Tu registro fue actualizado y ya puedes emitir tu voto',
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        link: this.buildPublicElectionPath(eventId),
+        deepLink: `myapp://event/${eventId}`,
+      },
+    });
+  }
+
+  async sendOfficialPublicationReminder(event: VotingEventDocument) {
+    if (event.officialPublicationReminderSentAt) {
+      return { sent: 0, skipped: 'already_sent' };
+    }
+
+    const assignments = await this.tenantAdminAssignmentModel
+      .find(
+        {
+          tenantId: event.tenantId,
+          active: true,
+          $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
+        },
+        { userId: 1 },
+      )
+      .lean();
+
+    const userIds = Array.from(
+      new Set(assignments.map((assignment) => String(assignment.userId)).filter(Boolean)),
+    );
+    if (!userIds.length) {
+      await this.markOfficialPublicationReminderSent(event);
+      return { sent: 0, skipped: 'no_recipients' };
+    }
+
+    const recipients = await this.roledUserModel
+      .find(
+        { _id: { $in: userIds.map((id) => new Types.ObjectId(id)) }, active: true },
+        { email: 1, name: 1 },
+      )
+      .lean();
+
+    const mails = Array.from(
+      new Map(
+        recipients
+          .filter((recipient) => recipient.email)
+          .map((recipient) => [String(recipient.email).trim().toLowerCase(), recipient]),
+      ).values(),
+    );
+
+    if (!mails.length) {
+      await this.markOfficialPublicationReminderSent(event);
+      return { sent: 0, skipped: 'no_emails' };
+    }
+
+    const deadline = event.publishDeadline?.toISOString?.() ?? '';
+    await Promise.all(
+      mails.map((recipient) =>
+        this.mailService.sendEmail(
+          recipient.email,
+          `Recordatorio: confirmar publicación oficial de ${event.name}`,
+          'institutional-publication-reminder',
+          {
+            recipientName: recipient.name,
+            eventName: event.name,
+            eventId: String(event._id),
+            deadline,
+          },
+        ),
+      ),
+    );
+
+    await this.markOfficialPublicationReminderSent(event);
+    return { sent: mails.length };
+  }
+
   private async notifyToCurrentPadron(
     event: VotingEventDocument,
     payload: {
@@ -157,6 +260,34 @@ export class InstitutionalVotingNotificationsService {
       includeDisabled: true,
     });
 
+    return this.notifyRecipients(payload, recipients, additionalPerUserDniData, String(event._id));
+  }
+
+  private async notifyUsersByCarnet(
+    event: VotingEventDocument,
+    carnets: string[],
+    payload: {
+      type: string;
+      title: string;
+      body: string;
+      data: Record<string, string>;
+    },
+  ) {
+    const recipients = await this.padronUsersService.getUsersByCarnets(carnets);
+    return this.notifyRecipients(payload, recipients, {}, String(event._id));
+  }
+
+  private async notifyRecipients(
+    payload: {
+      type: string;
+      title: string;
+      body: string;
+      data: Record<string, string>;
+    },
+    recipients: Array<{ _id: Types.ObjectId; dni: string; active: boolean; enabled: boolean }>,
+    additionalPerUserDniData: Record<string, Record<string, string>> = {},
+    eventIdForLog?: string,
+  ) {
 
     if (!recipients.length) {
       return { sent: 0, skipped: 'no_linked_users' };
@@ -206,7 +337,7 @@ export class InstitutionalVotingNotificationsService {
           };
         } catch (error: any) {
           console.error('[InstitutionalVotingNotifications] Push delivery failed', {
-            eventId: String(event._id),
+            eventId: eventIdForLog ?? null,
             userId: String(u._id),
             dni: u.dni,
             topic,
@@ -242,5 +373,11 @@ export class InstitutionalVotingNotificationsService {
 
  
     return { sent, failed };
+  }
+
+  private async markOfficialPublicationReminderSent(event: VotingEventDocument) {
+    const sentAt = new Date();
+    event.officialPublicationReminderSentAt = sentAt;
+    await event.save();
   }
 }

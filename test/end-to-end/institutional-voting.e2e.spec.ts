@@ -1179,11 +1179,12 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       institutionalVotingFixtures.padronCsv,
       { name: ownPrivateName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId);
-    await request(ctx.httpServer)
+    const ownPrivateToggle = await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${ownPrivateEventId}/public-eligibility`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ enabled: false });
+    expect(ownPrivateToggle.status).toBe(200);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId);
 
     const otherTenant = await request(ctx.httpServer)
       .post('/api/v1/institutional-tenants')
@@ -1286,12 +1287,17 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
-        votingStart: new Date(Date.now() - 7_200_000).toISOString(),
-        votingEnd: new Date(Date.now() - 3_600_000).toISOString(),
-        resultsPublishAt: new Date(Date.now() + 3_600_000).toISOString(),
+        votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+        resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
       },
     );
     const blockedEventId = createdBlocked.body.id;
+    await updateEventDatesInDb(blockedEventId, {
+      votingStart: new Date(Date.now() - 7_200_000),
+      votingEnd: new Date(Date.now() - 3_600_000),
+      resultsPublishAt: new Date(Date.now() + 3_600_000),
+    });
 
     const beforePublishAt = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${blockedEventId}/results`)

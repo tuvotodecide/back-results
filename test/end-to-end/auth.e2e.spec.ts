@@ -137,6 +137,44 @@ describe('Auth E2E testing + contracts and delegates', () => {
     adminToken = res.body!.accessToken;
   });
 
+  async function registerAndVerifyPendingTerritorialUser(overrides: Partial<typeof testUser> = {}) {
+    MailMockService.sendEmail.mockClear();
+
+    const laPaz = await conn
+      .collection('departments')
+      .findOne({ name: 'La Paz' });
+
+    const requestBody = {
+      ...testUser,
+      dni: String(Date.now()),
+      email: `territorial-${Date.now()}@example.com`,
+      votingDepartmentId: laPaz?._id.toString(),
+      ...overrides,
+    };
+
+    const registered = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send(requestBody)
+      .expect(201);
+
+    const verificationLink: string =
+      MailMockService.sendEmail.mock.calls[0][3].verificationLink;
+    const url = new URL(verificationLink);
+    const verificationToken = url.searchParams.get('token');
+
+    expect(verificationToken).toBeTruthy();
+
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/verify-email')
+      .query({ token: verificationToken })
+      .expect(200);
+
+    return {
+      registeredUser: registered.body as RoledUserResponseDto,
+      requestBody,
+    };
+  }
+
   afterAll(async () => {
     await app?.close();
     await conn?.close();
@@ -352,7 +390,7 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .auth(laPazToken, { type: 'bearer' })
       .expect(403);
 
-    expect(res.body.message).toBe('Admin role required');
+    expect(res.body.message).toBe('Access approver role required');
   });
 
   it('R8: should approve user as admin', async () => {
@@ -381,8 +419,14 @@ describe('Auth E2E testing + contracts and delegates', () => {
   });
 
   it('R9: should reject user as admin', async () => {
+    const { registeredUser: pendingUser, requestBody } =
+      await registerAndVerifyPendingTerritorialUser({
+        dni: `${Date.now()}9`,
+        email: `rejected-${Date.now()}@example.com`,
+      });
+
     let res = await request(app.getHttpServer())
-      .post(`/api/v1/contracts/users/${registeredUser._id}/approve`)
+      .post(`/api/v1/contracts/users/${pendingUser._id}/approve`)
       .auth(adminToken, { type: 'bearer' })
       .send({
         approve: false,
@@ -391,13 +435,14 @@ describe('Auth E2E testing + contracts and delegates', () => {
       .expect(201);
 
     expect(res.body).toHaveProperty('message', 'Usuario rechazado');
-    expect(res.body).toHaveProperty('reason', 'Incomplete documents');
+    expect(res.body.user).toHaveProperty('id', pendingUser._id);
+    expect(res.body.user).toHaveProperty('reason', 'Incomplete documents');
 
     // Now login shouln't work
     res = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({
-        email: registeredUser.email,
+        email: requestBody.email,
         password: testUser.password,
       })
       .expect(401);

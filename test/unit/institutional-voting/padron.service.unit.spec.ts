@@ -17,6 +17,7 @@ import { PadronCertificate } from '@/modules/institutional-voting/schemas/padron
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
 import { PadronCertificatePdfService } from '@/modules/institutional-voting/services/core/padron-certificate-pdf.service';
 import { PadronPdfParserService } from '@/modules/institutional-voting/services/core/padron-pdf-parser.service';
+import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
 
 describe('PadronService (unit)', () => {
   let service: PadronService;
@@ -30,6 +31,7 @@ describe('PadronService (unit)', () => {
   let accessService: any;
   let padronCertificatePdfService: any;
   let padronPdfParserService: any;
+  let notificationsService: any;
 
   const baseEvent = {
     _id: new Types.ObjectId(),
@@ -79,11 +81,15 @@ describe('PadronService (unit)', () => {
       create: jest.fn(),
       updateOne: jest.fn(),
       findById: jest.fn(),
+      deleteMany: jest.fn(),
     };
     accessService = {
       getEventOrThrow: jest.fn(),
       assertTenantWriteAccess: jest.fn(),
       assertGlobalAdminAccess: jest.fn(),
+      canFullyEditEvent: jest.fn(() => true),
+      canModifyPadronDuringVoting: jest.fn(() => false),
+      hasPublicationWindowExpired: jest.fn(() => false),
     };
     padronCertificatePdfService = {
       buildPdf: jest.fn(() => Buffer.from('%PDF-1.4\nmock\n', 'utf-8')),
@@ -92,6 +98,9 @@ describe('PadronService (unit)', () => {
       validateSourceFile: jest.fn(),
       getSourceType: jest.fn(() => 'PDF'),
       parseDocument: jest.fn(),
+    };
+    notificationsService = {
+      notifyPadronAvailabilityEnabledForUser: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -106,6 +115,10 @@ describe('PadronService (unit)', () => {
         { provide: InstitutionalVotingAccessService, useValue: accessService },
         { provide: PadronCertificatePdfService, useValue: padronCertificatePdfService },
         { provide: PadronPdfParserService, useValue: padronPdfParserService },
+        {
+          provide: InstitutionalVotingNotificationsService,
+          useValue: notificationsService,
+        },
       ],
     }).compile();
 
