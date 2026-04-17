@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@nestjs/config';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
-import { json, urlencoded } from 'express';
+import { json, urlencoded, text } from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -33,6 +33,7 @@ async function bootstrap() {
 
   app.use(json({ limit: '5mb' }));
   app.use(urlencoded({ extended: true, limit: '5mb' }));
+  app.use(text({ type: 'text/plain', limit: '5mb' }));
 
   // Este pipe global ya forma parte del comportamiento observable actual.
   // Cualquier ajuste aquí requiere validación funcional previa.

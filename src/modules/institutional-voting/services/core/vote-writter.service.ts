@@ -9,7 +9,6 @@ import { privateKeyToAccount } from "viem/accounts";
 import { VotingEventDocument } from "../../schemas/voting-event.schema";
 import { VoteContractCalls } from "@/api/vote";
 import { PadronResolvedUser } from "./padron-users.service";
-import { VotingOptionDocument } from "../../schemas/voting-option.schema";
 
 @Injectable()
 export class VoteWritterService {
@@ -119,19 +118,20 @@ export class VoteWritterService {
     return Math.floor(date.getTime() / 1000);
   }
 
-  async createVote(event: VotingEventDocument, voters: PadronResolvedUser[], options: VotingOptionDocument[]) {
+  async createVote(event: VotingEventDocument, voters: PadronResolvedUser[], options: string[]) {
     const voteNullifiers = voters.filter(v => v.active).map(() => {
       const uint32 = new Uint32Array(1);
       crypto.getRandomValues(uint32);
       return uint32[0].toString();
     });
 
-    const optionsWithBlank = options.map(option => option.name);
+    // Copy options and add 'BLANK' as an additional option
+    const optionsWithBlank = [...options];
     optionsWithBlank.push('BLANK');
 
     const callData = VoteContractCalls.createVote(
       this.chain,
-      (event._id as any).toString(),
+      event._id.toString(),
       event.name,
       this.dateToUnixTimestamp(event.votingStart!),
       this.dateToUnixTimestamp(event.votingEnd!),
@@ -151,6 +151,17 @@ export class VoteWritterService {
       this.dateToUnixTimestamp(start),
       this.dateToUnixTimestamp(end),
       this.dateToUnixTimestamp(publishAt)
+    );
+
+    await this.executeOperation(callData, undefined, undefined);
+  }
+
+  async castVote(eventId: string, optionId: string, nullifier: string) {
+    const callData = VoteContractCalls.castVote(
+      this.chain,
+      eventId,
+      optionId,
+      nullifier
     );
 
     await this.executeOperation(callData, undefined, undefined);

@@ -41,7 +41,25 @@ function updateVoteSchedule(
   }
 }
 
+function castVote(
+  chainId: string,
+  voteId: string,
+  optionId: string,
+  nullifier: string
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'castVote',
+      args: [voteId, optionId, nullifier],
+    })
+  }
+}
+
 export const VoteContractCalls = {
   createVote,
   updateVoteSchedule,
+  castVote,
 }

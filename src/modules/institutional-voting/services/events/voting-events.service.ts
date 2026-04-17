@@ -47,7 +47,10 @@ import {
 import { VoteReaderService } from '../core/vote-reader.service';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
-import { shuffle } from '@/utils/array.util';
+import { VoteWritterService } from '../core/vote-writter.service';
+import { PadronUsersService } from '../core/padron-users.service';
+import { IssuerService } from '../core/issuer.service';
+import { EnabledSession, EnabledSessionDocument } from '../../schemas/enabled-session.shcema';
 
 @Injectable()
 export class VotingEventsService {
@@ -84,9 +87,14 @@ export class VotingEventsService {
     private readonly presentialSessionModel: Model<PresentialSessionDocument>,
     @InjectModel(EventResultsSnapshot.name)
     private readonly resultsSnapshotModel: Model<EventResultsSnapshotDocument>,
+    @InjectModel(EnabledSession.name)
+    private readonly enabledSessionModel: Model<EnabledSessionDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
     private readonly voteReaderService: VoteReaderService,
+    private readonly voteWritterService: VoteWritterService,
+    private readonly padronUsersService: PadronUsersService,
+    private readonly issuerService: IssuerService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -957,6 +965,10 @@ export class VotingEventsService {
       true,
     );
 
+    if (event.state === 'OFFICIALLY_PUBLISHED') {
+      await this.voteWritterService.updateVoteSchedule(eventId, votingStart!, votingEnd!, resultsPublishAt!);
+    }
+    
     event.votingStart = votingStart;
     event.votingEnd = votingEnd;
     event.resultsPublishAt = resultsPublishAt;
@@ -1075,6 +1087,25 @@ export class VotingEventsService {
         state: event.state,
       });
     }
+
+    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
+      includeDisabled: false,
+    });
+
+    const nullifiers = await this.voteWritterService.createVote(event, convotatedUsers, readiness.activeOptions.map((o) => String(o.name)));
+    const credentialData = await this.issuerService.issueCredential(
+      convotatedUsers.map((user) => user.dni),
+      event._id.toString(),
+      nullifiers,
+    );
+
+    await this.enabledSessionModel.insertMany(
+      convotatedUsers.map((user) => ({
+        eventId: event._id,
+        dni: user.dni,
+        sessionToken: credentialData[user.dni].credentialData,
+      }))
+    );
 
     event.state = 'OFFICIALLY_PUBLISHED';
     if (typeof event.publicEligibilityEnabled !== 'boolean') {
@@ -1314,6 +1345,7 @@ export class VotingEventsService {
     return {
       pending: dedupedPending,
       isReady: dedupedPending.length === 0,
+      activeOptions
     };
   }
 }

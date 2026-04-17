@@ -63,6 +63,10 @@ import { PadronPdfParserService } from './services/core/padron-pdf-parser.servic
 import { FirebaseModule } from '@/core/firebase/firebase.module';
 import { VoteReaderService } from './services/core/vote-reader.service';
 import { PresentialSessionsService } from './services/presential/presential-sessions.service';
+import { VoteWritterService } from './services/core/vote-writter.service';
+import { EmitVoteService } from './services/participation/emit-vote.service';
+import { EnabledSession, EnabledSessionSchema } from './schemas/enabled-session.shcema';
+import { IssuerService } from './services/core/issuer.service';
 
 @Module({
   imports: [
@@ -85,6 +89,7 @@ import { PresentialSessionsService } from './services/presential/presential-sess
       { name: User.name, schema: UserSchema },
       { name: UserNotification.name, schema: UserNotificationSchema },
       { name: NotificationLog.name, schema: NotificationLogSchema },
+      { name: EnabledSession.name, schema: EnabledSessionSchema },
     ]),
     ZkAuthModule,
     MailModule,
@@ -104,6 +109,8 @@ import { PresentialSessionsService } from './services/presential/presential-sess
     PadronCertificatePdfService,
     PadronPdfParserService,
     VoteReaderService,
+    VoteWritterService,
+    EmitVoteService,
     VotingEventsService,
     InstitutionalVotingLifecycleService,
     InstitutionalVotingNotificationsService,
@@ -111,6 +118,7 @@ import { PresentialSessionsService } from './services/presential/presential-sess
     ParticipationService,
     PresentialSessionsService,
     VotingResultsService,
+    IssuerService
   ],
   exports: [InstitutionalVotingService],
 })

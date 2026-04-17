@@ -24,6 +24,8 @@ import { VoteWritterService } from '@/modules/institutional-voting/services/core
 import { VotingOptionDocument } from '@/modules/institutional-voting/schemas/voting-option.schema';
 import { PadronResolvedUser } from '@/modules/institutional-voting/services/core/padron-users.service';
 import { VotingEventDocument } from '@/modules/institutional-voting/schemas/voting-event.schema';
+import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
+import { EmitVoteService } from '@/modules/institutional-voting/services/participation/emit-vote.service';
 
 // Evitar cargar ZK real (dependencias ESM/circuitos) en el entorno de test.
 jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
@@ -75,7 +77,7 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
   };
 
   const voteWritterServiceMock = {
-    createVote: jest.fn(async (event: VotingEventDocument, voters: PadronResolvedUser[], options: VotingOptionDocument[]) => {
+    createVote: jest.fn(async (event: VotingEventDocument, voters: PadronResolvedUser[], options: string[]) => {
       const voteNullifiers = voters.filter(v => v.active).map(() => {
         const uint32 = new Uint32Array(1);
         crypto.getRandomValues(uint32);
@@ -86,14 +88,18 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     updateVoteSchedule: jest.fn(),
   };
 
-  /*
   const issuerServiceMock = {
     issueCredential: jest.fn(async (dnis: string[]) => {
       return Object.fromEntries(
         dnis.map((dni) => [dni, { credentialData: `mock-credential-${dni}` }]),
       );
     }),
-  };*/
+  };
+
+  const emitVoteServiceMock = {
+    getVoteVc: jest.fn(async () => ({ vc: 'mock-vc' })),
+    emitVote: jest.fn(async () => ({ body: { scope: [] } })),
+  };
 
   try {
     mongod = await MongoMemoryServer.create({
@@ -134,8 +140,10 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       .useValue(voteReaderServiceMock)
       .overrideProvider(VoteWritterService)
       .useValue(voteWritterServiceMock)
-      //.overrideProvider(IssuerService)
-      //.useValue(issuerServiceMock)
+      .overrideProvider(IssuerService)
+      .useValue(issuerServiceMock)
+      .overrideProvider(EmitVoteService)
+      .useValue(emitVoteServiceMock)
       .compile();
 
     const app = moduleRef.createNestApplication();

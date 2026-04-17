@@ -192,7 +192,7 @@ export class InstitutionalVotingAccessService {
     if (resultsPublishAt <= votingEnd) {
       throw new BadRequestException('resultsPublishAt debe ser mayor a votingEnd');
     }
-
+    
     if (enforceWindowRule) {
       const now = Date.now();
       const diff = votingStart.getTime() - now;

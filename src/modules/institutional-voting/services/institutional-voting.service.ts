@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { CreateVotingEventDto } from '../dto/create-voting-event.dto';
 import { MaterializePadronCertificateDto } from '../dto/materialize-padron-certificate.dto';
 import { ConfirmOfficialPublicationDto } from '../dto/official-publication.dto';
@@ -27,6 +27,9 @@ import { PadronService } from './padron/padron.service';
 import { ParticipationService } from './participation/participation.service';
 import { PresentialSessionsService } from './presential/presential-sessions.service';
 import { VotingResultsService } from './results/voting-results.service';
+import { AuthorizationResponseMessage } from '@iden3/js-iden3-auth/dist/types/types-sdk';
+import { ZkAuthService } from '@/modules/zk-auth/services/zk-auth.service';
+import { EmitVoteService } from './participation/emit-vote.service';
 
 @Injectable()
 export class InstitutionalVotingService {
@@ -36,6 +39,7 @@ export class InstitutionalVotingService {
     private readonly participationService: ParticipationService,
     private readonly presentialSessionsService: PresentialSessionsService,
     private readonly votingResultsService: VotingResultsService,
+    private readonly emitVoteService: EmitVoteService,
   ) {}
 
   createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -282,6 +286,17 @@ export class InstitutionalVotingService {
     }
 
     return out;
+  }
+
+  async getVoteVc(eventId: string, dni: string): Promise<{ vc: string }> {
+    return this.emitVoteService.getVoteVc(eventId, dni);
+  }
+
+  async emitVote(
+    optionId: string,
+    zkProof: string,
+  ): Promise<AuthorizationResponseMessage> {
+    return this.emitVoteService.emitVote(optionId, zkProof);
   }
 
   checkParticipationStatus(eventId: string, carnet: string) {
