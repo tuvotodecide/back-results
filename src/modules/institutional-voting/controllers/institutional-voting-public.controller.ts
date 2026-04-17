@@ -7,12 +7,14 @@ import {
   Post,
   Query,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { Public } from '@/core/decorators/public.decorator';
-import { CreateParticipationDto } from '../dto/participation.dto';
 import { InstitutionalVotingService } from '../services/institutional-voting.service';
+import { CreateParticipationDto } from '../dto/participation.dto';
+import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
 
 @ApiTags('Institutional Voting Public')
 @Controller('api/v1/voting/events')
@@ -189,6 +191,66 @@ export class InstitutionalVotingPublicController {
     );
 
     return res.status(out.statusCode).json(out.body);
+  }
+
+  @Get('vote/cred-vc')
+  @Public()
+  @UseGuards(ZkAuthGuard)
+  @ApiOperation({
+    summary: 'Endpoint para recibir la VC para votar',
+  })
+  @ApiQuery({
+    name: 'eventId',
+    required: true,
+    description: 'ID del evento de votación para el cual se solicita la VC.',
+  })
+  @ApiQuery({
+    name: 'dni',
+    required: true,
+    description: 'DNI del usuario para el cual se solicita la VC.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Retorna la VC para votar.',
+  })
+  async getVoteVc(
+    @Query('eventId') eventId: string,
+    @Query('dni') dni: string,
+  ) {
+    return this.institutionalVotingService.getVoteVc(eventId, dni);
+  }
+
+  @Post('vote')
+  @Public()
+  @ApiOperation({
+    summary:
+      'Registra un voto en un evento público usando una prueba ZK.',
+  })
+  @ApiParam({
+    name: 'optionId',
+    description: 'ID de la opción de votación.',
+  })
+  @ApiBody({
+    description: 'Prueba ZK enviada en el body de la petición (raw body, no JSON).',
+    type: String,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Participación registrada correctamente.',
+  })
+  async uploadVote(
+    @Query('optionId') optionId: string,
+    @Body() body: string,
+    @Res() res: Response,
+  ) {
+    const zkProof = body;
+    console.dir('Parsed ZK proof: ' + zkProof.split('.'), { depth: null });
+    const response = await this.institutionalVotingService.emitVote(
+      optionId,
+      zkProof,
+    );
+
+    return res.status(200).json(response);
   }
 
   @Get(':eventId/participations/status')

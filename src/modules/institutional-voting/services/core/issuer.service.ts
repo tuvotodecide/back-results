@@ -37,42 +37,53 @@ export class IssuerService {
     this.username = this.configService.get<string>('app.issuer.username')!;
     this.password = this.configService.get<string>('app.issuer.password')!;
     this.issuerDid = this.configService.get<string>('app.issuer.did')!;
-    this.credSchema = this.configService.get<string>('app.issuer.credSchema')!;
-    this.credType = this.configService.get<string>('app.issuer.credType')!;
+    this.credSchema = this.configService.get<string>('app.zkAuth.credSchema')!;
+    this.credType = this.configService.get<string>('app.zkAuth.credType')!;
     this.identityBaseUrl = this.configService.get<string>('app.identity.baseUrl')!;
     this.identityApiKey = this.configService.get<string>('app.identity.apiKey')!;
   }
 
-  async issueCredential(dnis: string[], event: VotingEventDocument) {
+  async issueCredential(dnis: string[], eventId: string, nullifiers: string[]) {
+    if(dnis.length === 0 || dnis.length !== nullifiers.length) {
+      throw new InternalServerErrorException(`DNIs and nullifiers arrays must be of the same non-zero length`);
+    }
+
     const url = `${this.baseUrl}/v2/identities/${this.issuerDid}/credentials`;
     const users = await this.getDidsByDnis(dnis);
 
-    const credentialData: Record<string, Record<string, string>> = {};
+    const promises: Promise<void>[] = [];
+    const credentialData: Record<string, { credentialData: string }> = {};
     for (const user of users) {
       const body = {
         credentialSchema: this.credSchema,
         type: this.credType,
         credentialSubject: {
           id: user.did,
-          eventId: (event._id as Types.ObjectId).toString(),
-          nullifier: randomUUID(),
+          eventId: eventId,
+          nullifier: nullifiers.shift(),
         },
       }
 
-      try {
-        const response = await this.httpService.axiosRef.post<VCclaimData>(url, body, {
+      promises.push(new Promise(async (resolve, reject) => {
+        this.httpService.axiosRef.post<VCclaimData>(url, body, {
           auth: {
             username: this.username,
             password: this.password,
           },
-        });
-        credentialData[user.dni] = {
-          credentialData: response.data.id,
-        };
-      } catch (error) {
-        console.error(`Error issuing credential for DNI ${user.dni}:`, error.response?.data || error.message);
-        throw new InternalServerErrorException(`Error issuing credential for DNI`);
-      }
+        }).then(response => {
+          credentialData[user.dni] = {
+            credentialData: response.data.id,
+          };
+          resolve();
+        }).catch(error => reject(error));
+      }));
+    }
+
+    try {
+      await Promise.all(promises);
+    } catch (error: any) {
+      console.error(`Error issuing credential:`, error.response?.data || error.message);
+      throw new InternalServerErrorException(`Error issuing credential for DNI`);
     }
 
     return credentialData;
@@ -95,7 +106,7 @@ export class IssuerService {
       }
 
       return response.data.records;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching DIDs for DNIs:', error.response?.data || error.message);
       throw new InternalServerErrorException(`Error fetching DIDs for given DNIs`);
     }

@@ -44,6 +44,7 @@ import { UpdateVotingOptionDto } from '../dto/update-voting-option.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
 import { CreatePresentialSessionDto } from '../dto/presential-session.dto';
 import type { Response } from 'express';
+import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Institutional Voting Admin')
 @Controller('api/v1/voting/events')
@@ -638,6 +639,7 @@ export class InstitutionalVotingAdminController {
   }
 
   @Patch(':eventId/schedule')
+  @Public()
   @ApiOperation({
     summary: 'Configurar ventana de votación/resultados',
     description: 'Define votingStart, votingEnd y resultsPublishAt para el evento.',

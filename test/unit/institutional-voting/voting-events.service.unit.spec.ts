@@ -15,6 +15,10 @@ import { EventResultsSnapshot } from '@/modules/institutional-voting/schemas/eve
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
 import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
+import { EnabledSession } from '@/modules/institutional-voting/schemas/enabled-session.shcema';
+import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
+import { PadronUsersService } from '@/modules/institutional-voting/services/core/padron-users.service';
+import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 
 describe('VotingEventsService (unit)', () => {
   let service: VotingEventsService;
@@ -24,6 +28,7 @@ describe('VotingEventsService (unit)', () => {
   let votingOptionModel: any;
   let padronVersionModel: any;
   let padronEntryModel: any;
+  let enabledSessionModel: any;
   let comparisonReportModel: any;
   let participationModel: any;
   let presentialSessionModel: any;
@@ -31,6 +36,9 @@ describe('VotingEventsService (unit)', () => {
   let accessService: any;
   let notificationsService: any;
   let voteReaderService: any;
+  let voteWritterService: any;
+  let padronUsersService: any;
+  let issuerService: any;
 
   beforeEach(async () => {
     votingEventModel = {
@@ -67,6 +75,10 @@ describe('VotingEventsService (unit)', () => {
       find: jest.fn(),
       deleteMany: jest.fn(),
     };
+    enabledSessionModel = {
+      insertMany: jest.fn(),
+      findOne: jest.fn(),
+    }
     comparisonReportModel = {
       exists: jest.fn(),
       find: jest.fn(),
@@ -103,6 +115,18 @@ describe('VotingEventsService (unit)', () => {
     voteReaderService = {
       getResults: jest.fn(),
     };
+    voteWritterService = {
+      createVote: jest.fn(),
+      updateVoteSchedule: jest.fn(),
+      castVote: jest.fn(),
+    };
+    padronUsersService = {
+      getPadronUsersFromEvent: jest.fn(),
+    };
+    issuerService = {
+      issueCredential: jest.fn(),
+    }
+
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -112,6 +136,7 @@ describe('VotingEventsService (unit)', () => {
         { provide: getModelToken(VotingOption.name), useValue: votingOptionModel },
         { provide: getModelToken(PadronVersion.name), useValue: padronVersionModel },
         { provide: getModelToken(PadronEntry.name), useValue: padronEntryModel },
+        { provide: getModelToken(EnabledSession.name), useValue: enabledSessionModel },
         {
           provide: getModelToken(ComparisonReport.name),
           useValue: comparisonReportModel,
@@ -128,6 +153,9 @@ describe('VotingEventsService (unit)', () => {
           useValue: notificationsService,
         },
         { provide: VoteReaderService, useValue: voteReaderService },
+        { provide: VoteWritterService, useValue: voteWritterService },
+        { provide: PadronUsersService, useValue: padronUsersService },
+        { provide: IssuerService, useValue: issuerService },
       ],
     }).compile();
 
@@ -232,6 +260,9 @@ describe('VotingEventsService (unit)', () => {
     padronVersionModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
+    voteWritterService.createVote.mockResolvedValue([]);
+    issuerService.issueCredential.mockResolvedValue([]);
     comparisonReportModel.exists.mockResolvedValue(true);
     notificationsService.notifyOfficialPublicationConfirmed.mockResolvedValue({ sent: 2 });
 

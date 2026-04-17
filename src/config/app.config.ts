@@ -56,11 +56,27 @@ export default registerAs('app', () => ({
   zkAuth: {
     zkAuthTtl: parseInt(process.env.ZK_AUTH_API_KEY_TTL || '86400', 10), // 24 hours
     callbackUrl: process.env.ZK_AUTH_CALLBACK_URL,
+    voteCallbackUrl: process.env.VOTE_CALLBACK_URL,
     audience: process.env.VERIFIER_DID,
     rpcUrl: process.env.ZK_AUTH_RPC_URL,
     network: process.env.ZK_AUTH_NETWORK,
     stateContract: process.env.ZK_AUTH_STATE_CONTRACT,
     ipfsGatewayUrl: process.env.IPFS_GATEWAY_URL || 'https://ipfs.io',
+    credContext: process.env.VOTE_CRED_CONTEXT,
+    credSchema: process.env.VOTE_CRED_SCHEMA,
+    credType: process.env.VOTE_CRED_TYPE,
+  },
+
+  identity: {
+    baseUrl: process.env.IDENTITY_BASE_URL,
+    apiKey: process.env.IDENTITY_API_KEY,
+  },
+
+  issuer: {
+    baseUrl: process.env.ISSUER_BASE_URL,
+    username: process.env.ISSUER_USERNAME,
+    password: process.env.ISSUER_PASSWORD,
+    did: process.env.ISSUER_DID,
   },
 
   blockchain: {
