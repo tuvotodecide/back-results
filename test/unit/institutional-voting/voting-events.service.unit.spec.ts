@@ -97,6 +97,8 @@ describe('VotingEventsService (unit)', () => {
     notificationsService = {
       notifyConvocationIfEligible: jest.fn(),
       notifyOfficialPublicationConfirmed: jest.fn(),
+      notifyNewsToCurrentPadron: jest.fn(),
+      notifyScheduleUpdatedToCurrentPadron: jest.fn(),
     };
     voteReaderService = {
       getResults: jest.fn(),
@@ -173,7 +175,7 @@ describe('VotingEventsService (unit)', () => {
 
   it('rechaza pasar a READY_FOR_REVIEW si faltan precondiciones críticas', async () => {
     const findOneLean = jest.fn().mockResolvedValue(null);
-    const event = {
+    const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
       state: 'DRAFT',
@@ -657,6 +659,77 @@ describe('VotingEventsService (unit)', () => {
 
     expect(accessService.parseAndValidateDates).not.toHaveBeenCalled();
     expect(event.save).not.toHaveBeenCalled();
+  });
+
+  it('notifica actualización de cronograma si la revisión previa ya fue notificada', async () => {
+    const event: any = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'READY_FOR_REVIEW',
+      convocationNotifiedAt: new Date(),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const parsedDates = {
+      votingStart: new Date('2026-07-10T12:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+      resultsPublishAt: new Date('2026-07-10T20:00:00.000Z'),
+    };
+    const publishDeadline = new Date('2026-07-09T12:00:00.000Z');
+
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    accessService.parseAndValidateDates.mockReturnValue(parsedDates);
+    accessService.computePublishDeadline.mockReturnValue(publishDeadline);
+    notificationsService.notifyScheduleUpdatedToCurrentPadron.mockResolvedValue({ sent: 2 });
+
+    const result = await service.updateSchedule(
+      String(event._id),
+      {
+        votingStart: parsedDates.votingStart.toISOString(),
+        votingEnd: parsedDates.votingEnd.toISOString(),
+        resultsPublishAt: parsedDates.resultsPublishAt.toISOString(),
+      },
+      { sub: 'admin-1' },
+    );
+
+    expect(event.publishDeadline).toBe(publishDeadline);
+    expect(event.officialPublicationReminderSentAt).toBeUndefined();
+    expect(event.save).toHaveBeenCalled();
+    expect(notificationsService.notifyScheduleUpdatedToCurrentPadron).toHaveBeenCalledWith(
+      event,
+    );
+    expect(result.publishDeadline).toBe(publishDeadline);
+  });
+
+  it('publica noticias manuales usando solo imageUrl y link del JSON', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      name: 'Eleccion con noticias',
+    };
+    const dto = {
+      title: 'Convocatoria oficial',
+      body: 'Mensaje para empadronados',
+      imageUrl: 'https://cdn.example.com/news.png',
+      link: 'https://example.com/noticia',
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    notificationsService.notifyNewsToCurrentPadron.mockResolvedValue({
+      sent: 3,
+      skipped: null,
+    });
+
+    const result = await service.publishNews(String(event._id), dto, { sub: 'admin-1' });
+
+    expect(notificationsService.notifyNewsToCurrentPadron).toHaveBeenCalledWith(
+      event,
+      dto,
+    );
+    expect(result).toEqual({
+      eventId: String(event._id),
+      sent: 3,
+      skipped: null,
+    });
   });
 
   it('resuelve elegibilidad pública transversal entre eventos visibles', async () => {

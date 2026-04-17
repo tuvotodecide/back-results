@@ -86,6 +86,26 @@ describe('Institutional voting integration - publication and results', () => {
     return eventId;
   }
 
+  it('crea el deadline oficial exactamente 24 horas antes del inicio de votación', async () => {
+    const votingStart = '2026-04-25T00:01:00.000Z';
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      {
+        ...institutionalVotingFixtures.event,
+        votingStart,
+        votingEnd: '2026-04-25T02:01:00.000Z',
+        resultsPublishAt: '2026-04-25T03:01:00.000Z',
+      },
+    );
+
+    expect(created.status).toBe(201);
+    expect(new Date(created.body.publishDeadline).toISOString()).toBe(
+      '2026-04-24T00:01:00.000Z',
+    );
+  });
+
   it('abre revisión y luego confirma publicación oficial para usuarios vinculados', async () => {
     const linkedUsers = [
       {
@@ -129,6 +149,23 @@ describe('Institutional voting integration - publication and results', () => {
 
     expect(notifications).toHaveLength(2);
     expect(notifications[0].data).toHaveProperty('state', 'READY_FOR_REVIEW');
+
+    const officialNotifications = await ctx.conn
+      .collection('user_notifications')
+      .find({
+        'data.type': 'INSTITUTIONAL_OFFICIAL_PUBLICATION_CONFIRMED',
+        'data.eventId': eventId,
+      })
+      .toArray();
+
+    expect(officialNotifications).toHaveLength(2);
+    expect(officialNotifications[0].title).toBe(
+      'La elección fue publicada oficialmente',
+    );
+    expect(officialNotifications[0].body).toContain(
+      'La elección Eleccion Directiva 2026 iniciará el',
+    );
+    expect(officialNotifications[0].body).not.toMatch(/blockchain|contrato|tx|backend/i);
 
     const eventInDb = await ctx.conn
       .collection('voting_events')

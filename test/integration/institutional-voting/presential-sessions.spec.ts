@@ -153,6 +153,43 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.body.session.qrToken).toBeNull();
   });
 
+  it('usa READY TTL por defecto de 300 segundos y al reclamar pasa a TTL de CLAIM', async () => {
+    const eventId = await createConfiguredEvent();
+    const created = await createKioskSession(eventId, {
+      readyTtlSeconds: 30,
+      claimTtlSeconds: 300,
+    });
+    const readyExpiresAt = new Date(created.body.currentSession.expiresAt).getTime();
+
+    expect(created.body.readyTtlSeconds).toBe(30);
+
+    const scan = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: created.body.currentSession.qrToken,
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+      });
+
+    expect(scan.status).toBe(201);
+    const claimed = await ctx.conn.collection('presential_qr_sessions').findOne({
+      _id: new Types.ObjectId(scan.body.presentialSessionId),
+    });
+
+    expect(claimed?.status).toBe('CLAIMED');
+    expect(claimed?.expiresAt.getTime()).toBeGreaterThan(readyExpiresAt + 240_000);
+  });
+
+  it('mantiene READY TTL por defecto en 300 segundos cuando no se envía override', async () => {
+    const eventId = await createConfiguredEvent();
+    const createdAt = Date.now();
+    const created = await createKioskSession(eventId);
+    const expiresAt = new Date(created.body.currentSession.expiresAt).getTime();
+
+    expect(created.body.readyTtlSeconds).toBe(300);
+    expect(expiresAt - createdAt).toBeGreaterThan(295_000);
+    expect(expiresAt - createdAt).toBeLessThanOrEqual(305_000);
+  });
+
   it('mantiene compatibilidad con kioscos legados que usan stationId=default de forma explícita', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId, {
@@ -190,6 +227,118 @@ describe('Institutional voting integration - presential QR sessions', () => {
     const current = await getCurrent(eventId, created.body.kioskAccessToken);
     expect(current.status).toBe(200);
     expect(current.body.session.status).toBe('CLAIMED');
+  });
+
+  it('rechaza token inválido y QR READY expirado', async () => {
+    const invalid = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: 'pqs.token-invalido',
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+      });
+
+    expect(invalid.status).toBe(400);
+
+    const eventId = await createConfiguredEvent();
+    const created = await createKioskSession(eventId);
+    await ctx.conn.collection('presential_qr_sessions').updateOne(
+      { _id: new Types.ObjectId(created.body.currentSession.id) },
+      { $set: { expiresAt: new Date(Date.now() - 1_000) } },
+    );
+
+    const expired = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: created.body.currentSession.qrToken,
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+      });
+
+    expect(expired.status).toBe(409);
+    expect(expired.body.error).toBe('QR_EXPIRED');
+  });
+
+  it('no permite rotar QR mientras hay una sesión CLAIMED vigente', async () => {
+    const eventId = await createConfiguredEvent();
+    const created = await createKioskSession(eventId);
+
+    const scan = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: created.body.currentSession.qrToken,
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+      });
+
+    expect(scan.status).toBe(201);
+
+    const rotate = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/presential-sessions`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ stationId: 'kiosco-principal' });
+
+    expect(rotate.status).toBe(409);
+  });
+
+  it('bloquea scan y participación con sesión vieja cuando el kiosco queda apagado', async () => {
+    const eventId = await createConfiguredEvent(
+      'carnet,habilitado\nABC-789,si\nXYZ-123,si\n',
+    );
+    const createdForScan = await createKioskSession(eventId, {
+      stationId: 'scan-off',
+    });
+
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      { $set: { presentialKioskEnabled: false } },
+    );
+
+    const scanOff = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: createdForScan.body.currentSession.qrToken,
+        carnet: 'ABC-789',
+      });
+
+    expect(scanOff.status).toBe(403);
+    expect(scanOff.body.error).toBe('KIOSK_DISABLED');
+
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      { $set: { presentialKioskEnabled: true } },
+    );
+    const createdForParticipation = await createKioskSession(eventId, {
+      stationId: 'participation-off',
+    });
+    const claim = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: createdForParticipation.body.currentSession.qrToken,
+        carnet: 'XYZ-123',
+      });
+    expect(claim.status).toBe(201);
+
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      { $set: { presentialKioskEnabled: false } },
+    );
+
+    const blockedParticipation = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .set('Idempotency-Key', 'presential-disabled-old-session')
+      .send({
+        carnet: 'XYZ-123',
+        presentialSessionId: claim.body.presentialSessionId,
+      });
+
+    expect(blockedParticipation.status).toBe(403);
+    expect(blockedParticipation.body.error).toBe('KIOSK_DISABLED');
+
+    const normalParticipation = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .set('Idempotency-Key', 'presential-disabled-normal-flow')
+      .send({ carnet: 'XYZ-123' });
+
+    expect(normalParticipation.status).toBe(201);
+    expect(normalParticipation.body.participated).toBe(true);
   });
 
   it('expira una sesión reclamada por abandono y deja una nueva sesión READY', async () => {

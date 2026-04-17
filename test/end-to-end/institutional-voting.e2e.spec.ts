@@ -1430,6 +1430,30 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .findOne({ dni: linkedDni, title: institutionalVotingFixtures.news.title });
     expect(storedNews).toBeTruthy();
     expect(storedNews?.data?.type).toBe('INSTITUTIONAL_NEWS');
+    expect(storedNews?.data?.imageUrl).toBe(institutionalVotingFixtures.news.imageUrl);
+    expect(storedNews?.data?.link).toBe(institutionalVotingFixtures.news.link);
+    expect(publishNews.body).not.toHaveProperty('imageUrl');
+  });
+
+  it('NEWS-001-B: noticia manual valida contrato JSON y rechaza imageUrl inválido', async () => {
+    const created = await createInstitutionalEvent(
+      ctx.httpServer,
+      ctx.adminToken,
+      ctx.createdTenantId,
+      institutionalVotingFixtures.event,
+    );
+    const eventId = created.body.id;
+
+    const invalidNews = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/news`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({
+        title: 'Noticia inválida',
+        body: 'Debe fallar por URL inválida',
+        imageUrl: 'no-es-url',
+      });
+
+    expect(invalidNews.status).toBe(400);
   });
 
   it('NEWS-002: sin comparison report OK la publicacion retorna no_linked_users', async () => {

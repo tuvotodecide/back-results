@@ -513,6 +513,17 @@ describe('Auth E2E testing + contracts and delegates', () => {
     expect(resetLink).toContain('/resultados/restablecer');
     const url = new URL(resetLink);
     passwordResetToken = url.searchParams.get('token')!;
+
+    MailMockService.sendEmail.mockClear();
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: activeUser.email })
+      .expect(200);
+
+    expect(MailMockService.sendEmail.mock.calls[0][3].resetLink).toContain(
+      '/resultados/restablecer',
+    );
   });
 
   it('R14-B: should reject unsupported password reset context', async () => {

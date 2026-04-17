@@ -259,6 +259,14 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result.votingStart).toBeInstanceOf(Date);
   });
 
+  it('calcula publishDeadline exactamente 24 horas antes de votingStart', () => {
+    const votingStart = new Date('2026-04-25T00:01:00.000Z');
+
+    expect(service.computePublishDeadline(votingStart)?.toISOString()).toBe(
+      '2026-04-24T00:01:00.000Z',
+    );
+  });
+
   it('permite fechas cercanas cuando la regla de ventana no se exige', () => {
     const result = service.parseAndValidateDates(
       new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),

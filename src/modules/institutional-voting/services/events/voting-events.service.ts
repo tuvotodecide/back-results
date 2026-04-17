@@ -963,6 +963,9 @@ export class VotingEventsService {
     event.publishDeadline = this.accessService.computePublishDeadline(votingStart);
     event.officialPublicationReminderSentAt = undefined;
     await event.save();
+    if (event.convocationNotifiedAt) {
+      await this.notificationsService.notifyScheduleUpdatedToCurrentPadron(event);
+    }
 
     return {
       id: String(event._id),
