@@ -66,7 +66,7 @@ export class PresentialSessionsService {
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly participationService: ParticipationService,
   ) {
-    this.readyTtlSecondsDefault = 120;
+    this.readyTtlSecondsDefault = 300;
     this.claimTtlSecondsDefault = 300;
   }
 

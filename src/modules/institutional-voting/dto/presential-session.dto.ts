@@ -35,7 +35,7 @@ export class CreatePresentialSessionDto {
 
   @ApiPropertyOptional({
     description: 'TTL del QR en segundos mientras está READY.',
-    example: 120,
+    example: 300,
     minimum: 30,
     maximum: 900,
   })

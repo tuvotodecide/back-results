@@ -8,8 +8,10 @@ on:
       - 'Dockerfile'
       - 'package.json'
       - 'package-lock.json'
+      - 'jest.config.ts'
       - 'tsconfig.json'
       - 'src/**'
+      - 'test/**'
       - '.github/workflows/**'
 
 concurrency:
@@ -23,9 +25,9 @@ env:
 jobs:
   test:
     if: github.ref == 'refs/heads/main'
-    name: Run E2E Tests
+    name: Run Backend Test Suites
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     environment: devops_aws
     permissions:
       contents: read
@@ -62,7 +64,16 @@ jobs:
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
 
-      - name: Run E2E tests
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run acceptance tests
+        run: npm run test:acceptance
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Run end-to-end tests
         run: npm run test:e2e
 
       - name: Cleanup .env
