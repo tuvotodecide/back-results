@@ -105,13 +105,13 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(mailService.sendEmail).toHaveBeenCalledTimes(2);
     expect(mailService.sendEmail).toHaveBeenCalledWith(
       'Admin@Example.com',
-      'Recordatorio: confirmar publicación oficial de Eleccion institucional',
+      'Recordatorio: Confirmar publicación oficial de Eleccion institucional',
       'institutional-publication-reminder',
       {
         recipientName: 'Admin Uno',
         eventName: 'Eleccion institucional',
         eventId: String(event._id),
-        deadline: '2026-04-24T00:01:00.000Z',
+        deadline: '23/04/2026, 20:01',
       },
     );
     expect((event as any).officialPublicationReminderSentAt).toBeInstanceOf(Date);

@@ -27,7 +27,10 @@ export class InstitutionalVotingLifecycleService {
       .find({
         state: { $in: ['DRAFT', 'READY_FOR_REVIEW'] },
         publishDeadline: { $gt: now, $lte: reminderWindowEnd },
-        officialPublicationReminderSentAt: { $exists: false },
+        $or: [
+          { officialPublicationReminderSentAt: { $exists: false } },
+          { officialPublicationReminderSentAt: null },
+        ],
       })
       .limit(50);
 

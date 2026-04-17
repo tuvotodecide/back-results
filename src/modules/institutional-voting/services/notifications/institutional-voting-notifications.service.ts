@@ -60,6 +60,22 @@ export class InstitutionalVotingNotificationsService {
     }).format(votingStart);
   }
 
+  private formatReminderDeadline(deadline?: Date | null) {
+    if (!deadline) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('es-BO', {
+      timeZone: 'America/La_Paz',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(deadline);
+  }
+
   async notifyConvocationIfEligible(event: VotingEventDocument, additionalPerUserDniData: Record<string, Record<string, string>> = {}) {
     if (event.convocationNotifiedAt) return { sent: 0, skipped: 'already_notified' };
     const eventId = String(event._id);
@@ -240,7 +256,6 @@ export class InstitutionalVotingNotificationsService {
       new Set(assignments.map((assignment) => String(assignment.userId)).filter(Boolean)),
     );
     if (!userIds.length) {
-      await this.markOfficialPublicationReminderSent(event);
       return { sent: 0, skipped: 'no_recipients' };
     }
 
@@ -260,16 +275,15 @@ export class InstitutionalVotingNotificationsService {
     );
 
     if (!mails.length) {
-      await this.markOfficialPublicationReminderSent(event);
       return { sent: 0, skipped: 'no_emails' };
     }
 
-    const deadline = event.publishDeadline?.toISOString?.() ?? '';
+    const deadline = this.formatReminderDeadline(event.publishDeadline);
     await Promise.all(
       mails.map((recipient) =>
         this.mailService.sendEmail(
           recipient.email,
-          `Recordatorio: confirmar publicación oficial de ${event.name}`,
+          `Recordatorio: Confirmar publicación oficial de ${event.name}`,
           'institutional-publication-reminder',
           {
             recipientName: recipient.name,

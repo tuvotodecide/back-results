@@ -65,7 +65,10 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
         $gt: now,
         $lte: new Date('2026-04-24T00:01:00.000Z'),
       },
-      officialPublicationReminderSentAt: { $exists: false },
+      $or: [
+        { officialPublicationReminderSentAt: { $exists: false } },
+        { officialPublicationReminderSentAt: null },
+      ],
     });
     expect(notificationsService.sendOfficialPublicationReminder).toHaveBeenCalledWith(
       reminderEvent,
