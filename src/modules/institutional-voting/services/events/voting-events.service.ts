@@ -352,7 +352,9 @@ export class VotingEventsService {
     const resultsAvailable = Boolean(event.resultsPublishAt && now >= event.resultsPublishAt);
     let results = [];
     if (resultsAvailable) {
-      results = await this.voteReaderService.getResults(String(event._id));
+      try {
+        results = await this.voteReaderService.getResults(String(event._id));        
+      } catch {}
     }
 
     return {
