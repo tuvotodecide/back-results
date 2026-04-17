@@ -524,6 +524,9 @@ describe('Auth E2E testing + contracts and delegates', () => {
     expect(MailMockService.sendEmail.mock.calls[0][3].resetLink).toContain(
       '/resultados/restablecer',
     );
+    const fallbackResetLink: string =
+      MailMockService.sendEmail.mock.calls[0][3].resetLink;
+    passwordResetToken = new URL(fallbackResetLink).searchParams.get('token')!;
   });
 
   it('R14-B: should reject unsupported password reset context', async () => {
