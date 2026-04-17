@@ -45,7 +45,7 @@ export class PoliticalPartyController {
     status: 409,
     description: 'El ID del partido ya existe',
   })
-  create(@Body() createDto: CreatePoliticalPartyDto) {
+  async create(@Body() createDto: CreatePoliticalPartyDto) {
     return this.politicalPartyService.create(createDto);
   }
 
