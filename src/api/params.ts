@@ -62,7 +62,7 @@ export const availableNetworks = {
       '0x9f70476b4563c57c3056cc4e8dffc8025828c99ea7a458e33c1502f84b53cc94',
     attestationNft: '0xded7aD213240729cEB65c4196f4020d9DbC6C094',
     participationNft: '',
-    voteContract: '0x816Dab369fe073286cd644c43AD674B865F28a25'
+    voteContract: '0x759eaD345d65CaC5112205C537e90f4B4c5ED72A'
   },
 };
 
