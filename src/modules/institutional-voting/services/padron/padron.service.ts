@@ -40,6 +40,9 @@ import {
   ParsedPadronRow,
 } from '../core/padron-pdf-parser.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
+import { IssuerService } from '../core/issuer.service';
+import { EnabledSession, EnabledSessionDocument } from '../../schemas/enabled-session.shcema';
+import { VoteWritterService } from '../core/vote-writter.service';
 
 const ENABLED_HEADER = 'habilitado';
 
@@ -64,10 +67,14 @@ export class PadronService {
     private readonly padronStagingEntryModel: Model<PadronStagingEntryDocument>,
     @InjectModel(PadronCertificate.name)
     private readonly padronCertificateModel: Model<PadronCertificateDocument>,
+    @InjectModel(EnabledSession.name)
+    private readonly enabledSessionModel: Model<EnabledSessionDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly padronCertificatePdfService: PadronCertificatePdfService,
     private readonly padronPdfParserService: PadronPdfParserService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
+    private readonly issuerService: IssuerService,
+    private readonly voteWritterService: VoteWritterService,
   ) {}
 
   async uploadPadronFile(eventId: string, file: any, requester: any) {
@@ -426,6 +433,20 @@ export class PadronService {
           : 'El usuario ya existe habilitado en el padrón vigente',
       );
     }
+
+    const nullifiers = await this.voteWritterService.addNewVoters(event._id.toString(), 1);
+
+    const credentialData = await this.issuerService.issueCredential(
+      [carnetNorm],
+      event._id.toString(),
+      nullifiers,
+    );
+
+    await this.enabledSessionModel.insertOne({
+      eventId: event._id,
+      dni: carnetNorm,
+      sessionToken: credentialData[carnetNorm].credentialData,
+    });
 
     const created = await this.padronEntryModel.create({
       padronVersionId: currentVersion._id,

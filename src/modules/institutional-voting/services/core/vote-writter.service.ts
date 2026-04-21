@@ -166,4 +166,20 @@ export class VoteWritterService {
 
     await this.executeOperation(callData, undefined, undefined);
   }
+
+  async addNewVoters(eventId: string, count: number) {
+    const newNullifiers = Array.from({ length: count }, () => {
+      const uint32 = new Uint32Array(1);
+      crypto.getRandomValues(uint32);
+      return uint32[0].toString();
+    });
+
+    const callData = VoteContractCalls.addNewVoters(
+      this.chain,
+      eventId,
+      newNullifiers
+    );
+    await this.executeOperation(callData, undefined, undefined);
+    return newNullifiers;
+  }
 }
