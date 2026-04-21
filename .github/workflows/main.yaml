@@ -49,11 +49,9 @@ jobs:
       - name: Write .env file
         env:
           ENV_FILE: ${{ secrets.ENV_FILE }}
-          ENV_FILE_SEC: ${{ secrets.ENV_FILE_SEC }}
           ENV_FILE_TEST: ${{ secrets.ENV_FILE_TEST }}
         run: |
           printf '%s\n' "${ENV_FILE}" > .env
-          printf '%s\n' "${ENV_FILE_SEC}" >> .env
           printf '%s\n' "${ENV_FILE_TEST}" >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
@@ -164,10 +162,9 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENV_FILE: ${{ secrets.ENV_FILE }}
-          ENV_FILE_SEC: ${{ secrets.ENV_FILE_SEC }}
         run: |
           set -euo pipefail
-          ENV_B64=$(printf '%s\n%s\n' "${ENV_FILE}" "${ENV_FILE_SEC}" | base64 -w 0)
+          ENV_B64=$(printf '%s\n' "${ENV_FILE}" | base64 -w 0)
           ssh "${{ vars.HETZNER_USER }}@${{ vars.HETZNER_HOST }}" bash -s << ENDSSH
           set -euo pipefail
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -234,10 +231,9 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ENV_FILE: ${{ secrets.ENV_FILE_PROD }}
-          ENV_FILE_SEC: ${{ secrets.ENV_FILE_PROD_SEC }}
         run: |
           set -euo pipefail
-          ENV_B64=$(printf '%s\n%s\n' "${ENV_FILE}" "${ENV_FILE_SEC}" | base64 -w 0)
+          ENV_B64=$(printf '%s\n' "${ENV_FILE}" | base64 -w 0)
           ssh "${{ vars.HETZNER_USER }}@${{ vars.HETZNER_HOST }}" bash -s << ENDSSH
           set -euo pipefail
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
