@@ -58,8 +58,25 @@ function castVote(
   }
 }
 
+function addNewVoters(
+  chainId: string,
+  voteId: string,
+  newNullifiers: string[]
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'addNewVoters',
+      args: [voteId, newNullifiers],
+    })
+  }
+}
+
 export const VoteContractCalls = {
   createVote,
   updateVoteSchedule,
   castVote,
+  addNewVoters,
 }

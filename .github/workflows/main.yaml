@@ -19,8 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUILD_PLATFORMS: linux/arm64
-  CACHE_TAG: buildcache
+  # Change to linux/arm64 if using Hetzner CAX (Ampere) instances
+  BUILD_PLATFORMS: linux/amd64
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   test:
@@ -28,14 +30,9 @@ jobs:
     name: Run Backend Test Suites
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    environment: devops_aws
+    environment: hetzner
     permissions:
       contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,18 +46,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
+      - name: Write .env file
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          ENV_FILE_TEST: ${{ secrets.ENV_FILE_TEST }}
         run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
+          printf '%s\n' "${ENV_FILE}" > .env
+          printf '%s\n' "${ENV_FILE_TEST}" >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
 
@@ -77,6 +69,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Cleanup .env
+        if: always()
         run: shred -u .env || rm -f .env
 
   build:
@@ -87,13 +80,10 @@ jobs:
       (needs.test.result == 'success' || (needs.test.result == 'skipped' && startsWith(github.ref, 'refs/tags/')))
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: hetzner
     permissions:
       contents: read
-    environment: devops_aws
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
-      ECR_REPO: ${{ vars.ECR_REPOSITORY }}
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,18 +93,13 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: image=moby/buildkit:v0.12.1
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v2
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Decrypt TLS bundle
         run: |
@@ -128,17 +113,18 @@ jobs:
             -pass pass:"${{ secrets.PASSPHRASE }}"
           echo "BUNDLE_SHA256=$(sha256sum global-bundle.pem | cut -d' ' -f1)"
 
-      - name: Set image tag
+      - name: Set image tags
         id: image-tags
         shell: bash
         run: |
           set -euo pipefail
-          tags="${ECR_REGISTRY}/${ECR_REPO}:${GITHUB_SHA}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          tags="${IMAGE}:${GITHUB_SHA}"
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            tags+=$'\n'"${ECR_REGISTRY}/${ECR_REPO}:latest"
+            tags+=$'\n'"${IMAGE}:latest"
           fi
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            tags+=$'\n'"${ECR_REGISTRY}/${ECR_REPO}:${GITHUB_REF_NAME}"
+            tags+=$'\n'"${IMAGE}:${GITHUB_REF_NAME}"
           fi
           printf "tags<<EOF\n%s\nEOF\n" "$tags" >> "$GITHUB_OUTPUT"
 
@@ -151,123 +137,66 @@ jobs:
           no-cache: true
           platforms: ${{ env.BUILD_PLATFORMS }}
           tags: ${{ steps.image-tags.outputs.tags }}
-          cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:latest
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-to: type=inline
-
-      - name: Prune old untagged images in ECR
-        run: |
-          set -euo pipefail
-          IMAGE_IDS=$(aws ecr list-images \
-            --repository-name "${{ env.ECR_REPO }}" \
-            --filter tagStatus=UNTAGGED \
-            --query 'imageIds[*]' --output json)
-          if [ "$IMAGE_IDS" != "[]" ]; then
-            echo "$IMAGE_IDS" | jq -c '[_nwise(100)][]' | while read -r BATCH; do
-              aws ecr batch-delete-image \
-                --repository-name "${{ env.ECR_REPO }}" \
-                --image-ids "$BATCH"
-            done
-          fi
 
   deploy-dev:
     if: github.ref == 'refs/heads/main'
-    name: Deploy to EC2 (dev) via SSM
+    name: Deploy to Hetzner (dev) via SSH
     needs: [build, test]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: devops_aws
+    environment: hetzner
     permissions:
       contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
-      ECR_REPO: ${{ vars.ECR_REPOSITORY }}
-      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
-      PUBLIC_IP: ${{ vars.PUBLIC_IP }}
-      EXTERNAL_PORT: ${{ vars.EXTERNAL_PORT }}
-      CONTAINER_NAME: back_results
-      IMAGE_TAG: ${{ github.sha }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
 
-      - name: Deploy container via SSM
-        id: ssm
-        shell: bash
+      - name: Add server to known_hosts
+        run: ssh-keyscan -H "${{ vars.HETZNER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy container
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
         run: |
           set -euo pipefail
-          SSM_NAME="${{ env.SSM_ENV_PARAM_NAME }}"
-          SSM_NAME_SEC="${{ env.SSM_ENV_PARAM_NAME_SEC }}"
-          echo "Deploying ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }} to ${{ env.EC2_INSTANCE_ID }}"
-          echo "Using SSM parameter: ${SSM_NAME}"
-
-          cat > remote_cmds.txt <<'EOF'
+          ENV_B64=$(printf '%s\n' "${ENV_FILE}" | base64 -w 0)
+          ssh "${{ vars.HETZNER_USER }}@${{ vars.HETZNER_HOST }}" bash -s << ENDSSH
           set -euo pipefail
-          docker system prune -a -f --volumes
-          aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-          docker pull --quiet ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-          docker stop ${CONTAINER_NAME} || true
-          docker rm ${CONTAINER_NAME} || true
-          aws ssm get-parameter --name ${SSM_NAME} --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name ${SSM_NAME_SEC} --with-decryption --query Parameter.Value --output text >> .env
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull --quiet "ghcr.io/${{ github.repository }}:${{ github.sha }}"
+          docker stop back_results || true
+          docker rm back_results || true
+          printf '%s' "${ENV_B64}" | base64 -d > .env
           sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-          docker run -d --name ${CONTAINER_NAME} -p ${EXTERNAL_PORT}:3000 --env-file .env -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem --restart unless-stopped ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+          echo "ENV bytes=\$(wc -c < .env) lines=\$(wc -l < .env)"
+          docker run -d \
+            --name back_results \
+            -p "${{ vars.EXTERNAL_PORT }}:3000" \
+            --env-file .env \
+            -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem \
+            --restart unless-stopped \
+            "ghcr.io/${{ github.repository }}:${{ github.sha }}"
           sleep 2
-          docker exec ${CONTAINER_NAME} /bin/sh -lc 'set -e; [ -f /app/global-bundle.pem ] && echo "bundle OK" && ls -l /app/global-bundle.pem && sha256sum /app/global-bundle.pem | cut -c1-16 || (echo "bundle MISSING"; exit 1)'
-          docker exec ${CONTAINER_NAME} /bin/sh -lc 'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
-          docker inspect --format="Name={{.Name}} Image={{.Config.Image}} Cmd={{.Config.Cmd}} Entrypoint={{.Config.Entrypoint}}" ${CONTAINER_NAME} || true
-          docker image inspect ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} --format 'RepoDigests: {{json .RepoDigests}} Cmd: {{json .Config.Cmd}} Entrypoint: {{json .Config.Entrypoint}}' || true
-          docker network connect results-net ${CONTAINER_NAME} || true
+          docker exec back_results /bin/sh -lc \
+            'set -e; [ -f /app/global-bundle.pem ] && echo "bundle OK" && ls -l /app/global-bundle.pem && sha256sum /app/global-bundle.pem | cut -c1-16 || (echo "bundle MISSING"; exit 1)'
+          docker exec back_results /bin/sh -lc \
+            'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
+          docker network connect results-net back_results || true
           shred -u .env || rm -f .env
-          docker system prune -a -f --volumes
-          EOF
-
-          sed -i "s|\${AWS_REGION}|${{ env.AWS_REGION }}|g" remote_cmds.txt
-          sed -i "s|\${ECR_REGISTRY}|${{ env.ECR_REGISTRY }}|g" remote_cmds.txt
-          sed -i "s|\${ECR_REPO}|${{ env.ECR_REPO }}|g" remote_cmds.txt
-          sed -i "s|\${IMAGE_TAG}|${{ env.IMAGE_TAG }}|g" remote_cmds.txt
-          sed -i "s|\${CONTAINER_NAME}|${{ env.CONTAINER_NAME }}|g" remote_cmds.txt
-          sed -i "s|\${EXTERNAL_PORT}|${{ env.EXTERNAL_PORT }}|g" remote_cmds.txt
-          sed -i "s|\${SSM_NAME}|${SSM_NAME}|g" remote_cmds.txt
-          sed -i "s|\${SSM_NAME_SEC}|${SSM_NAME_SEC}|g" remote_cmds.txt
-          CMDS_JSON=$(jq -R -s -c 'split("\n") | map(select(length>0))' < remote_cmds.txt)
-
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${{ env.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "GitHub Actions deploy" \
-            --parameters "commands=${CMDS_JSON}" \
-            --query "Command.CommandId" --output text)
-
-          echo "SSM CommandId = ${CMD_ID}"
-          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${{ env.EC2_INSTANCE_ID }}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${{ env.EC2_INSTANCE_ID }}" \
-            --query "{Stdout:StandardOutputContent, Stderr:StandardErrorContent, Status:Status}" \
-            --output text | sed 's/\\n/\n/g'
-
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${{ env.EC2_INSTANCE_ID }}" \
-            --query Status --output text)
-          [[ "${STATUS}" == "Success" ]] || { echo "Remote script failed"; exit 1; }
+          docker image prune -f
+          ENDSSH
 
       - name: Health check
-        shell: bash
         run: |
           set -euo pipefail
-          echo "Checking http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/"
+          echo "Checking http://${{ vars.HETZNER_HOST }}:${{ vars.EXTERNAL_PORT }}/"
           for i in {1..24}; do
-            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/") || true
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${{ vars.HETZNER_HOST }}:${{ vars.EXTERNAL_PORT }}/") || true
             if [[ "${http_code:-}" == "200" ]]; then
               echo "Service OK (${http_code})"
               exit 0
@@ -276,112 +205,67 @@ jobs:
             sleep 5
           done
           echo "Health-check failed, dumping container logs"
-          aws ssm send-command \
-            --instance-ids "${{ env.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --parameters commands="docker logs --tail 200 ${{ env.CONTAINER_NAME }}" \
-            --query "Command.CommandId" --output text \
-          | xargs -I{} aws ssm wait command-executed --command-id {} --instance-id "${{ env.EC2_INSTANCE_ID }}"
+          ssh "${{ vars.HETZNER_USER }}@${{ vars.HETZNER_HOST }}" \
+            "docker logs --tail 200 back_results"
           exit 1
 
   deploy-prod:
-    name: Deploy to EC2 (prod) via SSM
+    name: Deploy to Hetzner (prod) via SSH
     needs: build
     if: always() && needs.build.result == 'success' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment: devops_aws
+    environment: hetzner_prod
     permissions:
       contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
-      ECR_REPO: ${{ vars.ECR_REPOSITORY }}
-      EC2_INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
-      PUBLIC_IP: ${{ vars.PUBLIC_IP }}
-      EXTERNAL_PORT: ${{ vars.EXTERNAL_PORT_PROD }}
-      CONTAINER_NAME: back_results_prod
-      IMAGE_TAG: ${{ github.ref_name }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME_PROD }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_PROD_SEC }}
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
 
-      - name: Deploy container via SSM
-        id: ssm
-        shell: bash
+      - name: Add server to known_hosts
+        run: ssh-keyscan -H "${{ vars.HETZNER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy container
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ENV_FILE: ${{ secrets.ENV_FILE_PROD }}
         run: |
           set -euo pipefail
-          SSM_NAME="${{ env.SSM_ENV_PARAM_NAME }}"
-          SSM_NAME_SEC="${{ env.SSM_ENV_PARAM_NAME_SEC }}"
-          echo "Deploying ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}:${{ env.IMAGE_TAG }} to ${{ env.EC2_INSTANCE_ID }}"
-          echo "Using SSM parameter: ${SSM_NAME}"
-
-          cat > remote_cmds.txt <<'EOF'
+          ENV_B64=$(printf '%s\n' "${ENV_FILE}" | base64 -w 0)
+          ssh "${{ vars.HETZNER_USER }}@${{ vars.HETZNER_HOST }}" bash -s << ENDSSH
           set -euo pipefail
-          aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-          docker pull --quiet ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-          docker stop ${CONTAINER_NAME} || true
-          docker rm ${CONTAINER_NAME} || true
-          aws ssm get-parameter --name ${SSM_NAME} --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name ${SSM_NAME_SEC} --with-decryption --query Parameter.Value --output text >> .env
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull --quiet "ghcr.io/${{ github.repository }}:${{ github.ref_name }}"
+          docker stop back_results_prod || true
+          docker rm back_results_prod || true
+          printf '%s' "${ENV_B64}" | base64 -d > .env
           sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-          docker run -d --name ${CONTAINER_NAME} -p ${EXTERNAL_PORT}:3000 --env-file .env -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem --restart unless-stopped ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+          echo "ENV bytes=\$(wc -c < .env) lines=\$(wc -l < .env)"
+          docker run -d \
+            --name back_results_prod \
+            -p "${{ vars.EXTERNAL_PORT_PROD }}:3000" \
+            --env-file .env \
+            -e NODE_EXTRA_CA_CERTS=/app/global-bundle.pem \
+            --restart unless-stopped \
+            "ghcr.io/${{ github.repository }}:${{ github.ref_name }}"
           sleep 2
-          docker exec ${CONTAINER_NAME} /bin/sh -lc 'set -e; [ -f /app/global-bundle.pem ] && echo "bundle OK" && ls -l /app/global-bundle.pem && sha256sum /app/global-bundle.pem | cut -c1-16 || (echo "bundle MISSING"; exit 1)'
-          docker exec ${CONTAINER_NAME} /bin/sh -lc 'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
-          docker inspect --format="Name={{.Name}} Image={{.Config.Image}} Cmd={{.Config.Cmd}} Entrypoint={{.Config.Entrypoint}}" ${CONTAINER_NAME} || true
-          docker image inspect ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} --format 'RepoDigests: {{json .RepoDigests}} Cmd: {{json .Config.Cmd}} Entrypoint: {{json .Config.Entrypoint}}' || true
-          docker network connect results-net ${CONTAINER_NAME} || true
+          docker exec back_results_prod /bin/sh -lc \
+            'set -e; [ -f /app/global-bundle.pem ] && echo "bundle OK" && ls -l /app/global-bundle.pem && sha256sum /app/global-bundle.pem | cut -c1-16 || (echo "bundle MISSING"; exit 1)'
+          docker exec back_results_prod /bin/sh -lc \
+            'env | grep -E "^(MONGODB_URI|MONGODB_USERNAME|MONGODB_PASSWORD|NODE_EXTRA_CA_CERTS)=" | sed "s/=.*/=[REDACTED]/"'
+          docker network connect results-net back_results_prod || true
           shred -u .env || rm -f .env
           docker image prune -f
-          EOF
-
-          sed -i "s|\${AWS_REGION}|${{ env.AWS_REGION }}|g" remote_cmds.txt
-          sed -i "s|\${ECR_REGISTRY}|${{ env.ECR_REGISTRY }}|g" remote_cmds.txt
-          sed -i "s|\${ECR_REPO}|${{ env.ECR_REPO }}|g" remote_cmds.txt
-          sed -i "s|\${IMAGE_TAG}|${{ env.IMAGE_TAG }}|g" remote_cmds.txt
-          sed -i "s|\${CONTAINER_NAME}|${{ env.CONTAINER_NAME }}|g" remote_cmds.txt
-          sed -i "s|\${EXTERNAL_PORT}|${{ env.EXTERNAL_PORT }}|g" remote_cmds.txt
-          sed -i "s|\${SSM_NAME}|${SSM_NAME}|g" remote_cmds.txt
-          sed -i "s|\${SSM_NAME_SEC}|${SSM_NAME_SEC}|g" remote_cmds.txt
-          CMDS_JSON=$(jq -R -s -c 'split("\n") | map(select(length>0))' < remote_cmds.txt)
-
-          CMD_ID=$(aws ssm send-command \
-            --instance-ids "${{ env.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "GitHub Actions deploy" \
-            --parameters "commands=${CMDS_JSON}" \
-            --query "Command.CommandId" --output text)
-
-          echo "SSM CommandId = ${CMD_ID}"
-          aws ssm wait command-executed --command-id "${CMD_ID}" --instance-id "${{ env.EC2_INSTANCE_ID }}"
-
-          aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${{ env.EC2_INSTANCE_ID }}" \
-            --query "{Stdout:StandardOutputContent, Stderr:StandardErrorContent, Status:Status}" \
-            --output text | sed 's/\\n/\n/g'
-
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id "${CMD_ID}" \
-            --instance-id "${{ env.EC2_INSTANCE_ID }}" \
-            --query Status --output text)
-          [[ "${STATUS}" == "Success" ]] || { echo "Remote script failed"; exit 1; }
+          ENDSSH
 
       - name: Health check
-        shell: bash
         run: |
           set -euo pipefail
-          echo "Checking http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/"
+          echo "Checking http://${{ vars.HETZNER_HOST }}:${{ vars.EXTERNAL_PORT_PROD }}/"
           for i in {1..24}; do
-            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/") || true
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${{ vars.HETZNER_HOST }}:${{ vars.EXTERNAL_PORT_PROD }}/") || true
             if [[ "${http_code:-}" == "200" ]]; then
               echo "Service OK (${http_code})"
               exit 0
@@ -390,10 +274,6 @@ jobs:
             sleep 5
           done
           echo "Health-check failed, dumping container logs"
-          aws ssm send-command \
-            --instance-ids "${{ env.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --parameters commands="docker logs --tail 200 ${{ env.CONTAINER_NAME }}" \
-            --query "Command.CommandId" --output text \
-          | xargs -I{} aws ssm wait command-executed --command-id {} --instance-id "${{ env.EC2_INSTANCE_ID }}"
+          ssh "${{ vars.HETZNER_USER }}@${{ vars.HETZNER_HOST }}" \
+            "docker logs --tail 200 back_results_prod"
           exit 1
