@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BUILD_PLATFORMS: linux/arm64
+  BUILD_PLATFORMS: linux/amd64
   CACHE_TAG: buildcache
 
 jobs:
