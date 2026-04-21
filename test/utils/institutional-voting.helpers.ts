@@ -86,6 +86,8 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       return voteNullifiers;
     }),
     updateVoteSchedule: jest.fn(),
+    castVote: jest.fn(),
+    addNewVoters: jest.fn(),
   };
 
   const issuerServiceMock = {

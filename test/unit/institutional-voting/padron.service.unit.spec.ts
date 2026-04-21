@@ -18,6 +18,9 @@ import { InstitutionalVotingAccessService } from '@/modules/institutional-voting
 import { PadronCertificatePdfService } from '@/modules/institutional-voting/services/core/padron-certificate-pdf.service';
 import { PadronPdfParserService } from '@/modules/institutional-voting/services/core/padron-pdf-parser.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
+import { EnabledSession } from '@/modules/institutional-voting/schemas/enabled-session.shcema';
+import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
+import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 
 describe('PadronService (unit)', () => {
   let service: PadronService;
@@ -28,10 +31,13 @@ describe('PadronService (unit)', () => {
   let padronImportJobModel: any;
   let padronStagingEntryModel: any;
   let padronCertificateModel: any;
+  let enabledSessionModel: any;
   let accessService: any;
   let padronCertificatePdfService: any;
   let padronPdfParserService: any;
+  let voteWritterService: any;
   let notificationsService: any;
+  let issuerService: any;
 
   const baseEvent = {
     _id: new Types.ObjectId(),
@@ -83,6 +89,9 @@ describe('PadronService (unit)', () => {
       findById: jest.fn(),
       deleteMany: jest.fn(),
     };
+    enabledSessionModel = {
+      insertOne: jest.fn(),
+    },
     accessService = {
       getEventOrThrow: jest.fn(),
       assertTenantWriteAccess: jest.fn(),
@@ -99,8 +108,14 @@ describe('PadronService (unit)', () => {
       getSourceType: jest.fn(() => 'PDF'),
       parseDocument: jest.fn(),
     };
+    voteWritterService = {
+      addNewVoters: jest.fn(),
+    };
     notificationsService = {
       notifyPadronAvailabilityEnabledForUser: jest.fn(),
+    };
+    issuerService = {
+      issueCredential: jest.fn(),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -112,13 +127,16 @@ describe('PadronService (unit)', () => {
         { provide: getModelToken(PadronImportJob.name), useValue: padronImportJobModel },
         { provide: getModelToken(PadronStagingEntry.name), useValue: padronStagingEntryModel },
         { provide: getModelToken(PadronCertificate.name), useValue: padronCertificateModel },
+        { provide: getModelToken(EnabledSession.name), useValue: enabledSessionModel },
         { provide: InstitutionalVotingAccessService, useValue: accessService },
         { provide: PadronCertificatePdfService, useValue: padronCertificatePdfService },
         { provide: PadronPdfParserService, useValue: padronPdfParserService },
+        { provide: VoteWritterService, useValue: voteWritterService },
         {
           provide: InstitutionalVotingNotificationsService,
           useValue: notificationsService,
         },
+        { provide: IssuerService, useValue: issuerService },
       ],
     }).compile();
 
