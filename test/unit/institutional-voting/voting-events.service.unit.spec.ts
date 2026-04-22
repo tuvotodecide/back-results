@@ -125,6 +125,7 @@ describe('VotingEventsService (unit)', () => {
     };
     issuerService = {
       issueCredential: jest.fn(),
+      getDidsByDnis: jest.fn(),
     }
 
 
@@ -266,6 +267,7 @@ describe('VotingEventsService (unit)', () => {
     comparisonReportModel.exists.mockResolvedValue(true);
     notificationsService.notifyOfficialPublicationConfirmed.mockResolvedValue({ sent: 2 });
 
+    issuerService.getDidsByDnis.mockResolvedValue([]);
     const result = await service.publishEvent(String(event._id), { sub: 'admin-1' });
 
     expect(event.save).toHaveBeenCalled();

@@ -263,9 +263,15 @@ export class PadronService {
       this.padronStagingEntryModel.countDocuments({ importJobId: importJob._id }),
     ]);
 
+    const data = rows.map((row) => this.mapStagingEntry(row));
+    const dids = await this.issuerService.getDidsByDnis(data.map((entry) => entry.ci));
+
     return {
       importJob: this.mapImportJob(importJob, total),
-      data: rows.map((row) => this.mapStagingEntry(row)),
+      data: data.map((entry) => ({
+        ...entry,
+        hasIdentity: dids.some((did) => did.dni === entry.ci),
+      })),
       page: safePage,
       limit: safeLimit,
       total,
@@ -434,10 +440,15 @@ export class PadronService {
       );
     }
 
+    const dids = await this.issuerService.getDidsByDnis([carnetNorm]);
+    if (dids.length !== 1 || dids[0].dni !== carnetNorm) {
+      throw new NotFoundException('No se encontró al usuario registrado en el servicio de identidad');
+    }
+
     const nullifiers = await this.voteWritterService.addNewVoters(event._id.toString(), 1);
 
     const credentialData = await this.issuerService.issueCredential(
-      [carnetNorm],
+      dids,
       event._id.toString(),
       nullifiers,
     );

@@ -91,10 +91,13 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
   };
 
   const issuerServiceMock = {
-    issueCredential: jest.fn(async (dnis: string[]) => {
+    issueCredential: jest.fn(async (dnis: {dni: string, did: string}[]) => {
       return Object.fromEntries(
-        dnis.map((dni) => [dni, { credentialData: `mock-credential-${dni}` }]),
+        dnis.map((dni) => [dni.dni, { credentialData: `mock-credential-${dni.dni}` }]),
       );
+    }),
+    getDidsByDnis: jest.fn(async (dnis: string[]) => {
+      return dnis.map((dni) => ({dni, did: `did:example:${dni}`}));
     }),
   };
 

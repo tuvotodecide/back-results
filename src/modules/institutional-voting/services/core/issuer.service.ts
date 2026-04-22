@@ -43,17 +43,16 @@ export class IssuerService {
     this.identityApiKey = this.configService.get<string>('app.identity.apiKey')!;
   }
 
-  async issueCredential(dnis: string[], eventId: string, nullifiers: string[]) {
-    if(dnis.length === 0 || dnis.length !== nullifiers.length) {
-      throw new InternalServerErrorException(`DNIs and nullifiers arrays must be of the same non-zero length`);
+  async issueCredential(dids: {dni: string, did: string}[], eventId: string, nullifiers: string[]) {
+    if(dids.length === 0 || dids.length !== nullifiers.length) {
+      throw new InternalServerErrorException(`DIDs and nullifiers arrays must be of the same non-zero length`);
     }
 
     const url = `${this.baseUrl}/v2/identities/${this.issuerDid}/credentials`;
-    const users = await this.getDidsByDnis(dnis);
 
     const promises: Promise<void>[] = [];
     const credentialData: Record<string, { credentialData: string }> = {};
-    for (const user of users) {
+    for (const user of dids) {
       const body = {
         credentialSchema: this.credSchema,
         type: this.credType,

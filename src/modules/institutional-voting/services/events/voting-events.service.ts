@@ -1090,13 +1090,20 @@ export class VotingEventsService {
       });
     }
 
-    const convotatedUsers = await this.padronUsersService.getPadronUsersFromEvent(event, {
+    const convotatedUsers = (await this.padronUsersService.getPadronUsersFromEvent(event, {
       includeDisabled: false,
-    });
+    })).map((user) => user.dni);
+
+    const dids = await this.issuerService.getDidsByDnis(convotatedUsers);
+    if (dids.length !== convotatedUsers.length) {
+      throw new BadRequestException({
+        message: 'No se pueden emitir credenciales para todos los usuarios convocados',
+      });
+    }
 
     const nullifiers = await this.voteWritterService.createVote(event, convotatedUsers, readiness.activeOptions.map((o) => String(o.name)));
     const credentialData = await this.issuerService.issueCredential(
-      convotatedUsers.map((user) => user.dni),
+      dids,
       event._id.toString(),
       nullifiers,
     );
@@ -1104,8 +1111,8 @@ export class VotingEventsService {
     await this.enabledSessionModel.insertMany(
       convotatedUsers.map((user) => ({
         eventId: event._id,
-        dni: user.dni,
-        sessionToken: credentialData[user.dni].credentialData,
+        dni: user,
+        sessionToken: credentialData[user].credentialData,
       }))
     );
 

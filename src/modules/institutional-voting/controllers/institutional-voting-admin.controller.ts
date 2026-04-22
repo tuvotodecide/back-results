@@ -639,7 +639,6 @@ export class InstitutionalVotingAdminController {
   }
 
   @Patch(':eventId/schedule')
-  @Public()
   @ApiOperation({
     summary: 'Configurar ventana de votación/resultados',
     description: 'Define votingStart, votingEnd y resultsPublishAt para el evento.',

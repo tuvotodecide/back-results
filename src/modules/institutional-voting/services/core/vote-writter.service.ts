@@ -118,8 +118,8 @@ export class VoteWritterService {
     return Math.floor(date.getTime() / 1000);
   }
 
-  async createVote(event: VotingEventDocument, voters: PadronResolvedUser[], options: string[]) {
-    const voteNullifiers = voters.filter(v => v.active).map(() => {
+  async createVote(event: VotingEventDocument, voters: string[], options: string[]) {
+    const voteNullifiers = voters.map(() => {
       const uint32 = new Uint32Array(1);
       crypto.getRandomValues(uint32);
       return uint32[0].toString();
