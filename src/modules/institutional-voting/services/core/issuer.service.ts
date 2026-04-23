@@ -89,6 +89,10 @@ export class IssuerService {
   }
 
   async getDidsByDnis(dnis: string[]) {
+    if (dnis.length === 0) {
+      return [];
+    }
+
     const url = `${this.identityBaseUrl}/registry/get-by-dni`;
     try {
       const response = await this.httpService.axiosRef.get<DidByDniResponse>(url, {
