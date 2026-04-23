@@ -1469,10 +1469,10 @@ export class PadronService {
         $set: {
           status: recalculatedStatus,
           summary: {
-            parsedCount: job.summary?.parsedCount ?? 0,
-            validCount: job.summary?.validCount ?? 0,
-            duplicateCount: job.summary?.duplicateCount ?? 0,
-            invalidCount: job.summary?.invalidCount ?? 0,
+            parsedCount: stagingCount,
+            validCount: stagingCount,
+            duplicateCount: 0,
+            invalidCount: 0,
             stagingCount,
             enabledCount,
             disabledCount,
