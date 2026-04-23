@@ -1444,6 +1444,7 @@ export class PadronService {
     const stagingCount = entries.length;
     const enabledCount = entries.filter((entry) => entry.enabled !== false).length;
     const disabledCount = stagingCount - enabledCount;
+    const currentErrorCount = Array.isArray(job.errors) ? job.errors.length : 0;
     const dids =
       stagingCount > 0
         ? await this.issuerService.getDidsByDnis(
@@ -1460,11 +1461,13 @@ export class PadronService {
     const missingIdentityCount = entries.filter(
       (entry) => !didSet.has(String(entry.ciNorm ?? '').trim()),
     ).length;
+    const recalculatedStatus = this.resolveImportJobStatus(stagingCount, currentErrorCount);
 
     await this.padronImportJobModel.updateOne(
       { _id: importJobId },
       {
         $set: {
+          status: recalculatedStatus,
           summary: {
             parsedCount: job.summary?.parsedCount ?? 0,
             validCount: job.summary?.validCount ?? 0,

@@ -561,6 +561,84 @@ describe('PadronService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
+  it('recalcula el import job cuando el staging ya tiene filas útiles después de un fallo inicial', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const createdEntry = {
+      _id: new Types.ObjectId(),
+      importJobId,
+      eventId: baseEvent._id,
+      tenantId: baseEvent.tenantId,
+      ciNorm: '12345678',
+      enabled: true,
+      toObject: () => ({
+        _id: new Types.ObjectId(),
+        importJobId,
+        eventId: baseEvent._id,
+        tenantId: baseEvent.tenantId,
+        ciNorm: '12345678',
+        enabled: true,
+        sourceKind: 'MANUAL',
+      }),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: baseEvent._id,
+          tenantId: baseEvent.tenantId,
+          status: 'FAILED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.exists.mockResolvedValue(false);
+    padronStagingEntryModel.create.mockResolvedValue(createdEntry);
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        status: 'FAILED',
+        errors: [{ code: 'PARSER_ERROR', message: 'backend parser failed' }],
+        summary: {
+          parsedCount: 0,
+          validCount: 0,
+          duplicateCount: 0,
+          invalidCount: 0,
+        },
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ ciNorm: '12345678', enabled: true }]),
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '12345678' }]);
+
+    await service.addPadronStagingEntry(
+      String(baseEvent._id),
+      { ci: '12345678', enabled: true },
+      requester,
+    );
+
+    expect(padronImportJobModel.updateOne).toHaveBeenCalledWith(
+      { _id: importJobId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'PARSED_WITH_ERRORS',
+          summary: expect.objectContaining({
+            stagingCount: 1,
+            enabledCount: 1,
+            disabledCount: 0,
+            missingIdentityCount: 0,
+          }),
+        }),
+      }),
+    );
+  });
+
   it('actualiza el estado de aprobación de una versión específica del padrón', async () => {
     const requester = { sub: String(new Types.ObjectId()), role: 'ADMIN' };
     const version = {
