@@ -116,7 +116,25 @@ describe('PadronService (unit)', () => {
     };
     issuerService = {
       issueCredential: jest.fn(),
+      getDidsByDnis: jest.fn().mockResolvedValue([]),
     };
+
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        summary: {
+          parsedCount: 0,
+          validCount: 0,
+          duplicateCount: 0,
+          invalidCount: 0,
+        },
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -293,6 +311,26 @@ describe('PadronService (unit)', () => {
         updatedAt: new Date(),
       }),
     });
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        summary: {
+          parsedCount: 2,
+          validCount: 2,
+          duplicateCount: 0,
+          invalidCount: 0,
+        },
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { ciNorm: '123456', enabled: true },
+        { ciNorm: '789000', enabled: false },
+      ]),
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '123456' }, { dni: '789000' }]);
     padronStagingEntryModel.countDocuments.mockResolvedValue(2);
 
     const result = await service.uploadPadronPdf(String(baseEvent._id), file, requester);
@@ -459,6 +497,26 @@ describe('PadronService (unit)', () => {
         updatedAt: new Date(),
       }),
     });
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        summary: {
+          parsedCount: 2,
+          validCount: 2,
+          duplicateCount: 0,
+          invalidCount: 0,
+        },
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { ciNorm: '123456', enabled: true },
+        { ciNorm: '789000', enabled: false },
+      ]),
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '123456' }, { dni: '789000' }]);
     padronStagingEntryModel.countDocuments.mockResolvedValue(2);
 
     const result = await service.uploadPadronFile(String(baseEvent._id), file, requester);

@@ -470,7 +470,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(add.status).toBe(400);
 
     const confirm = await confirmPadronStaging(ctx.httpServer, ctx.adminToken, eventId);
-    expect(confirm.status).toBe(400);
+    expect(confirm.status).toBe(404);
   });
 
   it('expira por plazo y bloquea cambios de padrón en PUBLICATION_EXPIRED', async () => {
@@ -508,7 +508,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(add.status).toBe(400);
 
     const confirm = await confirmPadronStaging(ctx.httpServer, ctx.adminToken, eventId);
-    expect(confirm.status).toBe(400);
+    expect(confirm.status).toBe(404);
   });
 
   it('mantiene compatibilidad razonable con el flujo CSV legacy', async () => {

@@ -86,7 +86,7 @@ describe('Institutional voting integration - publication and results', () => {
     return eventId;
   }
 
-  it('crea el deadline oficial exactamente 24 horas antes del inicio de votación', async () => {
+  it('crea el deadline oficial exactamente 6 horas antes del inicio de votación', async () => {
     const votingStart = '2026-04-25T00:01:00.000Z';
     const created = await createInstitutionalEvent(
       ctx.httpServer,
@@ -102,7 +102,7 @@ describe('Institutional voting integration - publication and results', () => {
 
     expect(created.status).toBe(201);
     expect(new Date(created.body.publishDeadline).toISOString()).toBe(
-      '2026-04-24T00:01:00.000Z',
+      '2026-04-24T18:01:00.000Z',
     );
   });
 

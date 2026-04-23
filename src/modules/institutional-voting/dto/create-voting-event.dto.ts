@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsDateString,
   IsMongoId,
   IsNotEmpty,
@@ -27,6 +28,11 @@ export class CreateVotingEventDto {
   @MinLength(10)
   @MaxLength(1000)
   objective: string;
+
+  @ApiProperty({ required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  isReferendum?: boolean;
 
   @ApiProperty({ required: false })
   @IsOptional()

@@ -41,6 +41,10 @@ import {
   VotingOptionDocument,
 } from '../../schemas/voting-option.schema';
 import {
+  PadronImportJob,
+  PadronImportJobDocument,
+} from '../../schemas/padron-import-job.schema';
+import {
   readColorPalette,
   resolveColorPaletteInput,
 } from '@/shared/utils/color-palette.util';
@@ -51,9 +55,12 @@ import { VoteWritterService } from '../core/vote-writter.service';
 import { PadronUsersService } from '../core/padron-users.service';
 import { IssuerService } from '../core/issuer.service';
 import { EnabledSession, EnabledSessionDocument } from '../../schemas/enabled-session.shcema';
+import { PadronService } from '../padron/padron.service';
 
 @Injectable()
 export class VotingEventsService {
+  private static readonly REFERENDUM_TECHNICAL_ROLE = 'CONSULTA';
+
   private mapVotingOption(option: any) {
     const palette = readColorPalette(option);
     return {
@@ -79,6 +86,8 @@ export class VotingEventsService {
     private readonly padronVersionModel: Model<PadronVersionDocument>,
     @InjectModel(PadronEntry.name)
     private readonly padronEntryModel: Model<PadronEntryDocument>,
+    @InjectModel(PadronImportJob.name)
+    private readonly padronImportJobModel: Model<PadronImportJobDocument>,
     @InjectModel(ComparisonReport.name)
     private readonly comparisonReportModel: Model<ComparisonReportDocument>,
     @InjectModel(Participation.name)
@@ -95,6 +104,7 @@ export class VotingEventsService {
     private readonly voteWritterService: VoteWritterService,
     private readonly padronUsersService: PadronUsersService,
     private readonly issuerService: IssuerService,
+    private readonly padronService: PadronService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -105,13 +115,14 @@ export class VotingEventsService {
       dto.votingStart,
       dto.votingEnd,
       dto.resultsPublishAt,
-      true,
+      this.accessService.getCreateLeadHours(),
     );
 
     const created = await this.votingEventModel.create({
       tenantId: new Types.ObjectId(dto.tenantId),
       name: dto.name,
       objective: dto.objective,
+      isReferendum: Boolean(dto.isReferendum),
       votingStart,
       votingEnd,
       resultsPublishAt,
@@ -121,11 +132,23 @@ export class VotingEventsService {
       publicationConfirmed: false,
     });
 
+    if (created.isReferendum) {
+      await this.eventRoleModel.create({
+        eventId: created._id,
+        name: VotingEventsService.REFERENDUM_TECHNICAL_ROLE,
+        normalizedName: this.accessService.normalizeName(
+          VotingEventsService.REFERENDUM_TECHNICAL_ROLE,
+        ),
+        maxWinners: 1,
+      });
+    }
+
     return {
       id: String(created._id),
       tenantId: String(created.tenantId),
       name: created.name,
       objective: created.objective,
+      isReferendum: Boolean(created.isReferendum),
       votingStart: created.votingStart,
       votingEnd: created.votingEnd,
       resultsPublishAt: created.resultsPublishAt,
@@ -156,6 +179,7 @@ export class VotingEventsService {
         tenantId: String(event.tenantId),
         name: event.name,
         objective: event.objective,
+        isReferendum: Boolean(event.isReferendum),
         state: event.state,
         votingStart: event.votingStart ?? null,
         votingEnd: event.votingEnd ?? null,
@@ -229,6 +253,7 @@ export class VotingEventsService {
         tenantId: String(event.tenantId),
         name: event.name,
         objective: event.objective,
+        isReferendum: Boolean(event.isReferendum),
         state: event.state,
         votingStart: event.votingStart ?? null,
         votingEnd: event.votingEnd ?? null,
@@ -362,6 +387,7 @@ export class VotingEventsService {
       tenantId: String(event.tenantId),
       name: event.name,
       objective: event.objective,
+      isReferendum: Boolean(event.isReferendum),
       state: event.state,
       phase: isResults ? 'RESULTS' : isActive ? 'ACTIVE' : isUpcoming ? 'UPCOMING' : 'OTHER',
       votingStart: event.votingStart ?? null,
@@ -512,6 +538,7 @@ export class VotingEventsService {
       tenantId: String(event.tenantId),
       name: event.name,
       objective: event.objective,
+      isReferendum: Boolean(event.isReferendum),
       state: event.state,
       votingStart: event.votingStart ?? null,
       votingEnd: event.votingEnd ?? null,
@@ -533,8 +560,8 @@ export class VotingEventsService {
         canEditEverything: this.accessService.canFullyEditEvent(event),
         canEditPadronDuringVoting: this.accessService.canModifyPadronDuringVoting(event),
         canEditPadronInLimitedMode: this.accessService.canModifyPadronDuringVoting(event),
-        dateValidationMinHours: 36,
-        officialPublicationCutoffHours: 24,
+        dateValidationMinHours: this.accessService.getCreateLeadHours(),
+        officialPublicationCutoffHours: this.accessService.getOfficialPublicationLeadHours(),
       },
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
@@ -579,6 +606,7 @@ export class VotingEventsService {
       tenantId: String(event.tenantId),
       name: event.name,
       objective: event.objective,
+      isReferendum: Boolean(event.isReferendum),
       state: event.state,
       presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
     };
@@ -618,6 +646,11 @@ export class VotingEventsService {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
     await this.assertStructuralEditableState(event, 'crear cargos');
+    if (event.isReferendum) {
+      throw new BadRequestException(
+        'Los referendums usan un cargo tecnico fijo y no permiten cargos manuales',
+      );
+    }
 
     const normalizedName = this.accessService.normalizeName(dto.name);
 
@@ -667,6 +700,11 @@ export class VotingEventsService {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
     await this.assertStructuralEditableState(event, 'editar cargos');
+    if (event.isReferendum) {
+      throw new BadRequestException(
+        'Los referendums usan un cargo tecnico fijo y no permiten editar cargos manuales',
+      );
+    }
 
     if (!Types.ObjectId.isValid(roleId)) {
       throw new BadRequestException('roleId invalido');
@@ -723,6 +761,11 @@ export class VotingEventsService {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
     await this.assertStructuralEditableState(event, 'eliminar cargos');
+    if (event.isReferendum) {
+      throw new BadRequestException(
+        'Los referendums usan un cargo tecnico fijo y no permiten eliminar cargos manuales',
+      );
+    }
 
     if (!Types.ObjectId.isValid(roleId)) {
       throw new BadRequestException('roleId invalido');
@@ -964,7 +1007,7 @@ export class VotingEventsService {
       payload.votingStart,
       payload.votingEnd,
       payload.resultsPublishAt,
-      true,
+      this.accessService.getOfficialPublicationLeadHours(),
     );
 
     if (event.state === 'OFFICIALLY_PUBLISHED') {
@@ -1019,7 +1062,7 @@ export class VotingEventsService {
 
     if (event.state === 'PUBLICATION_EXPIRED') {
       throw new BadRequestException({
-        message: 'La elección ya no puede abrir revisión porque venció el plazo de 24 horas',
+        message: `La elección ya no puede abrir revisión porque venció el plazo de ${this.accessService.getOfficialPublicationLeadHours()} horas`,
         state: event.state,
       });
     }
@@ -1037,6 +1080,13 @@ export class VotingEventsService {
         pending: readiness.pending,
       });
     }
+
+    await this.padronService.materializeActiveDraftVersion(eventId, requester, {
+      comparisonStatus: 'OK',
+      deactivateDraft: false,
+      markConfirmed: false,
+      certificateMode: 'ON_CONFIRMATION',
+    });
 
     if (event.state !== 'READY_FOR_REVIEW') {
       event.state = 'READY_FOR_REVIEW';
@@ -1085,10 +1135,17 @@ export class VotingEventsService {
     if (!this.canStillBeOfficiallyPublished(event)) {
       await this.markAsPublicationExpired(event);
       throw new BadRequestException({
-        message: 'La elección ya no puede publicarse oficialmente porque venció el plazo de 24 horas',
+        message: `La elección ya no puede publicarse oficialmente porque venció el plazo de ${this.accessService.getOfficialPublicationLeadHours()} horas`,
         state: event.state,
       });
     }
+
+    await this.padronService.materializeActiveDraftVersion(eventId, requester, {
+      comparisonStatus: 'OK',
+      deactivateDraft: false,
+      markConfirmed: false,
+      certificateMode: 'ON_CONFIRMATION',
+    });
 
     const convotatedUsers = (await this.padronUsersService.getPadronUsersFromEvent(event, {
       includeDisabled: false,
@@ -1191,7 +1248,7 @@ export class VotingEventsService {
     await this.expireEventIfPastDeadline(event);
     if (!this.accessService.canFullyEditEvent(event)) {
       throw new BadRequestException(
-        `Solo se permite ${action} antes de la publicación oficial y mientras falten más de 24 horas para el inicio de la votación`,
+        `Solo se permite ${action} antes de la publicación oficial y mientras falten más de ${this.accessService.getOfficialPublicationLeadHours()} horas para el inicio de la votación`,
       );
     }
   }
@@ -1279,10 +1336,16 @@ export class VotingEventsService {
   }
 
   private async evaluateReviewReadiness(event: VotingEventDocument) {
-    const [roles, activeOptions, currentPadron] = await Promise.all([
+    const [roles, activeOptions, currentPadron, activeDraft] = await Promise.all([
       this.eventRoleModel.find({ eventId: event._id }).lean(),
       this.votingOptionModel.find({ eventId: event._id, active: true }).lean(),
       this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
+      this.accessService.canFullyEditEvent(event)
+        ? this.padronImportJobModel
+            .findOne({ eventId: event._id, isActiveDraft: true })
+            .sort({ createdAt: -1, _id: -1 })
+            .lean()
+        : null,
     ]);
 
     const pending: string[] = [];
@@ -1307,7 +1370,17 @@ export class VotingEventsService {
     if (roles.length === 0) pending.push('cargos');
     if (activeOptions.length === 0) pending.push('opciones');
 
-    if (!currentPadron) {
+    if (activeDraft) {
+      const stagingCount = Number(activeDraft.summary?.stagingCount ?? 0);
+      const invalidCount =
+        Number(activeDraft.summary?.invalidCount ?? 0) +
+        Number(activeDraft.summary?.duplicateCount ?? 0);
+      const missingIdentityCount = Number(activeDraft.summary?.missingIdentityCount ?? 0);
+
+      if (stagingCount <= 0) pending.push('padron');
+      if (invalidCount > 0) pending.push('padron_invalid');
+      if (missingIdentityCount > 0) pending.push('padron_validation');
+    } else if (!currentPadron) {
       pending.push('padron');
     } else {
       if (Number(currentPadron?.totals?.validCount ?? 0) <= 0) pending.push('padron');

@@ -23,6 +23,9 @@ export class VotingEvent {
   @Prop({ required: true, trim: true })
   objective: string;
 
+  @Prop({ type: Boolean, default: false })
+  isReferendum?: boolean;
+
   @Prop({ type: Date, required: false })
   votingStart?: Date;
 

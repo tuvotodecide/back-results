@@ -74,4 +74,36 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       reminderEvent,
     );
   });
+
+  it('marca automáticamente como PUBLICATION_EXPIRED a los eventos cuyo plazo venció', async () => {
+    const now = new Date('2026-04-24T00:05:00.000Z');
+    jest.useFakeTimers().setSystemTime(now);
+
+    const remindableQuery = {
+      limit: jest.fn().mockResolvedValue([]),
+    };
+    const publishableQuery = {
+      limit: jest.fn().mockResolvedValue([]),
+    };
+    votingEventModel.find
+      .mockReturnValueOnce(remindableQuery)
+      .mockReturnValueOnce(publishableQuery);
+
+    await service.processLifecycle();
+
+    expect(votingEventModel.updateMany).toHaveBeenNthCalledWith(
+      1,
+      {
+        state: { $in: ['DRAFT', 'READY_FOR_REVIEW'] },
+        publishDeadline: { $lte: now },
+      },
+      {
+        $set: {
+          state: 'PUBLICATION_EXPIRED',
+          publicationExpiredAt: now,
+          publicationConfirmed: false,
+        },
+      },
+    );
+  });
 });

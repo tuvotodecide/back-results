@@ -21,8 +21,8 @@ import {
 
 @Injectable()
 export class InstitutionalVotingAccessService {
-  private readonly scheduleLeadHours = 36;
-  private readonly officialPublicationLeadHours = 24;
+  private readonly createLeadHours = 12;
+  private readonly officialPublicationLeadHours = 6;
 
   constructor(
     @InjectModel(VotingEvent.name)
@@ -159,7 +159,7 @@ export class InstitutionalVotingAccessService {
     votingStartRaw?: string,
     votingEndRaw?: string,
     resultsPublishRaw?: string,
-    enforceWindowRule = true,
+    minimumLeadHours?: number,
   ): {
     votingStart?: Date;
     votingEnd?: Date;
@@ -193,17 +193,25 @@ export class InstitutionalVotingAccessService {
       throw new BadRequestException('resultsPublishAt debe ser mayor a votingEnd');
     }
     
-    if (enforceWindowRule) {
+    if (typeof minimumLeadHours === 'number') {
       const now = Date.now();
       const diff = votingStart.getTime() - now;
-      if (diff < this.scheduleLeadHours * 60 * 60 * 1000) {
+      if (diff < minimumLeadHours * 60 * 60 * 1000) {
         throw new BadRequestException(
-          'La fecha de inicio debe tener al menos 36 horas de anticipación',
+          `La fecha de inicio debe tener al menos ${minimumLeadHours} horas de anticipación`,
         );
       }
     }
 
     return { votingStart, votingEnd, resultsPublishAt };
+  }
+
+  getCreateLeadHours() {
+    return this.createLeadHours;
+  }
+
+  getOfficialPublicationLeadHours() {
+    return this.officialPublicationLeadHours;
   }
 
   computePublishDeadline(votingStart?: Date | null) {

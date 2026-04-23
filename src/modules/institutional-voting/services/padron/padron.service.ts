@@ -115,6 +115,7 @@ export class PadronService {
         stagingCount: 0,
         enabledCount: 0,
         disabledCount: 0,
+        missingIdentityCount: 0,
       },
       errors: [],
     });
@@ -175,10 +176,13 @@ export class PadronService {
               stagingCount: normalized.entries.length,
               enabledCount: normalized.entries.filter((entry) => entry.enabled).length,
               disabledCount: normalized.entries.filter((entry) => !entry.enabled).length,
+              missingIdentityCount: 0,
             },
           },
         },
       );
+
+      await this.refreshImportJobSummary(importJob._id);
     } catch (error: any) {
       await this.padronImportJobModel.updateOne(
         { _id: importJob._id },
@@ -536,11 +540,53 @@ export class PadronService {
   }
 
   async confirmPadronStaging(eventId: string, requester: any) {
-    const { event, importJob } = await this.getEditableActiveImportJobContext(
-      eventId,
-      requester,
-      'confirmar el padrón vigente',
-    );
+    const synchronized = await this.materializeActiveDraftVersion(eventId, requester, {
+      comparisonStatus: 'PENDING',
+      deactivateDraft: true,
+      markConfirmed: true,
+      certificateMode: 'ON_CONFIRMATION',
+    });
+
+    if (!synchronized) {
+      throw new NotFoundException('No existe un staging activo de padrón para este evento');
+    }
+
+    return {
+      importJobId: String(synchronized.importJob._id),
+      padronVersionId: String(synchronized.version._id),
+      state: 'CONFIRMED',
+      totals: synchronized.version.totals,
+      comparisonStatus: 'PENDING',
+      sourceType: synchronized.version.sourceType ?? 'PDF_IMPORT',
+      certificate: this.mapCertificateMetadata(synchronized.certificate),
+    };
+  }
+
+  async materializeActiveDraftVersion(
+    eventId: string,
+    requester: any,
+    options: {
+      comparisonStatus?: 'PENDING' | 'OK' | 'FAILED';
+      deactivateDraft?: boolean;
+      markConfirmed?: boolean;
+      certificateMode?: PadronCertificateGenerationMode;
+    } = {},
+  ) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    const importJob = await this.getActiveImportJob(event._id);
+    if (!importJob) {
+      return null;
+    }
+
+    if (importJob.status === 'PROCESSING') {
+      throw new BadRequestException('El padrón todavía se está procesando');
+    }
+
+    if (importJob.status === 'FAILED') {
+      throw new BadRequestException('El staging activo del padrón tiene errores y no puede materializarse');
+    }
 
     if (!requester?.sub) {
       throw new ForbiddenException('Usuario no identificado');
@@ -552,13 +598,13 @@ export class PadronService {
       .lean();
 
     if (!entries.length) {
-      throw new BadRequestException('No se puede confirmar un staging vacío');
+      throw new BadRequestException('No se puede materializar un staging vacío');
     }
 
     const digest = createHash('sha256')
       .update(entries.map((entry) => `${entry.ciNorm},${entry.enabled ? '1' : '0'}`).join('\n'))
       .digest('hex');
-    const currentVersionBeforeConfirm = await this.padronVersionModel
+    const currentVersionBeforeMaterialize = await this.padronVersionModel
       .findOne({ eventId: event._id, isCurrent: true })
       .lean();
 
@@ -576,12 +622,12 @@ export class PadronService {
         duplicateCount: 0,
         invalidCount: 0,
       },
-      comparisonStatus: 'PENDING',
+      comparisonStatus: options.comparisonStatus ?? 'OK',
       sourceType:
         importJob.sourceType === 'IMAGE'
           ? 'IMAGE_IMPORT'
           : importJob.sourceType === 'SYSTEM'
-            ? currentVersionBeforeConfirm?.sourceType ?? 'CSV_LEGACY'
+            ? currentVersionBeforeMaterialize?.sourceType ?? 'PDF_IMPORT'
             : 'PDF_IMPORT',
       importJobId: this.toObjectId(importJob._id),
       sourceFileName: importJob.originalFileName,
@@ -591,15 +637,23 @@ export class PadronService {
       parserModel: importJob.parserModel ?? null,
     });
 
+    const importJobSet: Record<string, unknown> = {
+      confirmedPadronVersionId: this.toObjectId(version._id),
+    };
+
+    if (options.markConfirmed) {
+      importJobSet.status = 'CONFIRMED';
+      importJobSet.confirmedAt = new Date();
+    }
+
+    if (options.deactivateDraft) {
+      importJobSet.isActiveDraft = false;
+    }
+
     await this.padronImportJobModel.updateOne(
       { _id: importJob._id },
       {
-        $set: {
-          status: 'CONFIRMED',
-          isActiveDraft: false,
-          confirmedAt: new Date(),
-          confirmedPadronVersionId: this.toObjectId(version._id),
-        },
+        $set: importJobSet,
       },
     );
 
@@ -607,18 +661,10 @@ export class PadronService {
       event,
       version,
       requester,
-      'ON_CONFIRMATION',
+      options.certificateMode ?? 'ON_CONFIRMATION',
     );
 
-    return {
-      importJobId: String(importJob._id),
-      padronVersionId: String(version._id),
-      state: 'CONFIRMED',
-      totals: version.totals,
-      comparisonStatus: 'PENDING',
-      sourceType: version.sourceType ?? 'PDF_IMPORT',
-      certificate: this.mapCertificateMetadata(certificate),
-    };
+    return { event, importJob, version, certificate };
   }
 
   async getPadronSummary(eventId: string, requester: any) {
@@ -1339,15 +1385,16 @@ export class PadronService {
         parserProvider: 'system-clone',
         parserModel: null,
         parserUsedFallback: true,
-        summary: {
-          parsedCount: currentVersion.totals?.validCount ?? 0,
-          validCount: currentVersion.totals?.validCount ?? 0,
-          duplicateCount: currentVersion.totals?.duplicateCount ?? 0,
-          invalidCount: currentVersion.totals?.invalidCount ?? 0,
-          stagingCount: currentVersion.totals?.validCount ?? 0,
-          enabledCount: 0,
-          disabledCount: 0,
-        },
+      summary: {
+        parsedCount: currentVersion.totals?.validCount ?? 0,
+        validCount: currentVersion.totals?.validCount ?? 0,
+        duplicateCount: currentVersion.totals?.duplicateCount ?? 0,
+        invalidCount: currentVersion.totals?.invalidCount ?? 0,
+        stagingCount: currentVersion.totals?.validCount ?? 0,
+        enabledCount: 0,
+        disabledCount: 0,
+        missingIdentityCount: 0,
+      },
         errors: [],
         processedAt: new Date(),
       });
@@ -1387,7 +1434,7 @@ export class PadronService {
   private async refreshImportJobSummary(importJobId: Types.ObjectId) {
     const [job, entries] = await Promise.all([
       this.padronImportJobModel.findById(importJobId).lean(),
-      this.padronStagingEntryModel.find({ importJobId }, { enabled: 1 }).lean(),
+      this.padronStagingEntryModel.find({ importJobId }, { enabled: 1, ciNorm: 1 }).lean(),
     ]);
 
     if (!job) {
@@ -1397,6 +1444,22 @@ export class PadronService {
     const stagingCount = entries.length;
     const enabledCount = entries.filter((entry) => entry.enabled !== false).length;
     const disabledCount = stagingCount - enabledCount;
+    const dids =
+      stagingCount > 0
+        ? await this.issuerService.getDidsByDnis(
+            entries
+              .map((entry) => String(entry.ciNorm ?? '').trim())
+              .filter((ci) => ci.length > 0),
+          )
+        : [];
+    const didSet = new Set(
+      dids
+        .map((did) => String(did?.dni ?? '').trim())
+        .filter((dni) => dni.length > 0),
+    );
+    const missingIdentityCount = entries.filter(
+      (entry) => !didSet.has(String(entry.ciNorm ?? '').trim()),
+    ).length;
 
     await this.padronImportJobModel.updateOne(
       { _id: importJobId },
@@ -1410,6 +1473,7 @@ export class PadronService {
             stagingCount,
             enabledCount,
             disabledCount,
+            missingIdentityCount,
           },
         },
       },
@@ -1443,6 +1507,7 @@ export class PadronService {
         stagingCount: stagingCount ?? importJob.summary?.stagingCount ?? 0,
         enabledCount: importJob.summary?.enabledCount ?? 0,
         disabledCount: importJob.summary?.disabledCount ?? 0,
+        missingIdentityCount: importJob.summary?.missingIdentityCount ?? 0,
       },
       errors: (importJob.errors ?? []).map((error: any) => ({
         code: error.code,
@@ -1618,7 +1683,7 @@ export class PadronService {
 
     if (!this.accessService.canFullyEditEvent(event)) {
       throw new BadRequestException(
-        `Solo se permite ${action} antes de la publicación oficial y mientras falten más de 24 horas para el inicio de la votación`,
+        `Solo se permite ${action} antes de la publicación oficial y mientras falten más de ${this.accessService.getOfficialPublicationLeadHours()} horas para el inicio de la votación`,
       );
     }
   }
@@ -1633,8 +1698,8 @@ export class PadronService {
       canEditPadronInLimitedMode: canEditDuringVoting,
       mode: canEditEverything ? 'FULL' : canEditDuringVoting ? 'VOTING_LIMITED' : 'READ_ONLY',
       fullEditDeadline: event.publishDeadline ?? null,
-      dateValidationMinHours: 36,
-      officialPublicationCutoffHours: 24,
+      dateValidationMinHours: this.accessService.getCreateLeadHours(),
+      officialPublicationCutoffHours: this.accessService.getOfficialPublicationLeadHours(),
     };
   }
 

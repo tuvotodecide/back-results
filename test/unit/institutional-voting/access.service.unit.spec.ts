@@ -233,12 +233,13 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     const resultsPublishAt = new Date(
       Date.now() + 50 * 60 * 60 * 1000,
     ).toISOString();
+    const createLeadHours = service.getCreateLeadHours();
 
     const result = service.parseAndValidateDates(
       votingStart,
       votingEnd,
       resultsPublishAt,
-      true,
+      createLeadHours,
     );
 
     expect(result.votingStart).toBeInstanceOf(Date);
@@ -246,33 +247,42 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result.resultsPublishAt).toBeInstanceOf(Date);
   });
 
-  it('permite fechas exactamente en el límite mínimo de 36 horas', () => {
+  it('permite fechas exactamente en el límite mínimo de 12 horas', () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
-    const votingStart = new Date(now + 36 * 60 * 60 * 1000).toISOString();
-    const votingEnd = new Date(now + 37 * 60 * 60 * 1000).toISOString();
-    const resultsPublishAt = new Date(now + 38 * 60 * 60 * 1000).toISOString();
+    const createLeadHours = service.getCreateLeadHours();
+    const votingStart = new Date(now + createLeadHours * 60 * 60 * 1000).toISOString();
+    const votingEnd = new Date(now + (createLeadHours + 1) * 60 * 60 * 1000).toISOString();
+    const resultsPublishAt = new Date(
+      now + (createLeadHours + 2) * 60 * 60 * 1000,
+    ).toISOString();
 
-    const result = service.parseAndValidateDates(votingStart, votingEnd, resultsPublishAt, true);
+    const result = service.parseAndValidateDates(
+      votingStart,
+      votingEnd,
+      resultsPublishAt,
+      createLeadHours,
+    );
     nowSpy.mockRestore();
 
     expect(result.votingStart).toBeInstanceOf(Date);
   });
 
-  it('calcula publishDeadline exactamente 24 horas antes de votingStart', () => {
+  it('calcula publishDeadline exactamente 6 horas antes de votingStart', () => {
     const votingStart = new Date('2026-04-25T00:01:00.000Z');
 
     expect(service.computePublishDeadline(votingStart)?.toISOString()).toBe(
-      '2026-04-24T00:01:00.000Z',
+      '2026-04-24T18:01:00.000Z',
     );
   });
 
-  it('permite fechas cercanas cuando la regla de ventana no se exige', () => {
+  it('permite fechas exactamente en el límite mínimo de 6 horas para publicación oficial', () => {
+    const officialPublicationLeadHours = service.getOfficialPublicationLeadHours();
     const result = service.parseAndValidateDates(
-      new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-      new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
-      new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
-      false,
+      new Date(Date.now() + officialPublicationLeadHours * 60 * 60 * 1000).toISOString(),
+      new Date(Date.now() + (officialPublicationLeadHours + 1) * 60 * 60 * 1000).toISOString(),
+      new Date(Date.now() + (officialPublicationLeadHours + 2) * 60 * 60 * 1000).toISOString(),
+      officialPublicationLeadHours,
     );
 
     expect(result.votingStart).toBeInstanceOf(Date);
@@ -304,7 +314,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
         new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
         new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
         new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
-        true,
+        service.getCreateLeadHours(),
       ),
     ).toThrow(BadRequestException);
 
@@ -313,16 +323,21 @@ describe('InstitutionalVotingAccessService (unit)', () => {
         new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
         new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
         new Date(Date.now() + 48.5 * 60 * 60 * 1000).toISOString(),
-        false,
+        service.getOfficialPublicationLeadHours(),
       ),
     ).toThrow(BadRequestException);
 
     expect(() =>
-      service.parseAndValidateDates('fecha-invalida', 'otra-fecha', 'otra-mas', false),
+      service.parseAndValidateDates(
+        'fecha-invalida',
+        'otra-fecha',
+        'otra-mas',
+        service.getOfficialPublicationLeadHours(),
+      ),
     ).toThrow(BadRequestException);
   });
 
-  it('bloquea edición total una vez confirmada la publicación oficial aunque falten más de 24 horas', () => {
+  it('bloquea edición total una vez confirmada la publicación oficial aunque falten más de 6 horas', () => {
     const now = new Date('2026-01-01T12:00:00.000Z');
     const event = {
       state: 'OFFICIALLY_PUBLISHED',

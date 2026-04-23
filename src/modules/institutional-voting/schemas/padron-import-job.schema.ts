@@ -34,6 +34,9 @@ export class PadronImportSummary {
 
   @Prop({ required: true, default: 0 })
   disabledCount!: number;
+
+  @Prop({ required: true, default: 0 })
+  missingIdentityCount!: number;
 }
 
 @Schema({ _id: false })

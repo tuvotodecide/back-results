@@ -8,6 +8,7 @@ import {
   publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
+  uploadPadronPdf,
 } from '../../utils/institutional-voting.helpers';
 
 describe('Institutional voting integration - padron editing rules', () => {
@@ -49,7 +50,11 @@ describe('Institutional voting integration - padron editing rules', () => {
     return eventId;
   }
 
-  it('mantiene un draft editable después de confirmar el padrón mientras falten más de 24 horas', async () => {
+  function buildMockPdf(lines: string[]) {
+    return Buffer.from(`%PDF-1.4\n${lines.join('\n')}\n`, 'utf-8');
+  }
+
+  it('mantiene un draft editable después de confirmar el padrón mientras falten más de 6 horas', async () => {
     const eventId = await createBaseEvent();
     const importJobId = new Types.ObjectId();
 
@@ -124,7 +129,57 @@ describe('Institutional voting integration - padron editing rules', () => {
     expect(summary.body.editingRules.canEditEverything).toBe(true);
   });
 
-  it('después de publicar oficialmente bloquea la edición total y deja solo padrón limitado aunque falten más de 24 horas', async () => {
+  it('permite revisión pre-publicación desde el active draft autosalvado sin reabrir padron_validation artificialmente', async () => {
+    const eventId = await createBaseEvent();
+
+    const upload = await uploadPadronPdf(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      buildMockPdf(['ABC123 si', 'XYZ999 no']),
+    );
+
+    expect(upload.status).toBe(201);
+    expect(upload.body.status).toBe('PARSED');
+
+    const staging = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/staging`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(staging.status).toBe(200);
+    expect(staging.body.total).toBe(2);
+
+    const edited = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}/padron/staging/${staging.body.data[0].id}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ enabled: false });
+
+    expect(edited.status).toBe(200);
+
+    const readinessBefore = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/review-readiness`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(readinessBefore.status).toBe(200);
+    expect(readinessBefore.body.pending).not.toContain('padron_validation');
+
+    const ready = await markInstitutionalEventReadyForReview(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+    );
+    expect([200, 201]).toContain(ready.status);
+    expect(ready.body.state).toBe('READY_FOR_REVIEW');
+
+    const readinessAfter = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/review-readiness`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(readinessAfter.status).toBe(200);
+    expect(readinessAfter.body.pending).not.toContain('padron_validation');
+  });
+
+  it('después de publicar oficialmente bloquea la edición total y deja solo padrón limitado aunque falten más de 6 horas', async () => {
     const eventId = await createBaseEvent();
 
     await uploadPadronCsv(
@@ -241,5 +296,58 @@ describe('Institutional voting integration - padron editing rules', () => {
       'ADDED_ENABLED',
       'ENABLED_DURING_VOTING',
     ]);
+  });
+
+  it('en modo limitado no crea una nueva versión estructural del padrón ni altera la publicación vigente', async () => {
+    const eventId = await createBaseEvent();
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      'carnet,habilitado\nABC-123,no\n',
+    );
+
+    await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+
+    const beforeVersions = await ctx.conn
+      .collection('padron_versions')
+      .find({ eventId: new Types.ObjectId(eventId), isCurrent: true })
+      .toArray();
+
+    expect(beforeVersions).toHaveLength(1);
+    const currentVersionId = String(beforeVersions[0]?._id);
+
+    const votersBefore = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/voters`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    const disabledVoter = votersBefore.body.data.find((row: any) => row.carnetNorm === 'ABC123');
+
+    const added = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/voters`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ carnet: 'NEW-777', enabled: true });
+    expect(added.status).toBe(201);
+
+    const enabled = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/voters/${disabledVoter.id}/enable`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(enabled.status).toBe(200);
+
+    const afterVersions = await ctx.conn
+      .collection('padron_versions')
+      .find({ eventId: new Types.ObjectId(eventId), isCurrent: true })
+      .toArray();
+
+    expect(afterVersions).toHaveLength(1);
+    expect(String(afterVersions[0]?._id)).toBe(currentVersionId);
+
+    const detail = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.state).toBe('OFFICIALLY_PUBLISHED');
   });
 });
