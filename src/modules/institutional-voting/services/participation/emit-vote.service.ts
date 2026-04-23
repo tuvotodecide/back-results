@@ -5,12 +5,15 @@ import { InjectModel } from "@nestjs/mongoose";
 import { EnabledSession, EnabledSessionDocument } from "../../schemas/enabled-session.shcema";
 import { Model, Types, isValidObjectId } from "mongoose";
 import { VoteWritterService } from "../core/vote-writter.service";
+import { VotingOption, VotingOptionDocument } from "../../schemas/voting-option.schema";
 
 @Injectable()
 export class EmitVoteService {
   constructor(
     @InjectModel(EnabledSession.name)
     private readonly enabledSessionModel: Model<EnabledSessionDocument>,
+    @InjectModel(VotingOption.name)
+    private readonly votingOptionModel: Model<VotingOptionDocument>,
     private readonly zkAuthService: ZkAuthService,
     private readonly voteWritterService: VoteWritterService,
   ) {}
@@ -39,7 +42,12 @@ export class EmitVoteService {
       throw new BadRequestException('data not found in ZK proof');
     }
 
-    await this.voteWritterService.castVote(eventId, optionId, nullifier);
+    const option = await this.votingOptionModel.findById(optionId).exec();
+    if (!option) {
+      throw new NotFoundException('Voting option not found');
+    }
+
+    await this.voteWritterService.castVote(eventId, option.name, nullifier);
 
     return response;
   }
