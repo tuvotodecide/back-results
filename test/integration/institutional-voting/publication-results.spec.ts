@@ -87,7 +87,16 @@ describe('Institutional voting integration - publication and results', () => {
   }
 
   it('crea el deadline oficial exactamente 6 horas antes del inicio de votación', async () => {
-    const votingStart = '2026-04-25T00:01:00.000Z';
+    // Set dynamic dates based on now
+    const now = Date.now();
+    const votingStartDate = new Date(now + 48 * 60 * 60 * 1000); // 48h from now
+    const votingEndDate = new Date(now + 50 * 60 * 60 * 1000); // 50h from now
+    const resultsPublishAtDate = new Date(now + 51 * 60 * 60 * 1000); // 51h from now
+
+    const votingStart = votingStartDate.toISOString();
+    const votingEnd = votingEndDate.toISOString();
+    const resultsPublishAt = resultsPublishAtDate.toISOString();
+
     const created = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -95,15 +104,16 @@ describe('Institutional voting integration - publication and results', () => {
       {
         ...institutionalVotingFixtures.event,
         votingStart,
-        votingEnd: '2026-04-25T02:01:00.000Z',
-        resultsPublishAt: '2026-04-25T03:01:00.000Z',
+        votingEnd,
+        resultsPublishAt,
       },
     );
 
+    // Calculate expected publishDeadline: 6 hours before votingStart
+    const expectedPublishDeadline = new Date(votingStartDate.getTime() - 6 * 60 * 60 * 1000).toISOString();
+
     expect(created.status).toBe(201);
-    expect(new Date(created.body.publishDeadline).toISOString()).toBe(
-      '2026-04-24T18:01:00.000Z',
-    );
+    expect(new Date(created.body.publishDeadline).toISOString()).toBe(expectedPublishDeadline);
   });
 
   it('abre revisión y luego confirma publicación oficial para usuarios vinculados', async () => {

@@ -521,6 +521,25 @@ export class PadronService {
       };
     }
 
+    const dids = await this.issuerService.getDidsByDnis([voter.carnetNorm]);
+    if (dids.length !== 1 || dids[0].dni !== voter.carnetNorm) {
+      throw new NotFoundException('No se encontró al usuario registrado en el servicio de identidad');
+    }
+
+    const nullifiers = await this.voteWritterService.addNewVoters(event._id.toString(), 1);
+
+    const credentialData = await this.issuerService.issueCredential(
+      dids,
+      event._id.toString(),
+      nullifiers,
+    );
+
+    await this.enabledSessionModel.insertOne({
+      eventId: event._id,
+      dni: voter.carnetNorm,
+      sessionToken: credentialData[voter.carnetNorm].credentialData,
+    });
+
     voter.enabled = true;
     await voter.save();
     await this.invalidateCurrentPadronCertificate(currentVersion._id);
