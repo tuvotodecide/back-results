@@ -206,7 +206,7 @@ export class VotingEventsService {
     const now = new Date();
     const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
     const query: Record<string, unknown> = {
-      state: { $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+      state: { $in: ['READY_FOR_REVIEW', 'OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
     };
 
     if (tenantId) {
@@ -232,7 +232,7 @@ export class VotingEventsService {
 
     const mapped = events.map((event) => {
       const isUpcoming = Boolean(
-        ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
+        ['READY_FOR_REVIEW', 'OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
           event.votingStart &&
           now < event.votingStart,
       );
@@ -344,7 +344,7 @@ export class VotingEventsService {
 
   async getPublicEventDetail(eventId: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
-    if (['DRAFT', 'READY_FOR_REVIEW', 'PUBLICATION_EXPIRED'].includes(event.state)) {
+    if (['DRAFT', 'PUBLICATION_EXPIRED'].includes(event.state)) {
       throw new NotFoundException('Evento no disponible publicamente');
     }
 
@@ -358,7 +358,7 @@ export class VotingEventsService {
 
     const now = new Date();
     const isUpcoming = Boolean(
-      ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
+      ['READY_FOR_REVIEW', 'OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state) &&
         event.votingStart &&
         now < event.votingStart,
     );
