@@ -18,4 +18,9 @@ export class UpdateVotingEventDto {
   @IsOptional()
   @IsBoolean()
   presentialKioskEnabled?: boolean;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  allowPostPublicationPadronEnable?: boolean;
 }

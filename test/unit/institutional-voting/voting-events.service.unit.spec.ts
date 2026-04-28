@@ -221,6 +221,7 @@ describe('VotingEventsService (unit)', () => {
     );
     expect(result.state).toBe('DRAFT');
     expect(result.isReferendum).toBe(false);
+    expect(result.allowPostPublicationPadronEnable).toBe(true);
     expect(eventRoleModel.create).not.toHaveBeenCalled();
   });
 
@@ -277,6 +278,33 @@ describe('VotingEventsService (unit)', () => {
       }),
     );
     expect(result.isReferendum).toBe(true);
+    expect(result.allowPostPublicationPadronEnable).toBe(true);
+  });
+
+  it('actualiza la bandera de habilitación limitada del padrón sin tocar la edición estructural', async () => {
+    const event: any = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+      name: 'Eleccion 2026',
+      objective: 'Elegir directiva',
+      isReferendum: false,
+      presentialKioskEnabled: false,
+      allowPostPublicationPadronEnable: true,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    const result = await service.updateEvent(
+      String(event._id),
+      { allowPostPublicationPadronEnable: false },
+      { sub: 'user-1' },
+    );
+
+    expect(event.allowPostPublicationPadronEnable).toBe(false);
+    expect(event.save).toHaveBeenCalled();
+    expect(result.allowPostPublicationPadronEnable).toBe(false);
   });
 
   it('rechaza pasar a READY_FOR_REVIEW si faltan precondiciones críticas', async () => {
@@ -595,6 +623,7 @@ describe('VotingEventsService (unit)', () => {
       isReferendum: false,
       state: 'READY_FOR_REVIEW',
       presentialKioskEnabled: false,
+      allowPostPublicationPadronEnable: true,
     });
   });
 
@@ -643,6 +672,7 @@ describe('VotingEventsService (unit)', () => {
       isReferendum: false,
       state: 'DRAFT',
       presentialKioskEnabled: false,
+      allowPostPublicationPadronEnable: true,
     });
   });
 

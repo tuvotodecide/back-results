@@ -290,6 +290,20 @@ export class InstitutionalVotingAccessService {
     return now <= new Date(event.votingEnd as Date);
   }
 
+  canEnableExistingPadronEntriesPostPublication(
+    event: Pick<
+      VotingEvent,
+      'state' | 'votingEnd' | 'publicationConfirmed' | 'allowPostPublicationPadronEnable'
+    >,
+    now = new Date(),
+  ) {
+    if (!this.canModifyPadronDuringVoting(event, now)) {
+      return false;
+    }
+
+    return event.allowPostPublicationPadronEnable !== false;
+  }
+
   hasPublicationWindowExpired(
     event: Pick<VotingEvent, 'publishDeadline'>,
     now = new Date(),

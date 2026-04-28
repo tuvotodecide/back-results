@@ -179,7 +179,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     expect(readinessAfter.body.pending).not.toContain('padron_validation');
   });
 
-  it('después de publicar oficialmente bloquea la edición total y deja solo padrón limitado aunque falten más de 6 horas', async () => {
+  it('después de publicar oficialmente bloquea la edición total y solo permite habilitar existentes aunque falten más de 6 horas', async () => {
     const eventId = await createBaseEvent();
 
     await uploadPadronCsv(
@@ -221,12 +221,24 @@ describe('Institutional voting integration - padron editing rules', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ carnet: 'NEW-999', enabled: true });
 
-    expect(added.status).toBe(201);
-    expect(added.body.enabled).toBe(true);
-    expect(added.body.mode).toBe('VOTING_LIMITED');
+    expect(added.status).toBe(400);
+    expect(String(added.body.message || '')).toMatch(/no se permite agregar nuevos votantes/i);
+
+    const voters = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/voters`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    const disabledVoter = voters.body.data.find((row: any) => row.carnetNorm === 'ABC123');
+
+    const enabled = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/voters/${disabledVoter.id}/enable`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(enabled.status).toBe(200);
+    expect(enabled.body.enabled).toBe(true);
+    expect(enabled.body.mode).toBe('VOTING_LIMITED');
   });
 
-  it('durante votación solo permite agregar habilitados y habilitar deshabilitados del padrón vigente', async () => {
+  it('durante votación solo permite habilitar deshabilitados del padrón vigente', async () => {
     const eventId = await createBaseEvent();
 
     await uploadPadronCsv(
@@ -264,8 +276,8 @@ describe('Institutional voting integration - padron editing rules', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ carnet: 'NEW-999', enabled: true });
 
-    expect(added.status).toBe(201);
-    expect(added.body.enabled).toBe(true);
+    expect(added.status).toBe(400);
+    expect(String(added.body.message || '')).toMatch(/no se permite agregar nuevos votantes/i);
 
     const enabled = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/padron/voters/${disabledVoter.id}/enable`)
@@ -279,8 +291,8 @@ describe('Institutional voting integration - padron editing rules', () => {
       .auth(ctx.adminToken, { type: 'bearer' });
 
     expect(summary.status).toBe(200);
-    expect(summary.body.total).toBe(2);
-    expect(summary.body.enabledToVote).toBe(2);
+    expect(summary.body.total).toBe(1);
+    expect(summary.body.enabledToVote).toBe(1);
     expect(summary.body.disabledToVote).toBe(0);
 
     const notifications = await ctx.conn
@@ -291,9 +303,8 @@ describe('Institutional voting integration - padron editing rules', () => {
       })
       .toArray();
 
-    expect(notifications).toHaveLength(2);
-    expect(notifications.map((row) => row.data.reason).sort()).toEqual([
-      'ADDED_ENABLED',
+    expect(notifications).toHaveLength(1);
+    expect(notifications.map((row) => row.data.reason)).toEqual([
       'ENABLED_DURING_VOTING',
     ]);
   });
@@ -328,7 +339,7 @@ describe('Institutional voting integration - padron editing rules', () => {
       .post(`/api/v1/voting/events/${eventId}/padron/voters`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ carnet: 'NEW-777', enabled: true });
-    expect(added.status).toBe(201);
+    expect(added.status).toBe(400);
 
     const enabled = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/padron/voters/${disabledVoter.id}/enable`)
@@ -349,5 +360,48 @@ describe('Institutional voting integration - padron editing rules', () => {
 
     expect(detail.status).toBe(200);
     expect(detail.body.state).toBe('OFFICIALLY_PUBLISHED');
+  });
+
+  it('bloquea incluso la habilitación desde tabla cuando la bandera post-publicación está desactivada', async () => {
+    const eventId = await createBaseEvent();
+
+    await uploadPadronCsv(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      'carnet,habilitado\nABC-123,no\n',
+    );
+
+    await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
+
+    const toggled = await request(ctx.httpServer)
+      .patch(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ allowPostPublicationPadronEnable: false });
+
+    expect(toggled.status).toBe(200);
+    expect(toggled.body.allowPostPublicationPadronEnable).toBe(false);
+
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+
+    const voters = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/voters`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+    const disabledVoter = voters.body.data.find((row: any) => row.carnetNorm === 'ABC123');
+
+    const enabled = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/voters/${disabledVoter.id}/enable`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(enabled.status).toBe(400);
+    expect(String(enabled.body.message || '')).toMatch(/habilitación manual desde la tabla está desactivada/i);
+
+    const detail = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.canEditPadronDuringVoting).toBe(true);
+    expect(detail.body.canEditPadronInLimitedMode).toBe(false);
   });
 });

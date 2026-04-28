@@ -129,6 +129,7 @@ export class VotingEventsService {
       state: 'DRAFT',
       publishDeadline: this.accessService.computePublishDeadline(votingStart),
       publicEligibilityEnabled: true,
+      allowPostPublicationPadronEnable: true,
       publicationConfirmed: false,
     });
 
@@ -155,6 +156,8 @@ export class VotingEventsService {
       publishDeadline: created.publishDeadline ?? null,
       state: created.state,
       presentialKioskEnabled: Boolean(created.presentialKioskEnabled),
+      allowPostPublicationPadronEnable:
+        created.allowPostPublicationPadronEnable !== false,
     };
   }
 
@@ -194,6 +197,8 @@ export class VotingEventsService {
         officialPublicationChainId: event.officialPublicationChainId ?? null,
         publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
         presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
+        allowPostPublicationPadronEnable:
+          event.allowPostPublicationPadronEnable !== false,
         canEditStructure: this.accessService.canFullyEditEvent(event),
         canEditPadronDuringVoting: this.accessService.canModifyPadronDuringVoting(event),
         canEditPadronInLimitedMode: this.accessService.canModifyPadronDuringVoting(event),
@@ -206,7 +211,17 @@ export class VotingEventsService {
     const now = new Date();
     const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
     const query: Record<string, unknown> = {
-      state: { $in: ['READY_FOR_REVIEW', 'OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+      $or: [
+        {
+          state: {
+            $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'],
+          },
+        },
+        {
+          state: 'READY_FOR_REVIEW',
+          publishDeadline: { $gt: now },
+        },
+      ],
     };
 
     if (tenantId) {
@@ -344,6 +359,7 @@ export class VotingEventsService {
 
   async getPublicEventDetail(eventId: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
+    await this.expireEventIfPastDeadline(event);
     if (['DRAFT', 'PUBLICATION_EXPIRED'].includes(event.state)) {
       throw new NotFoundException('Evento no disponible publicamente');
     }
@@ -416,9 +432,17 @@ export class VotingEventsService {
 
     const now = new Date();
     const query: Record<string, unknown> = {
-      state: {
-        $in: ['READY_FOR_REVIEW', 'OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'],
-      },
+      $or: [
+        {
+          state: {
+            $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'],
+          },
+        },
+        {
+          state: 'READY_FOR_REVIEW',
+          publishDeadline: { $gt: now },
+        },
+      ],
     };
 
     if (tenantId) {
@@ -553,18 +577,22 @@ export class VotingEventsService {
       officialPublicationChainId: event.officialPublicationChainId ?? null,
       canEditStructure: this.accessService.canFullyEditEvent(event),
       canEditPadronDuringVoting: this.accessService.canModifyPadronDuringVoting(event),
-      canEditPadronInLimitedMode: this.accessService.canModifyPadronDuringVoting(event),
+      canEditPadronInLimitedMode:
+        this.accessService.canEnableExistingPadronEntriesPostPublication(event),
       padronEditMode: this.resolvePadronEditMode(event),
       publicationWindow: this.mapPublicationWindow(event),
       editingRules: {
         canEditEverything: this.accessService.canFullyEditEvent(event),
         canEditPadronDuringVoting: this.accessService.canModifyPadronDuringVoting(event),
-        canEditPadronInLimitedMode: this.accessService.canModifyPadronDuringVoting(event),
+        canEditPadronInLimitedMode:
+          this.accessService.canEnableExistingPadronEntriesPostPublication(event),
         dateValidationMinHours: this.accessService.getCreateLeadHours(),
         officialPublicationCutoffHours: this.accessService.getOfficialPublicationLeadHours(),
       },
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
+      allowPostPublicationPadronEnable:
+        event.allowPostPublicationPadronEnable !== false,
       roles: roles.map((role) => ({
         id: String(role._id),
         name: role.name,
@@ -599,6 +627,10 @@ export class VotingEventsService {
       }
     }
 
+    if (dto.allowPostPublicationPadronEnable !== undefined) {
+      event.allowPostPublicationPadronEnable = dto.allowPostPublicationPadronEnable;
+    }
+
     await event.save();
 
     return {
@@ -609,6 +641,8 @@ export class VotingEventsService {
       isReferendum: Boolean(event.isReferendum),
       state: event.state,
       presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
+      allowPostPublicationPadronEnable:
+        event.allowPostPublicationPadronEnable !== false,
     };
   }
 

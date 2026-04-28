@@ -360,4 +360,38 @@ describe('InstitutionalVotingAccessService (unit)', () => {
 
     expect(service.canModifyPadronDuringVoting(event, now)).toBe(true);
   });
+
+  it('respeta la bandera para habilitar votantes existentes después de publicar', () => {
+    jest.spyOn(service, 'canModifyPadronDuringVoting').mockReturnValue(true);
+
+    expect(
+      service.canEnableExistingPadronEntriesPostPublication({
+        state: 'OFFICIALLY_PUBLISHED',
+        publicationConfirmed: true,
+        votingEnd: new Date('2026-01-03T14:00:00.000Z'),
+        allowPostPublicationPadronEnable: true,
+      } as any),
+    ).toBe(true);
+    expect(
+      service.canEnableExistingPadronEntriesPostPublication({
+        state: 'OFFICIALLY_PUBLISHED',
+        publicationConfirmed: true,
+        votingEnd: new Date('2026-01-03T14:00:00.000Z'),
+        allowPostPublicationPadronEnable: false,
+      } as any),
+    ).toBe(false);
+  });
+
+  it('bloquea la habilitación post-publicación si el modo limitado no aplica', () => {
+    jest.spyOn(service, 'canModifyPadronDuringVoting').mockReturnValue(false);
+
+    expect(
+      service.canEnableExistingPadronEntriesPostPublication({
+        state: 'OFFICIALLY_PUBLISHED',
+        publicationConfirmed: true,
+        votingEnd: new Date('2026-01-03T14:00:00.000Z'),
+        allowPostPublicationPadronEnable: true,
+      } as any),
+    ).toBe(false);
+  });
 });

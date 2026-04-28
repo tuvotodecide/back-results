@@ -796,6 +796,36 @@ export class InstitutionalVotingAdminController {
     return result.csvContent;
   }
 
+  @Get(':eventId/padron/download-pdf')
+  @ApiOperation({
+    summary: 'Descargar padrón PDF',
+    description:
+      'Descarga el padrón vigente del evento o una versión específica como listado PDF si se envía padronVersionId.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({
+    name: 'padronVersionId',
+    required: false,
+    description: 'ID de una versión específica del padrón. Si se omite, descarga la vigente.',
+  })
+  @ApiResponse({ status: 200, description: 'Archivo PDF del padrón.' })
+  async downloadPadronPdf(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+    @Query('padronVersionId') padronVersionId?: string,
+  ) {
+    const result = await this.institutionalVotingService.downloadPadronPdf(
+      eventId,
+      req.user,
+      padronVersionId,
+    );
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+    return result.pdfBuffer;
+  }
+
   @Get(':eventId/results')
   @ApiOperation({
     summary: 'Obtener resultados del evento',

@@ -98,7 +98,9 @@ describe('PadronService (unit)', () => {
       assertGlobalAdminAccess: jest.fn(),
       canFullyEditEvent: jest.fn(() => true),
       canModifyPadronDuringVoting: jest.fn(() => false),
+      canEnableExistingPadronEntriesPostPublication: jest.fn((event: any) => event?.allowPostPublicationPadronEnable !== false),
       hasPublicationWindowExpired: jest.fn(() => false),
+      isOfficialPublicationConfirmed: jest.fn((event: any) => event?.publicationConfirmed === true || ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(String(event?.state || ''))),
     };
     padronCertificatePdfService = {
       buildPdf: jest.fn(() => Buffer.from('%PDF-1.4\nmock\n', 'utf-8')),
@@ -711,5 +713,87 @@ describe('PadronService (unit)', () => {
     await expect(service.checkEligibility(String(baseEvent._id), '')).rejects.toThrow(
       BadRequestException,
     );
+  });
+
+  it('rechaza agregar nuevos votantes al padrón vigente en modo limitado', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    accessService.getEventOrThrow.mockResolvedValue({
+      ...baseEvent,
+      state: 'OFFICIALLY_PUBLISHED',
+      publicationConfirmed: true,
+    });
+    accessService.canModifyPadronDuringVoting.mockReturnValue(true);
+
+    await expect(
+      service.addCurrentPadronVoter(
+        String(baseEvent._id),
+        { carnet: '123456', enabled: true },
+        requester,
+      ),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('bloquea habilitar votantes existentes si la bandera post-publicación está desactivada', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    accessService.getEventOrThrow.mockResolvedValue({
+      ...baseEvent,
+      state: 'OFFICIALLY_PUBLISHED',
+      publicationConfirmed: true,
+      allowPostPublicationPadronEnable: false,
+    });
+    accessService.canModifyPadronDuringVoting.mockReturnValue(true);
+    accessService.canEnableExistingPadronEntriesPostPublication.mockReturnValue(false);
+
+    await expect(
+      service.enableCurrentPadronVoter(
+        String(baseEvent._id),
+        String(new Types.ObjectId()),
+        requester,
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(padronVersionModel.findOne).not.toHaveBeenCalled();
+  });
+
+  it('genera el PDF del padrón vigente como listado y no como constancia', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const versionId = new Types.ObjectId();
+    accessService.getEventOrThrow.mockResolvedValue({
+      ...baseEvent,
+      name: 'Consulta 2026',
+      state: 'OFFICIALLY_PUBLISHED',
+      publicationConfirmed: true,
+    });
+    accessService.isOfficialPublicationConfirmed.mockReturnValue(true);
+    padronVersionModel.findOne.mockResolvedValue({
+      _id: versionId,
+      isCurrent: true,
+    });
+    padronEntryModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { carnetNorm: '123456', enabled: true },
+          { carnetNorm: '789000', enabled: false },
+        ]),
+      }),
+    });
+    padronCertificatePdfService.buildPadronListPdf = jest.fn(() =>
+      Buffer.from('%PDF-1.4\npadron\n', 'utf-8'),
+    );
+
+    const result = await service.downloadPadronPdf(String(baseEvent._id), requester);
+
+    expect(padronCertificatePdfService.buildPadronListPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'Consulta 2026',
+        statusLabel: 'Padrón vigente',
+        totalCount: 2,
+        enabledCount: 1,
+        disabledCount: 1,
+      }),
+    );
+    expect(result.fileName).toBe(`padron-${String(versionId)}.pdf`);
+    expect(result.isCurrent).toBe(true);
+    expect(result.pdfBuffer.toString('utf-8')).toContain('%PDF-1.4');
   });
 });

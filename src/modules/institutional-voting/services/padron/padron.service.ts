@@ -414,80 +414,17 @@ export class PadronService {
     dto: AddCurrentPadronVoterDto,
     requester: any,
   ) {
-    const event = await this.getEventForVotingPadronChange(
+    await this.getEventForVotingPadronChange(
       eventId,
       requester,
       'agregar nuevos habilitados al padrón en modo limitado',
     );
 
-    const carnetNorm = normalizeCarnet(dto.carnet);
-    if (!carnetNorm) {
-      throw new BadRequestException('CI inválido');
-    }
-    if (dto.enabled === false) {
-      throw new BadRequestException(
-        'En modo limitado solo se permite agregar nuevos usuarios ya habilitados',
-      );
-    }
+    void dto;
 
-    const currentVersion = await this.resolveCurrentPadronVersionDoc(event._id as Types.ObjectId);
-    const existing = await this.padronEntryModel.findOne({
-      padronVersionId: currentVersion._id,
-      carnetNorm,
-    });
-
-    if (existing) {
-      throw new BadRequestException(
-        existing.enabled === false
-          ? 'El usuario ya existe deshabilitado; use la acción de habilitar'
-          : 'El usuario ya existe habilitado en el padrón vigente',
-      );
-    }
-
-    const dids = await this.issuerService.getDidsByDnis([carnetNorm]);
-    if (dids.length !== 1 || dids[0].dni !== carnetNorm) {
-      throw new NotFoundException('No se encontró al usuario registrado en el servicio de identidad');
-    }
-
-    const nullifiers = await this.voteWritterService.addNewVoters(event._id.toString(), 1);
-
-    const credentialData = await this.issuerService.issueCredential(
-      dids,
-      event._id.toString(),
-      nullifiers,
+    throw new BadRequestException(
+      'Después de la publicación oficial no se permite agregar nuevos votantes al padrón vigente',
     );
-
-    await this.enabledSessionModel.insertOne({
-      eventId: event._id,
-      dni: carnetNorm,
-      sessionToken: credentialData[carnetNorm].credentialData,
-    });
-
-    const created = await this.padronEntryModel.create({
-      padronVersionId: currentVersion._id,
-      eventId: event._id,
-      carnetNorm,
-      enabled: true,
-    });
-
-    await this.padronVersionModel.updateOne(
-      { _id: currentVersion._id },
-      { $set: { 'totals.validCount': (currentVersion.totals?.validCount ?? 0) + 1 } },
-    );
-    await this.invalidateCurrentPadronCertificate(currentVersion._id);
-    await this.notificationsService.notifyPadronAvailabilityEnabledForUser(
-      event,
-      carnetNorm,
-      'ADDED_ENABLED',
-    );
-
-    return {
-      id: String(created._id),
-      padronVersionId: String(currentVersion._id),
-      carnetNorm: created.carnetNorm,
-      enabled: true,
-      mode: 'VOTING_LIMITED',
-    };
   }
 
   async enableCurrentPadronVoter(eventId: string, voterId: string, requester: any) {
@@ -496,6 +433,12 @@ export class PadronService {
       requester,
       'habilitar deshabilitados del padrón en modo limitado',
     );
+
+    if (!this.accessService.canEnableExistingPadronEntriesPostPublication(event)) {
+      throw new BadRequestException(
+        'La habilitación manual desde la tabla está desactivada para esta votación',
+      );
+    }
 
     if (!Types.ObjectId.isValid(voterId)) {
       throw new BadRequestException('voterId invalido');
@@ -715,6 +658,8 @@ export class PadronService {
       eventId: String(event._id),
       eventState: event.state,
       editingRules: this.buildPadronEditingRules(event),
+      allowPostPublicationPadronEnable:
+        event.allowPostPublicationPadronEnable !== false,
       currentVersion: currentVersion
         ? {
             padronVersionId: String(currentVersion._id),
@@ -1076,6 +1021,52 @@ export class PadronService {
     };
   }
 
+  async downloadPadronPdf(eventId: string, requester: any, padronVersionId?: string) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    if (!this.accessService.isOfficialPublicationConfirmed(event)) {
+      throw new BadRequestException(
+        'El padrón en PDF solo está disponible después de la publicación oficial',
+      );
+    }
+
+    const eventObjectId = this.toObjectId(event._id);
+    const version = await this.resolvePadronVersion(eventObjectId, padronVersionId);
+
+    const rows = await this.padronEntryModel
+      .find(
+        { padronVersionId: version._id },
+        { carnetNorm: 1, enabled: 1, _id: 0 },
+      )
+      .sort({ carnetNorm: 1 })
+      .lean();
+
+    const totalCount = rows.length;
+    const enabledCount = rows.filter((row) => row.enabled !== false).length;
+    const disabledCount = totalCount - enabledCount;
+    const pdfBuffer = this.padronCertificatePdfService.buildPadronListPdf({
+      eventName: event.name,
+      generatedAt: new Date(),
+      padronVersionId: String(version._id),
+      statusLabel: version.isCurrent === true ? 'Padrón vigente' : 'Versión histórica',
+      totalCount,
+      enabledCount,
+      disabledCount,
+      entries: rows.map((row) => ({
+        ci: row.carnetNorm,
+        enabled: row.enabled !== false,
+      })),
+    });
+
+    return {
+      fileName: `padron-${String(version._id)}.pdf`,
+      pdfBuffer,
+      padronVersionId: String(version._id),
+      isCurrent: version.isCurrent === true,
+    };
+  }
+
   async checkEligibility(eventId: string, carnet: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
     const carnetNorm = normalizeCarnet(carnet);
@@ -1113,6 +1104,16 @@ export class PadronService {
 
   async checkPublicEligibility(eventId: string, carnet: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
+    if (
+      ['DRAFT', 'READY_FOR_REVIEW'].includes(event.state) &&
+      this.accessService.hasPublicationWindowExpired(event)
+    ) {
+      event.state = 'PUBLICATION_EXPIRED';
+      event.publicationExpiredAt = new Date();
+      event.publicationConfirmed = false;
+      await event.save();
+    }
+
     if (
       ![
         'READY_FOR_REVIEW',

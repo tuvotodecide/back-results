@@ -36,7 +36,7 @@ export class InstitutionalVotingNotificationsService {
   ) {}
 
   private buildPublicElectionPath(eventId: string) {
-    return `/elections/${eventId}/public`;
+    return `/votacion/elecciones/${eventId}/publica`;
   }
 
   private buildPublicElectionUrl(eventId: string) {

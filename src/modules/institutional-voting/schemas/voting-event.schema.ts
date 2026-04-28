@@ -96,6 +96,9 @@ export class VotingEvent {
   @Prop({ type: Boolean, default: false })
   presentialKioskEnabled?: boolean;
 
+  @Prop({ type: Boolean, default: true })
+  allowPostPublicationPadronEnable?: boolean;
+
   @Prop({ type: String, required: false, trim: true })
   presentialKioskTokenHash?: string;
 

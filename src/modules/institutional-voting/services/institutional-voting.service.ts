@@ -242,6 +242,10 @@ export class InstitutionalVotingService {
     return this.padronService.downloadPadronCsv(eventId, requester, padronVersionId);
   }
 
+  downloadPadronPdf(eventId: string, requester: any, padronVersionId?: string) {
+    return this.padronService.downloadPadronPdf(eventId, requester, padronVersionId);
+  }
+
   updateSchedule(
     eventId: string,
     payload: { votingStart?: string; votingEnd?: string; resultsPublishAt?: string },

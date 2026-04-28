@@ -17,10 +17,21 @@ type BuildPadronCertificatePdfParams = {
   entries: PadronCertificatePdfEntry[];
 };
 
+type BuildPadronListPdfParams = {
+  eventName: string;
+  generatedAt: Date;
+  padronVersionId: string;
+  statusLabel: string;
+  totalCount: number;
+  enabledCount: number;
+  disabledCount: number;
+  entries: PadronCertificatePdfEntry[];
+};
+
 @Injectable()
 export class PadronCertificatePdfService {
   buildPdf(params: BuildPadronCertificatePdfParams): Buffer {
-    const lines = [
+    return this.buildSimplePdf([
       'CONSTANCIA DE PADRON CONFIRMADO',
       '',
       `Eleccion: ${params.eventName}`,
@@ -34,8 +45,29 @@ export class PadronCertificatePdfService {
       '',
       'CI | ESTADO',
       ...params.entries.map((entry) => `${entry.ci} | ${entry.enabled ? 'HABILITADO' : 'INHABILITADO'}`),
+    ]);
+  }
+
+  buildPadronListPdf(params: BuildPadronListPdfParams): Buffer {
+    const lines = [
+      'PADRON DE VOTACION',
+      '',
+      `Eleccion: ${params.eventName}`,
+      `Generado: ${params.generatedAt.toISOString()}`,
+      `Version padron: ${params.padronVersionId}`,
+      `Estado: ${params.statusLabel}`,
+      `Total registros: ${params.totalCount}`,
+      `Total habilitados: ${params.enabledCount}`,
+      `Total inhabilitados: ${params.disabledCount}`,
+      '',
+      'CI | ESTADO',
+      ...params.entries.map((entry) => `${entry.ci} | ${entry.enabled ? 'HABILITADO' : 'INHABILITADO'}`),
     ];
 
+    return this.buildSimplePdf(lines);
+  }
+
+  private buildSimplePdf(lines: string[]): Buffer {
     const pages = this.paginate(lines, 48);
     const objects: string[] = [];
 
