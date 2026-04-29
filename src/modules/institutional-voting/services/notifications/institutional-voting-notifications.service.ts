@@ -153,6 +153,8 @@ export class InstitutionalVotingNotificationsService {
         eventId,
         eventName: event.name,
         votingStart: event.votingStart?.toISOString?.() ?? '',
+        votingEnd: event.votingEnd?.toISOString?.() ?? '',
+        resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
         bannerTitle: 'Elección publicada oficialmente',
         bannerSubtitle: body,
         publicPath: this.buildPublicElectionPath(eventId),
