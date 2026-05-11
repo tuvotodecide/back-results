@@ -33,7 +33,6 @@ export class VoteReaderService {
       option,
       votes: votes[index].toString(),
     }));
-    console.dir(results, { depth: null});
 
     return results;
   }

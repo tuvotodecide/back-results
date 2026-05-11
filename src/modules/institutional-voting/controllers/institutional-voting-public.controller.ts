@@ -244,7 +244,6 @@ export class InstitutionalVotingPublicController {
     @Res() res: Response,
   ) {
     const zkProof = body;
-    console.dir('Parsed ZK proof: ' + zkProof.split('.'), { depth: null });
     const response = await this.institutionalVotingService.emitVote(
       optionId,
       zkProof,
