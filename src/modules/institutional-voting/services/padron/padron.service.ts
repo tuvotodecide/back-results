@@ -320,6 +320,7 @@ export class PadronService {
     });
 
     await this.refreshImportJobSummary(importJob._id);
+    await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
 
     return this.mapStagingEntry(created.toObject());
   }
@@ -330,7 +331,7 @@ export class PadronService {
     dto: UpdatePadronStagingEntryDto,
     requester: any,
   ) {
-    const { importJob } = await this.getEditableActiveImportJobContext(
+    const { event, importJob } = await this.getEditableActiveImportJobContext(
       eventId,
       requester,
       'editar entradas del staging del padrón',
@@ -377,12 +378,13 @@ export class PadronService {
 
     await entry.save();
     await this.refreshImportJobSummary(importJob._id);
+    await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
 
     return this.mapStagingEntry(entry.toObject());
   }
 
   async deletePadronStagingEntry(eventId: string, entryId: string, requester: any) {
-    const { importJob } = await this.getEditableActiveImportJobContext(
+    const { event, importJob } = await this.getEditableActiveImportJobContext(
       eventId,
       requester,
       'eliminar entradas del staging del padrón',
@@ -402,6 +404,7 @@ export class PadronService {
     }
 
     await this.refreshImportJobSummary(importJob._id);
+    await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
 
     return {
       id: String(deleted._id),
@@ -502,8 +505,12 @@ export class PadronService {
   }
 
   async confirmPadronStaging(eventId: string, requester: any) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    const shouldNotifyIncremental = Boolean(event?.convocationNotifiedAt);
+    const comparisonStatus = shouldNotifyIncremental ? 'OK' : 'PENDING';
+
     const synchronized = await this.materializeActiveDraftVersion(eventId, requester, {
-      comparisonStatus: 'PENDING',
+      comparisonStatus,
       deactivateDraft: true,
       markConfirmed: true,
       certificateMode: 'ON_CONFIRMATION',
@@ -513,15 +520,42 @@ export class PadronService {
       throw new NotFoundException('No existe un staging activo de padrón para este evento');
     }
 
+    if (shouldNotifyIncremental) {
+      await this.notificationsService.notifyConvocationIfEligible(synchronized.event);
+    }
+
     return {
       importJobId: String(synchronized.importJob._id),
       padronVersionId: String(synchronized.version._id),
       state: 'CONFIRMED',
       totals: synchronized.version.totals,
-      comparisonStatus: 'PENDING',
+      comparisonStatus,
       sourceType: synchronized.version.sourceType ?? 'PDF_IMPORT',
       certificate: this.mapCertificateMetadata(synchronized.certificate),
     };
+  }
+
+  private async materializeAndNotifyConvocationUpdateIfNeeded(
+    eventId: string,
+    requester: any,
+    event: any,
+  ) {
+    if (!event?.convocationNotifiedAt) {
+      return;
+    }
+
+    const synchronized = await this.materializeActiveDraftVersion(eventId, requester, {
+      comparisonStatus: 'OK',
+      deactivateDraft: false,
+      markConfirmed: false,
+      certificateMode: 'ON_CONFIRMATION',
+    });
+
+    if (!synchronized) {
+      return;
+    }
+
+    await this.notificationsService.notifyConvocationIfEligible(synchronized.event);
   }
 
   async materializeActiveDraftVersion(

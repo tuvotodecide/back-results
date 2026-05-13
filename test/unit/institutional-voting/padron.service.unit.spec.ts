@@ -115,6 +115,7 @@ describe('PadronService (unit)', () => {
     };
     notificationsService = {
       notifyPadronAvailabilityEnabledForUser: jest.fn(),
+      notifyConvocationIfEligible: jest.fn(),
     };
     issuerService = {
       issueCredential: jest.fn(),
@@ -639,6 +640,89 @@ describe('PadronService (unit)', () => {
         }),
       }),
     );
+  });
+
+  it('materializa el padrón y dispara notificación incremental al agregar habilitados tras la convocatoria', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const event = {
+      ...baseEvent,
+      state: 'READY_FOR_REVIEW',
+      convocationNotifiedAt: new Date('2026-01-01T12:00:00.000Z'),
+    };
+    const createdEntry = {
+      _id: new Types.ObjectId(),
+      importJobId,
+      eventId: event._id,
+      tenantId: event.tenantId,
+      ciNorm: '9876543',
+      enabled: true,
+      sourceKind: 'MANUAL',
+      toObject: () => ({
+        _id: new Types.ObjectId(),
+        importJobId,
+        eventId: event._id,
+        tenantId: event.tenantId,
+        ciNorm: '9876543',
+        enabled: true,
+        sourceKind: 'MANUAL',
+      }),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: event._id,
+          tenantId: event.tenantId,
+          status: 'PARSED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.exists.mockResolvedValue(false);
+    padronStagingEntryModel.create.mockResolvedValue(createdEntry);
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        status: 'PARSED',
+        errors: [],
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ ciNorm: '9876543', enabled: true }]),
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '9876543' }]);
+
+    const materializeSpy = jest.spyOn(service as any, 'materializeActiveDraftVersion')
+      .mockResolvedValue({
+        event,
+        importJob: { _id: importJobId },
+        version: { _id: new Types.ObjectId() },
+        certificate: {},
+      });
+
+    await service.addPadronStagingEntry(
+      String(event._id),
+      { ci: '9876543', enabled: true },
+      requester,
+    );
+
+    expect(materializeSpy).toHaveBeenCalledWith(
+      String(event._id),
+      requester,
+      expect.objectContaining({
+        comparisonStatus: 'OK',
+        deactivateDraft: false,
+        markConfirmed: false,
+        certificateMode: 'ON_CONFIRMATION',
+      }),
+    );
+    expect(notificationsService.notifyConvocationIfEligible).toHaveBeenCalledWith(event);
   });
 
   it('actualiza el estado de aprobación de una versión específica del padrón', async () => {

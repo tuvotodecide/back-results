@@ -23,6 +23,7 @@ import { encodeFunctionData } from 'viem';
 import participationAbi from '@/abi/participation.json';
 import { availableNetworks } from '@/api/params';
 import { executeOperation } from '@/api/account';
+import { normalizeCarnet } from '@/modules/institutional-voting/utils/carnet-normalizer';
 
 @Injectable()
 export class UsersService {
@@ -36,19 +37,21 @@ export class UsersService {
   ) {}
 
   async findByDni(dni: string): Promise<UserDocument> {
-    const user = await this.userModel.findOne({ dni }).exec();
+    const normalizedDni = this.normalizeDni(dni);
+    const user = await this.userModel.findOne({ dni: normalizedDni }).exec();
     if (!user) {
-      throw new NotFoundException(`Usuario con DNI ${dni} no encontrado`);
+      throw new NotFoundException(`Usuario con DNI ${normalizedDni} no encontrado`);
     }
     return user;
   }
 
   async findOrCreateByDni(dni: string): Promise<UserDocument> {
+    const normalizedDni = this.normalizeDni(dni);
     try {
       const user = await this.userModel
         .findOneAndUpdate(
-          { dni },
-          { $setOnInsert: { dni, active: true } },
+          { dni: normalizedDni },
+          { $setOnInsert: { dni: normalizedDni, active: true } },
           { upsert: true, new: true, setDefaultsOnInsert: true },
         )
         .orFail()
@@ -57,10 +60,24 @@ export class UsersService {
       return user as UserDocument;
     } catch (e: any) {
       if (e?.code === 11000) {
-        return this.userModel.findOne({ dni }).orFail().exec();
+        return this.userModel.findOne({ dni: normalizedDni }).orFail().exec();
       }
       throw e;
     }
+  }
+
+  private normalizeDni(dni: string): string {
+    const normalized = normalizeCarnet(dni);
+    if (normalized) {
+      return normalized;
+    }
+
+    const fallback = String(dni ?? '').trim();
+    if (!fallback) {
+      throw new BadRequestException('DNI inválido');
+    }
+
+    return fallback;
   }
 
   async updateVotePlaceByDni(

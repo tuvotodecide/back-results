@@ -1131,7 +1131,8 @@ export class VotingEventsService {
       await event.save();
     }
 
-    await this.notificationsService.notifyConvocationIfEligible(event);
+    const convocationNotification =
+      await this.notificationsService.notifyConvocationIfEligible(event);
 
     return {
       id: String(event._id),
@@ -1141,6 +1142,7 @@ export class VotingEventsService {
       publicEligibilityEnabled: Boolean(event.publicEligibilityEnabled),
       presentialKioskEnabled: Boolean(event.presentialKioskEnabled),
       publicationWindow: this.mapPublicationWindow(event),
+      convocationNotification,
     };
   }
 

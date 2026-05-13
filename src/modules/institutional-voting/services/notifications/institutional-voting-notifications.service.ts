@@ -16,6 +16,22 @@ import {
 } from '../../schemas/voting-event.schema';
 import { PadronUsersService } from '../core/padron-users.service';
 
+const CONVOCATION_DATA_TYPE = 'INSTITUTIONAL_PADRON_REVIEW_OPEN';
+
+type NotificationPayload = {
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
+};
+
+type NotificationRecipient = {
+  _id: Types.ObjectId;
+  dni: string;
+  active: boolean;
+  enabled: boolean;
+};
+
 @Injectable()
 export class InstitutionalVotingNotificationsService {
   constructor(
@@ -77,15 +93,15 @@ export class InstitutionalVotingNotificationsService {
   }
 
   async notifyConvocationIfEligible(event: VotingEventDocument, additionalPerUserDniData: Record<string, Record<string, string>> = {}) {
-    if (event.convocationNotifiedAt) return { sent: 0, skipped: 'already_notified' };
     const eventId = String(event._id);
     const publicUrl = this.buildPublicElectionUrl(eventId);
-    const out = await this.notifyToCurrentPadron(event, {
+    const mode = event.convocationNotifiedAt ? 'incremental' : 'initial';
+    const payload = {
       type: 'convocation',
       title: 'Revision de padron disponible',
       body: `Revisa tu habilitacion para ${event.name}`,
       data: {
-        type: 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
+        type: CONVOCATION_DATA_TYPE,
         eventId,
         electionId: eventId,
         eventName: event.name,
@@ -95,14 +111,69 @@ export class InstitutionalVotingNotificationsService {
         link: this.buildPublicElectionPath(eventId),
         deepLink: `myapp://event/${eventId}`,
       },
-    }, additionalPerUserDniData);
+    };
 
-    await this.votingEventModel.updateOne(
-      { _id: event._id },
-      { $set: { convocationNotifiedAt: new Date() } },
+    const recipients = await this.padronUsersService.getPadronUsersFromEvent(event, {
+      includeDisabled: true,
+    });
+    const totalEligible = recipients.length;
+
+    if (!recipients.length) {
+      return {
+        status: 'no_pending_voters',
+        mode,
+        totalEligible,
+        alreadyNotified: 0,
+        newlyNotified: 0,
+        skippedWithoutUser: 0,
+        failed: 0,
+      };
+    }
+
+    const notifiedStateByTopic = await this.getSentConvocationStateByTopic(eventId);
+    const pendingRecipients = recipients.filter((recipient) => {
+      const topic = this.buildUserTopic(recipient);
+      const notifiedStates = notifiedStateByTopic.get(topic);
+      return !notifiedStates?.has(this.toEligibleFlag(recipient));
+    });
+
+    if (!pendingRecipients.length) {
+      return {
+        status: 'no_pending_voters',
+        mode,
+        totalEligible,
+        alreadyNotified: totalEligible,
+        newlyNotified: 0,
+        skippedWithoutUser: 0,
+        failed: 0,
+      };
+    }
+
+    const out = await this.notifyRecipients(
+      payload,
+      pendingRecipients,
+      additionalPerUserDniData,
+      eventId,
     );
+    const sent = out.sent ?? 0;
+    const failed = out.failed ?? 0;
 
-    return out;
+    if (!event.convocationNotifiedAt && sent > 0) {
+      await this.votingEventModel.updateOne(
+        { _id: event._id },
+        { $set: { convocationNotifiedAt: new Date() } },
+      );
+    }
+
+    return {
+      status: sent > 0 ? (failed > 0 ? 'partial_success' : 'success') : 'failed',
+      mode,
+      totalEligible,
+      alreadyNotified: totalEligible - pendingRecipients.length,
+      newlyNotified: sent,
+      skippedWithoutUser: 0,
+      failed,
+    };
   }
 
   async notifyResultsAvailableIfEligible(event: VotingEventDocument) {
@@ -303,12 +374,7 @@ export class InstitutionalVotingNotificationsService {
 
   private async notifyToCurrentPadron(
     event: VotingEventDocument,
-    payload: {
-      type: string;
-      title: string;
-      body: string;
-      data: Record<string, string>;
-    },
+    payload: NotificationPayload,
     additionalPerUserDniData: Record<string, Record<string, string>> = {},
   ) {
     const recipients = await this.padronUsersService.getPadronUsersFromEvent(event, {
@@ -321,25 +387,15 @@ export class InstitutionalVotingNotificationsService {
   private async notifyUsersByCarnet(
     event: VotingEventDocument,
     carnets: string[],
-    payload: {
-      type: string;
-      title: string;
-      body: string;
-      data: Record<string, string>;
-    },
+    payload: NotificationPayload,
   ) {
     const recipients = await this.padronUsersService.getUsersByCarnets(carnets);
     return this.notifyRecipients(payload, recipients, {}, String(event._id));
   }
 
   private async notifyRecipients(
-    payload: {
-      type: string;
-      title: string;
-      body: string;
-      data: Record<string, string>;
-    },
-    recipients: Array<{ _id: Types.ObjectId; dni: string; active: boolean; enabled: boolean }>,
+    payload: NotificationPayload,
+    recipients: NotificationRecipient[],
     additionalPerUserDniData: Record<string, Record<string, string>> = {},
     eventIdForLog?: string,
   ) {
@@ -351,12 +407,15 @@ export class InstitutionalVotingNotificationsService {
     const inboxBatch = recipients.map((u) => ({
       userId: u._id as Types.ObjectId,
       dni: u.dni,
-      topic: `user_${String(u._id)}`,
+      topic: this.buildUserTopic(u),
       title: payload.title,
       body: payload.body,
       data: {
         ...payload.data,
-        eligible: u.enabled ? 'true' : 'false',
+        eligible: this.toEligibleFlag(u),
+        carnetNorm: u.dni,
+        dni: u.dni,
+        userId: String(u._id),
         ...(additionalPerUserDniData[u.dni] || {}),
       },
       status: 'NEW' as const,
@@ -365,10 +424,13 @@ export class InstitutionalVotingNotificationsService {
 
     const deliveryResults = await Promise.all(
       recipients.map(async (u) => {
-        const topic = `user_${String(u._id)}`;
+        const topic = this.buildUserTopic(u);
         const data = {
           ...payload.data,
-          eligible: u.enabled ? 'true' : 'false',
+          eligible: this.toEligibleFlag(u),
+          carnetNorm: u.dni,
+          dni: u.dni,
+          userId: String(u._id),
           ...(additionalPerUserDniData[u.dni] || {}),
         };
 
@@ -387,6 +449,8 @@ export class InstitutionalVotingNotificationsService {
           return {
             topic,
             data,
+            dni: u.dni,
+            userId: String(u._id),
             status: 'SENT' as const,
             messageId,
           };
@@ -402,6 +466,8 @@ export class InstitutionalVotingNotificationsService {
           return {
             topic,
             data,
+            dni: u.dni,
+            userId: String(u._id),
             status: 'FAILED' as const,
             error: error?.message || String(error),
           };
@@ -428,6 +494,44 @@ export class InstitutionalVotingNotificationsService {
 
  
     return { sent, failed };
+  }
+
+  private buildUserTopic(recipient: Pick<NotificationRecipient, '_id'>) {
+    return `user_${String(recipient._id)}`;
+  }
+
+  private toEligibleFlag(recipient: Pick<NotificationRecipient, 'enabled'>) {
+    return recipient.enabled ? 'true' : 'false';
+  }
+
+  private async getSentConvocationStateByTopic(eventId: string) {
+    const rows = await this.notificationLogModel
+      .find(
+        {
+          type: 'generic',
+          status: 'SENT',
+          'data.eventId': eventId,
+          'data.type': CONVOCATION_DATA_TYPE,
+        },
+        { topic: 1, data: 1 },
+      )
+      .lean();
+
+    const out = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const topic = String(row?.topic ?? '').trim();
+      if (!topic) {
+        continue;
+      }
+
+      const eligible = String(row?.data?.eligible ?? 'true');
+      if (!out.has(topic)) {
+        out.set(topic, new Set<string>());
+      }
+      out.get(topic)!.add(eligible);
+    }
+
+    return out;
   }
 
   private async markOfficialPublicationReminderSent(event: VotingEventDocument) {

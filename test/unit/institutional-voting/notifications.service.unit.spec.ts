@@ -15,6 +15,11 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
   let tenantAdminAssignmentModel: any;
   let roledUserModel: any;
   let mailService: any;
+  let userNotificationModel: any;
+  let notificationLogModel: any;
+  let votingEventModel: any;
+  let padronUsersService: any;
+  let firebaseMessaging: any;
 
   beforeEach(async () => {
     tenantAdminAssignmentModel = {
@@ -26,22 +31,41 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     mailService = {
       sendEmail: jest.fn().mockResolvedValue(undefined),
     };
+    userNotificationModel = {
+      insertMany: jest.fn().mockResolvedValue([]),
+    };
+    notificationLogModel = {
+      find: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+      insertMany: jest.fn().mockResolvedValue([]),
+    };
+    votingEventModel = {
+      updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+    };
+    padronUsersService = {
+      getPadronUsersFromEvent: jest.fn(),
+      getUsersByCarnets: jest.fn(),
+    };
+    firebaseMessaging = {
+      send: jest.fn().mockResolvedValue('message-id'),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         InstitutionalVotingNotificationsService,
-        { provide: 'FIREBASE_ADMIN', useValue: { messaging: jest.fn() } },
+        { provide: 'FIREBASE_ADMIN', useValue: { messaging: jest.fn(() => firebaseMessaging) } },
         {
           provide: getModelToken(UserNotification.name),
-          useValue: { insertMany: jest.fn() },
+          useValue: userNotificationModel,
         },
         {
           provide: getModelToken(NotificationLog.name),
-          useValue: { insertMany: jest.fn() },
+          useValue: notificationLogModel,
         },
         {
           provide: getModelToken(VotingEvent.name),
-          useValue: { updateOne: jest.fn() },
+          useValue: votingEventModel,
         },
         {
           provide: getModelToken(TenantAdminAssignment.name),
@@ -50,16 +74,182 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
         { provide: getModelToken(RoledUser.name), useValue: roledUserModel },
         {
           provide: PadronUsersService,
-          useValue: {
-            getPadronUsersFromEvent: jest.fn(),
-            getUsersByCarnets: jest.fn(),
-          },
+          useValue: padronUsersService,
         },
         { provide: MailService, useValue: mailService },
       ],
     }).compile();
 
     service = moduleRef.get(InstitutionalVotingNotificationsService);
+  });
+
+  it('notifica convocatoria inicial a todos los empadronados actuales y marca primera notificación', async () => {
+    const userA = new Types.ObjectId();
+    const userB = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion inicial',
+      state: 'READY_FOR_REVIEW',
+      convocationNotifiedAt: null,
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '1234567', active: true, enabled: true },
+      { _id: userB, dni: '7654321', active: true, enabled: false },
+    ]);
+
+    const result = await service.notifyConvocationIfEligible(event as any);
+
+    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+      includeDisabled: true,
+    });
+    expect(notificationLogModel.find).toHaveBeenCalledWith(
+      {
+        type: 'generic',
+        status: 'SENT',
+        'data.eventId': String(event._id),
+        'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
+      },
+      { topic: 1, data: 1 },
+    );
+    expect(firebaseMessaging.send).toHaveBeenCalledTimes(2);
+    expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dni: '1234567',
+          topic: `user_${String(userA)}`,
+          data: expect.objectContaining({
+            eventId: String(event._id),
+            eligible: 'true',
+            carnetNorm: '1234567',
+          }),
+        }),
+        expect.objectContaining({
+          dni: '7654321',
+          topic: `user_${String(userB)}`,
+          data: expect.objectContaining({
+            eligible: 'false',
+            carnetNorm: '7654321',
+          }),
+        }),
+      ]),
+      { ordered: false },
+    );
+    expect(notificationLogModel.insertMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          topic: `user_${String(userA)}`,
+          status: 'SENT',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_PADRON_REVIEW_OPEN',
+            eligible: 'true',
+            dni: '1234567',
+          }),
+        }),
+      ]),
+      { ordered: false },
+    );
+    expect(votingEventModel.updateOne).toHaveBeenCalledWith(
+      { _id: event._id },
+      { $set: { convocationNotifiedAt: expect.any(Date) } },
+    );
+    expect(result).toEqual({
+      status: 'success',
+      mode: 'initial',
+      totalEligible: 2,
+      alreadyNotified: 0,
+      newlyNotified: 2,
+      skippedWithoutUser: 0,
+      failed: 0,
+    });
+  });
+
+  it('notifica solo nuevos pendientes cuando la convocatoria ya fue enviada antes', async () => {
+    const userA = new Types.ObjectId();
+    const userB = new Types.ObjectId();
+    const userC = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion incremental',
+      state: 'READY_FOR_REVIEW',
+      convocationNotifiedAt: new Date('2026-01-01T00:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '1000001', active: true, enabled: true },
+      { _id: userB, dni: '1000002', active: true, enabled: false },
+      { _id: userC, dni: '1000003', active: true, enabled: true },
+    ]);
+    notificationLogModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          topic: `user_${String(userA)}`,
+          data: { eventId: String(event._id), type: 'INSTITUTIONAL_PADRON_REVIEW_OPEN', eligible: 'true' },
+        },
+        {
+          topic: `user_${String(userB)}`,
+          data: { eventId: String(event._id), type: 'INSTITUTIONAL_PADRON_REVIEW_OPEN', eligible: 'false' },
+        },
+      ]),
+    });
+
+    const result = await service.notifyConvocationIfEligible(event as any);
+
+    expect(firebaseMessaging.send).toHaveBeenCalledTimes(1);
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: `user_${String(userC)}`,
+        data: expect.objectContaining({
+          eventId: String(event._id),
+          eligible: 'true',
+          dni: '1000003',
+        }),
+      }),
+    );
+    expect(votingEventModel.updateOne).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'success',
+      mode: 'incremental',
+      totalEligible: 3,
+      alreadyNotified: 2,
+      newlyNotified: 1,
+      skippedWithoutUser: 0,
+      failed: 0,
+    });
+  });
+
+  it('responde no_pending_voters cuando todos ya tienen convocatoria para su estado actual', async () => {
+    const userA = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion sin pendientes',
+      state: 'READY_FOR_REVIEW',
+      convocationNotifiedAt: new Date('2026-01-01T00:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '2000001', active: true, enabled: true },
+    ]);
+    notificationLogModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          topic: `user_${String(userA)}`,
+          data: { eventId: String(event._id), type: 'INSTITUTIONAL_PADRON_REVIEW_OPEN', eligible: 'true' },
+        },
+      ]),
+    });
+
+    const result = await service.notifyConvocationIfEligible(event as any);
+
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+    expect(userNotificationModel.insertMany).not.toHaveBeenCalled();
+    expect(notificationLogModel.insertMany).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'no_pending_voters',
+      mode: 'incremental',
+      totalEligible: 1,
+      alreadyNotified: 1,
+      newlyNotified: 0,
+      skippedWithoutUser: 0,
+      failed: 0,
+    });
   });
 
   it('envía reminder de publicación oficial a admins activos/aprobados del tenant y marca enviado', async () => {
