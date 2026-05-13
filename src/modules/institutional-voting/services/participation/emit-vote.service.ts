@@ -42,12 +42,16 @@ export class EmitVoteService {
       throw new BadRequestException('data not found in ZK proof');
     }
 
-    const option = await this.votingOptionModel.findById(optionId).exec();
-    if (!option) {
-      throw new NotFoundException('Voting option not found');
-    }
+    if (optionId === 'blank') {
+      await this.voteWritterService.castVote(eventId, 'BLANK', nullifier);
+    } else {
+      const option = await this.votingOptionModel.findById(optionId).exec();
+      if (!option) {
+        throw new NotFoundException('Voting option not found');
+      }
 
-    await this.voteWritterService.castVote(eventId, option.name, nullifier);
+      await this.voteWritterService.castVote(eventId, option.name, nullifier);
+    }
 
     return response;
   }
