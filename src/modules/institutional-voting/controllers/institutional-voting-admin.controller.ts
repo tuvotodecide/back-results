@@ -49,6 +49,10 @@ import { Public } from '@/core/decorators/public.decorator';
 @ApiTags('Institutional Voting Admin')
 @Controller('api/v1/voting/events')
 export class InstitutionalVotingAdminController {
+  private shouldDeferMaterialization(value?: string | boolean) {
+    return value === true || value === 'true' || value === '1';
+  }
+
   constructor(private readonly institutionalVotingService: InstitutionalVotingService) {}
 
   @Get()
@@ -502,8 +506,11 @@ export class InstitutionalVotingAdminController {
     @Param('eventId') eventId: string,
     @Body() dto: CreatePadronStagingEntryDto,
     @Req() req: any,
+    @Query('deferMaterialization') deferMaterialization?: string,
   ) {
-    return this.institutionalVotingService.addPadronStagingEntry(eventId, dto, req.user);
+    return this.institutionalVotingService.addPadronStagingEntry(eventId, dto, req.user, {
+      deferMaterialization: this.shouldDeferMaterialization(deferMaterialization),
+    });
   }
 
   @Patch(':eventId/padron/staging/:entryId')
@@ -519,12 +526,16 @@ export class InstitutionalVotingAdminController {
     @Param('entryId') entryId: string,
     @Body() dto: UpdatePadronStagingEntryDto,
     @Req() req: any,
+    @Query('deferMaterialization') deferMaterialization?: string,
   ) {
     return this.institutionalVotingService.updatePadronStagingEntry(
       eventId,
       entryId,
       dto,
       req.user,
+      {
+        deferMaterialization: this.shouldDeferMaterialization(deferMaterialization),
+      },
     );
   }
 
@@ -539,8 +550,11 @@ export class InstitutionalVotingAdminController {
     @Param('eventId') eventId: string,
     @Param('entryId') entryId: string,
     @Req() req: any,
+    @Query('deferMaterialization') deferMaterialization?: string,
   ) {
-    return this.institutionalVotingService.deletePadronStagingEntry(eventId, entryId, req.user);
+    return this.institutionalVotingService.deletePadronStagingEntry(eventId, entryId, req.user, {
+      deferMaterialization: this.shouldDeferMaterialization(deferMaterialization),
+    });
   }
 
   @Post(':eventId/padron/staging/confirm')

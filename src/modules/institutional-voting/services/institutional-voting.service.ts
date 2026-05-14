@@ -172,8 +172,9 @@ export class InstitutionalVotingService {
     eventId: string,
     dto: CreatePadronStagingEntryDto,
     requester: any,
+    options?: { deferMaterialization?: boolean },
   ) {
-    return this.padronService.addPadronStagingEntry(eventId, dto, requester);
+    return this.padronService.addPadronStagingEntry(eventId, dto, requester, options);
   }
 
   updatePadronStagingEntry(
@@ -181,12 +182,18 @@ export class InstitutionalVotingService {
     entryId: string,
     dto: UpdatePadronStagingEntryDto,
     requester: any,
+    options?: { deferMaterialization?: boolean },
   ) {
-    return this.padronService.updatePadronStagingEntry(eventId, entryId, dto, requester);
+    return this.padronService.updatePadronStagingEntry(eventId, entryId, dto, requester, options);
   }
 
-  deletePadronStagingEntry(eventId: string, entryId: string, requester: any) {
-    return this.padronService.deletePadronStagingEntry(eventId, entryId, requester);
+  deletePadronStagingEntry(
+    eventId: string,
+    entryId: string,
+    requester: any,
+    options?: { deferMaterialization?: boolean },
+  ) {
+    return this.padronService.deletePadronStagingEntry(eventId, entryId, requester, options);
   }
 
   addCurrentPadronVoter(eventId: string, dto: AddCurrentPadronVoterDto, requester: any) {
