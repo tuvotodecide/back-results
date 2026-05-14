@@ -182,7 +182,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
       ECR_REPO: ${{ vars.ECR_REPOSITORY }}
-      PUBLIC_IP: ${{ vars.PUBLIC_IP }}
+      PUBLIC_URL: ${{ vars.PUBLIC_URL }}
       EXTERNAL_PORT: ${{ vars.EXTERNAL_PORT }}
       CONTAINER_NAME: back_results
       IMAGE_TAG: ${{ github.sha }}
@@ -246,9 +246,9 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          echo "Checking http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/"
+          echo "Checking ${PUBLIC_URL}"
           for i in {1..24}; do
-            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/") || true
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${PUBLIC_URL}") || true
             if [[ "${http_code:-}" == "200" ]]; then
               echo "Service OK (${http_code})"
               exit 0
@@ -274,7 +274,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
       ECR_REPO: ${{ vars.ECR_REPOSITORY }}
-      PUBLIC_IP: ${{ vars.PUBLIC_IP }}
+      PUBLIC_URL: ${{ vars.PUBLIC_URL_PROD }}
       EXTERNAL_PORT: ${{ vars.EXTERNAL_PORT_PROD }}
       CONTAINER_NAME: back_results_prod
       IMAGE_TAG: ${{ github.ref_name }}
@@ -338,9 +338,9 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          echo "Checking http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/"
+          echo "Checking ${PUBLIC_URL}"
           for i in {1..24}; do
-            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${{ env.PUBLIC_IP }}:${{ env.EXTERNAL_PORT }}/") || true
+            http_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${PUBLIC_URL}") || true
             if [[ "${http_code:-}" == "200" ]]; then
               echo "Service OK (${http_code})"
               exit 0
