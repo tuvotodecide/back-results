@@ -52,8 +52,14 @@ type NormalizedImportEntry = {
   sourceRow?: number | null;
 };
 
+type PadronStagingMutationOptions = {
+  deferMaterialization?: boolean;
+};
+
 @Injectable()
 export class PadronService {
+  private readonly materializationLocks = new Map<string, Promise<void>>();
+
   constructor(
     @InjectModel(PadronVersion.name)
     private readonly padronVersionModel: Model<PadronVersionDocument>,
@@ -76,6 +82,30 @@ export class PadronService {
     private readonly issuerService: IssuerService,
     private readonly voteWritterService: VoteWritterService,
   ) {}
+
+  private async withMaterializationLock<T>(
+    eventId: string,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.materializationLocks.get(eventId) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chained = previous.catch(() => undefined).then(() => current);
+
+    this.materializationLocks.set(eventId, chained);
+    await previous.catch(() => undefined);
+
+    try {
+      return await task();
+    } finally {
+      release();
+      if (this.materializationLocks.get(eventId) === chained) {
+        this.materializationLocks.delete(eventId);
+      }
+    }
+  }
 
   async uploadPadronFile(eventId: string, file: any, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
@@ -288,6 +318,7 @@ export class PadronService {
     eventId: string,
     dto: CreatePadronStagingEntryDto,
     requester: any,
+    options: PadronStagingMutationOptions = {},
   ) {
     const { event, importJob } = await this.getEditableActiveImportJobContext(
       eventId,
@@ -320,7 +351,9 @@ export class PadronService {
     });
 
     await this.refreshImportJobSummary(importJob._id);
-    await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
+    if (!options.deferMaterialization) {
+      await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
+    }
 
     return this.mapStagingEntry(created.toObject());
   }
@@ -330,6 +363,7 @@ export class PadronService {
     entryId: string,
     dto: UpdatePadronStagingEntryDto,
     requester: any,
+    options: PadronStagingMutationOptions = {},
   ) {
     const { event, importJob } = await this.getEditableActiveImportJobContext(
       eventId,
@@ -378,12 +412,19 @@ export class PadronService {
 
     await entry.save();
     await this.refreshImportJobSummary(importJob._id);
-    await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
+    if (!options.deferMaterialization) {
+      await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
+    }
 
     return this.mapStagingEntry(entry.toObject());
   }
 
-  async deletePadronStagingEntry(eventId: string, entryId: string, requester: any) {
+  async deletePadronStagingEntry(
+    eventId: string,
+    entryId: string,
+    requester: any,
+    options: PadronStagingMutationOptions = {},
+  ) {
     const { event, importJob } = await this.getEditableActiveImportJobContext(
       eventId,
       requester,
@@ -404,7 +445,9 @@ export class PadronService {
     }
 
     await this.refreshImportJobSummary(importJob._id);
-    await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
+    if (!options.deferMaterialization) {
+      await this.materializeAndNotifyConvocationUpdateIfNeeded(eventId, requester, event);
+    }
 
     return {
       id: String(deleted._id),
@@ -559,6 +602,21 @@ export class PadronService {
   }
 
   async materializeActiveDraftVersion(
+    eventId: string,
+    requester: any,
+    options: {
+      comparisonStatus?: 'PENDING' | 'OK' | 'FAILED';
+      deactivateDraft?: boolean;
+      markConfirmed?: boolean;
+      certificateMode?: PadronCertificateGenerationMode;
+    } = {},
+  ) {
+    return this.withMaterializationLock(eventId, () =>
+      this.materializeActiveDraftVersionUnlocked(eventId, requester, options),
+    );
+  }
+
+  private async materializeActiveDraftVersionUnlocked(
     eventId: string,
     requester: any,
     options: {
