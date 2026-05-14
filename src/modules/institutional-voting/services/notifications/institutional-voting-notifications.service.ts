@@ -113,9 +113,11 @@ export class InstitutionalVotingNotificationsService {
       },
     };
 
-    const recipients = await this.padronUsersService.getPadronUsersFromEvent(event, {
-      includeDisabled: true,
-    });
+    const recipients = (
+      await this.padronUsersService.getPadronUsersFromEvent(event, {
+        includeDisabled: false,
+      })
+    ).filter((recipient) => recipient.enabled !== false);
     const totalEligible = recipients.length;
 
     if (!recipients.length) {

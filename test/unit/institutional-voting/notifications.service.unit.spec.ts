@@ -83,7 +83,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     service = moduleRef.get(InstitutionalVotingNotificationsService);
   });
 
-  it('notifica convocatoria inicial a todos los empadronados actuales y marca primera notificación', async () => {
+  it('notifica convocatoria inicial solo a empadronados habilitados y marca primera notificación', async () => {
     const userA = new Types.ObjectId();
     const userB = new Types.ObjectId();
     const event = {
@@ -100,7 +100,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     const result = await service.notifyConvocationIfEligible(event as any);
 
     expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
-      includeDisabled: true,
+      includeDisabled: false,
     });
     expect(notificationLogModel.find).toHaveBeenCalledWith(
       {
@@ -111,9 +111,9 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       },
       { topic: 1, data: 1 },
     );
-    expect(firebaseMessaging.send).toHaveBeenCalledTimes(2);
+    expect(firebaseMessaging.send).toHaveBeenCalledTimes(1);
     expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
-      expect.arrayContaining([
+      [
         expect.objectContaining({
           dni: '1234567',
           topic: `user_${String(userA)}`,
@@ -123,15 +123,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
             carnetNorm: '1234567',
           }),
         }),
-        expect.objectContaining({
-          dni: '7654321',
-          topic: `user_${String(userB)}`,
-          data: expect.objectContaining({
-            eligible: 'false',
-            carnetNorm: '7654321',
-          }),
-        }),
-      ]),
+      ],
       { ordered: false },
     );
     expect(notificationLogModel.insertMany).toHaveBeenCalledWith(
@@ -155,9 +147,9 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(result).toEqual({
       status: 'success',
       mode: 'initial',
-      totalEligible: 2,
+      totalEligible: 1,
       alreadyNotified: 0,
-      newlyNotified: 2,
+      newlyNotified: 1,
       skippedWithoutUser: 0,
       failed: 0,
     });
@@ -208,8 +200,8 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(result).toEqual({
       status: 'success',
       mode: 'incremental',
-      totalEligible: 3,
-      alreadyNotified: 2,
+      totalEligible: 2,
+      alreadyNotified: 1,
       newlyNotified: 1,
       skippedWithoutUser: 0,
       failed: 0,
@@ -246,6 +238,38 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       mode: 'incremental',
       totalEligible: 1,
       alreadyNotified: 1,
+      newlyNotified: 0,
+      skippedWithoutUser: 0,
+      failed: 0,
+    });
+  });
+
+  it('no notifica usuarios deshabilitados aunque el resolvedor los devuelva por error', async () => {
+    const userA = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion con deshabilitado',
+      state: 'READY_FOR_REVIEW',
+      convocationNotifiedAt: new Date('2026-01-01T00:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '3000001', active: true, enabled: false },
+    ]);
+
+    const result = await service.notifyConvocationIfEligible(event as any);
+
+    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+      includeDisabled: false,
+    });
+    expect(notificationLogModel.find).not.toHaveBeenCalled();
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+    expect(userNotificationModel.insertMany).not.toHaveBeenCalled();
+    expect(notificationLogModel.insertMany).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'no_pending_voters',
+      mode: 'incremental',
+      totalEligible: 0,
+      alreadyNotified: 0,
       newlyNotified: 0,
       skippedWithoutUser: 0,
       failed: 0,
