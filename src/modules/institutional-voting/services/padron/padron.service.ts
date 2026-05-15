@@ -8,7 +8,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'crypto';
 import { Model, Types } from 'mongoose';
 import { AddCurrentPadronVoterDto } from '../../dto/padron-current-voter.dto';
-import { CreatePadronStagingEntryDto, UpdatePadronStagingEntryDto } from '../../dto/padron-staging-entry.dto';
+import {
+  BulkDeletePadronStagingEntriesDto,
+  CreatePadronStagingEntryDto,
+  UpdatePadronStagingEntryDto,
+} from '../../dto/padron-staging-entry.dto';
 import { normalizeCarnet } from '../../utils/carnet-normalizer';
 import {
   ComparisonReport,
@@ -452,6 +456,88 @@ export class PadronService {
     return {
       id: String(deleted._id),
       deleted: true,
+    };
+  }
+
+  async bulkDeletePadronStagingEntries(
+    eventId: string,
+    dto: BulkDeletePadronStagingEntriesDto,
+    requester: any,
+  ) {
+    const { event, importJob } = await this.getEditableActiveImportJobContext(
+      eventId,
+      requester,
+      'eliminar registros del padrón',
+    );
+
+    const entryIds = Array.from(
+      new Set(
+        (dto.entryIds ?? [])
+          .map((entryId) => String(entryId ?? '').trim())
+          .filter((entryId) => entryId.length > 0),
+      ),
+    );
+
+    if (!entryIds.length) {
+      throw new BadRequestException('Selecciona al menos un registro para eliminar.');
+    }
+
+    if (entryIds.some((entryId) => !Types.ObjectId.isValid(entryId))) {
+      throw new BadRequestException('No se pudieron validar todos los registros seleccionados.');
+    }
+
+    const objectIds = entryIds.map((entryId) => new Types.ObjectId(entryId));
+    const [matchedEntries, totalBeforeDelete] = await Promise.all([
+      this.padronStagingEntryModel
+        .find(
+          {
+            _id: { $in: objectIds },
+            importJobId: importJob._id,
+          },
+          { _id: 1 },
+        )
+        .lean(),
+      this.padronStagingEntryModel.countDocuments({ importJobId: importJob._id }),
+    ]);
+
+    if (matchedEntries.length !== objectIds.length) {
+      throw new BadRequestException('No se pudieron validar todos los registros seleccionados.');
+    }
+
+    if (totalBeforeDelete - objectIds.length <= 0) {
+      throw new BadRequestException('No se puede eliminar todos los registros del padrón.');
+    }
+
+    const deleteResult = await this.padronStagingEntryModel.deleteMany({
+      _id: { $in: objectIds },
+      importJobId: importJob._id,
+    });
+    const deletedCount = Number(deleteResult?.deletedCount ?? 0);
+
+    if (deletedCount !== objectIds.length) {
+      throw new BadRequestException('No se pudieron eliminar todos los registros seleccionados.');
+    }
+
+    await this.refreshImportJobSummary(importJob._id);
+
+    let materialized = false;
+    if (event?.convocationNotifiedAt) {
+      const synchronized = await this.materializeActiveDraftVersion(eventId, requester, {
+        comparisonStatus: 'OK',
+        deactivateDraft: false,
+        markConfirmed: false,
+        certificateMode: 'ON_CONFIRMATION',
+      });
+      materialized = Boolean(synchronized);
+    }
+
+    return {
+      requestedCount: entryIds.length,
+      deletedCount,
+      materialized,
+      convocationNotification: {
+        newlyNotified: 0,
+      },
     };
   }
 
@@ -1797,6 +1883,12 @@ export class PadronService {
     }
 
     if (!this.accessService.canFullyEditEvent(event)) {
+      if (action === 'eliminar registros del padrón') {
+        throw new BadRequestException(
+          'No se pueden eliminar registros porque el padrón ya no está en una etapa editable.',
+        );
+      }
+
       throw new BadRequestException(
         `Solo se permite ${action} antes de la publicación oficial y mientras falten más de ${this.accessService.getOfficialPublicationLeadHours()} horas para el inicio de la votación`,
       );

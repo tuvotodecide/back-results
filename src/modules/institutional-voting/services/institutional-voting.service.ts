@@ -5,6 +5,7 @@ import { ConfirmOfficialPublicationDto } from '../dto/official-publication.dto';
 import { CreateEventNewsDto } from '../dto/event-news.dto';
 import { CreateEventRoleDto } from '../dto/event-role.dto';
 import {
+  BulkDeletePadronStagingEntriesDto,
   CreatePadronStagingEntryDto,
   UpdatePadronStagingEntryDto,
 } from '../dto/padron-staging-entry.dto';
@@ -194,6 +195,14 @@ export class InstitutionalVotingService {
     options?: { deferMaterialization?: boolean },
   ) {
     return this.padronService.deletePadronStagingEntry(eventId, entryId, requester, options);
+  }
+
+  bulkDeletePadronStagingEntries(
+    eventId: string,
+    dto: BulkDeletePadronStagingEntriesDto,
+    requester: any,
+  ) {
+    return this.padronService.bulkDeletePadronStagingEntries(eventId, dto, requester);
   }
 
   addCurrentPadronVoter(eventId: string, dto: AddCurrentPadronVoterDto, requester: any) {

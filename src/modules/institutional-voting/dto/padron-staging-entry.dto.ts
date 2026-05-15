@@ -1,6 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 export class CreatePadronStagingEntryDto {
   @ApiProperty({ description: 'CI del empadronado' })
@@ -29,4 +37,12 @@ export class UpdatePadronStagingEntryDto {
   @Type(() => Boolean)
   @IsBoolean()
   enabled?: boolean;
+}
+
+export class BulkDeletePadronStagingEntriesDto {
+  @ApiProperty({ description: 'IDs de entradas de staging a eliminar', type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  entryIds!: string[];
 }

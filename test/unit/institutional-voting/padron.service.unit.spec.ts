@@ -81,6 +81,7 @@ describe('PadronService (unit)', () => {
       find: jest.fn(),
       findOne: jest.fn(),
       findOneAndDelete: jest.fn(),
+      deleteMany: jest.fn(),
     };
     padronCertificateModel = {
       findOne: jest.fn(),
@@ -788,6 +789,132 @@ describe('PadronService (unit)', () => {
     );
 
     expect(materializeSpy).not.toHaveBeenCalled();
+    expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
+  });
+
+  it('rechaza eliminación múltiple sin registros seleccionados', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: baseEvent._id,
+          tenantId: baseEvent.tenantId,
+          status: 'PARSED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+
+    await expect(
+      service.bulkDeletePadronStagingEntries(
+        String(baseEvent._id),
+        { entryIds: [] },
+        requester,
+      ),
+    ).rejects.toThrow('Selecciona al menos un registro para eliminar.');
+    expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('bloquea eliminación múltiple si dejaría el padrón vacío', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const entryId = new Types.ObjectId();
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: baseEvent._id,
+          tenantId: baseEvent.tenantId,
+          status: 'PARSED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ _id: entryId }]),
+    });
+    padronStagingEntryModel.countDocuments.mockResolvedValue(1);
+
+    await expect(
+      service.bulkDeletePadronStagingEntries(
+        String(baseEvent._id),
+        { entryIds: [String(entryId)] },
+        requester,
+      ),
+    ).rejects.toThrow('No se puede eliminar todos los registros del padrón.');
+    expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('elimina varios registros, materializa una sola vez y no notifica en bulk delete', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const entryA = new Types.ObjectId();
+    const entryB = new Types.ObjectId();
+    const event = {
+      ...baseEvent,
+      state: 'READY_FOR_REVIEW',
+      convocationNotifiedAt: new Date('2026-01-01T12:00:00.000Z'),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: event._id,
+          tenantId: event.tenantId,
+          status: 'PARSED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ _id: entryA }, { _id: entryB }]),
+    });
+    padronStagingEntryModel.countDocuments.mockResolvedValue(4);
+    padronStagingEntryModel.deleteMany.mockResolvedValue({ deletedCount: 2 });
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        status: 'PARSED',
+        errors: [],
+      }),
+    });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '123' }]);
+
+    const materializeSpy = jest.spyOn(service as any, 'materializeActiveDraftVersion')
+      .mockResolvedValue({
+        event,
+        importJob: { _id: importJobId },
+        version: { _id: new Types.ObjectId() },
+        certificate: {},
+      });
+
+    const result = await service.bulkDeletePadronStagingEntries(
+      String(event._id),
+      { entryIds: [String(entryA), String(entryB)] },
+      requester,
+    );
+
+    expect(result).toEqual({
+      requestedCount: 2,
+      deletedCount: 2,
+      materialized: true,
+      convocationNotification: {
+        newlyNotified: 0,
+      },
+    });
+    expect(padronStagingEntryModel.deleteMany).toHaveBeenCalledWith({
+      _id: { $in: [entryA, entryB] },
+      importJobId,
+    });
+    expect(materializeSpy).toHaveBeenCalledTimes(1);
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
   });
 

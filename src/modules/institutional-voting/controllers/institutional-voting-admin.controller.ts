@@ -31,6 +31,7 @@ import { MaterializePadronCertificateDto } from '../dto/materialize-padron-certi
 import { ConfirmOfficialPublicationDto } from '../dto/official-publication.dto';
 import { CreateEventRoleDto } from '../dto/event-role.dto';
 import {
+  BulkDeletePadronStagingEntriesDto,
   CreatePadronStagingEntryDto,
   UpdatePadronStagingEntryDto,
 } from '../dto/padron-staging-entry.dto';
@@ -555,6 +556,25 @@ export class InstitutionalVotingAdminController {
     return this.institutionalVotingService.deletePadronStagingEntry(eventId, entryId, req.user, {
       deferMaterialization: this.shouldDeferMaterialization(deferMaterialization),
     });
+  }
+
+  @Post(':eventId/padron/staging/bulk-delete')
+  @ApiOperation({
+    summary: 'Eliminar varias entradas del staging del padrón',
+    description: 'Elimina entradas seleccionadas del staging activo del padrón en una sola operación.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: BulkDeletePadronStagingEntriesDto })
+  bulkDeletePadronStagingEntries(
+    @Param('eventId') eventId: string,
+    @Body() dto: BulkDeletePadronStagingEntriesDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalVotingService.bulkDeletePadronStagingEntries(
+      eventId,
+      dto,
+      req.user,
+    );
   }
 
   @Post(':eventId/padron/staging/confirm')
