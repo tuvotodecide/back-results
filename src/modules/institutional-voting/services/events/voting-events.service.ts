@@ -45,6 +45,10 @@ import {
   PadronImportJobDocument,
 } from '../../schemas/padron-import-job.schema';
 import {
+  PadronStagingEntry,
+  PadronStagingEntryDocument,
+} from '../../schemas/padron-staging-entry.schema';
+import {
   readColorPalette,
   resolveColorPaletteInput,
 } from '@/shared/utils/color-palette.util';
@@ -88,6 +92,8 @@ export class VotingEventsService {
     private readonly padronEntryModel: Model<PadronEntryDocument>,
     @InjectModel(PadronImportJob.name)
     private readonly padronImportJobModel: Model<PadronImportJobDocument>,
+    @InjectModel(PadronStagingEntry.name)
+    private readonly padronStagingEntryModel: Model<PadronStagingEntryDocument>,
     @InjectModel(ComparisonReport.name)
     private readonly comparisonReportModel: Model<ComparisonReportDocument>,
     @InjectModel(Participation.name)
@@ -1160,19 +1166,36 @@ export class VotingEventsService {
       );
     }
 
-    const readiness = await this.evaluateReviewReadiness(event);
-    if (!readiness.isReady) {
-      throw new BadRequestException({
-        message: 'Faltan precondiciones para confirmar la publicación oficial',
-        pending: readiness.pending,
-      });
-    }
-
     if (!this.canStillBeOfficiallyPublished(event)) {
       await this.markAsPublicationExpired(event);
       throw new BadRequestException({
         message: `La elección ya no puede publicarse oficialmente porque venció el plazo de ${this.accessService.getOfficialPublicationLeadHours()} horas`,
         state: event.state,
+      });
+    }
+
+    const initialReadiness = await this.evaluateReviewReadiness(event);
+    const pendingBeforeCleanup = initialReadiness.pending.filter(
+      (item) => item !== 'padron_validation',
+    );
+    if (!initialReadiness.isReady && pendingBeforeCleanup.length > 0) {
+      throw new BadRequestException({
+        message: 'Faltan precondiciones para confirmar la publicación oficial',
+        pending: initialReadiness.pending,
+      });
+    }
+
+    const removedUnregistered =
+      await this.padronService.removeUnregisteredStagingEntriesForOfficialPublication(
+        eventId,
+        requester,
+      );
+
+    const readiness = await this.evaluateReviewReadiness(event);
+    if (!readiness.isReady) {
+      throw new BadRequestException({
+        message: 'Faltan precondiciones para confirmar la publicación oficial',
+        pending: readiness.pending,
       });
     }
 
@@ -1222,7 +1245,10 @@ export class VotingEventsService {
     await event.save();
     await this.notificationsService.notifyOfficialPublicationConfirmed(event);
 
-    return this.mapPublicationStateResponse(event);
+    return {
+      ...this.mapPublicationStateResponse(event),
+      removedUnregisteredCount: removedUnregistered.removedCount,
+    };
   }
 
   async publishEvent(
@@ -1412,15 +1438,29 @@ export class VotingEventsService {
         Number(activeDraft.summary?.invalidCount ?? 0) +
         Number(activeDraft.summary?.duplicateCount ?? 0);
       const missingIdentityCount = Number(activeDraft.summary?.missingIdentityCount ?? 0);
+      const enabledCount = Number(activeDraft.summary?.enabledCount ?? 0);
 
       if (stagingCount <= 0) pending.push('padron');
       if (invalidCount > 0) pending.push('padron_invalid');
-      if (missingIdentityCount > 0) pending.push('padron_validation');
+      if (stagingCount > 0 && invalidCount === 0 && enabledCount <= 0) {
+        pending.push('padron_registered_enabled');
+      } else if (missingIdentityCount > 0 && event.state === 'DRAFT') {
+        const registeredEnabledCount =
+          await this.countRegisteredEnabledStagingEntries(activeDraft._id);
+        if (registeredEnabledCount <= 0) {
+          pending.push('padron_registered_enabled');
+        }
+      }
     } else if (!currentPadron) {
       pending.push('padron');
     } else {
       if (Number(currentPadron?.totals?.validCount ?? 0) <= 0) pending.push('padron');
       if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) pending.push('padron_invalid');
+      if (Number(currentPadron?.totals?.validCount ?? 0) > 0) {
+        const registeredEnabledCurrentPadronCount =
+          await this.countRegisteredEnabledCurrentPadronEntries(currentPadron._id);
+        if (registeredEnabledCurrentPadronCount <= 0) pending.push('padron_registered_enabled');
+      }
 
       const comparisonReportOk = await this.comparisonReportModel.exists({
         padronVersionId: currentPadron._id,
@@ -1465,5 +1505,53 @@ export class VotingEventsService {
       isReady: dedupedPending.length === 0,
       activeOptions
     };
+  }
+
+  private async countRegisteredEnabledStagingEntries(importJobId: Types.ObjectId | string) {
+    const entries = await this.padronStagingEntryModel
+      .find({ importJobId, enabled: true }, { ciNorm: 1 })
+      .lean();
+    if (!entries.length) {
+      return 0;
+    }
+
+    const dids = await this.issuerService.getDidsByDnis(
+      entries
+        .map((entry) => String(entry.ciNorm ?? '').trim())
+        .filter((ci) => ci.length > 0),
+    );
+    const registeredDniSet = new Set(
+      dids
+        .map((did) => String(did?.dni ?? '').trim())
+        .filter((dni) => dni.length > 0),
+    );
+
+    return entries.filter((entry) =>
+      registeredDniSet.has(String(entry.ciNorm ?? '').trim()),
+    ).length;
+  }
+
+  private async countRegisteredEnabledCurrentPadronEntries(padronVersionId: Types.ObjectId | string) {
+    const entries = await this.padronEntryModel
+      .find({ padronVersionId, enabled: true }, { carnetNorm: 1 })
+      .lean();
+    if (!entries.length) {
+      return 0;
+    }
+
+    const dids = await this.issuerService.getDidsByDnis(
+      entries
+        .map((entry) => String(entry.carnetNorm ?? '').trim())
+        .filter((carnet) => carnet.length > 0),
+    );
+    const registeredDniSet = new Set(
+      dids
+        .map((did) => String(did?.dni ?? '').trim())
+        .filter((dni) => dni.length > 0),
+    );
+
+    return entries.filter((entry) =>
+      registeredDniSet.has(String(entry.carnetNorm ?? '').trim()),
+    ).length;
   }
 }

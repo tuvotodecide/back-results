@@ -541,6 +541,82 @@ export class PadronService {
     };
   }
 
+  async removeUnregisteredStagingEntriesForOfficialPublication(
+    eventId: string,
+    requester: any,
+  ) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    await this.assertStructuralEditableState(
+      event,
+      'preparar el padrón para la publicación oficial',
+    );
+
+    const importJob = await this.getActiveImportJob(event._id);
+    if (!importJob) {
+      return {
+        removedCount: 0,
+        remainingCount: 0,
+      };
+    }
+
+    const entries = await this.padronStagingEntryModel
+      .find({ importJobId: importJob._id }, { _id: 1, ciNorm: 1 })
+      .lean();
+
+    if (!entries.length) {
+      throw new BadRequestException('No hay registros del padrón para publicar.');
+    }
+
+    const dids = await this.issuerService.getDidsByDnis(
+      entries
+        .map((entry) => String(entry.ciNorm ?? '').trim())
+        .filter((ci) => ci.length > 0),
+    );
+    const registeredDniSet = new Set(
+      dids
+        .map((did) => String(did?.dni ?? '').trim())
+        .filter((dni) => dni.length > 0),
+    );
+    const unregisteredEntries = entries.filter(
+      (entry) => !registeredDniSet.has(String(entry.ciNorm ?? '').trim()),
+    );
+
+    if (!unregisteredEntries.length) {
+      await this.refreshImportJobSummary(importJob._id);
+      return {
+        removedCount: 0,
+        remainingCount: entries.length,
+      };
+    }
+
+    if (entries.length - unregisteredEntries.length <= 0) {
+      throw new BadRequestException(
+        'No se puede publicar oficialmente porque todos los registros del padrón están no registrados. Debe quedar al menos un registro registrado en el padrón.',
+      );
+    }
+
+    const objectIds = unregisteredEntries.map((entry) => entry._id);
+    const deleteResult = await this.padronStagingEntryModel.deleteMany({
+      _id: { $in: objectIds },
+      importJobId: importJob._id,
+    });
+    const removedCount = Number(deleteResult?.deletedCount ?? 0);
+
+    if (removedCount !== objectIds.length) {
+      throw new BadRequestException(
+        'No se pudieron eliminar los registros no registrados antes de publicar.',
+      );
+    }
+
+    await this.refreshImportJobSummary(importJob._id);
+
+    return {
+      removedCount,
+      remainingCount: entries.length - removedCount,
+    };
+  }
+
   async addCurrentPadronVoter(
     eventId: string,
     dto: AddCurrentPadronVoterDto,
@@ -731,6 +807,8 @@ export class PadronService {
     if (!requester?.sub) {
       throw new ForbiddenException('Usuario no identificado');
     }
+
+    await this.refreshImportJobSummary(importJob._id);
 
     const entries = await this.padronStagingEntryModel
       .find({ importJobId: importJob._id })
@@ -1640,8 +1718,6 @@ export class PadronService {
     }
 
     const stagingCount = entries.length;
-    const enabledCount = entries.filter((entry) => entry.enabled !== false).length;
-    const disabledCount = stagingCount - enabledCount;
     const currentErrorCount = Array.isArray(job.errors) ? job.errors.length : 0;
     const dids =
       stagingCount > 0
@@ -1656,9 +1732,29 @@ export class PadronService {
         .map((did) => String(did?.dni ?? '').trim())
         .filter((dni) => dni.length > 0),
     );
-    const missingIdentityCount = entries.filter(
+    const missingIdentityEntries = entries.filter(
       (entry) => !didSet.has(String(entry.ciNorm ?? '').trim()),
-    ).length;
+    );
+    const missingIdentityCount = missingIdentityEntries.length;
+    const enabledMissingIdentityIds = missingIdentityEntries
+      .filter((entry) => entry.enabled !== false)
+      .map((entry) => entry._id)
+      .filter(Boolean);
+    if (enabledMissingIdentityIds.length > 0) {
+      await this.padronStagingEntryModel.updateMany(
+        { _id: { $in: enabledMissingIdentityIds }, importJobId },
+        { $set: { enabled: false } },
+      );
+    }
+    const normalizedEntries = entries.map((entry) => {
+      const ciNorm = String(entry.ciNorm ?? '').trim();
+      return {
+        ...entry,
+        enabled: didSet.has(ciNorm) && entry.enabled !== false,
+      };
+    });
+    const enabledCount = normalizedEntries.filter((entry) => entry.enabled).length;
+    const disabledCount = stagingCount - enabledCount;
     const recalculatedStatus = this.resolveImportJobStatus(stagingCount, currentErrorCount);
 
     await this.padronImportJobModel.updateOne(

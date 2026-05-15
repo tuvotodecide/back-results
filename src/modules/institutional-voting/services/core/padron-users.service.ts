@@ -7,6 +7,7 @@ import { ComparisonReport, ComparisonReportDocument } from "../../schemas/compar
 import { User, UserDocument } from "@/modules/users/schemas/user.schema";
 import { normalizeCarnet } from "../../utils/carnet-normalizer";
 import { VotingEventDocument } from "../../schemas/voting-event.schema";
+import { IssuerService } from "./issuer.service";
 
 export type PadronResolvedUser = {
   _id: Types.ObjectId;
@@ -26,6 +27,7 @@ export class PadronUsersService {
     private readonly comparisonReportModel: Model<ComparisonReportDocument>,
     @InjectModel(User.name)
     private readonly userModel: Model<UserDocument>,
+    private readonly issuerService: IssuerService,
   ) {}
 
   async getPadronUsersFromEvent(
@@ -79,24 +81,19 @@ export class PadronUsersService {
       return [];
     }
 
-    await this.userModel.bulkWrite(
-      carnetList.map((dni) => ({
-        updateOne: {
-          filter: { dni },
-          update: {
-            $setOnInsert: {
-              dni,
-              active: true,
-            },
-          },
-          upsert: true,
-        },
-      })),
-      { ordered: false },
+    const dids = await this.issuerService.getDidsByDnis(carnetList);
+    const registeredDniSet = new Set(
+      dids
+        .map((did) => String(did?.dni ?? '').trim())
+        .filter((dni) => dni.length > 0),
     );
+    const registeredCarnetList = carnetList.filter((dni) => registeredDniSet.has(dni));
+    if (!registeredCarnetList.length) {
+      return [];
+    }
 
     const recipients = await this.userModel
-      .find({ dni: { $in: carnetList }, active: true }, { _id: 1, dni: 1, active: 1 })
+      .find({ dni: { $in: registeredCarnetList }, active: true }, { _id: 1, dni: 1, active: 1 })
       .lean();
 
 

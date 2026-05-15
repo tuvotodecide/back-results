@@ -79,6 +79,7 @@ describe('PadronService (unit)', () => {
       exists: jest.fn(),
       create: jest.fn(),
       find: jest.fn(),
+      updateMany: jest.fn(),
       findOne: jest.fn(),
       findOneAndDelete: jest.fn(),
       deleteMany: jest.fn(),
@@ -374,6 +375,104 @@ describe('PadronService (unit)', () => {
       expect.objectContaining({
         importJobId: String(importJobId),
         status: 'PARSED',
+      }),
+    );
+  });
+
+  it('inhabilita automáticamente registros sin identidad aunque lleguen como enabled=true', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const registeredEntryId = new Types.ObjectId();
+    const unregisteredEntryId = new Types.ObjectId();
+    const file = {
+      originalname: 'padron.pdf',
+      mimetype: 'application/pdf',
+      size: 64,
+      buffer: Buffer.from('%PDF-1.4\n123456 si\n789000 si\n', 'utf-8'),
+    };
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.create.mockResolvedValue({
+      _id: importJobId,
+    });
+    padronPdfParserService.parseDocument.mockResolvedValue({
+      rows: [
+        { ci: '123456', enabled: true, sourceRow: 1 },
+        { ci: '789000', enabled: true, sourceRow: 2 },
+      ],
+      errors: [],
+      provider: 'local-fallback',
+      model: null,
+      usedFallback: true,
+    });
+    padronImportJobModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        eventId: baseEvent._id,
+        tenantId: baseEvent.tenantId,
+        sourceType: 'PDF',
+        status: 'PARSED',
+        isActiveDraft: true,
+        originalFileName: file.originalname,
+        originalFileMimeType: file.mimetype,
+        originalFileSize: file.size,
+        originalFileSha256: createHash('sha256').update(file.buffer).digest('hex'),
+        parserProvider: 'local-fallback',
+        parserModel: null,
+        parserUsedFallback: true,
+        summary: {
+          parsedCount: 2,
+          validCount: 2,
+          duplicateCount: 0,
+          invalidCount: 0,
+          stagingCount: 2,
+          enabledCount: 1,
+          disabledCount: 1,
+          missingIdentityCount: 1,
+        },
+        errors: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    });
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        summary: {
+          parsedCount: 2,
+          validCount: 2,
+          duplicateCount: 0,
+          invalidCount: 0,
+        },
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { _id: registeredEntryId, ciNorm: '123456', enabled: true },
+        { _id: unregisteredEntryId, ciNorm: '789000', enabled: true },
+      ]),
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '123456' }]);
+    padronStagingEntryModel.countDocuments.mockResolvedValue(2);
+
+    await service.uploadPadronPdf(String(baseEvent._id), file, requester);
+
+    expect(padronStagingEntryModel.updateMany).toHaveBeenCalledWith(
+      { _id: { $in: [unregisteredEntryId] }, importJobId },
+      { $set: { enabled: false } },
+    );
+    expect(padronImportJobModel.updateOne).toHaveBeenCalledWith(
+      { _id: importJobId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          summary: expect.objectContaining({
+            enabledCount: 1,
+            disabledCount: 1,
+            missingIdentityCount: 1,
+          }),
+        }),
       }),
     );
   });
@@ -916,6 +1015,143 @@ describe('PadronService (unit)', () => {
     });
     expect(materializeSpy).toHaveBeenCalledTimes(1);
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
+  });
+
+  it('elimina solo no registrados al preparar publicación oficial', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const registeredA = new Types.ObjectId();
+    const unregistered = new Types.ObjectId();
+    const registeredB = new Types.ObjectId();
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: baseEvent._id,
+          tenantId: baseEvent.tenantId,
+          status: 'PARSED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.find
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue([
+          { _id: registeredA, ciNorm: '111' },
+          { _id: unregistered, ciNorm: '222' },
+          { _id: registeredB, ciNorm: '333' },
+        ]),
+      })
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue([
+          { ciNorm: '111', enabled: true },
+          { ciNorm: '333', enabled: false },
+        ]),
+      });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '111' }, { dni: '333' }]);
+    padronStagingEntryModel.deleteMany.mockResolvedValue({ deletedCount: 1 });
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        status: 'PARSED',
+        errors: [],
+      }),
+    });
+
+    const result = await service.removeUnregisteredStagingEntriesForOfficialPublication(
+      String(baseEvent._id),
+      requester,
+    );
+
+    expect(result).toEqual({
+      removedCount: 1,
+      remainingCount: 2,
+    });
+    expect(padronStagingEntryModel.deleteMany).toHaveBeenCalledWith({
+      _id: { $in: [unregistered] },
+      importJobId,
+    });
+    expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
+  });
+
+  it('no elimina si los no registrados ya se registraron antes de publicar', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const entryId = new Types.ObjectId();
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: baseEvent._id,
+          tenantId: baseEvent.tenantId,
+          status: 'PARSED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.find
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue([{ _id: entryId, ciNorm: '222' }]),
+      })
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue([{ ciNorm: '222', enabled: false }]),
+      });
+    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '222' }]);
+    padronImportJobModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: importJobId,
+        status: 'PARSED',
+        errors: [],
+      }),
+    });
+
+    const result = await service.removeUnregisteredStagingEntriesForOfficialPublication(
+      String(baseEvent._id),
+      requester,
+    );
+
+    expect(result).toEqual({
+      removedCount: 0,
+      remainingCount: 1,
+    });
+    expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('bloquea publicación oficial si eliminar no registrados dejaría el padrón vacío', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const importJobId = new Types.ObjectId();
+    const entryId = new Types.ObjectId();
+
+    accessService.getEventOrThrow.mockResolvedValue(baseEvent);
+    padronImportJobModel.findOne.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue({
+          _id: importJobId,
+          eventId: baseEvent._id,
+          tenantId: baseEvent.tenantId,
+          status: 'PARSED',
+          isActiveDraft: true,
+        }),
+      }),
+    });
+    padronStagingEntryModel.find.mockReturnValueOnce({
+      lean: jest.fn().mockResolvedValue([{ _id: entryId, ciNorm: '222' }]),
+    });
+    issuerService.getDidsByDnis.mockResolvedValue([]);
+
+    await expect(
+      service.removeUnregisteredStagingEntriesForOfficialPublication(
+        String(baseEvent._id),
+        requester,
+      ),
+    ).rejects.toThrow(
+      'No se puede publicar oficialmente porque todos los registros del padrón están no registrados. Debe quedar al menos un registro registrado en el padrón.',
+    );
+    expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
   });
 
   it('actualiza el estado de aprobación de una versión específica del padrón', async () => {
