@@ -422,6 +422,42 @@ export class InstitutionalVotingAdminController {
     return this.institutionalVotingService.uploadPadronFile(eventId, file, req.user);
   }
 
+  @Post(':eventId/padron/gemini-import')
+  @ApiOperation({
+    summary: 'Analizar padrón con IA desde backend',
+    description:
+      'Recibe un PDF o imagen, procesa el documento con la configuración segura del backend y devuelve registros listos para staging editable.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+          description: 'Archivo PDF, JPG, JPEG, PNG o WEBP',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Documento analizado correctamente.' })
+  @ApiResponse({ status: 400, description: 'No se pudo procesar el documento.' })
+  @UseInterceptors(FileInterceptor('file'))
+  analyzePadronWithGemini(
+    @Param('eventId') eventId: string,
+    @UploadedFile() file: any,
+    @Req() req: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Archivo requerido');
+    }
+
+    return this.institutionalVotingService.analyzePadronWithGemini(eventId, file, req.user);
+  }
+
   @Post(':eventId/padron/imports/pdf')
   @ApiOperation({
     summary: 'Alias legacy para subir padrón desde documento',

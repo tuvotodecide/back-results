@@ -60,6 +60,7 @@ import { HttpModule } from '@nestjs/axios';
 import { PadronUsersService } from './services/core/padron-users.service';
 import { PadronCertificatePdfService } from './services/core/padron-certificate-pdf.service';
 import { PadronPdfParserService } from './services/core/padron-pdf-parser.service';
+import { PadronGeminiImportService } from './services/core/padron-gemini-import.service';
 import { FirebaseModule } from '@/core/firebase/firebase.module';
 import { VoteReaderService } from './services/core/vote-reader.service';
 import { PresentialSessionsService } from './services/presential/presential-sessions.service';
@@ -108,6 +109,7 @@ import { IssuerService } from './services/core/issuer.service';
     PadronUsersService,
     PadronCertificatePdfService,
     PadronPdfParserService,
+    PadronGeminiImportService,
     VoteReaderService,
     VoteWritterService,
     EmitVoteService,
@@ -118,7 +120,7 @@ import { IssuerService } from './services/core/issuer.service';
     ParticipationService,
     PresentialSessionsService,
     VotingResultsService,
-    IssuerService
+    IssuerService,
   ],
   exports: [InstitutionalVotingService],
 })

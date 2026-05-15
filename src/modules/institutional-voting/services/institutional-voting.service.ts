@@ -161,6 +161,10 @@ export class InstitutionalVotingService {
     return this.padronService.uploadPadronFile(eventId, file, requester);
   }
 
+  analyzePadronWithGemini(eventId: string, file: any, requester: any) {
+    return this.padronService.analyzePadronWithGemini(eventId, file, requester);
+  }
+
   getPadronImport(eventId: string, importJobId: string, requester: any) {
     return this.padronService.getPadronImport(eventId, importJobId, requester);
   }

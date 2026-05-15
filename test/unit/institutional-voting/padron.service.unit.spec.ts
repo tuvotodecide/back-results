@@ -17,6 +17,7 @@ import { PadronCertificate } from '@/modules/institutional-voting/schemas/padron
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
 import { PadronCertificatePdfService } from '@/modules/institutional-voting/services/core/padron-certificate-pdf.service';
 import { PadronPdfParserService } from '@/modules/institutional-voting/services/core/padron-pdf-parser.service';
+import { PadronGeminiImportService } from '@/modules/institutional-voting/services/core/padron-gemini-import.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
 import { EnabledSession } from '@/modules/institutional-voting/schemas/enabled-session.shcema';
 import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
@@ -35,6 +36,7 @@ describe('PadronService (unit)', () => {
   let accessService: any;
   let padronCertificatePdfService: any;
   let padronPdfParserService: any;
+  let padronGeminiImportService: any;
   let voteWritterService: any;
   let notificationsService: any;
   let issuerService: any;
@@ -112,6 +114,9 @@ describe('PadronService (unit)', () => {
       getSourceType: jest.fn(() => 'PDF'),
       parseDocument: jest.fn(),
     };
+    padronGeminiImportService = {
+      analyzeDocument: jest.fn(),
+    };
     voteWritterService = {
       addNewVoters: jest.fn(),
     };
@@ -154,6 +159,7 @@ describe('PadronService (unit)', () => {
         { provide: InstitutionalVotingAccessService, useValue: accessService },
         { provide: PadronCertificatePdfService, useValue: padronCertificatePdfService },
         { provide: PadronPdfParserService, useValue: padronPdfParserService },
+        { provide: PadronGeminiImportService, useValue: padronGeminiImportService },
         { provide: VoteWritterService, useValue: voteWritterService },
         {
           provide: InstitutionalVotingNotificationsService,

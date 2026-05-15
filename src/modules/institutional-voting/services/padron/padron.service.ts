@@ -43,6 +43,7 @@ import {
   PadronPdfParserService,
   ParsedPadronRow,
 } from '../core/padron-pdf-parser.service';
+import { PadronGeminiImportService } from '../core/padron-gemini-import.service';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
 import { IssuerService } from '../core/issuer.service';
 import { EnabledSession, EnabledSessionDocument } from '../../schemas/enabled-session.shcema';
@@ -82,6 +83,7 @@ export class PadronService {
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly padronCertificatePdfService: PadronCertificatePdfService,
     private readonly padronPdfParserService: PadronPdfParserService,
+    private readonly padronGeminiImportService: PadronGeminiImportService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
     private readonly issuerService: IssuerService,
     private readonly voteWritterService: VoteWritterService,
@@ -242,6 +244,19 @@ export class PadronService {
 
   async uploadPadronPdf(eventId: string, file: any, requester: any) {
     return this.uploadPadronFile(eventId, file, requester);
+  }
+
+  async analyzePadronWithGemini(eventId: string, file: any, requester: any) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    await this.assertStructuralEditableState(event, 'analizar el padrón');
+    this.padronPdfParserService.validateSourceFile(file);
+
+    if (!requester?.sub) {
+      throw new ForbiddenException('Usuario no identificado');
+    }
+
+    return this.padronGeminiImportService.analyzeDocument(file);
   }
 
   async getPadronImport(eventId: string, importJobId: string, requester: any) {
