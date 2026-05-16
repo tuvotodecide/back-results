@@ -136,7 +136,7 @@ describe('Institutional voting integration - padron editing rules', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      buildMockPdf(['ABC123 si', 'XYZ999 no']),
+      buildMockPdf(['ABC123 si', 'XYZ999 no', 'DEF456 si']),
     );
 
     expect(upload.status).toBe(201);
@@ -147,7 +147,7 @@ describe('Institutional voting integration - padron editing rules', () => {
       .auth(ctx.adminToken, { type: 'bearer' });
 
     expect(staging.status).toBe(200);
-    expect(staging.body.total).toBe(2);
+    expect(staging.body.total).toBe(3);
 
     const edited = await request(ctx.httpServer)
       .patch(`/api/v1/voting/events/${eventId}/padron/staging/${staging.body.data[0].id}`)
@@ -186,7 +186,7 @@ describe('Institutional voting integration - padron editing rules', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      'carnet,habilitado\nABC-123,no\n',
+      'carnet,habilitado\nABC-123,no\n123456,si\n',
     );
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
@@ -245,7 +245,7 @@ describe('Institutional voting integration - padron editing rules', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      'carnet,habilitado\nABC-123,no\n',
+      'carnet,habilitado\nABC-123,no\n123456,si\n',
     );
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
@@ -291,8 +291,8 @@ describe('Institutional voting integration - padron editing rules', () => {
       .auth(ctx.adminToken, { type: 'bearer' });
 
     expect(summary.status).toBe(200);
-    expect(summary.body.total).toBe(1);
-    expect(summary.body.enabledToVote).toBe(1);
+    expect(summary.body.total).toBe(2);
+    expect(summary.body.enabledToVote).toBe(2);
     expect(summary.body.disabledToVote).toBe(0);
 
     const notifications = await ctx.conn
@@ -316,7 +316,7 @@ describe('Institutional voting integration - padron editing rules', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      'carnet,habilitado\nABC-123,no\n',
+      'carnet,habilitado\nABC-123,no\n123456,si\n',
     );
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
@@ -369,7 +369,7 @@ describe('Institutional voting integration - padron editing rules', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      'carnet,habilitado\nABC-123,no\n',
+      'carnet,habilitado\nABC-123,no\n123456,si\n',
     );
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);

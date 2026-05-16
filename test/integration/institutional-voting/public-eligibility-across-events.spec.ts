@@ -148,7 +148,7 @@ describe('Institutional voting integration - public eligibility across events', 
       ctx.httpServer,
       ctx.adminToken,
       disabledEventId,
-      'carnet,habilitado\nABC-789,no\n',
+      'carnet,habilitado\nABC-789,no\n123456,si\n',
     );
     await markComparisonOk(disabledEventId);
     const disabledReady = await markInstitutionalEventReadyForReview(

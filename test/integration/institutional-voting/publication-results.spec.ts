@@ -185,7 +185,7 @@ describe('Institutional voting integration - publication and results', () => {
     expect(eventInDb?.officialPublishedAt).toBeTruthy();
   });
 
-  it('genera notificaciones de revisión aunque no existan usuarios previamente vinculados', async () => {
+  it('no genera notificaciones de revisión cuando no existan usuarios previamente vinculados', async () => {
     await ctx.conn.collection('users').deleteMany({
       dni: { $in: ['123456', 'ABC789'] },
     });
@@ -204,7 +204,7 @@ describe('Institutional voting integration - publication and results', () => {
       .collection('user_notifications')
       .find({ 'data.eventId': eventId, 'data.type': 'INSTITUTIONAL_PADRON_REVIEW_OPEN' })
       .toArray();
-    expect(notifications).toHaveLength(2);
+    expect(notifications).toHaveLength(0);
   });
 
   it('bloquea resultados antes de la fecha permitida y luego los expone con snapshot', async () => {

@@ -191,7 +191,7 @@ describe('Institutional voting integration - participation flow', () => {
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      'carnet,habilitado\nABC-789,no\n',
+      'carnet,habilitado\nABC-789,no\n123456,si\n',
     );
 
     await request(ctx.httpServer)

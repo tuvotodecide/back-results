@@ -2009,11 +2009,13 @@ export class PadronService {
   private buildPadronEditingRules(event: any) {
     const canEditEverything = this.accessService.canFullyEditEvent(event);
     const canEditDuringVoting = this.accessService.canModifyPadronDuringVoting(event);
+    const canEditPadronInLimitedMode =
+      this.accessService.canEnableExistingPadronEntriesPostPublication(event);
 
     return {
       canEditEverything,
       canEditDuringVoting,
-      canEditPadronInLimitedMode: canEditDuringVoting,
+      canEditPadronInLimitedMode,
       mode: canEditEverything ? 'FULL' : canEditDuringVoting ? 'VOTING_LIMITED' : 'READ_ONLY',
       fullEditDeadline: event.publishDeadline ?? null,
       dateValidationMinHours: this.accessService.getCreateLeadHours(),
