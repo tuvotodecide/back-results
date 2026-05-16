@@ -967,7 +967,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
   });
 
   it('PAR-004: votante inhabilitado no puede participar', async () => {
-    const eventId = await createPublishReadyEvent('carnet,habilitado\nABC-789,no\n');
+    const eventId = await createPublishReadyEvent('carnet,habilitado\nABC-789,no\n123456,si\n');
     const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
     expect(published.status).toBe(201);
     await updateEventDatesInDb(eventId, {
@@ -1170,7 +1170,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownEligibleEventId);
 
     const ownDisabledEventId = await createPublishReadyEvent(
-      'carnet,habilitado\nABC-789,no\n',
+      'carnet,habilitado\nABC-789,no\n123456,si\n',
       { name: ownDisabledName },
     );
     await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownDisabledEventId);
@@ -1482,7 +1482,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(publishNews.body.skipped).toBe('no_linked_users');
   });
 
-  it('NEWS-003: con comparison OK crea usuario desde padron y envia noticia', async () => {
+  it('NEWS-003: con comparison OK envia noticia a usuario vinculado del padron', async () => {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -1490,12 +1490,26 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       institutionalVotingFixtures.event,
     );
     const eventId = created.body.id;
+    const linkedDni = '999001';
+
+    await ctx.conn.collection('users').updateOne(
+      { dni: linkedDni },
+      {
+        $set: {
+          dni: linkedDni,
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
 
     await uploadPadronCsv(
       ctx.httpServer,
       ctx.adminToken,
       eventId,
-      'carnet\n999001\n',
+      `carnet\n${linkedDni}\n`,
     );
 
     await request(ctx.httpServer)
@@ -1514,7 +1528,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
     const storedNews = await ctx.conn
       .collection('user_notifications')
-      .findOne({ dni: '999001', title: institutionalVotingFixtures.news.title });
+      .findOne({ dni: linkedDni, title: institutionalVotingFixtures.news.title });
     expect(storedNews).toBeTruthy();
   });
 });
