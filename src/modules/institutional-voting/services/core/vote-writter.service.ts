@@ -8,7 +8,6 @@ import { entryPoint07Address, toCoinbaseSmartAccount } from "viem/account-abstra
 import { privateKeyToAccount } from "viem/accounts";
 import { VotingEventDocument } from "../../schemas/voting-event.schema";
 import { VoteContractCalls } from "@/api/vote";
-import { PadronResolvedUser } from "./padron-users.service";
 
 @Injectable()
 export class VoteWritterService {
@@ -181,5 +180,13 @@ export class VoteWritterService {
     );
     await this.executeOperation(callData, undefined, undefined);
     return newNullifiers;
+  }
+
+  async disableVote(eventId: string) {
+    const callData = VoteContractCalls.disableVote(
+      this.chain,
+      eventId
+    );
+    await this.executeOperation(callData, undefined, undefined);
   }
 }

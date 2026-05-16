@@ -971,7 +971,7 @@ export class VotingEventsService {
       .findOneAndUpdate(
         { _id: new Types.ObjectId(optionId), eventId: event._id },
         { $set: { candidates: dto.candidates } },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .lean();
 
@@ -996,7 +996,7 @@ export class VotingEventsService {
       .findOneAndUpdate(
         { _id: new Types.ObjectId(optionId), eventId: new Types.ObjectId(eventId) },
         { $set: { active: false } },
-        { new: true },
+        { returnDocument: 'after' },
       )
       .lean();
 
@@ -1257,6 +1257,21 @@ export class VotingEventsService {
     dto: ConfirmOfficialPublicationDto = {},
   ) {
     return this.confirmOfficialPublication(eventId, dto, requester);
+  }
+
+  async disableEvent(eventId: string, requester: any) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    if (event.state !== 'OFFICIALLY_PUBLISHED') {
+      throw new BadRequestException('No se puede deshabilitar un evento aún no publicado oficialmente');
+    }
+
+    await this.voteWritterService.disableVote(eventId);
+
+    event.state = 'DISABLED';
+    event.disabledAt = new Date();
+    await event.save();
   }
 
   async setPublicEligibility(eventId: string, enabled: boolean, requester: any) {

@@ -959,4 +959,16 @@ export class InstitutionalVotingAdminController {
       body.padronVersionId,
     );
   }
+
+  @Post(':eventId/disable')
+  @ApiOperation({
+    summary: 'Deshabilitar evento',
+    description:
+      'Deshabilita el evento para que no aparezca en la app móvil ni se pueda modificar, pero mantiene su integridad para auditoría y resultados.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiResponse({ status: 200, description: 'Evento deshabilitado.' })
+  disableEvent(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.disableEvent(eventId, req.user);
+  }
 }

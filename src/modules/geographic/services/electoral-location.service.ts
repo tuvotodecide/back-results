@@ -172,7 +172,7 @@ export class ElectoralLocationService {
     const location = await this.findOne(id);
     const tables = await this.electoralTableModel
       .find({
-        electoralLocationId: location.id,
+        electoralLocationId: location._id,
         active: true,
       })
       .sort({ tableNumber: 1 })
@@ -634,7 +634,7 @@ export class ElectoralLocationService {
           $set,
           $setOnInsert: { electoralSeatId: seatId, code, name, active: true },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       )
       .lean();
 
@@ -725,7 +725,7 @@ export class ElectoralLocationService {
       .findOneAndUpdate(
         filter,
         { $set, $setOnInsert: setOnInsert },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       )
       .lean();
 

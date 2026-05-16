@@ -32,7 +32,7 @@ export class LocksService {
         ],
       },
       { $set: { owner, expiresAt: newExp } },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' },
     ).lean<LockDoc>().exec().catch((e) => {
       this.logger.warn(`tryAcquire failed (${key}): ${String(e)}`);
       return null;

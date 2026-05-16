@@ -72,7 +72,7 @@ export class MailService {
           to, template, data
         })}`,
       );
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(
         `Error while sending mail: ` + error.message,
       );

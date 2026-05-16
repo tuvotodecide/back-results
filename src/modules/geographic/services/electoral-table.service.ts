@@ -55,7 +55,7 @@ export class ElectoralTableService {
         'ElectoralTableService',
       );
       return saved;
-    } catch (error) {
+    } catch (error: any) {
       if (error.code === 11000) {
         if (error.message.includes('tableCode')) {
           throw new ConflictException(
@@ -355,7 +355,7 @@ export class ElectoralTableService {
         'ElectoralTableService',
       );
       return table;
-    } catch (error) {
+    } catch (error: any) {
       if (error.code === 11000) {
         if (error.message.includes('tableCode')) {
           throw new ConflictException(
@@ -551,7 +551,7 @@ export class ElectoralTableService {
               active: true,
             },
           },
-          { upsert: true, new: true },
+          { upsert: true, returnDocument: 'after' },
         )
         .lean();
       return doc;
@@ -571,7 +571,7 @@ export class ElectoralTableService {
               active: true,
             },
           },
-          { upsert: true, new: true },
+          { upsert: true, returnDocument: 'after' },
         )
         .lean();
       return doc;

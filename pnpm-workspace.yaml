@@ -1,0 +1,11 @@
+allowBuilds:
+  '@firebase/util': true
+  '@google/genai': true
+  '@nestjs/core': true
+  '@scarf/scarf': true
+  '@swc/core': true
+  bcrypt: true
+  bufferutil: true
+  mongodb-memory-server: true
+  protobufjs: true
+  utf-8-validate: true

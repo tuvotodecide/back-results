@@ -422,18 +422,18 @@ export class TestingSeederService {
           type: auditElectionType,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     const department = await this.departmentModel.findOneAndUpdate(
       { name: 'La Paz' },
       { $setOnInsert: { name: 'La Paz' } },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
     const province = await this.provinceModel.findOneAndUpdate(
       { name: 'Murillo', departmentId: department._id },
       { $setOnInsert: { name: 'Murillo', departmentId: department._id } },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
     const municipality = await this.municipalityModel.findOneAndUpdate(
       { name: 'Nuestra Señora de La Paz', provinceId: province._id },
@@ -443,7 +443,7 @@ export class TestingSeederService {
           provinceId: province._id,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
     const seat = await this.electoralSeatModel.findOneAndUpdate(
       {
@@ -457,7 +457,7 @@ export class TestingSeederService {
           municipalityId: municipality._id,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
     const location = await this.electoralLocationModel.findOneAndUpdate(
       {
@@ -488,7 +488,7 @@ export class TestingSeederService {
           electoralSeatId: seat._id,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
     const admin = await this.roledUserModel.findOneAndUpdate(
@@ -503,7 +503,7 @@ export class TestingSeederService {
           active: true,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     const client = await this.roledUserModel.findOneAndUpdate(
@@ -519,7 +519,7 @@ export class TestingSeederService {
           votingDepartmentId: department._id,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     const contract = await this.contractModel.findOneAndUpdate(
@@ -541,7 +541,7 @@ export class TestingSeederService {
           endDate: null,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     const delegateUser = await this.userModel.findOneAndUpdate(
@@ -553,7 +553,7 @@ export class TestingSeederService {
           votingLocationId: location._id,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     const delegate = await this.delegateModel.findOneAndUpdate(
@@ -577,7 +577,7 @@ export class TestingSeederService {
           ],
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     await this.politicalPartyModel.findOneAndUpdate(
@@ -591,7 +591,7 @@ export class TestingSeederService {
           active: true,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
     await this.politicalPartyModel.findOneAndUpdate(
       { partyId: `${AUDIT_PREFIX.toLowerCase()}libre` },
@@ -604,7 +604,7 @@ export class TestingSeederService {
           active: true,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     await this.electionPartyModel.findOneAndUpdate(
@@ -622,7 +622,7 @@ export class TestingSeederService {
           ballotNumber: 1,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
     await this.electionPartyModel.findOneAndUpdate(
       {
@@ -639,7 +639,7 @@ export class TestingSeederService {
           ballotNumber: 2,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     const tableCodes = ['2010701', '2010691'];
@@ -655,7 +655,7 @@ export class TestingSeederService {
             observedByElection: {},
           },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
     }
 
@@ -735,7 +735,7 @@ export class TestingSeederService {
             version: 1,
           },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
       ballots.push(ballot);
 
@@ -751,7 +751,7 @@ export class TestingSeederService {
             summary: {},
           },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
 
       await this.attestationModel.findOneAndUpdate(
@@ -767,7 +767,7 @@ export class TestingSeederService {
             isValidForClientReport: true,
           },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
     }
 
@@ -956,7 +956,7 @@ export class TestingSeederService {
             active: true,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
       parties.push(doc);
     }
@@ -1001,7 +1001,7 @@ export class TestingSeederService {
       const doc = await this.electionConfigModel.findOneAndUpdate(
         { name: electionData.name },
         { $set: { ...electionData, isActive: false } },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
       if (doc) {
         elections.push(doc as ElectionConfigDocument & { _id: Types.ObjectId });
@@ -1170,7 +1170,7 @@ export class TestingSeederService {
             const ballot = await this.ballotModel.findOneAndUpdate(
               { electionId: election._id, tableCode, version: 1 },
               { $set: ballotData },
-              { upsert: true, new: true },
+              { upsert: true, returnDocument: 'after' },
             );
             ballots.push(ballot);
           } catch (err) {
@@ -1212,7 +1212,7 @@ export class TestingSeederService {
           const attestCase = await this.attestationCaseModel.findOneAndUpdate(
             { electionId: election._id, tableCode: ballot.tableCode },
             { $set: caseData },
-            { upsert: true, new: true },
+            { upsert: true, returnDocument: 'after' },
           );
           cases.push(attestCase);
         } catch (err) {
@@ -1269,7 +1269,7 @@ export class TestingSeederService {
             active: true,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
       if (doc) {
         users.push(doc);
@@ -1424,7 +1424,7 @@ export class TestingSeederService {
         const doc = await this.contractModel.findOneAndUpdate(
           { clientId: user._id, electionId: election._id },
           { $set: contractData },
-          { upsert: true, new: true },
+          { upsert: true, returnDocument: 'after' },
         );
         if (doc) {
           contracts.push(doc);
@@ -1453,7 +1453,7 @@ export class TestingSeederService {
             active: true,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
       if (doc) {
         users.push(doc);
@@ -1522,7 +1522,7 @@ export class TestingSeederService {
             active: true,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
       if (doc) {
         delegates.push(doc);
@@ -1610,7 +1610,7 @@ export class TestingSeederService {
                     isValidForClientReport: true,
                   },
                 },
-                { upsert: true, new: true },
+                { upsert: true, returnDocument: 'after' },
               );
               attestations.push(attestation);
             } catch (err) {
@@ -1629,7 +1629,7 @@ export class TestingSeederService {
           const juryUser = await this.userModel.findOneAndUpdate(
             { dni: juryDni },
             { $set: { dni: juryDni, active: true } },
-            { upsert: true, new: true },
+            { upsert: true, returnDocument: 'after' },
           );
 
           try {
@@ -1649,7 +1649,7 @@ export class TestingSeederService {
                   isValidForClientReport: false,
                 },
               },
-              { upsert: true, new: true },
+              { upsert: true, returnDocument: 'after' },
             );
             attestations.push(attestation);
           } catch (err) {
