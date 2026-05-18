@@ -55,6 +55,7 @@
     "class-validator": "^0.14.4",
     "ejs": "^3.1.10",
     "ethers": "^6.16.0",
+    "express": "^5.2.1",
     "firebase-admin": "^13.10.0",
     "keyv": "^5.6.0",
     "mongodb": "^7.2.0",
