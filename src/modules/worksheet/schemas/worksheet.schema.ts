@@ -124,7 +124,7 @@ WorksheetSchema.index({ dni: 1, electionId: 1, tableCode: 1 }, { unique: true })
 WorksheetSchema.index({ userId: 1, electionId: 1, createdAt: -1 });
 WorksheetSchema.index({ electionId: 1, tableCode: 1, status: 1 });
 
-WorksheetSchema.pre('save', function (next) {
+WorksheetSchema.pre('save', function () {
   if (this.votes?.parties) {
     this.votes.parties.totalVotes =
       this.votes.parties.validVotes +
@@ -138,6 +138,4 @@ WorksheetSchema.pre('save', function (next) {
       this.votes.deputies.nullVotes +
       this.votes.deputies.blankVotes;
   }
-
-  next();
 });

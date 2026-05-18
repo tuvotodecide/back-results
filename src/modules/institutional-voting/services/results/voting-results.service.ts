@@ -63,7 +63,7 @@ export class VotingResultsService {
           roles: dto.roles,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
     return {

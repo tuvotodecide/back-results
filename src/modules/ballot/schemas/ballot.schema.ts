@@ -189,7 +189,7 @@ BallotSchema.index({ status: 1, valuable: 1, electionId: 1, tableCode: 1 });
 BallotSchema.index({ electionId: 1, hasObservation: 1, tableCode: 1 });
 
 // Middleware para calcular totalVotes en ambas categorías
-BallotSchema.pre('save', function (next) {
+BallotSchema.pre('save', function () {
   // Calcular totalVotes para presidentes
   if (this.votes?.parties) {
     this.votes.parties.totalVotes =
@@ -205,6 +205,4 @@ BallotSchema.pre('save', function (next) {
       this.votes.deputies.nullVotes +
       this.votes.deputies.blankVotes;
   }
-
-  next();
 });

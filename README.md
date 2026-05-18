@@ -7,7 +7,7 @@ Backend NestJS del sistema electoral. Expone APIs HTTP, flujos de autenticación
 1. Instalar dependencias:
 
 ```bash
-npm install
+pnpm install
 ```
 
 2. Crear variables de entorno a partir de `.env.example`.
@@ -15,15 +15,15 @@ npm install
 3. Ejecutar el backend:
 
 ```bash
-npm run start
+pnpm start
 ```
 
 Comandos útiles:
 
 ```bash
-npm run start:dev
-npm run start:debug
-npm run build
+pnpm start:dev
+pnpm start:debug
+pnpm build
 ```
 
 ## Configuración
@@ -43,20 +43,20 @@ npm run build
 Comandos disponibles:
 
 ```bash
-npm run test
-npm run test:unit
-npm run test:integration
-npm run test:e2e
-npm run test:acceptance
-npm run test:cov
+pnpm test
+pnpm test:unit
+pnpm test:integration
+pnpm test:e2e
+pnpm test:acceptance
+pnpm test:cov
 ```
 
 Verificación rápida antes de merge:
 
 ```bash
-npm run build
-npm run test:unit
-npm run test:integration
+pnpm build
+pnpm test:unit
+pnpm test:integration
 ```
 
 Si CI ya cubre suites completas, usar localmente al menos `build` y la suite afectada por el cambio.
@@ -75,7 +75,8 @@ Con la flag habilitada se montan estos endpoints no productivos de seed/testing:
 Uso local o de pruebas que necesite esos endpoints:
 
 ```bash
-ENABLE_MOCKS=true npm run start:dev
+ENABLE_MOCKS=true
+pnpm start:dev
 ```
 
 No habilitar `ENABLE_MOCKS=true` en despliegues productivos salvo validacion operativa explicita.
@@ -92,16 +93,16 @@ Checklist mínima:
 
 ```bash
 cp .env.example .env
-npm install
-npm run build
-npm run start:dev
+pnpm install
+pnpm build
+pnpm start:dev
 ```
 
 Para cambios no funcionales o transversales, validar al menos:
 
 ```bash
-npm run build
-npm run test:unit
+pnpm build
+pnpm test:unit
 ```
 
 ## Límites Arquitectónicos

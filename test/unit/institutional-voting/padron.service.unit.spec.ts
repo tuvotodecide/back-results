@@ -522,7 +522,7 @@ describe('PadronService (unit)', () => {
           enabledCount: 0,
           disabledCount: 0,
         },
-        errors: [{ code: 'PARSER_ERROR', message: 'Gemini unavailable' }],
+        importErrors: [{ code: 'PARSER_ERROR', message: 'Gemini unavailable' }],
         createdAt: new Date(),
         updatedAt: new Date(),
       }),
@@ -709,7 +709,7 @@ describe('PadronService (unit)', () => {
       lean: jest.fn().mockResolvedValue({
         _id: importJobId,
         status: 'FAILED',
-        errors: [{ code: 'PARSER_ERROR', message: 'backend parser failed' }],
+        importErrors: [{ code: 'PARSER_ERROR', message: 'backend parser failed' }],
         summary: {
           parsedCount: 0,
           validCount: 0,

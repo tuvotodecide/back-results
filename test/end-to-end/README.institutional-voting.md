@@ -10,13 +10,13 @@ Esta suite define contratos E2E del nuevo dominio de votacion institucional.
 ## Ejecutar solo esta suite
 
 ```bash
-npm run test:e2e -- --testPathPattern=test/end-to-end/institutional-voting.e2e.spec.ts
+pnpm test:e2e -- --testPathPattern=test/end-to-end/institutional-voting.e2e.spec.ts
 ```
 
 ## Ejecutar toda la carpeta end-to-end
 
 ```bash
-npm run test:e2e
+pnpm test:e2e
 ```
 
 ## Notas

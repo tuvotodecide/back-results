@@ -111,7 +111,7 @@ export class PadronImportJob {
   summary!: PadronImportSummary;
 
   @Prop({ type: [PadronImportError], default: [] })
-  errors!: PadronImportError[];
+  importErrors!: PadronImportError[];
 
   @Prop({ type: Date, default: null })
   processedAt?: Date | null;

@@ -13,10 +13,10 @@ export class Contract {
   clientId: Types.ObjectId; // El Alcalde o Gobernador contratante
 
   @Prop({
-    enum: ['MAYOR', 'GOVERNOR'],
+    enum: ['MAYOR', 'GOVERNOR', 'USER', 'ADMIN', 'ACCESS_APPROVER'],
     required: true,
   })
-  clientRole: 'MAYOR' | 'GOVERNOR';
+  clientRole: 'MAYOR' | 'GOVERNOR' | 'USER' | 'ADMIN' | 'ACCESS_APPROVER';
 
   // Territorio cubierto - solo uno debe estar presente
   @Prop({ type: Types.ObjectId, ref: 'Department', default: null })

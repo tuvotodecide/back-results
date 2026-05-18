@@ -103,6 +103,19 @@
   },
   {
     "type": "function",
+    "name": "disableVote",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "getAuthorizedCaller",
     "inputs": [],
     "outputs": [

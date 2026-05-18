@@ -10,7 +10,8 @@ export type VotingEventState =
   | 'PUBLICATION_EXPIRED'
   | 'PUBLISHED'
   | 'CLOSED'
-  | 'RESULTS_PUBLISHED';
+  | 'RESULTS_PUBLISHED'
+  | 'DISABLED';
 
 @Schema({ timestamps: true, collection: 'voting_events' })
 export class VotingEvent {
@@ -45,6 +46,7 @@ export class VotingEvent {
       'PUBLISHED',
       'CLOSED',
       'RESULTS_PUBLISHED',
+      'DISABLED'
     ],
     default: 'DRAFT',
     index: true,
@@ -65,6 +67,9 @@ export class VotingEvent {
 
   @Prop({ type: Date, required: false })
   officialPublishedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  disabledAt?: Date;
 
   @Prop({ type: Date, required: false })
   publicationExpiredAt?: Date;

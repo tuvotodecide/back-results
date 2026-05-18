@@ -47,7 +47,7 @@ type MatchingContract = {
   auth: {
     contractId: string;
     clientId: string;
-    clientRole: 'MAYOR' | 'GOVERNOR';
+    clientRole: 'MAYOR' | 'GOVERNOR' | 'USER' | 'ADMIN' | 'ACCESS_APPROVER';
   };
 };
 
@@ -317,7 +317,7 @@ export class AttestationService {
                 : 'Error al guardar attestation';
           errors.push({ index: i, error: message, data: attestationData });
         }
-      } catch (error) {
+      } catch (error: any) {
         errors.push({
           index: i,
           error: error.message,
@@ -1476,7 +1476,7 @@ export class AttestationService {
             errorMessage: null,
           },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
 
       return { status: comparison.status as ComparisonStatus };
@@ -1500,7 +1500,7 @@ export class AttestationService {
             errorMessage: error?.message ?? String(error),
           },
         },
-        { upsert: true, new: true, setDefaultsOnInsert: true },
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
       return { status: 'ERROR' };
     }

@@ -188,7 +188,7 @@ export class InstitutionalAdminApplicationsService {
             reason: null,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
     }
 
@@ -243,7 +243,7 @@ export class InstitutionalAdminApplicationsService {
             reason: null,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
     }
 
@@ -354,7 +354,7 @@ export class InstitutionalAdminApplicationsService {
           reason: null,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
     app.status = 'APPROVED';
@@ -398,7 +398,7 @@ export class InstitutionalAdminApplicationsService {
             reason: reason?.trim() || null,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
     }
 
@@ -440,7 +440,7 @@ export class InstitutionalAdminApplicationsService {
           reason: reason?.trim() || null,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
     app.status = 'REVOKED';
@@ -487,7 +487,7 @@ export class InstitutionalAdminApplicationsService {
             reason: null,
           },
         },
-        { upsert: true, new: true },
+        { upsert: true, returnDocument: 'after' },
       );
     }
 
@@ -584,7 +584,7 @@ export class InstitutionalAdminApplicationsService {
           reason: null,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
     const application = await this.applicationModel.create({
       dni,

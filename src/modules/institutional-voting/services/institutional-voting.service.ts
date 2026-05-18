@@ -95,6 +95,10 @@ export class InstitutionalVotingService {
     return this.votingEventsService.publishEvent(eventId, requester);
   }
 
+  disableEvent(eventId: string, requester: any) {
+    return this.votingEventsService.disableEvent(eventId, requester);
+  }
+
   createRole(eventId: string, dto: CreateEventRoleDto, requester: any) {
     return this.votingEventsService.createRole(eventId, dto, requester);
   }
