@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
@@ -198,6 +199,9 @@ export class PadronGeminiImportService {
         observations: normalized.observations,
       };
     } catch (error) {
+      Logger.error('Error al analizar el documento con Gemini', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
         throw error;
       }
