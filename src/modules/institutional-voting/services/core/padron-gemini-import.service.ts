@@ -199,7 +199,7 @@ export class PadronGeminiImportService {
         observations: normalized.observations,
       };
     } catch (error) {
-      console.error(error);
+      console.dir(error, { depth: null });
       if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
         throw error;
       }
