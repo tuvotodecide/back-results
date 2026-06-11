@@ -199,9 +199,7 @@ export class PadronGeminiImportService {
         observations: normalized.observations,
       };
     } catch (error) {
-      Logger.error('Error al analizar el documento con Gemini', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      console.error(error);
       if (error instanceof BadRequestException || error instanceof InternalServerErrorException) {
         throw error;
       }
