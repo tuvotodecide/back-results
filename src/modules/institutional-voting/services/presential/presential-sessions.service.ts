@@ -115,7 +115,7 @@ export class PresentialSessionsService {
             expiresAt: new Date(),
           },
         },
-        { new: true },
+        { returnDocument: 'after' },
       );
       if (cancelled) {
         cancelledSessionId = String(cancelled._id);
@@ -319,7 +319,7 @@ export class PresentialSessionsService {
           ),
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     if (!claimed) {
@@ -448,7 +448,7 @@ export class PresentialSessionsService {
           expiresAt: completedAt,
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     if (!completed) {
@@ -896,7 +896,7 @@ private buildMessageEvent(type: string, data: string | object): MessageEvent {
           expiresAt: new Date(),
         },
       },
-      { new: true },
+      { returnDocument: 'after' },
     );
 
     if (!updated) {

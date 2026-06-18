@@ -26,6 +26,7 @@ export class VoteReaderService {
 
   async getResults(voteEventId: string) {
     const rawResults = await this.vote.getVoteResults(voteEventId);
+    console.log('Raw results from contract:', rawResults);
 
     const [ options, votes ] = rawResults;
 

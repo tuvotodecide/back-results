@@ -153,7 +153,6 @@ export class PadronService {
         disabledCount: 0,
         missingIdentityCount: 0,
       },
-      errors: [],
     });
 
     try {
@@ -203,7 +202,7 @@ export class PadronService {
             parserModel: parserResult.model,
             parserUsedFallback: parserResult.usedFallback,
             processedAt: new Date(),
-            errors: mergedErrors,
+            importErrors: mergedErrors,
             summary: {
               parsedCount: parserResult.rows.length,
               validCount: normalized.entries.length,
@@ -228,7 +227,7 @@ export class PadronService {
             parserProvider: 'local-fallback',
             parserUsedFallback: true,
             processedAt: new Date(),
-            errors: [
+            importErrors: [
               {
                 code: 'PARSER_ERROR',
                 message: String(error?.message ?? error ?? 'Error procesando PDF'),
@@ -1686,7 +1685,6 @@ export class PadronService {
         disabledCount: 0,
         missingIdentityCount: 0,
       },
-        errors: [],
         processedAt: new Date(),
       });
 
@@ -1733,7 +1731,7 @@ export class PadronService {
     }
 
     const stagingCount = entries.length;
-    const currentErrorCount = Array.isArray(job.errors) ? job.errors.length : 0;
+    const currentErrorCount = Array.isArray(job.importErrors) ? job.importErrors.length : 0;
     const dids =
       stagingCount > 0
         ? await this.issuerService.getDidsByDnis(
@@ -1821,7 +1819,7 @@ export class PadronService {
         disabledCount: importJob.summary?.disabledCount ?? 0,
         missingIdentityCount: importJob.summary?.missingIdentityCount ?? 0,
       },
-      errors: (importJob.errors ?? []).map((error: any) => ({
+      errors: (importJob.importErrors ?? []).map((error: any) => ({
         code: error.code,
         message: error.message,
         rowIndex: error.rowIndex ?? null,

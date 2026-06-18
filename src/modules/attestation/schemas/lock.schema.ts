@@ -1,6 +1,6 @@
-import { Schema, Document } from 'mongoose';
+import { Schema } from 'mongoose';
 
-export interface LockDocument extends Document {
+export interface LockDocument {
   _id: string;          // p.ej. 'resolve:<electionId>'
   owner: string;        // p.ej. 'back-results:dev'
   expiresAt: Date;      // TTL

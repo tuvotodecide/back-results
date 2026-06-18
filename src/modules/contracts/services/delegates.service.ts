@@ -273,7 +273,7 @@ export class DelegatesService {
     Array<{
       contractId: string;
       clientId: string;
-      clientRole: 'MAYOR' | 'GOVERNOR';
+      clientRole: "USER" | "MAYOR" | "GOVERNOR" | "ADMIN" | "ACCESS_APPROVER";
     }>
   > {
     const delegate = await this.delegateModel.findOne({ dni, active: true });

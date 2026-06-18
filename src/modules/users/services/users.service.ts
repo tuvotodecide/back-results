@@ -52,7 +52,7 @@ export class UsersService {
         .findOneAndUpdate(
           { dni: normalizedDni },
           { $setOnInsert: { dni: normalizedDni, active: true } },
-          { upsert: true, new: true, setDefaultsOnInsert: true },
+          { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
         )
         .orFail()
         .exec();

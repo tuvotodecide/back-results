@@ -20,7 +20,7 @@ export class Delegate {
       {
         contractId: { type: Types.ObjectId, ref: 'Contract', required: true },
         clientId: { type: Types.ObjectId, ref: 'RoledUser', required: true },
-        clientRole: { type: String, enum: ['MAYOR', 'GOVERNOR'], required: true },
+        clientRole: { type: String, enum: ["MAYOR", "GOVERNOR", "USER", "ADMIN", "ACCESS_APPROVER"], required: true },
         addedAt: { type: Date, default: Date.now },
         addedBy: { type: Types.ObjectId, ref: 'RoledUser' }, // Superadmin que lo agregó
       },
@@ -30,7 +30,7 @@ export class Delegate {
   authorizedContracts: Array<{
     contractId: Types.ObjectId;
     clientId: Types.ObjectId;
-    clientRole: 'MAYOR' | 'GOVERNOR';
+    clientRole: "USER" | "MAYOR" | "GOVERNOR" | "ADMIN" | "ACCESS_APPROVER";
     addedAt: Date;
     addedBy?: Types.ObjectId;
   }>;

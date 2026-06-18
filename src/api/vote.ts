@@ -74,9 +74,25 @@ function addNewVoters(
   }
 }
 
+function disableVote(
+  chainId: string,
+  voteId: string
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'disableVote',
+      args: [voteId],
+    })
+  }
+}
+
 export const VoteContractCalls = {
   createVote,
   updateVoteSchedule,
   castVote,
   addNewVoters,
+  disableVote
 }

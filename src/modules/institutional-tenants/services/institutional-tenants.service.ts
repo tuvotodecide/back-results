@@ -94,7 +94,7 @@ export class InstitutionalTenantsService {
           reason: null,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
     return {

@@ -74,7 +74,7 @@ describe('UsersService', () => {
     expect(userModel.findOneAndUpdate).toHaveBeenCalledWith(
       { dni: '12345678' },
       { $setOnInsert: { dni: '12345678', active: true } },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
   });
 
