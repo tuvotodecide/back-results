@@ -19,6 +19,7 @@
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false,
     "resolveJsonModule": true,
+    "types": ["node", "jest"],
     "paths": {
       "@/*": ["src/*"],
       "@config/*": ["src/config/*"],

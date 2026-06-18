@@ -277,15 +277,31 @@ describe('InstitutionalVotingAccessService (unit)', () => {
   });
 
   it('permite fechas exactamente en el límite mínimo de 6 horas para publicación oficial', () => {
+    const now = Date.UTC(2026, 0, 1, 12, 0, 0);
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     const officialPublicationLeadHours = service.getOfficialPublicationLeadHours();
-    const result = service.parseAndValidateDates(
-      new Date(Date.now() + officialPublicationLeadHours * 60 * 60 * 1000).toISOString(),
-      new Date(Date.now() + (officialPublicationLeadHours + 1) * 60 * 60 * 1000).toISOString(),
-      new Date(Date.now() + (officialPublicationLeadHours + 2) * 60 * 60 * 1000).toISOString(),
-      officialPublicationLeadHours,
-    );
+    const votingStart = new Date(
+      now + officialPublicationLeadHours * 60 * 60 * 1000,
+    ).toISOString();
+    const votingEnd = new Date(
+      now + (officialPublicationLeadHours + 1) * 60 * 60 * 1000,
+    ).toISOString();
+    const resultsPublishAt = new Date(
+      now + (officialPublicationLeadHours + 2) * 60 * 60 * 1000,
+    ).toISOString();
 
-    expect(result.votingStart).toBeInstanceOf(Date);
+    try {
+      const result = service.parseAndValidateDates(
+        votingStart,
+        votingEnd,
+        resultsPublishAt,
+        officialPublicationLeadHours,
+      );
+
+      expect(result.votingStart).toBeInstanceOf(Date);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('devuelve objeto vacío cuando no se envían fechas', () => {
