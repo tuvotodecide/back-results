@@ -1,4 +1,8 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Types } from 'mongoose';
 
 jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
@@ -150,13 +154,21 @@ describe('EmitVoteService (unit)', () => {
     expect(voteWritterService.castVote).not.toHaveBeenCalled();
   });
 
-  it('propaga el error del writer on-chain mockeado', async () => {
+  it('envuelve el error del writer on-chain mockeado en error controlado', async () => {
     const error = new Error('mock writer failure');
     zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
     voteWritterService.castVote.mockRejectedValue(error);
 
-    await expect(service.emitVote('blank', 'mock-proof')).rejects.toThrow(
-      'mock writer failure',
+    let thrown: unknown;
+    try {
+      await service.emitVote('blank', 'mock-proof');
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(InternalServerErrorException);
+    expect((thrown as Error).message).toBe(
+      'An error occurred while casting the vote',
     );
   });
 });

@@ -12,8 +12,8 @@ export class CanonicalCacheInterceptor extends CacheInterceptor {
     super(cacheManager, reflector);
   }
 
-  protected async trackBy(context: ExecutionContext): Promise<string | null | undefined> {
-    const key = await super.trackBy(context);
+  protected trackBy(context: ExecutionContext): string | undefined {
+    const key = super.trackBy(context);
     if (!key || !key.startsWith('/')) return key;
 
     try {

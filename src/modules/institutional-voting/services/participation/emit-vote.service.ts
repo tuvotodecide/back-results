@@ -54,7 +54,10 @@ export class EmitVoteService {
         await this.voteWritterService.castVote(eventId, option.name, nullifier);
       }
     } catch (error: any) {
-      if (error.message.includes('Nullifier already used')) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      if (error?.message?.includes('Nullifier already used')) {
         throw new BadRequestException('This vote has already been cast');
       } else {
         Logger.error('Error casting vote:', error);

@@ -167,7 +167,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       expect.objectContaining({
         $set: expect.objectContaining({ status: 'PENDING', active: false }),
       }),
-      { upsert: true, new: true },
+      expect.objectContaining({ upsert: true, returnDocument: 'after' }),
     );
 
     applicationModel.findOne.mockResolvedValueOnce({
@@ -227,7 +227,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       expect.objectContaining({
         $set: expect.objectContaining({ status: 'APPROVED', active: true }),
       }),
-      { upsert: true, new: true },
+      expect.objectContaining({ upsert: true, returnDocument: 'after' }),
     );
     expect(app.save).toHaveBeenCalled();
   });

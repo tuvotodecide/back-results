@@ -94,7 +94,7 @@ describe('InstitutionalTenantsService (unit)', () => {
           revokedAt: null,
         }),
       }),
-      { upsert: true, new: true },
+      expect.objectContaining({ upsert: true, returnDocument: 'after' }),
     );
   });
 
