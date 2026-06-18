@@ -34,6 +34,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
       findById: jest.fn(),
       find: jest.fn(),
     };
+    
     assignmentModel = {
       findOne: jest.fn(),
       find: jest.fn(),
