@@ -16,6 +16,14 @@ const config: Config = {
     '!src/**/index.ts',
     '!src/main.ts',
   ],
+  coverageThreshold: {
+    global: {
+      statements: 35,
+      branches: 20,
+      functions: 30,
+      lines: 30,
+    },
+  },
 };
 
 export default config;

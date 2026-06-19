@@ -69,6 +69,21 @@ jobs:
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
 
+      - name: Run ESLint check
+        run: pnpm lint:check
+
+      - name: Run format check
+        run: pnpm format:check
+
+      - name: Run typecheck
+        run: pnpm typecheck
+
+      - name: Run Nest build
+        run: pnpm build
+
+      - name: Run unit coverage
+        run: pnpm test:cov:unit
+
       - name: Run unit tests
         run: pnpm test:unit
 
