@@ -282,6 +282,50 @@ jobs:
             "docker logs --tail 200 ${{ env.CONTAINER_NAME }}"
           exit 1
 
+  backend-metrics:
+    name: Backend measurable parameters
+    if: always() && github.ref == 'refs/heads/main'
+    needs: [test, build, deploy-dev]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Generate backend metrics
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tools/ci/backend-metrics.mjs
+
+      - name: Publish metrics summary
+        if: always()
+        run: |
+          if [ -f reports/backend-metrics.md ]; then
+            cat reports/backend-metrics.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "# Backend measurable parameters" >> "$GITHUB_STEP_SUMMARY"
+            echo "Metrics report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload backend metrics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-measurable-parameters
+          path: |
+            reports/backend-metrics.md
+            reports/backend-metrics.json
+          if-no-files-found: warn
+
   deploy-prod:
     name: Deploy to Hetzner (prod) via SSH
     needs: build
