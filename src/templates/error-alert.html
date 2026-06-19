@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Backend critical error</title>
+  </head>
+  <body style="font-family: Arial, sans-serif; color: #111827; line-height: 1.5;">
+    <h1 style="font-size: 20px; margin-bottom: 12px;">Backend critical error</h1>
+    <p>A critical backend failure was captured. Use the requestId to correlate this email with internal logs.</p>
+
+    <table style="border-collapse: collapse; width: 100%; max-width: 760px;">
+      <tbody>
+        <tr><th align="left">Environment</th><td><%= environment %></td></tr>
+        <tr><th align="left">Timestamp</th><td><%= timestamp %></td></tr>
+        <tr><th align="left">Request ID</th><td><%= requestId %></td></tr>
+        <tr><th align="left">Endpoint</th><td><%= method %> <%= path %></td></tr>
+        <tr><th align="left">Status</th><td><%= statusCode %></td></tr>
+        <tr><th align="left">Duration</th><td><%= durationMs %> ms</td></tr>
+        <tr><th align="left">Error</th><td><%= errorName %>: <%= errorMessage %></td></tr>
+      </tbody>
+    </table>
+
+    <h2 style="font-size: 16px; margin-top: 24px;">Stacktrace</h2>
+    <pre style="white-space: pre-wrap; background: #f3f4f6; padding: 12px; border-radius: 4px;"><%= stacktrace %></pre>
+
+    <h2 style="font-size: 16px; margin-top: 24px;">Request body</h2>
+    <pre style="white-space: pre-wrap; background: #f3f4f6; padding: 12px; border-radius: 4px;"><%= requestBody %></pre>
+  </body>
+</html>

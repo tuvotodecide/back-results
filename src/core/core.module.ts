@@ -1,14 +1,20 @@
 /* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Module, Global } from '@nestjs/common';
+import { MiddlewareConsumer, Module, Global, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { DatabaseModule } from '../database/database.module';
 import { AppConfigModule } from '../config/app-config.module';
+import { MailModule } from '../modules/mail/mail.module';
 import { LoggerService } from './services/logger.service';
+import { ErrorAlertService } from './services/error-alert.service';
 import { HealthService } from './services/health.service';
 import { HealthController } from './controllers/health.controller';
+import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { PerformanceLoggingInterceptor } from './interceptors/performance-logging.interceptor';
+import { RequestIdMiddleware } from './middleware/request-id.middleware';
 import Keyv from 'keyv';
 import { createClient, RedisClientType } from 'redis';
 
@@ -17,6 +23,7 @@ import { createClient, RedisClientType } from 'redis';
   imports: [
     AppConfigModule,
     DatabaseModule,
+    MailModule,
     CacheModule.registerAsync<any>({
       imports: [ConfigModule],
       isGlobal: true,
@@ -85,7 +92,23 @@ import { createClient, RedisClientType } from 'redis';
     }),
   ],
   controllers: [HealthController],
-  providers: [LoggerService, HealthService],
+  providers: [
+    LoggerService,
+    HealthService,
+    ErrorAlertService,
+    {
+      provide: APP_FILTER,
+      useClass: GlobalExceptionFilter,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: PerformanceLoggingInterceptor,
+    },
+  ],
   exports: [LoggerService, HealthService, CacheModule],
 })
-export class CoreModule {}
+export class CoreModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestIdMiddleware).forRoutes('*');
+  }
+}

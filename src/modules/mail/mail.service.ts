@@ -22,7 +22,13 @@ export class MailService {
     })
   }
 
-  createEmail(toAddress: string, subject: string, template: string, templateData: ejs.Data): SendEmailCommand {
+  createEmail(
+    toAddress: string,
+    subject: string,
+    template: string,
+    templateData: ejs.Data,
+    options?: { from?: string },
+  ): SendEmailCommand {
     const templateString = this.getTemplate(template);
     const emailBody = ejs.render(templateString, {
       ...templateData,
@@ -33,7 +39,7 @@ export class MailService {
       Destination: {
         ToAddresses: [toAddress],
       },
-      Source: this.config.get('app.mail.smtp.from') ?? '',
+      Source: options?.from || this.config.get('app.mail.smtp.from') || '',
       Message: {
         Subject: {
           Charset: 'UTF-8',
@@ -53,18 +59,19 @@ export class MailService {
     to: string,
     subject: string,
     template: string,
-    data: any,
+    data: ejs.Data,
+    options?: { from?: string },
   ) {
     try {
       const emailsList: string[] = [to];
 
-      if (!emailsList) {
+      if (!to) {
         throw new Error(
           `No recipients found for sending email`,
         );
       }
 
-      const email = this.createEmail(to, subject, template, data);
+      const email = this.createEmail(to, subject, template, data, options);
 
       await this.sesClient.send(email);
       this.logger.log(

@@ -52,6 +52,9 @@ export default registerAs('app', () => ({
       from: process.env.SES_FROM_MAIL || 'noreply@example.com',
     },
   },
+  errorAlerts: {
+    to: process.env.ERROR_ALERT_EMAIL_TO || '',
+  },
 
   zkAuth: {
     zkAuthTtl: parseInt(process.env.ZK_AUTH_API_KEY_TTL || '86400', 10), // 24 hours
