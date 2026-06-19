@@ -61,21 +61,22 @@ export class IssuerService {
           eventId: eventId,
           nullifier: nullifiers.shift(),
         },
-      }
+      };
 
-      promises.push(new Promise(async (resolve, reject) => {
-        this.httpService.axiosRef.post<VCclaimData>(url, body, {
-          auth: {
-            username: this.username,
-            password: this.password,
-          },
-        }).then(response => {
-          credentialData[user.dni] = {
-            credentialData: response.data.id,
-          };
-          resolve();
-        }).catch(error => reject(error));
-      }));
+      promises.push(
+        this.httpService.axiosRef
+          .post<VCclaimData>(url, body, {
+            auth: {
+              username: this.username,
+              password: this.password,
+            },
+          })
+          .then((response) => {
+            credentialData[user.dni] = {
+              credentialData: response.data.id,
+            };
+          }),
+      );
     }
 
     try {

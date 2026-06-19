@@ -7,7 +7,8 @@ on:
     paths:
       - 'Dockerfile'
       - 'package.json'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
       - 'jest.config.ts'
       - 'tsconfig.json'
       - 'src/**'

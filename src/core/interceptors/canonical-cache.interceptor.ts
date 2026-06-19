@@ -14,7 +14,8 @@ export class CanonicalCacheInterceptor extends CacheInterceptor {
 
   protected trackBy(context: ExecutionContext): string | undefined {
     const key = super.trackBy(context);
-    if (!key || !key.startsWith('/')) return key;
+    if (typeof key !== 'string') return undefined;
+    if (!key.startsWith('/')) return key;
 
     try {
       const url = new URL(key, 'http://cache.local');

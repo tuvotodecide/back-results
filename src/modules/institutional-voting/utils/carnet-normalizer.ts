@@ -1,7 +1,7 @@
 export function normalizeCarnet(raw: string | undefined | null): string {
   const normalized = String(raw ?? '')
     .trim()
-    .replace(/[\s.\-]/g, '')
+    .replace(/[\s.-]/g, '')
     .toUpperCase();
 
   if (!normalized) {
