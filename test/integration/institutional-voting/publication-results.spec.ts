@@ -5,6 +5,7 @@ import { InstitutionalVotingNotificationsService } from '@/modules/institutional
 import { institutionalVotingFixtures } from '../../fixtures.institutional-voting';
 import {
   bootstrapInstitutionalVotingContext,
+  confirmInstitutionalOfficialPublication,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
   publishInstitutionalEvent,
@@ -185,6 +186,78 @@ describe('Institutional voting integration - publication and results', () => {
     expect(eventInDb?.officialPublishedAt).toBeTruthy();
   });
 
+  it('expone readiness completo antes de confirmar publicación oficial', async () => {
+    const eventId = await preparePublishedEvent();
+
+    const readiness = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/review-readiness`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(readiness.status).toBe(200);
+    expect(readiness.body).toEqual(
+      expect.objectContaining({
+        id: eventId,
+        state: 'READY_FOR_REVIEW',
+        isReady: true,
+        pending: [],
+      }),
+    );
+    expect(readiness.body.publicationWindow).toEqual(
+      expect.objectContaining({
+        canConfirmOfficialPublication: true,
+        expired: false,
+      }),
+    );
+  });
+
+  it('persiste metadata tx oficial y documenta error de doble publicación', async () => {
+    const eventId = await preparePublishedEvent();
+
+    const first = await confirmInstitutionalOfficialPublication(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      {
+        txHash: '0xofficialtx',
+        wallet: '0xAdminWallet',
+        chainId: '11155111',
+      },
+    );
+
+    expect(first.status).toBe(201);
+    expect(first.body).toEqual(
+      expect.objectContaining({
+        state: 'OFFICIALLY_PUBLISHED',
+        publicationConfirmed: true,
+        officialPublicationTxHash: '0xofficialtx',
+        officialPublicationWallet: '0xAdminWallet',
+        officialPublicationChainId: '11155111',
+      }),
+    );
+
+    const eventInDb = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: new Types.ObjectId(eventId) });
+    expect(eventInDb).toEqual(
+      expect.objectContaining({
+        state: 'OFFICIALLY_PUBLISHED',
+        publicationConfirmed: true,
+        officialPublicationTxHash: '0xofficialtx',
+        officialPublicationWallet: '0xAdminWallet',
+        officialPublicationChainId: '11155111',
+      }),
+    );
+
+    const second = await confirmInstitutionalOfficialPublication(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      { txHash: '0xsecond' },
+    );
+    expect(second.status).toBe(400);
+    expect(String(second.body.message)).toContain('READY_FOR_REVIEW');
+  });
+
   it('no genera notificaciones de revisión cuando no existan usuarios previamente vinculados', async () => {
     await ctx.conn.collection('users').deleteMany({
       dni: { $in: ['123456', 'ABC789'] },
@@ -252,6 +325,111 @@ describe('Institutional voting integration - publication and results', () => {
     expect(visible.body.source).toBe('BLOCKCHAIN');
     expect(visible.body.txHash).toBe(institutionalVotingFixtures.resultsSnapshot.txHash);
     expect(visible.body.roles).toHaveLength(1);
+  });
+
+  it('bloquea snapshot antes de publicación oficial con error controlado', async () => {
+    const eventId = await preparePublishedEvent();
+
+    const snapshot = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/results/snapshot`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.resultsSnapshot);
+
+    expect(snapshot.status).toBe(403);
+    expect(snapshot.body.error).toBe('RESULTS_SNAPSHOT_NOT_ALLOWED');
+    expect(await ctx.conn.collection('event_results_snapshots').countDocuments({
+      eventId: new Types.ObjectId(eventId),
+    })).toBe(0);
+  });
+
+  it('actualiza snapshot único para un evento publicado sin duplicarlo', async () => {
+    const eventId = await preparePublishedEvent();
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+
+    const first = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/results/snapshot`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(institutionalVotingFixtures.resultsSnapshot);
+    expect(first.status).toBe(201);
+    expect(first.body.txHash).toBe(institutionalVotingFixtures.resultsSnapshot.txHash);
+
+    const updatedSnapshot = {
+      ...institutionalVotingFixtures.resultsSnapshot,
+      txHash: '0xupdatedsnapshot',
+      blockNumber: '654321',
+      roles: [
+        {
+          roleName: 'Presidente',
+          total: 12,
+          ranking: [
+            { optionName: 'Frente Verde', votes: 7, percentage: 58.33 },
+            { optionName: 'Frente Azul', votes: 5, percentage: 41.67 },
+          ],
+          winners: [{ optionName: 'Frente Verde', votes: 7, percentage: 58.33 }],
+        },
+      ],
+    };
+
+    const second = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/results/snapshot`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send(updatedSnapshot);
+    expect(second.status).toBe(201);
+    expect(second.body).toEqual(
+      expect.objectContaining({
+        eventId,
+        source: 'BLOCKCHAIN',
+        txHash: '0xupdatedsnapshot',
+        blockNumber: '654321',
+      }),
+    );
+    expect(second.body.roles[0]).toEqual(
+      expect.objectContaining({
+        roleName: 'Presidente',
+        total: 12,
+      }),
+    );
+
+    const snapshots = await ctx.conn
+      .collection('event_results_snapshots')
+      .find({ eventId: new Types.ObjectId(eventId) })
+      .toArray();
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toEqual(
+      expect.objectContaining({
+        source: 'BLOCKCHAIN',
+        txHash: '0xupdatedsnapshot',
+        blockNumber: '654321',
+      }),
+    );
+  });
+
+  it('lee resultados publicados sin snapshot usando el shape vacío actual', async () => {
+    const eventId = await preparePublishedEvent();
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() - 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
+    await ctx.conn.collection('event_results_snapshots').deleteMany({
+      eventId: new Types.ObjectId(eventId),
+    });
+
+    const response = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/results`)
+      .auth(ctx.adminToken, { type: 'bearer' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        eventId,
+        source: 'BLOCKCHAIN',
+        txHash: null,
+        blockNumber: null,
+        roles: [],
+      }),
+    );
   });
 
   it('envía recordatorio 30 minutos antes del límite si aún no hubo publicación oficial', async () => {
