@@ -56,6 +56,27 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     ]);
   }
 
+  function binaryParser(res: any, callback: (error: Error | null, body?: Buffer) => void) {
+    const data: Buffer[] = [];
+    res.on('data', (chunk: Buffer) => data.push(Buffer.from(chunk)));
+    res.on('end', () => callback(null, Buffer.concat(data)));
+  }
+
+  function getCurrentPadronVersionId(summary: any) {
+    return summary.body.currentVersion.padronVersionId as string;
+  }
+
+  function decodePdfBody(body: Buffer) {
+    const raw = body.toString('utf-8');
+
+    if (raw.startsWith('{"type":"Buffer"')) {
+      const parsed = JSON.parse(raw) as { type: string; data: number[] };
+      return Buffer.from(parsed.data);
+    }
+
+    return body;
+  }
+
   async function createConfiguredEvent() {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
@@ -374,6 +395,84 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(staging.body.total).toBe(0);
   });
 
+  it('bulk-delete elimina varias entradas del staging sin dejarlo vacío', async () => {
+    const eventId = await createConfiguredEvent();
+    const upload = await uploadPadronPdf(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      buildMockPdf(['100001 si', '100002 si', '100003 no', '100004 si']),
+    );
+    expect(upload.status).toBe(201);
+
+    const before = await listPadronStaging(ctx.httpServer, ctx.adminToken, eventId, {
+      limit: 10,
+    });
+    expect(before.status).toBe(200);
+    expect(before.body.total).toBe(4);
+
+    const idsToDelete = before.body.data.slice(0, 2).map((row: any) => row.id);
+    const deleted = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/staging/bulk-delete`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ entryIds: idsToDelete });
+
+    expect(deleted.status).toBe(201);
+    expect(deleted.body).toEqual(
+      expect.objectContaining({
+        requestedCount: 2,
+        deletedCount: 2,
+        materialized: false,
+      }),
+    );
+
+    const after = await listPadronStaging(ctx.httpServer, ctx.adminToken, eventId, {
+      limit: 10,
+    });
+    expect(after.status).toBe(200);
+    expect(after.body.total).toBe(2);
+    expect(after.body.data.map((row: any) => row.id)).not.toEqual(
+      expect.arrayContaining(idsToDelete),
+    );
+  });
+
+  it('bulk-delete rechaza ids inválidos, ids ajenos y borrar todo el staging', async () => {
+    const eventId = await createConfiguredEvent();
+    const upload = await uploadPadronPdf(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      buildMockPdf(['200001 si', '200002 no']),
+    );
+    expect(upload.status).toBe(201);
+
+    const invalid = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/staging/bulk-delete`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ entryIds: ['bad-id'] });
+    expect(invalid.status).toBe(400);
+
+    const foreign = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/staging/bulk-delete`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ entryIds: [String(new Types.ObjectId())] });
+    expect(foreign.status).toBe(400);
+
+    const staging = await listPadronStaging(ctx.httpServer, ctx.adminToken, eventId);
+    expect(staging.status).toBe(200);
+    expect(staging.body.total).toBe(2);
+
+    const deleteAll = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/staging/bulk-delete`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ entryIds: staging.body.data.map((row: any) => row.id) });
+    expect(deleteAll.status).toBe(400);
+
+    const after = await listPadronStaging(ctx.httpServer, ctx.adminToken, eventId);
+    expect(after.status).toBe(200);
+    expect(after.body.total).toBe(2);
+  });
+
   it('confirma el staging como nueva versión vigente del padrón', async () => {
     const eventId = await createConfiguredEvent();
     const uploaded = await uploadPadronPdf(
@@ -471,6 +570,96 @@ describe('Padron document import + staging E2E (phase 3)', () => {
 
     const confirm = await confirmPadronStaging(ctx.httpServer, ctx.adminToken, eventId);
     expect(confirm.status).toBe(404);
+  });
+
+  it('bloquea bulk-delete en OFFICIALLY_PUBLISHED', async () => {
+    const eventId = await createConfiguredEvent();
+    const upload = await uploadPadronPdf(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      buildMockPdf(['300001 si', '300002 si']),
+      'padron-publicado.pdf',
+    );
+    expect(upload.status).toBe(201);
+
+    const staging = await listPadronStaging(ctx.httpServer, ctx.adminToken, eventId);
+    expect(staging.status).toBe(200);
+    expect(staging.body.total).toBeGreaterThan(0);
+
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      {
+        $set: {
+          state: 'OFFICIALLY_PUBLISHED',
+        },
+      },
+    );
+
+    const deleted = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/staging/bulk-delete`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ entryIds: [staging.body.data[0].id] });
+    expect(deleted.status).toBe(400);
+  });
+
+  it('descarga el padrón PDF vigente con headers HTTP después de publicación oficial', async () => {
+    const eventId = await prepareOfficiallyPublishedEvent();
+    const current = await getPadronSummary(ctx.httpServer, ctx.adminToken, eventId);
+    expect(current.status).toBe(200);
+    const padronVersionId = getCurrentPadronVersionId(current);
+
+    const download = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/download-pdf`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .buffer(true)
+      .parse(binaryParser);
+
+    expect(download.status).toBe(200);
+    expect(download.headers['content-type']).toContain('application/pdf');
+    expect(download.headers['content-disposition']).toContain('attachment');
+    expect(download.headers['content-disposition']).toContain(`padron-${padronVersionId}.pdf`);
+    expect(Buffer.isBuffer(download.body)).toBe(true);
+    const pdfBody = decodePdfBody(download.body);
+    expect(pdfBody.length).toBeGreaterThan(0);
+    expect(pdfBody.toString('utf-8')).toContain('%PDF-1.4');
+  });
+
+  it('descarga una versión específica del padrón PDF y bloquea la descarga antes de publicación', async () => {
+    const eventId = await prepareReadyForReviewEvent();
+    const summary = await getPadronSummary(ctx.httpServer, ctx.adminToken, eventId);
+    expect(summary.status).toBe(200);
+    const padronVersionId = getCurrentPadronVersionId(summary);
+
+    const beforePublication = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/download-pdf`)
+      .query({ padronVersionId })
+      .auth(ctx.adminToken, { type: 'bearer' });
+    expect(beforePublication.status).toBe(400);
+
+    const published = await confirmInstitutionalOfficialPublication(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      {
+        txHash: '0xpadronversion',
+        wallet: '0xabc',
+        chainId: '11155111',
+      },
+    );
+    expect([200, 201]).toContain(published.status);
+
+    const download = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/download-pdf`)
+      .query({ padronVersionId })
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .buffer(true)
+      .parse(binaryParser);
+
+    expect(download.status).toBe(200);
+    expect(download.headers['content-type']).toContain('application/pdf');
+    expect(download.headers['content-disposition']).toContain(`padron-${padronVersionId}.pdf`);
+    expect(decodePdfBody(download.body).length).toBeGreaterThan(0);
   });
 
   it('expira por plazo y bloquea cambios de padrón en PUBLICATION_EXPIRED', async () => {

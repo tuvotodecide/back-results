@@ -111,6 +111,19 @@ describe('PadronGeminiImportService', () => {
     );
   });
 
+  it('convierte timeout de Gemini en error controlado sin exponer red real', async () => {
+    const timeout = new Error('timeout of 60000ms exceeded') as Error & {
+      code?: string;
+    };
+    timeout.code = 'ECONNABORTED';
+    httpService.axiosRef.post.mockRejectedValueOnce(timeout);
+
+    await expect(service.analyzeDocument(validPdfFile)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(httpService.axiosRef.post).toHaveBeenCalledTimes(1);
+  });
+
   it('no procesa si falta la key del backend', async () => {
     configService.get.mockImplementation((key: string) => {
       if (key === 'app.ai.gemini.apiKey') return '';
