@@ -304,11 +304,35 @@ describe('Results E2E (HTTP caja negra)', () => {
       // tablesProcessed: FINAL efectivas en La Paz => T1 (1)
       expect(res.body.summary.tablesProcessed).toBe(1);
 
+      expect(res.body.summary.nullVotes).toBe(5);
+      expect(res.body.summary.blankVotes).toBe(5);
+
       // porcentajes sobre válidos en La Paz (solo T1 v2 => 120)
       const mas = res.body.results.find((r: any) => r.partyId === 'MAS');
       const cc  = res.body.results.find((r: any) => r.partyId === 'CC');
       expect(mas.percentage).toBe('58.33'); // 70/120
       expect(cc.percentage).toBe('41.67');  // 50/120
+    });
+
+    it('by-circunscripcion FINAL HTTP: filtra circunscripción y calcula votos efectivos', async () => {
+      const res = await request(app.getHttpServer())
+        .get(
+          `/api/v1/results/by-circunscripcion?electionType=presidential&circunscripcionType=Uninominal&electionId=${electionFinalId}`,
+        )
+        .expect(200);
+
+      expect(
+        res.body.circunscripciones.every(
+          (item: any) => item.circunscripcion?.circunscripcionType === 'Uninominal',
+        ),
+      ).toBe(true);
+      const circ = res.body.circunscripciones.find(
+        (item: any) => item.circunscripcion?.circunscripcionNumber === 24,
+      );
+      expect(circ).toBeDefined();
+      expect(circ.validVotes).toBe(120);
+      expect(circ.nullVotes).toBe(5);
+      expect(circ.blankVotes).toBe(5);
     });
 
     it('heat-map FINAL department: partyPercentages con round(2) y orden por location', async () => {
@@ -329,7 +353,224 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(sc.partyPercentages.CC).toBe(80.00);
     });
 
+    it('final/ballots: retorna solo actas finales efectivas, excluye observadas y pagina', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/results/final/ballots?electionType=presidential&electionId=${electionFinalId}&limit=10`)
+        .expect(200);
+
+      expect(res.body.mode).toBe('final');
+      expect(res.body.total).toBe(2);
+      expect(res.body.data.map((ballot: any) => ballot.tableCode).sort()).toEqual([
+        'SC1',
+        'T1',
+      ]);
+      expect(res.body.data.find((ballot: any) => ballot.tableCode === 'T1')).toEqual(
+        expect.objectContaining({
+          version: 2,
+          status: 'synced',
+        }),
+      );
+      expect(res.body.data.some((ballot: any) => ballot.tableCode === 'T3')).toBe(false);
+      expect(res.body.page).toBe(1);
+      expect(res.body.limit).toBe(10);
+      expect(res.body.totalPages).toBe(1);
+    });
+
+    it('live/by-location HTTP: calcula summary y porcentajes del modo preliminar', async () => {
+      await conn.collection('election_configs').deleteMany({});
+      await conn.collection('election_configs').insertOne({
+        _id: new Types.ObjectId(electionLiveId),
+        name: 'live-OK',
+        votingStartDate: new Date(Date.now() - 30 * 60 * 1000),
+        votingEndDate: new Date(Date.now() + 30 * 60 * 1000),
+        resultsStartDate: new Date(Date.now() + 60 * 60 * 1000),
+        isActive: true,
+        allowDataModification: false,
+        timezone: 'America/La_Paz',
+        type: 'congress',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/results/live/by-location?department=La%20Paz&electionId=${electionLiveId}`)
+        .expect(200);
+
+      expect(res.body.summary.validVotes).toBe(200);
+      expect(res.body.summary.nullVotes).toBe(10);
+      expect(res.body.summary.blankVotes).toBe(5);
+      expect(res.body.summary.tablesProcessed).toBe(1);
+      const mas = res.body.results.find((r: any) => r.partyId === 'MAS');
+      const cc = res.body.results.find((r: any) => r.partyId === 'CC');
+      expect(mas.percentage).toBe('60.00');
+      expect(cc.percentage).toBe('40.00');
+    });
+
+    it('live/heat-map HTTP: agrega porcentajes preliminares por departamento', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/results/live/heat-map?locationType=department&electionId=${electionLiveId}`)
+        .expect(200);
+
+      const lp = res.body.data.find((d: any) => d.location === 'La Paz');
+      expect(lp).toBeDefined();
+      expect(lp.partyPercentages.MAS).toBe(60.00);
+      expect(lp.partyPercentages.CC).toBe(40.00);
+    });
+
+    it('live/by-circunscripcion HTTP: filtra circunscripción y usa ballots live efectivos', async () => {
+      const res = await request(app.getHttpServer())
+        .get(
+          `/api/v1/results/live/by-circunscripcion?circunscripcionType=Uninominal&electionId=${electionLiveId}`,
+        )
+        .expect(200);
+
+      expect(
+        res.body.circunscripciones.every(
+          (item: any) => item.circunscripcion?.circunscripcionType === 'Uninominal',
+        ),
+      ).toBe(true);
+      const circ = res.body.circunscripciones.find(
+        (item: any) => item.circunscripcion?.circunscripcionNumber === 24,
+      );
+      expect(circ).toBeDefined();
+      expect(circ.validVotes).toBe(200);
+      expect(circ.nullVotes).toBe(10);
+      expect(circ.blankVotes).toBe(5);
+    });
+
+    it('live/ballots: retorna actas preliminares efectivas y excluye observadas', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/results/live/ballots?electionId=${electionLiveId}&limit=10`)
+        .expect(200);
+
+      expect(res.body.mode).toBe('live');
+      expect(res.body.total).toBe(1);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toEqual(
+        expect.objectContaining({
+          tableCode: 'T2',
+          version: 1,
+          status: 'processed',
+        }),
+      );
+      expect(res.body.data.some((ballot: any) => ballot.tableCode === 'T3')).toBe(false);
+      expect(res.body.totalPages).toBe(1);
+    });
+
+    it('quick-count FINAL: empty state y votos cero no dividen por cero', async () => {
+      const emptyElectionId = await seedElectionConfig(conn, {
+        name: 'final-empty',
+        votingStartDate: new Date(Date.now() - 4 * 60 * 60 * 1000),
+        votingEndDate: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        resultsStartDate: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        isActive: true,
+        type: 'presidential',
+      });
+
+      const empty = await request(app.getHttpServer())
+        .get(`/api/v1/results/quick-count?electionId=${emptyElectionId}`)
+        .expect(200);
+
+      expect(empty.body.summary.validVotes).toBe(0);
+      expect(empty.body.results).toEqual([]);
+
+      await upsertTable(conn, {
+        tableCode: 'Z0',
+        electoralLocationName: 'U.E Achachicala',
+        active: true,
+        observedMap: { [emptyElectionId]: false },
+      });
+      const zero = await seedBallot(conn, {
+        electionId: emptyElectionId,
+        tableCode: 'Z0',
+        version: 1,
+        valuable: true,
+        status: 'processed',
+        loc: {
+          department: 'La Paz',
+          province: 'Murillo',
+          municipality: 'La Paz',
+          seat: 'Achachicala',
+          location: 'U.E Achachicala',
+          district: 'D1',
+          zone: 'Z1',
+          circ: { number: 24, type: 'Uninominal', name: 'Circ 24' },
+        },
+        parties: { valid: 0, null: 0, blank: 0, votes: { MAS: 0 } },
+      });
+      await seedCase(conn, {
+        electionId: emptyElectionId,
+        tableCode: 'Z0',
+        status: 'CLOSED',
+        winningBallotId: zero._id,
+      });
+
+      const zeroResult = await request(app.getHttpServer())
+        .get(`/api/v1/results/quick-count?electionId=${emptyElectionId}`)
+        .expect(200);
+
+      expect(zeroResult.body.summary.validVotes).toBe(0);
+      expect(zeroResult.body.results).toEqual([]);
+
+      await conn.collection('attestation_cases').deleteMany({
+        electionId: new Types.ObjectId(emptyElectionId),
+        tableCode: 'Z0',
+      });
+      await conn.collection('ballots').deleteMany({
+        electionId: new Types.ObjectId(emptyElectionId),
+        tableCode: 'Z0',
+      });
+      await conn.collection('electoral_tables').deleteMany({ tableCode: 'Z0' });
+    });
+
+    it('live/quick-count y live/ballots: empty state sin ballots preliminares', async () => {
+      await conn.collection('election_configs').deleteMany({});
+      const emptyLiveId = await seedElectionConfig(conn, {
+        name: 'live-empty',
+        votingStartDate: new Date(Date.now() - 30 * 60 * 1000),
+        votingEndDate: new Date(Date.now() + 30 * 60 * 1000),
+        resultsStartDate: new Date(Date.now() + 60 * 60 * 1000),
+        isActive: true,
+        type: 'congress',
+      });
+
+      const quick = await request(app.getHttpServer())
+        .get(`/api/v1/results/live/quick-count?electionId=${emptyLiveId}`)
+        .expect(200);
+      expect(quick.body.summary.validVotes).toBe(0);
+      expect(quick.body.results).toEqual([]);
+
+      const ballots = await request(app.getHttpServer())
+        .get(`/api/v1/results/live/ballots?electionId=${emptyLiveId}`)
+        .expect(200);
+      expect(ballots.body).toEqual(
+        expect.objectContaining({
+          data: [],
+          total: 0,
+          page: 1,
+          limit: 20,
+          totalPages: 0,
+          mode: 'live',
+        }),
+      );
+    });
+
     it('registration-progress por filtro y system-statistics sin 500 con BD vacía', async () => {
+      await conn.collection('election_configs').deleteMany({});
+      await conn.collection('election_configs').insertOne({
+        _id: new Types.ObjectId(electionFinalId),
+        name: 'final-OK',
+        votingStartDate: new Date(Date.now() - 4 * 60 * 60 * 1000),
+        votingEndDate: new Date(Date.now() - 3 * 60 * 60 * 1000),
+        resultsStartDate: new Date(Date.now() - 2 * 60 * 60 * 1000),
+        isActive: true,
+        allowDataModification: false,
+        type: 'presidential',
+        timezone: 'America/La_Paz',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/registration-progress?department=La%20Paz&electionId=${electionFinalId}`)
         .expect(200);
