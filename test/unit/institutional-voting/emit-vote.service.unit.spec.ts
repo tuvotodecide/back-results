@@ -171,4 +171,28 @@ describe('EmitVoteService (unit)', () => {
       'An error occurred while casting the vote',
     );
   });
+
+  it('emitVote con nullifier duplicado retorna BadRequestException controlado', async () => {
+    zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
+    voteWritterService.castVote.mockRejectedValue(
+      new Error('Nullifier already used'),
+    );
+
+    await expect(service.emitVote('blank', 'mock-proof')).rejects.toThrow(
+      BadRequestException,
+    );
+    await expect(service.emitVote('blank', 'mock-proof')).rejects.toThrow(
+      'This vote has already been cast',
+    );
+  });
+
+  it('emitVote propaga rechazo de ZK callback y no llama writer', async () => {
+    const zkError = new Error('invalid zk proof');
+    zkAuthService.zkRequestCallback.mockRejectedValue(zkError);
+
+    await expect(service.emitVote('blank', 'bad-proof')).rejects.toThrow(
+      'invalid zk proof',
+    );
+    expect(voteWritterService.castVote).not.toHaveBeenCalled();
+  });
 });

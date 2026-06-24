@@ -156,4 +156,118 @@ describe('AttestationResolverService (unit)', () => {
     );
     expect(oracleResolver.resolveAttestations).not.toHaveBeenCalled();
   });
+
+  it('resolvePending on-chain con lock adquirido llama oracle y libera lock', async () => {
+    const electionId = new Types.ObjectId('64f000000000000000000021');
+    electionConfigService.getActiveConfigs.mockResolvedValue([
+      {
+        id: electionId.toString(),
+        name: 'Eleccion on-chain',
+        votingEndDate: new Date(Date.now() - 60_000).toISOString(),
+        resultsStartDate: new Date(Date.now() - 30_000).toISOString(),
+      },
+    ]);
+    attModel.aggregate
+      .mockReturnValueOnce(execResolved([{ electionId, tableCode: 'C-1' }]))
+      .mockReturnValueOnce(execResolved([{ electionId, tableCode: 'C-1' }]))
+      .mockReturnValueOnce(execResolved([]));
+    caseModel.findOne.mockReturnValue(execResolved(null));
+    locks.tryAcquire.mockResolvedValue(true);
+    oracleResolver.getAttestEnd.mockResolvedValue(0);
+    oracleResolver.getAttestationInfo
+      .mockResolvedValueOnce({ status: 0, finalResult: 0n })
+      .mockResolvedValueOnce({ status: 3, finalResult: 0n });
+    oracleResolver.mapContractStatusToString
+      .mockReturnValueOnce('OPEN')
+      .mockReturnValueOnce('CLOSED');
+    oracleResolver.resolveAttestations.mockResolvedValue({ success: true });
+
+    const service = buildService(true);
+    await service.resolvePending();
+
+    expect(locks.tryAcquire).toHaveBeenCalled();
+    expect(oracleResolver.resolveAttestations).toHaveBeenCalledWith([
+      { tableCode: 'C-1', electionId: electionId.toString() },
+    ]);
+    expect(caseModel.updateOne).toHaveBeenCalledWith(
+      { electionId, tableCode: 'C-1' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          status: 'CLOSED',
+          summary: expect.objectContaining({ source: 'on-chain' }),
+        }),
+      }),
+      { upsert: true },
+    );
+    expect(runs.save).toHaveBeenCalledWith(electionId.toString(), {
+      lastError: null,
+    });
+    expect(locks.release).toHaveBeenCalledWith(
+      `resolve:${electionId.toString()}`,
+      'test-owner',
+    );
+  });
+
+  it('resolvePending on-chain guarda error de oracle y libera lock', async () => {
+    const electionId = new Types.ObjectId('64f000000000000000000031');
+    electionConfigService.getActiveConfigs.mockResolvedValue([
+      {
+        id: electionId.toString(),
+        name: 'Eleccion on-chain',
+        votingEndDate: new Date(Date.now() - 60_000).toISOString(),
+        resultsStartDate: new Date(Date.now() - 30_000).toISOString(),
+      },
+    ]);
+    attModel.aggregate
+      .mockReturnValueOnce(execResolved([{ electionId, tableCode: 'D-1' }]))
+      .mockReturnValueOnce(execResolved([{ electionId, tableCode: 'D-1' }]));
+    caseModel.findOne.mockReturnValue(execResolved(null));
+    locks.tryAcquire.mockResolvedValue(true);
+    oracleResolver.getAttestEnd.mockResolvedValue(0);
+    oracleResolver.getAttestationInfo.mockResolvedValue({
+      status: 0,
+      finalResult: 0n,
+    });
+    oracleResolver.mapContractStatusToString.mockReturnValue('OPEN');
+    oracleResolver.resolveAttestations.mockResolvedValue({
+      success: false,
+      error: 'oracle failed',
+    });
+
+    const service = buildService(true);
+    await service.resolvePending();
+
+    expect(oracleResolver.resolveAttestations).toHaveBeenCalledWith([
+      { tableCode: 'D-1', electionId: electionId.toString() },
+    ]);
+    expect(runs.save).toHaveBeenCalledWith(electionId.toString(), {
+      lastError: 'oracle failed',
+    });
+    expect(locks.release).toHaveBeenCalledWith(
+      `resolve:${electionId.toString()}`,
+      'test-owner',
+    );
+  });
+
+  it('resolvePending on-chain no reprocesa caso cerrado', async () => {
+    const electionId = new Types.ObjectId('64f000000000000000000041');
+    electionConfigService.getActiveConfigs.mockResolvedValue([
+      {
+        id: electionId.toString(),
+        name: 'Eleccion on-chain',
+        votingEndDate: new Date(Date.now() - 60_000).toISOString(),
+        resultsStartDate: new Date(Date.now() - 30_000).toISOString(),
+      },
+    ]);
+    attModel.aggregate.mockReturnValue(
+      execResolved([{ electionId, tableCode: 'E-1' }]),
+    );
+    caseModel.findOne.mockReturnValue(execResolved({ status: 'CLOSED' }));
+
+    const service = buildService(true);
+    await service.resolvePending();
+
+    expect(locks.tryAcquire).not.toHaveBeenCalled();
+    expect(oracleResolver.resolveAttestations).not.toHaveBeenCalled();
+  });
 });

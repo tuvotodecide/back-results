@@ -11,13 +11,25 @@ import { DelegatesService } from '@/modules/contracts/services/delegates.service
 import { ContractsService } from '@/modules/contracts/services/contracts.service';
 import { BallotComparison } from '@/modules/attestation/schemas/ballot-comparison.schema';
 
-const attModel = () => ({
-  create: jest.fn(),
-  countDocuments: jest.fn(),
-  find: jest.fn(),
-  aggregate: jest.fn(),
-  distinct: jest.fn(),
-});
+const attModel = () => {
+  const model: any = jest.fn().mockImplementation((data: any) => ({
+    ...data,
+    save: model.saveMock,
+    toObject: () => ({ _id: new Types.ObjectId(), ...data }),
+  }));
+  model.saveMock = jest.fn().mockImplementation(async function (this: any) {
+    return {
+      ...this,
+      toObject: () => ({ _id: new Types.ObjectId(), ...this }),
+    };
+  });
+  model.create = jest.fn();
+  model.countDocuments = jest.fn();
+  model.find = jest.fn();
+  model.aggregate = jest.fn();
+  model.distinct = jest.fn();
+  return model;
+};
 
 const ballotModel = () => ({
   find: jest.fn(),
@@ -204,5 +216,109 @@ describe('AttestationService', () => {
     expect(result.processed).toBe(1);
     expect(result.byStatus.MATCH).toBe(1);
     expect((svc as any).ballotComparisonModel.findOneAndUpdate).toHaveBeenCalled();
+  });
+
+  it('createBulk reporta duplicado en errors[] y summary.failed', async () => {
+    const ballotId = new Types.ObjectId();
+    const electionId = new Types.ObjectId();
+
+    (svc as any).ballotModel.exists.mockResolvedValue(true);
+    (svc as any).ballotModel.findById
+      .mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({ _id: ballotId, electionId }),
+        }),
+      })
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue({
+          _id: ballotId,
+          electionId,
+          location: { department: 'La Paz', municipality: 'La Paz' },
+        }),
+      });
+    userSvc.findOrCreateByDni.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      dni: '12345678',
+    });
+    delegatesSvc.getAuthorizedContracts.mockResolvedValue([]);
+    (svc as any).attestationModel.saveMock.mockRejectedValue(
+      Object.assign(new Error('duplicate key'), { code: 11000 }),
+    );
+
+    const result = await svc.createBulk({
+      attestations: [
+        {
+          dni: '12345678',
+          ballotId: ballotId.toString(),
+          support: true,
+          isJury: false,
+        },
+      ],
+    } as any);
+
+    expect(result.created).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toContain('El usuario ya atestigu');
+    expect(result.summary).toEqual({ total: 1, successful: 0, failed: 1 });
+  });
+
+  it('createBulk marca delegado fuera de scope como isValidForClientReport=false', async () => {
+    const ballotId = new Types.ObjectId();
+    const electionId = new Types.ObjectId();
+
+    (svc as any).ballotModel.exists.mockResolvedValue(true);
+    (svc as any).ballotModel.findById
+      .mockReturnValueOnce({
+        select: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue({ _id: ballotId, electionId }),
+        }),
+      })
+      .mockReturnValueOnce({
+        lean: jest.fn().mockResolvedValue({
+          _id: ballotId,
+          electionId,
+          location: { department: 'La Paz', municipality: 'La Paz' },
+        }),
+      });
+    userSvc.findOrCreateByDni.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      dni: '87654321',
+    });
+    delegatesSvc.getAuthorizedContracts.mockResolvedValue([
+      { clientId: new Types.ObjectId() },
+    ]);
+    contractsSvc.getClientContract.mockResolvedValue({
+      _id: new Types.ObjectId(),
+      active: true,
+      clientRole: 'GOVERNOR',
+      departmentId: new Types.ObjectId(),
+      departmentName: 'Santa Cruz',
+    });
+    (svc as any).attestationModel.saveMock.mockImplementation(async function (this: any) {
+      return {
+        ...this,
+        toObject: () => ({ _id: new Types.ObjectId(), ...this }),
+      };
+    });
+
+    const result = await svc.createBulk({
+      attestations: [
+        {
+          dni: '87654321',
+          ballotId: ballotId.toString(),
+          support: true,
+          isJury: false,
+        },
+      ],
+    } as any);
+
+    expect(result.errors).toHaveLength(0);
+    expect((svc as any).attestationModel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isValidForClientReport: false,
+        validForContractId: null,
+      }),
+    );
+    expect(result.summary).toEqual({ total: 1, successful: 1, failed: 0 });
   });
 });

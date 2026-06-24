@@ -171,4 +171,25 @@ describe('Institutional voting integration - participation concurrency regressio
     const afterCount = await countParticipations(eventId, carnet);
     expect(afterCount).toBe(1);
   });
+
+  it('misma Idempotency-Key con carnet distinto documenta el contrato actual por carnet', async () => {
+    const eventId = await createActiveVotingEvent();
+    const idempotencyKey = 'same-key-different-carnet';
+
+    const first = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ carnet: 'ABC-789' });
+    expect(first.status).toBe(201);
+
+    const second = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .set('Idempotency-Key', idempotencyKey)
+      .send({ carnet: '123456' });
+    expect(second.status).toBe(201);
+    expect(second.body.id).not.toBe(first.body.id);
+
+    expect(await countParticipations(eventId, 'ABC-789')).toBe(1);
+    expect(await countParticipations(eventId, '123456')).toBe(1);
+  });
 });

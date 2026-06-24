@@ -442,4 +442,80 @@ describe('Aceptación: Ballots', () => {
     expect(ver.body[0].version).toBe(2);
     expect(ver.body[1].version).toBe(1);
   });
+
+  it('from-ipfs retorna 400 cuando no puede extraer CID de la URI', async () => {
+    const now = new Date();
+    const election = await createElection({
+      name: `ELEC-${now.getTime()}`,
+      votingStartDate: new Date(now.getTime() - 60_000).toISOString(),
+      votingEndDate: new Date(now.getTime() + 60 * 60_000).toISOString(),
+      resultsStartDate: new Date(now.getTime() + 2 * 60 * 60_000).toISOString(),
+    });
+
+    mockFetchWith(validIpfs());
+
+    const res = await request(app.getHttpServer())
+      .post(`${baseUrl}/from-ipfs`)
+      .send({ ipfsUri: 'not-a-cid', electionId: election.id });
+
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toContain('No se pudo extraer CID');
+  });
+
+  it('from-ipfs retorna 400 cuando IPFS falla por timeout/error mockeado', async () => {
+    const now = new Date();
+    const election = await createElection({
+      name: `ELEC-${now.getTime()}`,
+      votingStartDate: new Date(now.getTime() - 60_000).toISOString(),
+      votingEndDate: new Date(now.getTime() + 60 * 60_000).toISOString(),
+      resultsStartDate: new Date(now.getTime() + 2 * 60 * 60_000).toISOString(),
+    });
+
+    (global as any).fetch = jest.fn().mockRejectedValue(
+      Object.assign(new Error('ipfs timeout'), { code: 'ETIMEDOUT' }),
+    );
+
+    const res = await request(app.getHttpServer())
+      .post(`${baseUrl}/from-ipfs`)
+      .send({
+        ipfsUri: `ipfs://${'Qm' + 't'.repeat(44)}`,
+        electionId: election.id,
+      });
+
+    expect(res.status).toBe(400);
+    expect(String(res.body.message)).toContain('Error al obtener datos de IPFS');
+    expect((global as any).fetch).toHaveBeenCalled();
+  });
+
+  it('validate-ballot-data retorna 409 cuando ya existe un acta con los mismos votos', async () => {
+    const now = new Date();
+    const election = await createElection({
+      name: `ELEC-${now.getTime()}`,
+      votingStartDate: new Date(now.getTime() - 60_000).toISOString(),
+      votingEndDate: new Date(now.getTime() + 60 * 60_000).toISOString(),
+      resultsStartDate: new Date(now.getTime() + 2 * 60 * 60_000).toISOString(),
+    });
+
+    mockFetchWith(validIpfs());
+    const created = await request(app.getHttpServer())
+      .post(`${baseUrl}/from-ipfs`)
+      .send({
+        ipfsUri: `ipfs://${'Qm' + 'd'.repeat(44)}`,
+        electionId: election.id,
+      });
+    expect([200, 201]).toContain(created.status);
+
+    mockFetchWith(validIpfs());
+    const duplicate = await request(app.getHttpServer())
+      .post(`${baseUrl}/validate-ballot-data`)
+      .send({
+        ipfsUri: `ipfs://${'Qm' + 'e'.repeat(44)}`,
+        electionId: election.id,
+      });
+
+    expect(duplicate.status).toBe(409);
+    expect(String(duplicate.body.message)).toContain(
+      'Ya existe un acta con los mismos votos para esta mesa',
+    );
+  });
 });

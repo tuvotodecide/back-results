@@ -98,6 +98,15 @@ describe('Institutional participation HTTP contract', () => {
     );
   });
 
+  it('GET /api/v1/voting/events/:eventId/participations/status rechaza carnet inválido', async () => {
+    const response = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/participations/status`)
+      .query({ carnet: '###' })
+      .expect(400);
+
+    expect(String(response.body.message)).toContain('carnet inválido');
+  });
+
   it('POST /api/v1/voting/events/:eventId/participations registra participación con shape estable', async () => {
     const response = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)

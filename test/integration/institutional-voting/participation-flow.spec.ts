@@ -184,6 +184,29 @@ describe('Institutional voting integration - participation flow', () => {
     expect(denied.body.error).toBe('EVENT_NOT_PUBLISHED');
   });
 
+  it('bloquea la participación publicada cuando no existe padrón vigente', async () => {
+    const eventId = await createPublishableEvent();
+
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      {
+        $set: {
+          state: 'OFFICIALLY_PUBLISHED',
+          votingStart: new Date(Date.now() - 60_000),
+          votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+          resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        },
+      },
+    );
+
+    const denied = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .send({ carnet: institutionalVotingFixtures.carnet.empadronado });
+
+    expect(denied.status).toBe(403);
+    expect(denied.body.error).toBe('PADRON_NOT_AVAILABLE');
+  });
+
   it('bloquea la participación para no empadronado e inhabilitado', async () => {
     const eventId = await createPublishableEvent();
 

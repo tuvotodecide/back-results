@@ -20,6 +20,7 @@ import { AuthModule } from '@/modules/auth/auth.module';
 import { Worksheet } from '@/modules/worksheet/schemas/worksheet.schema';
 import { CompareWorksheetDto, WorksheetVotesDto } from '@/modules/worksheet/dto/worksheet.dto';
 import { OpenSeaMetadata } from '@/modules/ballot/dto/ballot.dto';
+import { BadRequestException } from '@nestjs/common';
 
 const mockZkAuthGuard = {
   canActivate: jest.fn().mockResolvedValue(true),
@@ -167,6 +168,28 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body).toHaveProperty('message', 'Error al obtener datos de IPFS');
   });
 
+  it('HT2-C: should return 400 for IPFS timeout/error mock', async () => {
+    jest
+      .spyOn(worksheetService, 'fetchFromIpfs' as any)
+      .mockRejectedValue(
+        new BadRequestException('Error al obtener datos de IPFS'),
+      );
+
+    const response = await request(appHttpServer)
+      .post('/api/v1/worksheets/from-ipfs')
+      .send({
+        ipfsUri: 'https://ipfs.io/ipfs/timeoutworksheet',
+        dni: userDni,
+        electionId: activeElectionId,
+        tableCode: cbbaTables[6].tableCode,
+        tableNumber: cbbaTables[6].tableNumber,
+        locationId: cbbaTables[6].electoralLocationId,
+      })
+      .expect(400);
+
+    expect(response.body).toHaveProperty('message', 'Error al obtener datos de IPFS');
+  });
+
   it('HT3: should return 403 for non zk-authorized users', async () => {
     const table = cbbaTables[1];
     mockWorksheet(table);
@@ -196,6 +219,20 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body.tableCode).toBe(cbbaTables[0].tableCode);
     expect(response.body.tableNumber).toBe(cbbaTables[0].tableNumber);
     expect(response.body.ipfsUri).toBe('https://ipfs.io/ipfs/testworksheet1');
+  });
+
+  it('HT4-B: should return worksheet detail with image and votes', async () => {
+    const response = await request(appHttpServer)
+      .get(`/api/v1/worksheets/${userDni}/by-table/${cbbaTables[0].tableCode}/detail`)
+      .query({ electionId: activeElectionId })
+      .expect(200);
+
+    expect(response.body.status).toBe('UPLOADED');
+    expect(response.body.tableCode).toBe(cbbaTables[0].tableCode);
+    expect(response.body.tableNumber).toBe(cbbaTables[0].tableNumber);
+    expect(response.body.image).toBeDefined();
+    expect(response.body.votes).toBeDefined();
+    expect(response.body.votes.parties.totalVotes).toBe(157);
   });
 
   it('HT5-A: should return NOT_FOUND if no worksheet found for not registered dni', async () => {

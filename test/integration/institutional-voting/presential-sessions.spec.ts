@@ -128,6 +128,24 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.body.session.qrToken).toBe(created.body.currentSession.qrToken);
   });
 
+  it('rechaza consulta current sin x-kiosk-token o con token inválido', async () => {
+    const eventId = await createConfiguredEvent();
+    const created = await createKioskSession(eventId, {
+      regenerateKioskAccessToken: true,
+    });
+
+    const missingToken = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/presential-sessions/current`)
+      .query({ stationId: 'kiosco-principal' });
+    expect(missingToken.status).toBe(401);
+
+    const invalidToken = await getCurrent(eventId, 'pkc_invalid-token');
+    expect(invalidToken.status).toBe(401);
+
+    const validToken = await getCurrent(eventId, created.body.kioskAccessToken);
+    expect(validToken.status).toBe(200);
+  });
+
   it('permite claim válido del QR y deja el kiosco en estado CLAIMED', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
@@ -403,6 +421,77 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.status).toBe(200);
     expect(current.body.session.status).toBe('READY');
     expect(current.body.session.id).not.toBe(claim.body.presentialSessionId);
+  });
+
+  it('rechaza participación con presentialSessionId READY no reclamado', async () => {
+    const eventId = await createConfiguredEvent();
+    const created = await createKioskSession(eventId);
+
+    const response = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .set('Idempotency-Key', 'presential-not-claimed-idem')
+      .send({
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+        presentialSessionId: created.body.currentSession.id,
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe('PRESENTIAL_SESSION_NOT_CLAIMED');
+  });
+
+  it('rechaza participación cuando la sesión presencial pertenece a otro carnet', async () => {
+    const eventId = await createConfiguredEvent(
+      'carnet,habilitado\nABC-789,si\nXYZ-123,si\n',
+    );
+    const created = await createKioskSession(eventId);
+
+    const claim = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: created.body.currentSession.qrToken,
+        carnet: 'ABC-789',
+      });
+    expect(claim.status).toBe(201);
+
+    const response = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .set('Idempotency-Key', 'presential-not-owned-idem')
+      .send({
+        carnet: 'XYZ-123',
+        presentialSessionId: claim.body.presentialSessionId,
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toBe('PRESENTIAL_SESSION_NOT_OWNED');
+  });
+
+  it('rechaza participación cuando la sesión presencial reclamada expiró', async () => {
+    const eventId = await createConfiguredEvent();
+    const created = await createKioskSession(eventId);
+
+    const claim = await request(ctx.httpServer)
+      .post('/api/v1/voting/presential-sessions/scan')
+      .send({
+        token: created.body.currentSession.qrToken,
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+      });
+    expect(claim.status).toBe(201);
+
+    await ctx.conn.collection('presential_qr_sessions').updateOne(
+      { _id: new Types.ObjectId(claim.body.presentialSessionId) },
+      { $set: { expiresAt: new Date(Date.now() - 1_000) } },
+    );
+
+    const response = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/participations`)
+      .set('Idempotency-Key', 'presential-expired-idem')
+      .send({
+        carnet: institutionalVotingFixtures.carnet.empadronado,
+        presentialSessionId: claim.body.presentialSessionId,
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe('PRESENTIAL_SESSION_NOT_CLAIMED');
   });
 
   it('evita doble voto en el flujo presencial después de registrar la participación', async () => {
