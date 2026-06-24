@@ -5,6 +5,7 @@ import { DelegatesService } from '@/modules/contracts/services/delegates.service
 const contractId = '64d000000000000000000001';
 const clientId = '64d000000000000000000002';
 const superadminId = '64d000000000000000000003';
+const otherContractId = '64d000000000000000000004';
 
 describe('DelegatesService (unit)', () => {
   let delegateModel: any;
@@ -107,5 +108,81 @@ describe('DelegatesService (unit)', () => {
 
     delegateModel.countDocuments.mockResolvedValue(1);
     await expect(service.isAuthorizedForContract('123456', contractId)).resolves.toBe(true);
+  });
+
+  it('listByContract solo consulta delegados activos del contrato indicado', async () => {
+    const expected = [{ dni: '123456', active: true }];
+    const chain = {
+      populate: jest.fn().mockReturnThis(),
+      sort: jest.fn().mockReturnThis(),
+      exec: jest.fn().mockResolvedValue(expected),
+    };
+    delegateModel.find.mockReturnValue(chain);
+
+    await expect(service.listByContract(contractId)).resolves.toBe(expected);
+
+    expect(delegateModel.find).toHaveBeenCalledWith({
+      'authorizedContracts.contractId': new Types.ObjectId(contractId),
+      active: true,
+    });
+    expect(chain.populate).toHaveBeenCalledWith(
+      'userId',
+      'dni votingLocationId votingTableId',
+    );
+  });
+
+  it('getAuthorizedContracts documenta delegado autorizado, inactivo y fuera de scope', async () => {
+    delegateModel.findOne.mockResolvedValueOnce({
+      active: true,
+      authorizedContracts: [
+        {
+          contractId: new Types.ObjectId(contractId),
+          clientId: new Types.ObjectId(clientId),
+          clientRole: 'GOVERNOR',
+        },
+        {
+          contractId: new Types.ObjectId(otherContractId),
+          clientId: new Types.ObjectId(),
+          clientRole: 'MAYOR',
+        },
+      ],
+    });
+
+    await expect(service.getAuthorizedContracts('123456')).resolves.toEqual([
+      {
+        contractId,
+        clientId,
+        clientRole: 'GOVERNOR',
+      },
+      expect.objectContaining({
+        contractId: otherContractId,
+        clientRole: 'MAYOR',
+      }),
+    ]);
+
+    delegateModel.findOne.mockResolvedValueOnce(null);
+    await expect(service.getAuthorizedContracts('999999')).resolves.toEqual([]);
+  });
+
+  it('isAuthorizedForContract devuelve false para contrato ajeno o delegado inactivo', async () => {
+    delegateModel.countDocuments.mockResolvedValue(0);
+
+    await expect(
+      service.isAuthorizedForContract('123456', otherContractId),
+    ).resolves.toBe(false);
+
+    expect(delegateModel.countDocuments).toHaveBeenCalledWith({
+      dni: '123456',
+      'authorizedContracts.contractId': new Types.ObjectId(otherContractId),
+      active: true,
+    });
+  });
+
+  it('removeFromContract lanza NotFoundException si el delegado no existe', async () => {
+    delegateModel.updateOne.mockResolvedValue({ matchedCount: 0 });
+
+    await expect(
+      service.removeFromContract('000000', contractId),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
