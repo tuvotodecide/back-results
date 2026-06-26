@@ -244,7 +244,7 @@ export class InstitutionalVotingNotificationsService {
     return this.notifyToCurrentPadron(event, {
       type: 'voting_cancelled',
       title: 'Votación eliminada',
-      body: 'La votación ya no está disponible porque fue eliminada por el administrador.',
+      body: `${event.name} fue eliminada por el administrador.`,
       data: {
         type: 'INSTITUTIONAL_VOTING_CANCELLED',
         eventId,
@@ -253,8 +253,9 @@ export class InstitutionalVotingNotificationsService {
         state: 'CANCELLED',
         status: 'cancelled',
         severity: 'error',
-        bannerTitle: 'Esta votación fue eliminada',
-        bannerSubtitle: 'No es necesario realizar ninguna acción.',
+        bannerTitle: event.name,
+        bannerSubtitle: 'Ya no está disponible.',
+        reasonText: 'Fue eliminada por el administrador.',
       },
     });
   }

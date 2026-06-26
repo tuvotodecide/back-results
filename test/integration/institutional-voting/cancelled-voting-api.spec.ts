@@ -398,9 +398,13 @@ describe('Institutional voting integration - cancelled voting API contract', () 
       expect.objectContaining({
         dni,
         title: 'Votación eliminada',
-        body: 'La votación ya no está disponible porque fue eliminada por el administrador.',
+        body: expect.stringContaining('fue eliminada por el administrador.'),
         status: 'NEW',
       }),
+    );
+    expect(userNotifications[0].body).toContain('Cancel notified');
+    expect(userNotifications[0].body).not.toContain(
+      'La votación ya no está disponible porque fue eliminada por el administrador.',
     );
     expect(userNotifications[0].data).toEqual(
       expect.objectContaining({
@@ -410,17 +414,19 @@ describe('Institutional voting integration - cancelled voting API contract', () 
         state: 'CANCELLED',
         status: 'cancelled',
         severity: 'error',
-        bannerTitle: 'Esta votación fue eliminada',
-        bannerSubtitle: 'No es necesario realizar ninguna acción.',
+        bannerSubtitle: 'Ya no está disponible.',
+        reasonText: 'Fue eliminada por el administrador.',
         eligible: 'true',
         dni,
       }),
     );
     expect(userNotifications[0].data.eventName).toContain('Cancel notified');
+    expect(userNotifications[0].data.bannerTitle).toContain('Cancel notified');
     expect(logs[0]).toEqual(
       expect.objectContaining({
         type: 'generic',
         title: 'Votación eliminada',
+        body: expect.stringContaining('fue eliminada por el administrador.'),
         status: 'SENT',
         messageId: 'mock-message-id',
       }),
@@ -498,6 +504,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(response.body).toEqual(
       expect.objectContaining({
         id: eventId,
+        name: expect.any(String),
         state: 'CANCELLED',
         availabilityStatus: 'CANCELLED',
         phase: 'UNAVAILABLE',
