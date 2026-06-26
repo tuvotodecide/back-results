@@ -124,6 +124,7 @@ describe('VotingEventsService (unit)', () => {
       getEventOrThrow: jest.fn(),
       getTenantOrThrow: jest.fn(),
       assertTenantWriteAccess: jest.fn(),
+      resolveReadableTenantIds: jest.fn(),
       parseAndValidateDates: jest.fn(),
       computePublishDeadline: jest.fn((votingStart: Date) => new Date(votingStart.getTime() - 6 * 60 * 60 * 1000)),
       getCreateLeadHours: jest.fn(() => 12),
@@ -136,6 +137,7 @@ describe('VotingEventsService (unit)', () => {
     notificationsService = {
       notifyConvocationIfEligible: jest.fn(),
       notifyOfficialPublicationConfirmed: jest.fn(),
+      notifyVotingCancelledToCurrentPadron: jest.fn(),
       notifyNewsToCurrentPadron: jest.fn(),
       notifyScheduleUpdatedToCurrentPadron: jest.fn(),
     };
@@ -296,6 +298,168 @@ describe('VotingEventsService (unit)', () => {
     );
     expect(result.isReferendum).toBe(true);
     expect(result.allowPostPublicationPadronEnable).toBe(true);
+  });
+
+  it('marca como CANCELLED un evento DRAFT sin borrar recursos relacionados', async () => {
+    const event: any = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'DRAFT',
+      name: 'Eleccion borrador',
+      objective: 'Elegir directiva',
+      convocationNotifiedAt: null,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    const result = await service.deleteEvent(String(event._id), { sub: 'admin-1' });
+
+    expect(event.state).toBe('CANCELLED');
+    expect(event.cancelledAt).toBeInstanceOf(Date);
+    expect(event.cancelledBy).toBe('admin-1');
+    expect(event.publicationConfirmed).toBe(false);
+    expect(event.save).toHaveBeenCalled();
+    expect(presentialSessionModel.updateMany).toHaveBeenCalledWith(
+      {
+        eventId: event._id,
+        status: { $in: ['READY', 'CLAIMED'] },
+      },
+      {
+        $set: {
+          status: 'CANCELLED',
+          expiresAt: expect.any(Date),
+        },
+      },
+    );
+    expect(eventRoleModel.deleteMany).not.toHaveBeenCalled();
+    expect(votingOptionModel.deleteMany).not.toHaveBeenCalled();
+    expect(padronEntryModel.deleteMany).not.toHaveBeenCalled();
+    expect(padronVersionModel.deleteMany).not.toHaveBeenCalled();
+    expect(participationModel.deleteMany).not.toHaveBeenCalled();
+    expect(presentialSessionModel.deleteMany).not.toHaveBeenCalled();
+    expect(resultsSnapshotModel.deleteMany).not.toHaveBeenCalled();
+    expect(votingEventModel.deleteOne).not.toHaveBeenCalled();
+    expect(comparisonReportModel.deleteMany).not.toHaveBeenCalled();
+    expect(notificationsService.notifyVotingCancelledToCurrentPadron).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      id: String(event._id),
+      deleted: true,
+      state: 'CANCELLED',
+      cancellationNotification: null,
+    });
+  });
+
+  it('no notifica cancelación si READY_FOR_REVIEW nunca notificó convocatoria', async () => {
+    const event: any = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'READY_FOR_REVIEW',
+      name: 'Eleccion sin convocatoria',
+      objective: 'Elegir directiva',
+      convocationNotifiedAt: null,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    await service.deleteEvent(String(event._id), { sub: 'admin-1' });
+
+    expect(event.state).toBe('CANCELLED');
+    expect(notificationsService.notifyVotingCancelledToCurrentPadron).not.toHaveBeenCalled();
+  });
+
+  it('notifica cancelación si READY_FOR_REVIEW ya notificó convocatoria', async () => {
+    const event: any = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'READY_FOR_REVIEW',
+      name: 'Eleccion con convocatoria',
+      objective: 'Elegir directiva',
+      convocationNotifiedAt: new Date('2026-01-01T00:00:00.000Z'),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    notificationsService.notifyVotingCancelledToCurrentPadron.mockResolvedValue({
+      sent: 2,
+      failed: 0,
+    });
+
+    const result = await service.deleteEvent(String(event._id), { sub: 'admin-1' });
+
+    expect(event.state).toBe('CANCELLED');
+    expect(notificationsService.notifyVotingCancelledToCurrentPadron).toHaveBeenCalledWith(event);
+    expect(result.cancellationNotification).toEqual({ sent: 2, failed: 0 });
+  });
+
+  it('rechaza cancelar eventos publicados oficialmente', async () => {
+    const event: any = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'OFFICIALLY_PUBLISHED',
+      save: jest.fn(),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    await expect(
+      service.deleteEvent(String(event._id), { sub: 'admin-1' }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(event.state).toBe('OFFICIALLY_PUBLISHED');
+    expect(event.save).not.toHaveBeenCalled();
+    expect(notificationsService.notifyVotingCancelledToCurrentPadron).not.toHaveBeenCalled();
+  });
+
+  it('excluye eventos CANCELLED del listado normal de administración', async () => {
+    const tenantId = new Types.ObjectId();
+    accessService.resolveReadableTenantIds.mockResolvedValue([tenantId]);
+    votingEventModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
+
+    const result = await service.listEvents({ sub: 'admin-1' }, String(tenantId));
+
+    expect(votingEventModel.find).toHaveBeenCalledWith({
+      tenantId: { $in: [tenantId] },
+      state: { $ne: 'CANCELLED' },
+    });
+    expect(result).toEqual({ data: [] });
+  });
+
+  it('devuelve contrato público claro para eventos CANCELLED', async () => {
+    const event: any = {
+      _id: new Types.ObjectId(),
+      tenantId: new Types.ObjectId(),
+      state: 'CANCELLED',
+      name: 'Eleccion eliminada',
+      objective: 'Elegir directiva',
+      isReferendum: false,
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+
+    const result = await service.getPublicEventDetail(String(event._id));
+
+    expect(result).toEqual({
+      id: String(event._id),
+      tenantId: String(event.tenantId),
+      name: 'Eleccion eliminada',
+      objective: 'Elegir directiva',
+      isReferendum: false,
+      state: 'CANCELLED',
+      availabilityStatus: 'CANCELLED',
+      phase: 'UNAVAILABLE',
+      votingStart: null,
+      votingEnd: null,
+      resultsPublishAt: null,
+      publicEligibilityEnabled: false,
+      presentialKioskEnabled: false,
+      resultsAvailable: false,
+      roles: [],
+      options: [],
+      results: [],
+    });
+    expect(eventRoleModel.find).not.toHaveBeenCalled();
+    expect(votingOptionModel.find).not.toHaveBeenCalled();
   });
 
   it('actualiza la bandera de habilitación limitada del padrón sin tocar la edición estructural', async () => {
@@ -1396,6 +1560,24 @@ describe('VotingEventsService (unit)', () => {
     expect(result).toEqual({
       carnet: '123456',
       events: [],
+    });
+  });
+
+  it('no incluye eventos CANCELLED en la consulta del landing público', async () => {
+    votingEventModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
+    });
+
+    const result = await service.getPublicLanding(undefined, 10);
+
+    const [query] = votingEventModel.find.mock.calls[0];
+    expect(JSON.stringify(query)).not.toContain('CANCELLED');
+    expect(result.totals).toEqual({
+      upcoming: 0,
+      active: 0,
+      results: 0,
     });
   });
 

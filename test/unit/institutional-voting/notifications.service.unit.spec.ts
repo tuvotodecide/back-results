@@ -276,6 +276,84 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     });
   });
 
+  it('notifica votación eliminada a los usuarios del padrón actual con payload de cancelación', async () => {
+    const userA = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion cancelada',
+      state: 'CANCELLED',
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '4000001', active: true, enabled: true },
+    ]);
+
+    const result = await service.notifyVotingCancelledToCurrentPadron(event as any);
+
+    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+      includeDisabled: true,
+    });
+    expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          dni: '4000001',
+          topic: `user_${String(userA)}`,
+          title: 'Votación eliminada',
+          body: 'La votación ya no está disponible porque fue eliminada por el administrador.',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_VOTING_CANCELLED',
+            eventId: String(event._id),
+            electionId: String(event._id),
+            eventName: 'Eleccion cancelada',
+            state: 'CANCELLED',
+            status: 'cancelled',
+            severity: 'error',
+            bannerTitle: 'Esta votación fue eliminada',
+            bannerSubtitle: 'No es necesario realizar ninguna acción.',
+            eligible: 'true',
+            dni: '4000001',
+          }),
+        }),
+      ],
+      { ordered: false },
+    );
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: `user_${String(userA)}`,
+        notification: {
+          title: 'Votación eliminada',
+          body: 'La votación ya no está disponible porque fue eliminada por el administrador.',
+        },
+        data: expect.objectContaining({
+          type: 'INSTITUTIONAL_VOTING_CANCELLED',
+          state: 'CANCELLED',
+          status: 'cancelled',
+          severity: 'error',
+        }),
+      }),
+    );
+    expect(notificationLogModel.insertMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'generic',
+          topic: `user_${String(userA)}`,
+          title: 'Votación eliminada',
+          body: 'La votación ya no está disponible porque fue eliminada por el administrador.',
+          status: 'SENT',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_VOTING_CANCELLED',
+            eventId: String(event._id),
+            eventName: 'Eleccion cancelada',
+            state: 'CANCELLED',
+            status: 'cancelled',
+            severity: 'error',
+          }),
+        }),
+      ]),
+      { ordered: false },
+    );
+    expect(result).toEqual({ sent: 1, failed: 0 });
+  });
+
   it('envía reminder de publicación oficial a admins activos/aprobados del tenant y marca enviado', async () => {
     const tenantId = new Types.ObjectId();
     const userA = new Types.ObjectId();

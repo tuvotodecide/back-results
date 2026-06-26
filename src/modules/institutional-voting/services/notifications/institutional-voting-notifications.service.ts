@@ -238,6 +238,27 @@ export class InstitutionalVotingNotificationsService {
     });
   }
 
+  async notifyVotingCancelledToCurrentPadron(event: VotingEventDocument) {
+    const eventId = String(event._id);
+
+    return this.notifyToCurrentPadron(event, {
+      type: 'voting_cancelled',
+      title: 'Votación eliminada',
+      body: 'La votación ya no está disponible porque fue eliminada por el administrador.',
+      data: {
+        type: 'INSTITUTIONAL_VOTING_CANCELLED',
+        eventId,
+        electionId: eventId,
+        eventName: event.name,
+        state: 'CANCELLED',
+        status: 'cancelled',
+        severity: 'error',
+        bannerTitle: 'Esta votación fue eliminada',
+        bannerSubtitle: 'No es necesario realizar ninguna acción.',
+      },
+    });
+  }
+
   async notifyNewsToCurrentPadron(
     event: VotingEventDocument,
     payload: {

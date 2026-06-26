@@ -178,7 +178,7 @@ export class VotingEventsService {
     }
 
     const events = await this.votingEventModel
-      .find({ tenantId: { $in: readableTenantIds } })
+      .find({ tenantId: { $in: readableTenantIds }, state: { $ne: 'CANCELLED' } })
       .sort({ createdAt: -1, _id: -1 })
       .lean();
 
@@ -366,6 +366,27 @@ export class VotingEventsService {
   async getPublicEventDetail(eventId: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.expireEventIfPastDeadline(event);
+    if (event.state === 'CANCELLED') {
+      return {
+        id: String(event._id),
+        tenantId: String(event.tenantId),
+        name: event.name,
+        objective: event.objective,
+        isReferendum: Boolean(event.isReferendum),
+        state: event.state,
+        availabilityStatus: 'CANCELLED',
+        phase: 'UNAVAILABLE',
+        votingStart: null,
+        votingEnd: null,
+        resultsPublishAt: null,
+        publicEligibilityEnabled: false,
+        presentialKioskEnabled: false,
+        resultsAvailable: false,
+        roles: [],
+        options: [],
+        results: [],
+      };
+    }
     if (['DRAFT', 'PUBLICATION_EXPIRED'].includes(event.state)) {
       throw new NotFoundException('Evento no disponible publicamente');
     }
@@ -657,28 +678,25 @@ export class VotingEventsService {
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
     await this.assertDeletableState(event);
 
-    const versions = await this.padronVersionModel
-      .find({ eventId: event._id }, { _id: 1 })
-      .lean();
-    const versionIds = versions.map((v) => v._id);
+    const shouldNotifyCancellation = Boolean(event.convocationNotifiedAt);
+    event.state = 'CANCELLED';
+    event.cancelledAt = new Date();
+    event.cancelledBy = requester?.sub ? String(requester.sub) : undefined;
+    event.publicationConfirmed = false;
+    await this.cancelActivePresentialSessions(event);
+    await event.save();
 
-    await Promise.all([
-      this.eventRoleModel.deleteMany({ eventId: event._id }),
-      this.votingOptionModel.deleteMany({ eventId: event._id }),
-      this.padronEntryModel.deleteMany({ eventId: event._id }),
-      this.padronVersionModel.deleteMany({ eventId: event._id }),
-      this.participationModel.deleteMany({ eventId: event._id }),
-      this.presentialSessionModel.deleteMany({ eventId: event._id }),
-      this.resultsSnapshotModel.deleteMany({ eventId: event._id }),
-      this.votingEventModel.deleteOne({ _id: event._id }),
-      versionIds.length
-        ? this.comparisonReportModel.deleteMany({ padronVersionId: { $in: versionIds } })
-        : Promise.resolve(),
-    ]);
+    let cancellationNotification: any = null;
+    if (shouldNotifyCancellation) {
+      cancellationNotification =
+        await this.notificationsService.notifyVotingCancelledToCurrentPadron(event);
+    }
 
     return {
       id: String(event._id),
       deleted: true,
+      state: event.state,
+      cancellationNotification,
     };
   }
 

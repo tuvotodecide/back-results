@@ -252,7 +252,7 @@ export class InstitutionalVotingAccessService {
     >,
     now = new Date(),
   ) {
-    if (['PUBLICATION_EXPIRED', 'CLOSED', 'RESULTS_PUBLISHED'].includes(String(event.state || ''))) {
+    if (['PUBLICATION_EXPIRED', 'CLOSED', 'RESULTS_PUBLISHED', 'CANCELLED'].includes(String(event.state || ''))) {
       return false;
     }
 
@@ -279,7 +279,7 @@ export class InstitutionalVotingAccessService {
       return false;
     }
 
-    if (['PUBLICATION_EXPIRED', 'CLOSED', 'RESULTS_PUBLISHED'].includes(String(event.state || ''))) {
+    if (['PUBLICATION_EXPIRED', 'CLOSED', 'RESULTS_PUBLISHED', 'CANCELLED'].includes(String(event.state || ''))) {
       return false;
     }
 

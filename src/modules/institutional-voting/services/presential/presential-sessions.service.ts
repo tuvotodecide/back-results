@@ -77,6 +77,11 @@ export class PresentialSessionsService {
   ) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    if (event.state === 'CANCELLED') {
+      throw new BadRequestException(
+        'No se puede habilitar kiosco presencial para un evento cancelado',
+      );
+    }
 
     const stationId = this.normalizeStationId(dto?.stationId);
     const shouldRotateKioskToken =
