@@ -258,6 +258,88 @@ describe('Institutional voting integration - publication and results', () => {
     expect(String(second.body.message)).toContain('READY_FOR_REVIEW');
   });
 
+  it('envía recordatorio automático de inicio 1h a votantes habilitados y no duplica', async () => {
+    const linkedUsers = [
+      {
+        dni: '123456',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        dni: 'ABC789',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    for (const user of linkedUsers) {
+      await ctx.conn.collection('users').updateOne(
+        { dni: user.dni },
+        { $set: user },
+        { upsert: true },
+      );
+    }
+
+    const eventId = await preparePublishedEvent();
+    const official = await confirmInstitutionalOfficialPublication(
+      ctx.httpServer,
+      ctx.adminToken,
+      eventId,
+      { txHash: '0xreminder' },
+    );
+    expect(official.status).toBe(201);
+
+    const now = new Date('2026-07-10T13:00:30.000Z');
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date('2026-07-10T14:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+      resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
+    });
+
+    const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
+    await lifecycle.processVotingReminderNotifications(now);
+    await lifecycle.processVotingReminderNotifications(now);
+
+    const notifications = await ctx.conn
+      .collection('user_notifications')
+      .find({
+        'data.eventId': eventId,
+        'data.type': 'INSTITUTIONAL_VOTING_STARTS_IN_1H',
+      })
+      .toArray();
+    const logs = await ctx.conn
+      .collection('notification_logs')
+      .find({
+        'data.eventId': eventId,
+        'data.type': 'INSTITUTIONAL_VOTING_STARTS_IN_1H',
+        status: 'SENT',
+      })
+      .toArray();
+
+    expect(notifications).toHaveLength(2);
+    expect(logs).toHaveLength(2);
+    expect(notifications[0]).toEqual(
+      expect.objectContaining({
+        title: 'La votación inicia en 1 hora',
+        body: expect.stringContaining('comienza a las 10:00'),
+      }),
+    );
+    expect(notifications[0].data).toEqual(
+      expect.objectContaining({
+        eventId,
+        eventName: expect.any(String),
+        phase: 'START',
+        offsetMinutes: '60',
+        scheduledFor: '2026-07-10T14:00:00.000Z',
+        votingStart: '2026-07-10T14:00:00.000Z',
+        votingEnd: '2026-07-10T18:00:00.000Z',
+        severity: 'info',
+        publicPath: `/votacion/elecciones/${eventId}/publica`,
+      }),
+    );
+  });
+
   it('no genera notificaciones de revisión cuando no existan usuarios previamente vinculados', async () => {
     await ctx.conn.collection('users').deleteMany({
       dni: { $in: ['123456', 'ABC789'] },

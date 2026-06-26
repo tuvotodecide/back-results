@@ -13,6 +13,7 @@ import { RoledUser, RoledUserDocument } from '@/modules/auth/schemas/roledUser.s
 import {
   VotingEvent,
   VotingEventDocument,
+  VotingEventState,
 } from '../../schemas/voting-event.schema';
 import { PadronUsersService } from '../core/padron-users.service';
 
@@ -31,6 +32,9 @@ type NotificationRecipient = {
   active: boolean;
   enabled: boolean;
 };
+
+type VotingReminderPhase = 'START' | 'END';
+type VotingReminderOffsetMinutes = 60 | 15;
 
 @Injectable()
 export class InstitutionalVotingNotificationsService {
@@ -86,6 +90,19 @@ export class InstitutionalVotingNotificationsService {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(deadline);
+  }
+
+  private formatVotingReminderTime(deadline?: Date | null) {
+    if (!deadline) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('es-BO', {
+      timeZone: 'America/La_Paz',
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
@@ -333,6 +350,70 @@ export class InstitutionalVotingNotificationsService {
     });
   }
 
+  async notifyVotingReminderIfEligible(
+    event: VotingEventDocument,
+    phase: VotingReminderPhase,
+    offsetMinutes: VotingReminderOffsetMinutes,
+  ) {
+    const eventId = String(event._id);
+    const type = this.buildVotingReminderType(phase, offsetMinutes);
+    const scheduledFor =
+      (phase === 'START' ? event.votingStart : event.votingEnd)?.toISOString?.() ?? '';
+
+    if (!this.isReminderEventStateAllowed(event.state)) {
+      return { sent: 0, skipped: 'invalid_state' };
+    }
+
+    if (!scheduledFor) {
+      return { sent: 0, skipped: 'missing_schedule' };
+    }
+
+    if (await this.hasSentVotingReminder(eventId, type, phase, offsetMinutes)) {
+      return { sent: 0, skipped: 'already_sent' };
+    }
+
+    const publicUrl = this.buildPublicElectionUrl(eventId);
+    const reminderTime = this.formatVotingReminderTime(
+      phase === 'START' ? event.votingStart : event.votingEnd,
+    );
+    const copy = this.buildVotingReminderCopy(event.name, phase, offsetMinutes, reminderTime);
+    const recipients = (
+      await this.padronUsersService.getPadronUsersFromEvent(event, {
+        includeDisabled: false,
+      })
+    ).filter((recipient) => recipient.enabled !== false);
+
+    return this.notifyRecipients(
+      {
+        type: 'voting_reminder',
+        title: copy.title,
+        body: copy.body,
+        data: {
+          type,
+          eventId,
+          electionId: eventId,
+          eventName: event.name,
+          phase,
+          offsetMinutes: String(offsetMinutes),
+          scheduledFor,
+          severity: 'info',
+          votingStart: event.votingStart?.toISOString?.() ?? '',
+          votingEnd: event.votingEnd?.toISOString?.() ?? '',
+          resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
+          bannerTitle: copy.title,
+          bannerSubtitle: copy.body,
+          publicPath: this.buildPublicElectionPath(eventId),
+          publicUrl,
+          link: this.buildPublicElectionPath(eventId),
+          deepLink: `myapp://event/${eventId}`,
+        },
+      },
+      recipients,
+      {},
+      eventId,
+    );
+  }
+
   async sendOfficialPublicationReminder(event: VotingEventDocument) {
     if (event.officialPublicationReminderSentAt) {
       return { sent: 0, skipped: 'already_sent' };
@@ -526,6 +607,82 @@ export class InstitutionalVotingNotificationsService {
 
   private toEligibleFlag(recipient: Pick<NotificationRecipient, 'enabled'>) {
     return recipient.enabled ? 'true' : 'false';
+  }
+
+  private buildVotingReminderType(
+    phase: VotingReminderPhase,
+    offsetMinutes: VotingReminderOffsetMinutes,
+  ) {
+    if (phase === 'START') {
+      return offsetMinutes === 60
+        ? 'INSTITUTIONAL_VOTING_STARTS_IN_1H'
+        : 'INSTITUTIONAL_VOTING_STARTS_IN_15M';
+    }
+
+    return offsetMinutes === 60
+      ? 'INSTITUTIONAL_VOTING_ENDS_IN_1H'
+      : 'INSTITUTIONAL_VOTING_ENDS_IN_15M';
+  }
+
+  private buildVotingReminderCopy(
+    eventName: string,
+    phase: VotingReminderPhase,
+    offsetMinutes: VotingReminderOffsetMinutes,
+    reminderTime: string,
+  ) {
+    const actionText =
+      phase === 'START'
+        ? (reminderTime ? `comienza a las ${reminderTime}.` : 'está próxima a iniciar.')
+        : (reminderTime ? `cierra a las ${reminderTime}.` : 'está próxima a cerrar.');
+    const body = `${eventName} ${actionText}`;
+
+    if (phase === 'START' && offsetMinutes === 60) {
+      return {
+        title: 'La votación inicia en 1 hora',
+        body,
+      };
+    }
+
+    if (phase === 'START' && offsetMinutes === 15) {
+      return {
+        title: 'La votación inicia en 15 minutos',
+        body,
+      };
+    }
+
+    if (phase === 'END' && offsetMinutes === 60) {
+      return {
+        title: 'La votación termina en 1 hora',
+        body,
+      };
+    }
+
+    return {
+      title: 'La votación termina en 15 minutos',
+      body,
+    };
+  }
+
+  private isReminderEventStateAllowed(state: VotingEventState) {
+    return ['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(state);
+  }
+
+  private async hasSentVotingReminder(
+    eventId: string,
+    type: string,
+    phase: VotingReminderPhase,
+    offsetMinutes: VotingReminderOffsetMinutes,
+  ) {
+    const existing = await this.notificationLogModel.exists({
+      type: 'generic',
+      status: 'SENT',
+      'data.eventId': eventId,
+      'data.type': type,
+      'data.phase': phase,
+      'data.offsetMinutes': String(offsetMinutes),
+    });
+
+    return Boolean(existing);
   }
 
   private async getSentConvocationStateByTopic(eventId: string) {

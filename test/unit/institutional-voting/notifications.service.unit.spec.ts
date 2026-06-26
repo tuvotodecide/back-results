@@ -38,6 +38,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       find: jest.fn().mockReturnValue({
         lean: jest.fn().mockResolvedValue([]),
       }),
+      exists: jest.fn().mockResolvedValue(null),
       insertMany: jest.fn().mockResolvedValue([]),
     };
     votingEventModel = {
@@ -417,5 +418,202 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect((event as any).officialPublicationReminderSentAt).toBeInstanceOf(Date);
     expect(event.save).toHaveBeenCalled();
     expect(result).toEqual({ sent: 2 });
+  });
+
+  it('envía recordatorio de inicio 1h a votantes habilitados con payload institucional', async () => {
+    const userA = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion recordatorio',
+      state: 'OFFICIALLY_PUBLISHED',
+      votingStart: new Date('2026-07-10T14:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+      resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '5000001', active: true, enabled: true },
+    ]);
+
+    const result = await service.notifyVotingReminderIfEligible(event as any, 'START', 60);
+
+    expect(notificationLogModel.exists).toHaveBeenCalledWith({
+      type: 'generic',
+      status: 'SENT',
+      'data.eventId': String(event._id),
+      'data.type': 'INSTITUTIONAL_VOTING_STARTS_IN_1H',
+      'data.phase': 'START',
+      'data.offsetMinutes': '60',
+    });
+    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+      includeDisabled: false,
+    });
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: `user_${String(userA)}`,
+        notification: {
+          title: 'La votación inicia en 1 hora',
+          body: 'Eleccion recordatorio comienza a las 10:00.',
+        },
+        data: expect.objectContaining({
+          type: 'INSTITUTIONAL_VOTING_STARTS_IN_1H',
+          eventId: String(event._id),
+          eventName: 'Eleccion recordatorio',
+          phase: 'START',
+          offsetMinutes: '60',
+          scheduledFor: '2026-07-10T14:00:00.000Z',
+          severity: 'info',
+          votingStart: '2026-07-10T14:00:00.000Z',
+          votingEnd: '2026-07-10T18:00:00.000Z',
+          publicPath: `/votacion/elecciones/${String(event._id)}/publica`,
+        }),
+      }),
+    );
+    expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          dni: '5000001',
+          title: 'La votación inicia en 1 hora',
+          body: 'Eleccion recordatorio comienza a las 10:00.',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_VOTING_STARTS_IN_1H',
+            eligible: 'true',
+          }),
+        }),
+      ],
+      { ordered: false },
+    );
+    expect(result).toEqual({ sent: 1, failed: 0 });
+  });
+
+  it('envía recordatorio de cierre 15m solo a habilitados y con copy de cierre', async () => {
+    const userA = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion activa',
+      state: 'PUBLISHED',
+      votingStart: new Date('2026-07-10T14:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+      resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '5000002', active: true, enabled: true },
+    ]);
+
+    const result = await service.notifyVotingReminderIfEligible(event as any, 'END', 15);
+
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification: {
+          title: 'La votación termina en 15 minutos',
+          body: 'Eleccion activa cierra a las 14:00.',
+        },
+        data: expect.objectContaining({
+          type: 'INSTITUTIONAL_VOTING_ENDS_IN_15M',
+          phase: 'END',
+          offsetMinutes: '15',
+          scheduledFor: '2026-07-10T18:00:00.000Z',
+          votingStart: '2026-07-10T14:00:00.000Z',
+          votingEnd: '2026-07-10T18:00:00.000Z',
+        }),
+      }),
+    );
+    expect(result).toEqual({ sent: 1, failed: 0 });
+  });
+
+  it.each([
+    ['START', 60, 'INSTITUTIONAL_VOTING_STARTS_IN_1H', 'La votación inicia en 1 hora', 'Eleccion tabla comienza a las 10:00.'],
+    ['START', 15, 'INSTITUTIONAL_VOTING_STARTS_IN_15M', 'La votación inicia en 15 minutos', 'Eleccion tabla comienza a las 10:00.'],
+    ['END', 60, 'INSTITUTIONAL_VOTING_ENDS_IN_1H', 'La votación termina en 1 hora', 'Eleccion tabla cierra a las 14:00.'],
+    ['END', 15, 'INSTITUTIONAL_VOTING_ENDS_IN_15M', 'La votación termina en 15 minutos', 'Eleccion tabla cierra a las 14:00.'],
+  ])(
+    'usa copy con nombre y hora para %s %s',
+    async (phase, offsetMinutes, expectedType, expectedTitle, expectedBody) => {
+      const userA = new Types.ObjectId();
+      const event = {
+        _id: new Types.ObjectId(),
+        name: 'Eleccion tabla',
+        state: 'PUBLISHED',
+        votingStart: new Date('2026-07-10T14:00:00.000Z'),
+        votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+      };
+      padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+        { _id: userA, dni: '5000099', active: true, enabled: true },
+      ]);
+
+      await service.notifyVotingReminderIfEligible(event as any, phase as any, offsetMinutes as any);
+
+      expect(firebaseMessaging.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          notification: {
+            title: expectedTitle,
+            body: expectedBody,
+          },
+          data: expect.objectContaining({
+            type: expectedType,
+            eventId: String(event._id),
+            eventName: 'Eleccion tabla',
+            scheduledFor: phase === 'START'
+              ? '2026-07-10T14:00:00.000Z'
+              : '2026-07-10T18:00:00.000Z',
+            votingStart: '2026-07-10T14:00:00.000Z',
+            votingEnd: '2026-07-10T18:00:00.000Z',
+          }),
+        }),
+      );
+    },
+  );
+
+  it('no duplica recordatorios si ya existe NotificationLog SENT', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion duplicada',
+      state: 'OFFICIALLY_PUBLISHED',
+      votingStart: new Date('2026-07-10T14:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+    };
+    notificationLogModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
+
+    const result = await service.notifyVotingReminderIfEligible(event as any, 'START', 15);
+
+    expect(result).toEqual({ sent: 0, skipped: 'already_sent' });
+    expect(padronUsersService.getPadronUsersFromEvent).not.toHaveBeenCalled();
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+    expect(userNotificationModel.insertMany).not.toHaveBeenCalled();
+  });
+
+  it.each(['CANCELLED', 'DISABLED', 'CLOSED', 'RESULTS_PUBLISHED', 'DRAFT', 'READY_FOR_REVIEW'])(
+    'no envía recordatorios para estado no válido %s',
+    async (state) => {
+      const event = {
+        _id: new Types.ObjectId(),
+        name: 'Eleccion no valida',
+        state,
+        votingStart: new Date('2026-07-10T14:00:00.000Z'),
+        votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+      };
+
+      const result = await service.notifyVotingReminderIfEligible(event as any, 'START', 60);
+
+      expect(result).toEqual({ sent: 0, skipped: 'invalid_state' });
+      expect(notificationLogModel.exists).not.toHaveBeenCalled();
+      expect(firebaseMessaging.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it('no rompe si no hay destinatarios habilitados', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion sin destinatarios',
+      state: 'OFFICIALLY_PUBLISHED',
+      votingStart: new Date('2026-07-10T14:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
+
+    const result = await service.notifyVotingReminderIfEligible(event as any, 'START', 60);
+
+    expect(result).toEqual({ sent: 0, skipped: 'no_linked_users' });
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+    expect(notificationLogModel.insertMany).not.toHaveBeenCalled();
   });
 });

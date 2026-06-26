@@ -11,6 +11,13 @@ import { InstitutionalVotingNotificationsService } from '../notifications/instit
 @Injectable()
 export class InstitutionalVotingLifecycleService {
   private readonly logger = new Logger(InstitutionalVotingLifecycleService.name);
+  private static readonly REMINDER_WINDOW_MS = 60 * 1000;
+  private static readonly VOTING_REMINDERS = [
+    { phase: 'START' as const, offsetMinutes: 60 as const, field: 'votingStart' as const },
+    { phase: 'START' as const, offsetMinutes: 15 as const, field: 'votingStart' as const },
+    { phase: 'END' as const, offsetMinutes: 60 as const, field: 'votingEnd' as const },
+    { phase: 'END' as const, offsetMinutes: 15 as const, field: 'votingEnd' as const },
+  ];
 
   constructor(
     @InjectModel(VotingEvent.name)
@@ -22,6 +29,8 @@ export class InstitutionalVotingLifecycleService {
   async processLifecycle() {
     const now = new Date();
     const reminderWindowEnd = new Date(now.getTime() + 30 * 60 * 1000);
+
+    await this.processVotingReminderNotifications(now);
 
     const remindable = await this.votingEventModel
       .find({
@@ -96,5 +105,70 @@ export class InstitutionalVotingLifecycleService {
         );
       }
     }
+  }
+
+  async processVotingReminderNotifications(now = new Date()) {
+    const windowStart = new Date(
+      now.getTime() - InstitutionalVotingLifecycleService.REMINDER_WINDOW_MS,
+    );
+    const results: Array<Record<string, unknown>> = [];
+
+    for (const reminder of InstitutionalVotingLifecycleService.VOTING_REMINDERS) {
+      const scheduledFieldUpperBound = new Date(
+        now.getTime() + reminder.offsetMinutes * 60 * 1000,
+      );
+      const scheduledFieldLowerBound = new Date(
+        windowStart.getTime() + reminder.offsetMinutes * 60 * 1000,
+      );
+      const query: Record<string, any> = {
+        state: { $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED'] },
+        [reminder.field]: {
+          $gt: scheduledFieldLowerBound,
+          $lte: scheduledFieldUpperBound,
+        },
+      };
+
+      if (reminder.phase === 'END') {
+        const votingEndLowerBound = new Date(
+          Math.max(scheduledFieldLowerBound.getTime(), now.getTime()),
+        );
+        query.votingStart = { $lte: now };
+        query.votingEnd = {
+          $gt: votingEndLowerBound,
+          $lte: scheduledFieldUpperBound,
+        };
+      }
+
+      const events = await this.votingEventModel.find(query).limit(50);
+      for (const event of events) {
+        try {
+          const result = await this.notificationsService.notifyVotingReminderIfEligible(
+            event,
+            reminder.phase,
+            reminder.offsetMinutes,
+          );
+          results.push({
+            eventId: String(event._id),
+            phase: reminder.phase,
+            offsetMinutes: reminder.offsetMinutes,
+            ...result,
+          });
+        } catch (error: any) {
+          this.logger.warn(
+            `No se pudo enviar recordatorio de votación para eventId=${String(event._id)} phase=${reminder.phase} offset=${reminder.offsetMinutes}: ${error?.message ?? error}`,
+          );
+          results.push({
+            eventId: String(event._id),
+            phase: reminder.phase,
+            offsetMinutes: reminder.offsetMinutes,
+            sent: 0,
+            failed: 1,
+            error: String(error?.message ?? error ?? 'unknown_error'),
+          });
+        }
+      }
+    }
+
+    return results;
   }
 }
