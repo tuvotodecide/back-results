@@ -156,6 +156,34 @@ export class InstitutionalVotingPublicController {
     return this.institutionalVotingService.checkPublicEligibility(eventId, carnet);
   }
 
+  @Get(':eventId/participation/check-public')
+  @Public()
+  @ApiOperation({
+    summary:
+      'Consulta pública mínima de participación por carnet para un evento específico',
+    description:
+      'Devuelve solo si el carnet ya registró participación. No expone padrón, habilitación, voto ni datos personales.',
+  })
+  @ApiParam({
+    name: 'eventId',
+    description: 'ID del evento de votación.',
+  })
+  @ApiQuery({
+    name: 'carnet',
+    required: true,
+    description: 'Carnet del usuario a consultar. Se normaliza internamente y no se devuelve.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Retorna únicamente eventId y participated.',
+  })
+  publicParticipationCheck(
+    @Param('eventId') eventId: string,
+    @Query('carnet') carnet: string,
+  ) {
+    return this.institutionalVotingService.checkPublicParticipation(eventId, carnet);
+  }
+
   @Post(':eventId/participations')
   @Public()
   @ApiOperation({

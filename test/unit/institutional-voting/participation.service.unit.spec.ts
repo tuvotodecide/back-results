@@ -173,6 +173,75 @@ describe('ParticipationService (unit)', () => {
     );
   });
 
+  it('consulta participación pública con respuesta mínima cuando el CI ya votó', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      state: 'RESULTS_PUBLISHED',
+      votingStart: new Date('2026-01-01T10:00:00.000Z'),
+      votingEnd: new Date('2026-01-01T12:00:00.000Z'),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    participationModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+    });
+
+    const result = await service.checkPublicParticipation(String(event._id), '123.456');
+
+    expect(participationModel.findOne).toHaveBeenCalledWith(
+      { eventId: event._id, carnetNorm: '123456' },
+      { _id: 1 },
+    );
+    expect(result).toEqual({
+      eventId: String(event._id),
+      participated: true,
+    });
+    expect(result).not.toHaveProperty('carnet');
+    expect(result).not.toHaveProperty('normalizedCarnet');
+    expect(result).not.toHaveProperty('eligible');
+    expect(result).not.toHaveProperty('status');
+    expect(result).not.toHaveProperty('participatedAt');
+    expect(result).not.toHaveProperty('vote');
+    expect(result).not.toHaveProperty('option');
+    expect(result).not.toHaveProperty('candidate');
+    expect(result).not.toHaveProperty('ballot');
+    expect(result).not.toHaveProperty('proof');
+    expect(result).not.toHaveProperty('hash');
+  });
+
+  it('consulta participación pública como false sin depender de ventana ni habilitación', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      state: 'CLOSED',
+      votingStart: new Date('2026-01-01T10:00:00.000Z'),
+      votingEnd: new Date('2026-01-01T12:00:00.000Z'),
+    };
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    participationModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(null),
+    });
+
+    const result = await service.checkPublicParticipation(String(event._id), 'ABC-789');
+
+    expect(padronVersionModel.findOne).not.toHaveBeenCalled();
+    expect(padronEntryModel.findOne).not.toHaveBeenCalled();
+    expect(comparisonReportModel.exists).not.toHaveBeenCalled();
+    expect(participationModel.findOne).toHaveBeenCalledWith(
+      { eventId: event._id, carnetNorm: 'ABC789' },
+      { _id: 1 },
+    );
+    expect(result).toEqual({
+      eventId: String(event._id),
+      participated: false,
+    });
+  });
+
+  it('rechaza carnet inválido al consultar participación pública', async () => {
+    await expect(service.checkPublicParticipation('evt-1', '')).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(accessService.getEventOrThrow).not.toHaveBeenCalled();
+  });
+
   it('informa que no se puede votar cuando el evento no está publicado', async () => {
     accessService.getEventOrThrow.mockResolvedValue({
       _id: new Types.ObjectId(),

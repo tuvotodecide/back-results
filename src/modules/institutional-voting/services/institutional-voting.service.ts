@@ -331,6 +331,10 @@ export class InstitutionalVotingService {
     return this.participationService.checkParticipationStatus(eventId, carnet);
   }
 
+  checkPublicParticipation(eventId: string, carnet: string) {
+    return this.participationService.checkPublicParticipation(eventId, carnet);
+  }
+
   createOrRotatePresentialSession(
     eventId: string,
     dto: CreatePresentialSessionDto | undefined,

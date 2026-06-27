@@ -122,6 +122,23 @@ export class ParticipationService {
     return this.resolveParticipationStatus(eventId, normalized);
   }
 
+  async checkPublicParticipation(eventId: string, carnet: string) {
+    const carnetNorm = normalizeCarnet(carnet);
+    if (!carnetNorm) {
+      throw new BadRequestException('carnet inválido');
+    }
+
+    const event = await this.accessService.getEventOrThrow(eventId);
+    const existing = await this.participationModel
+      .findOne({ eventId: event._id, carnetNorm }, { _id: 1 })
+      .lean();
+
+    return {
+      eventId: String(event._id),
+      participated: Boolean(existing),
+    };
+  }
+
   private async resolveParticipationStatus(eventId: string, carnetNorm: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
 
