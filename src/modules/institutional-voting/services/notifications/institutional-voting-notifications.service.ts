@@ -199,29 +199,38 @@ export class InstitutionalVotingNotificationsService {
     if (event.resultsNotifiedAt) return { sent: 0, skipped: 'already_notified' };
     const eventId = String(event._id);
     const publicUrl = this.buildPublicElectionUrl(eventId);
-    const out = await this.notifyToCurrentPadron(event, {
+    const eventTitle = String(event.name || '').trim();
+    const eventDescription = String(event.objective || '').trim();
+    const out = await this.notifyResultsAvailableToCurrentPadron(event, {
       type: 'results_available',
       title: 'Resultados disponibles',
-      body: `Consulta los resultados de ${event.name}`,
+      body: eventTitle ? `Resultados de ${eventTitle}` : 'Resultados disponibles',
       data: {
         type: 'INSTITUTIONAL_RESULTS_AVAILABLE',
         eventId,
+        electionId: eventId,
         eventName: event.name,
+        eventTitle,
+        eventDescription,
+        objective: eventDescription,
+        status: 'results_available',
         votingStart: event.votingStart?.toISOString?.() ?? '',
         votingEnd: event.votingEnd?.toISOString?.() ?? '',
         resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
-        bannerTitle: 'Resultados publicados',
-        bannerSubtitle: 'Consulta el resumen y el detalle completo',
+        bannerTitle: eventTitle || 'Resultados disponibles',
+        bannerSubtitle: eventDescription || 'Resultados disponibles para consultar.',
         publicPath: this.buildPublicElectionPath(eventId),
         publicUrl,
         link: this.buildPublicElectionPath(eventId),
       },
     });
 
-    await this.votingEventModel.updateOne(
-      { _id: event._id },
-      { $set: { resultsNotifiedAt: new Date() } },
-    );
+    if ((out.sent ?? 0) > 0) {
+      await this.votingEventModel.updateOne(
+        { _id: event._id },
+        { $set: { resultsNotifiedAt: new Date() } },
+      );
+    }
 
     return out;
   }
@@ -487,6 +496,19 @@ export class InstitutionalVotingNotificationsService {
     });
 
     return this.notifyRecipients(payload, recipients, additionalPerUserDniData, String(event._id));
+  }
+
+  private async notifyResultsAvailableToCurrentPadron(
+    event: VotingEventDocument,
+    payload: NotificationPayload,
+  ) {
+    const recipients = (
+      await this.padronUsersService.getPadronUsersFromEvent(event, {
+        includeDisabled: false,
+      })
+    ).filter((recipient) => recipient.enabled !== false);
+
+    return this.notifyRecipients(payload, recipients, {}, String(event._id));
   }
 
   private async notifyUsersByCarnet(

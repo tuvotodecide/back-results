@@ -584,7 +584,160 @@ describe('Institutional voting integration - publication and results', () => {
     expect(notifications.length).toBeGreaterThan(0);
   });
 
+  it('notifica resultados a habilitados aunque no hayan votado y excluye inhabilitados/fuera de padrón', async () => {
+    const linkedUsers = [
+      { dni: '123456', active: true, createdAt: new Date(), updatedAt: new Date() },
+      { dni: 'ABC789', active: true, createdAt: new Date(), updatedAt: new Date() },
+      { dni: 'DISABLED1', active: true, createdAt: new Date(), updatedAt: new Date() },
+      { dni: 'OUTSIDE1', active: true, createdAt: new Date(), updatedAt: new Date() },
+    ];
+    for (const user of linkedUsers) {
+      await ctx.conn.collection('users').updateOne(
+        { dni: user.dni },
+        { $set: user },
+        { upsert: true },
+      );
+    }
+
+    const eventId = await preparePublishedEvent({
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
+    });
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+
+    const eventObjectId = new Types.ObjectId(eventId);
+    const currentVersion = await ctx.conn
+      .collection('padron_versions')
+      .findOne({ eventId: eventObjectId, isCurrent: true });
+    expect(currentVersion).toBeTruthy();
+
+    await ctx.conn.collection('padron_entries').insertOne({
+      padronVersionId: currentVersion!._id,
+      eventId: eventObjectId,
+      carnetNorm: 'DISABLED1',
+      enabled: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await ctx.conn.collection('participations').insertOne({
+      eventId: eventObjectId,
+      carnetNorm: '123456',
+      idempotencyKey: 'results-notification-voted-user',
+      participatedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
+
+    const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
+    await lifecycle.processLifecycle();
+
+    const notifications = await ctx.conn
+      .collection('user_notifications')
+      .find({ 'data.type': 'INSTITUTIONAL_RESULTS_AVAILABLE', 'data.eventId': eventId })
+      .toArray();
+    const notifiedDnis = notifications.map((notification) => notification.dni).sort();
+
+    expect(notifiedDnis).toEqual(['123456', 'ABC789']);
+    expect(notifiedDnis).not.toContain('DISABLED1');
+    expect(notifiedDnis).not.toContain('OUTSIDE1');
+    expect(notifications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dni: '123456',
+          title: 'Resultados disponibles',
+          body: 'Resultados de Eleccion Directiva 2026',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_RESULTS_AVAILABLE',
+            eventName: 'Eleccion Directiva 2026',
+            eventTitle: 'Eleccion Directiva 2026',
+            eventDescription: 'Elegir directiva institucional',
+            objective: 'Elegir directiva institucional',
+            status: 'results_available',
+            bannerTitle: 'Eleccion Directiva 2026',
+            bannerSubtitle: 'Elegir directiva institucional',
+            eligible: 'true',
+            publicPath: `/votacion/elecciones/${eventId}/publica`,
+          }),
+        }),
+        expect.objectContaining({
+          dni: 'ABC789',
+          title: 'Resultados disponibles',
+          body: 'Resultados de Eleccion Directiva 2026',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_RESULTS_AVAILABLE',
+            eventName: 'Eleccion Directiva 2026',
+            eventTitle: 'Eleccion Directiva 2026',
+            eventDescription: 'Elegir directiva institucional',
+            objective: 'Elegir directiva institucional',
+            status: 'results_available',
+            bannerTitle: 'Eleccion Directiva 2026',
+            bannerSubtitle: 'Elegir directiva institucional',
+            eligible: 'true',
+            publicPath: `/votacion/elecciones/${eventId}/publica`,
+          }),
+        }),
+      ]),
+    );
+
+    const updatedEvent = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: eventObjectId });
+    expect(updatedEvent?.resultsNotifiedAt).toBeTruthy();
+  });
+
+  it('no marca resultsNotifiedAt si no hay usuarios resolubles para resultados', async () => {
+    await ctx.conn.collection('users').deleteMany({
+      dni: { $in: ['123456', 'ABC789'] },
+    });
+
+    const eventId = await preparePublishedEvent({
+      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
+      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
+    });
+    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await updateEventDatesInDb(eventId, {
+      votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() - 60_000),
+    });
+
+    const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);
+    await lifecycle.processLifecycle();
+
+    const eventInDb = await ctx.conn
+      .collection('voting_events')
+      .findOne({ _id: new Types.ObjectId(eventId) });
+    expect(eventInDb?.state).toBe('RESULTS_PUBLISHED');
+    expect(eventInDb?.resultsNotifiedAt).toBeFalsy();
+
+    const notifications = await ctx.conn
+      .collection('user_notifications')
+      .find({ 'data.type': 'INSTITUTIONAL_RESULTS_AVAILABLE', 'data.eventId': eventId })
+      .toArray();
+    expect(notifications).toHaveLength(0);
+  });
+
   it('publica resultados oficialmente aunque falle la notificación final y reintenta después', async () => {
+    await ctx.conn.collection('users').updateOne(
+      { dni: 'ABC789' },
+      {
+        $set: {
+          dni: 'ABC789',
+          active: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+
     const eventId = await preparePublishedEvent({
       votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
       votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),

@@ -363,6 +363,187 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(result).toEqual({ sent: 1, failed: 0 });
   });
 
+  it('notifica resultados a usuarios habilitados sin depender de participación o voto', async () => {
+    const userVoted = new Types.ObjectId();
+    const userNotVoted = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion con resultados',
+      objective: 'Elección para conformar el directorio de la gestión 2026.',
+      state: 'RESULTS_PUBLISHED',
+      votingStart: new Date('2026-07-10T14:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+      resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userVoted, dni: '6000001', active: true, enabled: true },
+      { _id: userNotVoted, dni: '6000002', active: true, enabled: true },
+    ]);
+
+    const result = await service.notifyResultsAvailableIfEligible(event as any);
+
+    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+      includeDisabled: false,
+    });
+    expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dni: '6000001',
+          title: 'Resultados disponibles',
+          body: 'Resultados de Eleccion con resultados',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_RESULTS_AVAILABLE',
+            eventId: String(event._id),
+            electionId: String(event._id),
+            eventName: 'Eleccion con resultados',
+            eventTitle: 'Eleccion con resultados',
+            eventDescription: 'Elección para conformar el directorio de la gestión 2026.',
+            objective: 'Elección para conformar el directorio de la gestión 2026.',
+            status: 'results_available',
+            bannerTitle: 'Eleccion con resultados',
+            bannerSubtitle: 'Elección para conformar el directorio de la gestión 2026.',
+            eligible: 'true',
+          }),
+        }),
+        expect.objectContaining({
+          dni: '6000002',
+          title: 'Resultados disponibles',
+          body: 'Resultados de Eleccion con resultados',
+          data: expect.objectContaining({
+            type: 'INSTITUTIONAL_RESULTS_AVAILABLE',
+            eventId: String(event._id),
+            electionId: String(event._id),
+            eventName: 'Eleccion con resultados',
+            eventTitle: 'Eleccion con resultados',
+            eventDescription: 'Elección para conformar el directorio de la gestión 2026.',
+            objective: 'Elección para conformar el directorio de la gestión 2026.',
+            status: 'results_available',
+            bannerTitle: 'Eleccion con resultados',
+            bannerSubtitle: 'Elección para conformar el directorio de la gestión 2026.',
+            eligible: 'true',
+          }),
+        }),
+      ]),
+      { ordered: false },
+    );
+    expect(firebaseMessaging.send).toHaveBeenCalledTimes(2);
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notification: {
+          title: 'Resultados disponibles',
+          body: 'Resultados de Eleccion con resultados',
+        },
+        data: expect.objectContaining({
+          type: 'INSTITUTIONAL_RESULTS_AVAILABLE',
+          eventTitle: 'Eleccion con resultados',
+          eventDescription: 'Elección para conformar el directorio de la gestión 2026.',
+          objective: 'Elección para conformar el directorio de la gestión 2026.',
+          bannerTitle: 'Eleccion con resultados',
+          bannerSubtitle: 'Elección para conformar el directorio de la gestión 2026.',
+        }),
+      }),
+    );
+    expect(votingEventModel.updateOne).toHaveBeenCalledWith(
+      { _id: event._id },
+      { $set: { resultsNotifiedAt: expect.any(Date) } },
+    );
+    expect(result).toEqual({ sent: 2, failed: 0 });
+  });
+
+  it('no incluye usuarios inhabilitados en notificación de resultados aunque el resolvedor los devuelva', async () => {
+    const enabledUser = new Types.ObjectId();
+    const disabledUser = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion con inhabilitado',
+      state: 'RESULTS_PUBLISHED',
+      resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: enabledUser, dni: '6000003', active: true, enabled: true },
+      { _id: disabledUser, dni: '6000004', active: true, enabled: false },
+    ]);
+
+    const result = await service.notifyResultsAvailableIfEligible(event as any);
+
+    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+      includeDisabled: false,
+    });
+    expect(firebaseMessaging.send).toHaveBeenCalledTimes(1);
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: `user_${String(enabledUser)}`,
+        data: expect.objectContaining({
+          dni: '6000003',
+          eligible: 'true',
+        }),
+      }),
+    );
+    expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          dni: '6000003',
+        }),
+      ],
+      { ordered: false },
+    );
+    expect(result).toEqual({ sent: 1, failed: 0 });
+  });
+
+  it('no marca resultados como notificados si no hay destinatarios resolubles', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion sin usuarios',
+      state: 'RESULTS_PUBLISHED',
+      resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
+
+    const result = await service.notifyResultsAvailableIfEligible(event as any);
+
+    expect(result).toEqual({ sent: 0, skipped: 'no_linked_users' });
+    expect(votingEventModel.updateOne).not.toHaveBeenCalled();
+    expect(userNotificationModel.insertMany).not.toHaveBeenCalled();
+    expect(notificationLogModel.insertMany).not.toHaveBeenCalled();
+  });
+
+  it('marca resultados como notificados solo si hubo al menos un envío', async () => {
+    const userA = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion notificada',
+      state: 'RESULTS_PUBLISHED',
+      resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
+    };
+    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: userA, dni: '6000005', active: true, enabled: true },
+    ]);
+
+    const result = await service.notifyResultsAvailableIfEligible(event as any);
+
+    expect(result).toEqual({ sent: 1, failed: 0 });
+    expect(votingEventModel.updateOne).toHaveBeenCalledWith(
+      { _id: event._id },
+      { $set: { resultsNotifiedAt: expect.any(Date) } },
+    );
+  });
+
+  it('no reenvía resultados si ya existe resultsNotifiedAt', async () => {
+    const event = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion ya notificada',
+      state: 'RESULTS_PUBLISHED',
+      resultsNotifiedAt: new Date('2026-07-10T20:00:00.000Z'),
+    };
+
+    const result = await service.notifyResultsAvailableIfEligible(event as any);
+
+    expect(result).toEqual({ sent: 0, skipped: 'already_notified' });
+    expect(padronUsersService.getPadronUsersFromEvent).not.toHaveBeenCalled();
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+    expect(votingEventModel.updateOne).not.toHaveBeenCalled();
+  });
+
   it('envía reminder de publicación oficial a admins activos/aprobados del tenant y marca enviado', async () => {
     const tenantId = new Types.ObjectId();
     const userA = new Types.ObjectId();
