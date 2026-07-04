@@ -16,6 +16,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Connection } from 'mongoose';
 import request from 'supertest';
+import { json, urlencoded } from 'express';
 import { seedLocations } from './seeds/locationsSeed';
 import { seedAdmin, seedUsers } from './seeds/usersSeed';
 import { TestLoggerModule } from './module-helpers';
@@ -151,7 +152,9 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       .useValue(emitVoteServiceMock)
       .compile();
 
-    const app = moduleRef.createNestApplication();
+    const app = moduleRef.createNestApplication({ bodyParser: false });
+    app.use(json({ limit: '8mb' }));
+    app.use(urlencoded({ extended: true, limit: '8mb' }));
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,

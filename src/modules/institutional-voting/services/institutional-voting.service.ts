@@ -25,6 +25,7 @@ import { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { VotingEventsService } from './events/voting-events.service';
 import { PadronService } from './padron/padron.service';
+import { ParticipationAnalyticsService } from './participation/participation-analytics.service';
 import { ParticipationService } from './participation/participation.service';
 import { PresentialSessionsService } from './presential/presential-sessions.service';
 import { VotingResultsService } from './results/voting-results.service';
@@ -37,6 +38,7 @@ export class InstitutionalVotingService {
   constructor(
     private readonly votingEventsService: VotingEventsService,
     private readonly padronService: PadronService,
+    private readonly participationAnalyticsService: ParticipationAnalyticsService,
     private readonly participationService: ParticipationService,
     private readonly presentialSessionsService: PresentialSessionsService,
     private readonly votingResultsService: VotingResultsService,
@@ -268,6 +270,18 @@ export class InstitutionalVotingService {
 
   downloadPadronPdf(eventId: string, requester: any, padronVersionId?: string) {
     return this.padronService.downloadPadronPdf(eventId, requester, padronVersionId);
+  }
+
+  getParticipationAnalytics(eventId: string, requester: any) {
+    return this.participationAnalyticsService.getAnalytics(eventId, requester);
+  }
+
+  downloadParticipationReport(eventId: string, requester: any, payload: any) {
+    return this.participationAnalyticsService.downloadParticipationReport(
+      eventId,
+      requester,
+      payload,
+    );
   }
 
   updateSchedule(

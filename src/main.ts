@@ -6,7 +6,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { json, urlencoded, text } from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
 
   const config = app.get(ConfigService);
   const port = config.get<number>('app.port') ?? 3000;
@@ -31,9 +31,9 @@ async function bootstrap() {
     maxAge: 86400,
   });
 
-  app.use(json({ limit: '5mb' }));
-  app.use(urlencoded({ extended: true, limit: '5mb' }));
-  app.use(text({ type: 'text/plain', limit: '5mb' }));
+  app.use(json({ limit: '8mb' }));
+  app.use(urlencoded({ extended: true, limit: '8mb' }));
+  app.use(text({ type: 'text/plain', limit: '8mb' }));
 
   // Este pipe global ya forma parte del comportamiento observable actual.
   // Cualquier ajuste aquí requiere validación funcional previa.

@@ -11,6 +11,8 @@ import { InstitutionalVotingLifecycleService } from './services/events/instituti
 import { InstitutionalVotingNotificationsService } from './services/notifications/institutional-voting-notifications.service';
 import { PadronService } from './services/padron/padron.service';
 import { ParticipationService } from './services/participation/participation.service';
+import { ParticipationAnalyticsService } from './services/participation/participation-analytics.service';
+import { ParticipationReportPdfService } from './services/participation/participation-report-pdf.service';
 import { VotingResultsService } from './services/results/voting-results.service';
 import { VotingEvent, VotingEventSchema } from './schemas/voting-event.schema';
 import { EventRole, EventRoleSchema } from './schemas/event-role.schema';
@@ -118,6 +120,8 @@ import { IssuerService } from './services/core/issuer.service';
     InstitutionalVotingNotificationsService,
     PadronService,
     ParticipationService,
+    ParticipationAnalyticsService,
+    ParticipationReportPdfService,
     PresentialSessionsService,
     VotingResultsService,
     IssuerService,

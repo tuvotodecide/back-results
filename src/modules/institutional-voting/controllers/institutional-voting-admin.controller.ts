@@ -44,8 +44,11 @@ import { UpdateVotingEventDto } from '../dto/update-voting-event.dto';
 import { UpdateVotingOptionDto } from '../dto/update-voting-option.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
 import { CreatePresentialSessionDto } from '../dto/presential-session.dto';
+import {
+  CreateParticipationReportDto,
+  ParticipationAnalyticsResponseDto,
+} from '../dto/participation-analytics.dto';
 import type { Response } from 'express';
-import { Public } from '@/core/decorators/public.decorator';
 
 @ApiTags('Institutional Voting Admin')
 @Controller('api/v1/voting/events')
@@ -894,6 +897,49 @@ export class InstitutionalVotingAdminController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
     return result.pdfBuffer;
+  }
+
+  @Get(':eventId/participation-analytics')
+  @ApiOperation({
+    summary: 'Obtener analíticas de participación del evento',
+    description:
+      'Devuelve solo estadísticas de participación calculadas desde padrón vigente y participaciones confirmadas. No retorna votos, candidatos ni datos ZK.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Resumen de participación del evento.',
+    type: ParticipationAnalyticsResponseDto,
+  })
+  getParticipationAnalytics(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.getParticipationAnalytics(eventId, req.user);
+  }
+
+  @Post(':eventId/participation-report')
+  @ApiOperation({
+    summary: 'Descargar reporte de participación del evento',
+    description:
+      'Descarga un PDF con la captura real del modal de analíticas y tabla de participación. No contiene votos, candidatos, nullifiers, proofs ni recibos.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiBody({ type: CreateParticipationReportDto })
+  @ApiResponse({ status: 200, description: 'Archivo PDF de participación.' })
+  @HttpCode(200)
+  async downloadParticipationReport(
+    @Param('eventId') eventId: string,
+    @Body() body: CreateParticipationReportDto,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
+    const result = await this.institutionalVotingService.downloadParticipationReport(
+      eventId,
+      req.user,
+      body,
+    );
+
+    res.setHeader('Content-Type', result.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
+    return res.send(result.pdfBuffer);
   }
 
   @Get(':eventId/results')
