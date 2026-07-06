@@ -188,22 +188,18 @@ describe('Institutional voting integration - participation report PDF', () => {
       : Buffer.from(response.text ?? '', 'binary').toString('utf-8');
   }
 
-  function encodeExpectedPdfText(value: string) {
-    return `<${Buffer.from(`\ufeff${value}`, 'utf16le').swap16().toString('hex').toUpperCase()}>`;
-  }
-
-  function pdfDecodedText(response: request.Response) {
-    const text = pdfText(response);
-    const decoded: string[] = [];
-    const matches = text.matchAll(/<([0-9A-F]+)>/gi);
-    for (const match of matches) {
-      const hex = match[1];
-      if (!hex || hex.length % 4 !== 0 || !hex.toUpperCase().startsWith('FEFF')) {
-        continue;
-      }
-      decoded.push(Buffer.from(hex, 'hex').swap16().toString('utf16le').replace(/^\ufeff/, ''));
-    }
-    return decoded.join('\n');
+  function pdfTableText(response: request.Response) {
+    return Array.from(pdfText(response).matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g))
+      .map((match) =>
+        match[1]
+          .replace(/\\([0-7]{1,3})/g, (_value, octal) =>
+            String.fromCharCode(Number.parseInt(octal, 8)),
+          )
+          .replace(/\\\(/g, '(')
+          .replace(/\\\)/g, ')')
+          .replace(/\\\\/g, '\\'),
+      )
+      .join('\n');
   }
 
   function expectReportPrivacy(text: string) {
@@ -224,7 +220,7 @@ describe('Institutional voting integration - participation report PDF', () => {
 
     const response = await reportRequest(event.id, ctx.tenantAdminToken);
     const text = pdfText(response);
-    const decodedText = pdfDecodedText(response);
+    const tableText = pdfTableText(response);
 
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('application/pdf');
@@ -235,23 +231,25 @@ describe('Institutional voting integration - participation report PDF', () => {
     expect(text).toContain('%PDF-1.4');
     expect(text).toContain('/Subtype /Image');
     expect(text).toContain('/Im1 Do');
-    expect(text.indexOf('/Im1 Do')).toBeLessThan(
-      text.indexOf(encodeExpectedPdfText('Tabla de participación')),
-    );
-    expect(decodedText).toContain('Tabla de participación');
-    expect(decodedText).toContain('Carnet');
-    expect(decodedText).toContain('Participó');
-    expect(decodedText).toContain('A1');
-    expect(decodedText).toContain('A3');
-    expect(decodedText).toContain('Sí');
-    expect(decodedText).toContain('A2');
-    expect(decodedText).toContain('No');
-    expect(decodedText).not.toContain('A4');
-    expect(decodedText).not.toContain('Tabla de participaci‡n');
-    expect(decodedText).not.toContain('Particip‡');
-    expect(decodedText).not.toContain('Sˆ');
-    expect(decodedText).not.toContain('¢');
-    expectReportPrivacy(decodedText);
+    expect(text.indexOf('/Im1 Do')).toBeLessThan(text.indexOf('Tabla de participaci\\363n'));
+    expect(tableText).toContain('Tabla de participación');
+    expect(tableText).toContain('Carnet');
+    expect(tableText).toContain('Participó');
+    expect(tableText).toContain('A1');
+    expect(tableText).toContain('A3');
+    expect(tableText).toContain('Sí');
+    expect(tableText).toContain('A2');
+    expect(tableText).toContain('No');
+    expect(tableText).not.toContain('A4');
+    expect(tableText).not.toContain('Tabla de participaci‡n');
+    expect(tableText).not.toContain('Particip‡');
+    expect(tableText).not.toContain('Sˆ');
+    expect(tableText).not.toContain('¢');
+    expect(tableText).not.toContain('□');
+    expect(tableText).not.toContain('�');
+    expect(tableText).not.toContain('T a b l a');
+    expect(tableText).not.toContain('P a r t i c i p');
+    expectReportPrivacy(tableText);
   });
 
   it('sin token, sin permiso y admin tenant ajeno no descargan reporte', async () => {
@@ -332,7 +330,7 @@ describe('Institutional voting integration - participation report PDF', () => {
       { carnetNorm: 'A2' },
     ]);
     const zeroReport = await reportRequest(zero.id, ctx.adminToken);
-    const zeroText = pdfDecodedText(zeroReport);
+    const zeroText = pdfTableText(zeroReport);
     expect(zeroReport.status).toBe(200);
     expect(zeroText).toContain('A1');
     expect(zeroText).toContain('No');
@@ -344,7 +342,7 @@ describe('Institutional voting integration - participation report PDF', () => {
     ]);
     await insertParticipations(all.id, ['B1', 'B2']);
     const allReport = await reportRequest(all.id, ctx.adminToken);
-    const allText = pdfDecodedText(allReport);
+    const allText = pdfTableText(allReport);
     expect(allReport.status).toBe(200);
     expect(allText).toContain('B1');
     expect(allText).toContain('Sí');
@@ -362,12 +360,12 @@ describe('Institutional voting integration - participation report PDF', () => {
       },
     );
     const finishedReport = await reportRequest(finished.id, ctx.adminToken);
-    const finishedRawText = pdfText(finishedReport);
-    const finishedText = pdfDecodedText(finishedReport);
+    const finishedText = pdfText(finishedReport);
+    const finishedTableText = pdfTableText(finishedReport);
     expect(finishedReport.status).toBe(200);
-    expect(finishedRawText).toContain('/Subtype /Image');
-    expect(finishedText).toContain('Tabla de participación');
-    expectReportPrivacy(finishedText);
+    expect(finishedText).toContain('/Subtype /Image');
+    expect(finishedTableText).toContain('Tabla de participación');
+    expectReportPrivacy(finishedTableText);
   });
 
   it('PDF pagina tablas largas y repite encabezado', async () => {
@@ -379,7 +377,7 @@ describe('Institutional voting integration - participation report PDF', () => {
     await insertParticipations(event.id, entries.slice(0, 40).map((entry) => entry.carnetNorm));
 
     const response = await reportRequest(event.id, ctx.adminToken);
-    const text = pdfDecodedText(response);
+    const text = pdfTableText(response);
 
     expect(response.status).toBe(200);
     expect(text).toContain('C001');
