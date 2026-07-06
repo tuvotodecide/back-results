@@ -246,14 +246,21 @@ describe('Core health smoke', () => {
 
     expect(response.body).toEqual(
       expect.objectContaining({
+        environment: 'test',
+        uptime: expect.any(Number),
+        version: 'test-version',
+        timestamp: expect.any(String),
         status: 'ok',
         checks: expect.objectContaining({
-          database: expect.objectContaining({ status: 'ok', critical: true }),
-          redis: expect.objectContaining({ status: 'ok', critical: true, configured: true }),
+          database: expect.objectContaining({
+            status: 'ok',
+            critical: true,
+            readyState: 'connected',
+            name: 'mock-health-db',
+            latencyMs: expect.any(Number),
+          }),
+          redis: expect.objectContaining({ status: 'ok', critical: true, configured: true, latencyMs: expect.any(Number) }),
           firebase: expect.objectContaining({ status: 'ok', critical: true, configured: true }),
-          gemini: expect.objectContaining({ status: 'skipped', configured: true }),
-          ipfs: expect.objectContaining({ status: 'skipped', configured: true }),
-          blockchainRpc: expect.objectContaining({ status: 'skipped', configured: true }),
         }),
       }),
     );
@@ -348,44 +355,6 @@ describe('Core health smoke', () => {
         configured: false,
       }),
     );
-
-    await app.close();
-    await moduleRef.close();
-  });
-
-  it('Gemini, IPFS y RPC quedan skipped/configured sin llamadas reales', async () => {
-    const { app, moduleRef } = await createHealthApp({
-      config: {
-        'app.ai.gemini.apiKey': '',
-        'app.zkAuth.ipfsGatewayUrl': '',
-        'app.blockchain.chain': '',
-      },
-    });
-
-    const response = await request(app.getHttpServer())
-      .get('/api/v1/health/readiness')
-      .expect(200);
-
-    expect(response.body.checks.gemini).toEqual(
-      expect.objectContaining({
-        status: 'skipped',
-        configured: false,
-      }),
-    );
-    expect(response.body.checks.ipfs).toEqual(
-      expect.objectContaining({
-        status: 'skipped',
-        configured: false,
-      }),
-    );
-    expect(response.body.checks.blockchainRpc).toEqual(
-      expect.objectContaining({
-        status: 'skipped',
-        configured: false,
-      }),
-    );
-    expect(mockGeminiGet).not.toHaveBeenCalled();
-    expect(globalThis.fetch).not.toHaveBeenCalled();
 
     await app.close();
     await moduleRef.close();

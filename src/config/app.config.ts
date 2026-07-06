@@ -101,4 +101,9 @@ export default registerAs('app', () => ({
     clientEmail: process.env.FB_CLIENT_EMAIL || '',
     privateKey: (process.env.FB_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
   },
+
+  healthChecks: {
+    pinataJwt: process.env.PINATA_JWT,
+    coinbaseRpc: process.env.BUNDLER_MAIN,
+  },
 }));

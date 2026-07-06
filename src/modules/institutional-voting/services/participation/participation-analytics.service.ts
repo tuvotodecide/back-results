@@ -26,6 +26,8 @@ import { InstitutionalVotingAccessService } from '../core/institutional-voting-a
 import { ParticipationReportPdfService } from './participation-report-pdf.service';
 
 const MAX_MODAL_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const MAX_MODAL_SCREENSHOT_BASE64_LENGTH = Math.ceil((MAX_MODAL_SCREENSHOT_BYTES / 3)) * 4;
+const MAX_MODAL_SCREENSHOT_RAW_LENGTH = MAX_MODAL_SCREENSHOT_BASE64_LENGTH + 64;
 
 @Injectable()
 export class ParticipationAnalyticsService {
@@ -253,6 +255,10 @@ export class ParticipationAnalyticsService {
       throw new BadRequestException('La captura del modal es requerida.');
     }
 
+    if (raw.length > MAX_MODAL_SCREENSHOT_RAW_LENGTH) {
+      throw new BadRequestException('La captura del modal es demasiado grande.');
+    }
+
     const parsed = this.parseImagePayload(raw);
     if (parsed.buffer.length > MAX_MODAL_SCREENSHOT_BYTES) {
       throw new BadRequestException('La captura del modal es demasiado grande.');
@@ -266,29 +272,38 @@ export class ParticipationAnalyticsService {
   }
 
   private parseImagePayload(raw: string): { mimeType: 'image/png' | 'image/jpeg'; buffer: Buffer } {
-    const dataUrlMatch = raw.match(/^data:(image\/(?:png|jpeg|jpg));base64,([a-z0-9+/=\s]+)$/i);
-    if (dataUrlMatch) {
-      const mimeType = dataUrlMatch[1].toLowerCase() === 'image/jpg'
-        ? 'image/jpeg'
-        : (dataUrlMatch[1].toLowerCase() as 'image/png' | 'image/jpeg');
-      return {
-        mimeType,
-        buffer: Buffer.from(dataUrlMatch[2].replace(/\s+/g, ''), 'base64'),
-      };
-    }
+    let mimeType: 'image/png' | 'image/jpeg' | null = null;
+    let base64Payload = raw;
 
-    if (!/^[a-z0-9+/=\s]+$/i.test(raw)) {
+    const dataUrlHeaderMatch = raw.match(/^data:(image\/(?:png|jpeg|jpg));base64,/i);
+    if (dataUrlHeaderMatch) {
+      mimeType = dataUrlHeaderMatch[1].toLowerCase() === 'image/jpg'
+        ? 'image/jpeg'
+        : (dataUrlHeaderMatch[1].toLowerCase() as 'image/png' | 'image/jpeg');
+      base64Payload = raw.slice(dataUrlHeaderMatch[0].length);
+    } else if (raw.toLowerCase().startsWith('data:')) {
       throw new BadRequestException('La captura del modal no es base64 válido.');
     }
 
-    const buffer = Buffer.from(raw.replace(/\s+/g, ''), 'base64');
-    const mimeType = buffer.subarray(0, 8).equals(
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    )
-      ? 'image/png'
-      : buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
-        ? 'image/jpeg'
-        : null;
+    if (!this.hasValidBase64Chars(base64Payload)) {
+      throw new BadRequestException('La captura del modal no es base64 válido.');
+    }
+
+    const compactBase64 = base64Payload.replace(/\s+/g, '');
+    if (this.estimateDecodedBase64Size(compactBase64) > MAX_MODAL_SCREENSHOT_BYTES) {
+      throw new BadRequestException('La captura del modal es demasiado grande.');
+    }
+
+    const buffer = Buffer.from(compactBase64, 'base64');
+    if (!mimeType) {
+      mimeType = buffer.subarray(0, 8).equals(
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      )
+        ? 'image/png'
+        : buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
+          ? 'image/jpeg'
+          : null;
+    }
 
     if (!mimeType) {
       throw new BadRequestException('La captura del modal no es una imagen válida.');
@@ -309,6 +324,30 @@ export class ParticipationAnalyticsService {
     }
 
     return false;
+  }
+
+  private hasValidBase64Chars(value: string) {
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index);
+      const isUpper = code >= 65 && code <= 90;
+      const isLower = code >= 97 && code <= 122;
+      const isDigit = code >= 48 && code <= 57;
+      const isBase64Symbol = code === 43 || code === 47 || code === 61;
+      const isWhitespace = code === 32 || code === 9 || code === 10 || code === 13;
+      if (!isUpper && !isLower && !isDigit && !isBase64Symbol && !isWhitespace) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private estimateDecodedBase64Size(value: string) {
+    if (!value.length) {
+      return 0;
+    }
+
+    const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+    return Math.floor((value.length * 3) / 4) - padding;
   }
 
 }

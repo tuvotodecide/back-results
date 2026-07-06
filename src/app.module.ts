@@ -26,6 +26,7 @@ import { WorksheetModule } from './modules/worksheet/worksheet.module';
 import { InstitutionalVotingModule } from './modules/institutional-voting/institutional-voting.module';
 import { InstitutionalTenantsModule } from './modules/institutional-tenants/institutional-tenants.module';
 import { InstitutionalAdminApplicationsModule } from './modules/institutional-admin-applications/institutional-admin-applications.module';
+import { HealthChecksModule } from './modules/health-checks/health-checks.module';
 
 const mockModules =
   process.env.ENABLE_MOCKS?.toLowerCase() === 'true' ? [MocksModule] : [];
@@ -53,6 +54,7 @@ const mockModules =
     NotificationsModule,
     AuthModule,
     MailModule,
+    HealthChecksModule,
     ContractsModule,
     PinataMockModule,
     ...mockModules,

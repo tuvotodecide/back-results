@@ -264,6 +264,16 @@ describe('ParticipationService (unit)', () => {
       votingStart: new Date(Date.now() + 60_000),
       votingEnd: new Date(Date.now() + 120_000),
     });
+    padronVersionModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+    });
+    comparisonReportModel.exists.mockResolvedValue(true);
+    padronEntryModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ enabled: true }),
+    });
+    participationModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(null),
+    });
 
     const result = await service.checkParticipationStatus('evt-1', '123456');
 
@@ -343,6 +353,7 @@ describe('ParticipationService (unit)', () => {
   it('informa cuando el votante ya participó', async () => {
     const event = activeEvent();
     const existing = {
+      _id: new Types.ObjectId('64b7f8c2f1e4a2b3c4d5e6f7'),
       participatedAt: new Date('2026-01-01T15:00:00.000Z'),
     };
     accessService.getEventOrThrow.mockResolvedValue(event);
@@ -366,6 +377,7 @@ describe('ParticipationService (unit)', () => {
       status: 'ALREADY_VOTED',
       canVote: false,
       alreadyVoted: true,
+      participationId: String(existing._id),
       participatedAt: existing.participatedAt,
     });
   });

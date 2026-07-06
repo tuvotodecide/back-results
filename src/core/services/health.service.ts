@@ -31,9 +31,9 @@ type ReadinessStatus = {
     };
     redis: HealthCheck;
     firebase: HealthCheck;
-    gemini: HealthCheck;
-    ipfs: HealthCheck;
-    blockchainRpc: HealthCheck;
+    gemini?: HealthCheck;
+    ipfs?: HealthCheck;
+    blockchainRpc?: HealthCheck;
   };
 };
 
@@ -94,13 +94,11 @@ export class HealthService {
       this.checkRedis(),
     ]);
     const firebase = this.getFirebaseStatus();
-    const preparedExternals = this.getPreparedExternalChecks();
 
     const checks = {
       database,
       redis,
       firebase,
-      ...preparedExternals,
     };
     const criticalChecks = [database, redis, firebase];
     const hasCriticalDown = criticalChecks.some((check) => check.status !== 'ok');

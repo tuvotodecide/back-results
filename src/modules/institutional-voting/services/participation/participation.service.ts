@@ -141,14 +141,15 @@ export class ParticipationService {
 
   private async resolveParticipationStatus(eventId: string, carnetNorm: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
+    let outsideVotingWindow = false;
 
-    if (!['OFFICIALLY_PUBLISHED', 'PUBLISHED'].includes(event.state)) {
+    if (!['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'RESULTS_PUBLISHED'].includes(event.state)) {
       return { status: 'EVENT_NOT_PUBLISHED', canVote: false, alreadyVoted: false };
     }
 
     const now = new Date();
     if (!event.votingStart || !event.votingEnd || now < event.votingStart || now > event.votingEnd) {
-      return { status: 'OUTSIDE_VOTING_WINDOW', canVote: false, alreadyVoted: false };
+      outsideVotingWindow = true;
     }
 
     const currentVersion = await this.padronVersionModel
@@ -185,13 +186,18 @@ export class ParticipationService {
 
     if (existing) {
       return {
-        status: 'ALREADY_VOTED',
+        status: outsideVotingWindow ? 'OUTSIDE_VOTING_WINDOW' : 'ALREADY_VOTED',
         canVote: false,
         alreadyVoted: true,
+        participationId: String(existing._id),
         participatedAt: existing.participatedAt,
       };
     }
 
-    return { status: 'CAN_VOTE', canVote: true, alreadyVoted: false };
+    return {
+      status: outsideVotingWindow ? 'OUTSIDE_VOTING_WINDOW' : 'CAN_VOTE',
+      canVote: !outsideVotingWindow,
+      alreadyVoted: false,
+    };
   }
 }
