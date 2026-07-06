@@ -11,7 +11,7 @@ import { MailModule } from '../modules/mail/mail.module';
 import { LoggerService } from './services/logger.service';
 import { ErrorAlertService } from './services/error-alert.service';
 import { HealthService } from './services/health.service';
-import { HealthController } from './controllers/health.controller';
+import { ApiHealthController, HealthController } from './controllers/health.controller';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { PerformanceLoggingInterceptor } from './interceptors/performance-logging.interceptor';
 import { RequestIdMiddleware } from './middleware/request-id.middleware';
@@ -91,7 +91,7 @@ import { createClient, RedisClientType } from 'redis';
       inject: [ConfigService],
     }),
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, ApiHealthController],
   providers: [
     LoggerService,
     HealthService,
