@@ -100,8 +100,8 @@ import { IssuerService } from './services/core/issuer.service';
     FirebaseModule,
   ],
   controllers: [
-    InstitutionalVotingAdminController,
     InstitutionalVotingPublicController,
+    InstitutionalVotingAdminController,
     InstitutionalVotingPresentialController,
     InstitutionalVotingNewsController,
   ],

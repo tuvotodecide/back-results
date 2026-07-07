@@ -304,6 +304,10 @@ export class InstitutionalVotingService {
     return this.padronService.checkPublicEligibility(eventId, carnet);
   }
 
+  listParticipationHistory(carnet: string) {
+    return this.participationService.listParticipationHistoryByCarnet(carnet);
+  }
+
   async createParticipation(
     eventId: string,
     dto: CreateParticipationDto,

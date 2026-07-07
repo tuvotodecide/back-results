@@ -110,6 +110,27 @@ export class InstitutionalVotingPublicController {
     );
   }
 
+  @Get('participations')
+  @Public()
+  @UseGuards(ZkAuthGuard)
+  @ApiOperation({
+    summary: 'Historial seguro de participaciones de voto del usuario',
+    description:
+      'Devuelve solo metadata operativa de votaciones en las que participó el carnet consultado. No expone voto, opción, candidato, nullifier ni proof.',
+  })
+  @ApiQuery({
+    name: 'carnet',
+    required: true,
+    description: 'Carnet del usuario a consultar. Se normaliza internamente.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de participaciones de voto del usuario.',
+  })
+  participationHistory(@Query('carnet') carnet: string) {
+    return this.institutionalVotingService.listParticipationHistory(carnet);
+  }
+
   @Get(':eventId/eligibility')
   @Public()
   @ApiOperation({

@@ -272,44 +272,97 @@ export class ParticipationAnalyticsService {
   }
 
   private parseImagePayload(raw: string): { mimeType: 'image/png' | 'image/jpeg'; buffer: Buffer } {
-    let mimeType: 'image/png' | 'image/jpeg' | null = null;
+    const dataUrlPrefix = 'data:';
+    let declaredMimeType: 'image/png' | 'image/jpeg' | null = null;
     let base64Payload = raw;
 
-    const dataUrlHeaderMatch = raw.match(/^data:(image\/(?:png|jpeg|jpg));base64,/i);
-    if (dataUrlHeaderMatch) {
-      mimeType = dataUrlHeaderMatch[1].toLowerCase() === 'image/jpg'
+    if (raw.toLowerCase().startsWith(dataUrlPrefix)) {
+      const commaIndex = raw.indexOf(',');
+      if (commaIndex < 0) {
+        throw new BadRequestException('La captura del modal no es base64 válido.');
+      }
+
+      const metadata = raw.slice(dataUrlPrefix.length, commaIndex).toLowerCase();
+      if (metadata === 'image/png;base64') {
+        declaredMimeType = 'image/png';
+      } else if (metadata === 'image/jpeg;base64' || metadata === 'image/jpg;base64') {
+        declaredMimeType = 'image/jpeg';
+      } else {
+        throw new BadRequestException('La captura del modal no es una imagen válida.');
+      }
+
+      base64Payload = raw.slice(commaIndex + 1);
+    }
+
+    const normalizedPayload = this.normalizeBase64Payload(base64Payload);
+    const buffer = Buffer.from(normalizedPayload, 'base64');
+
+    if (declaredMimeType) {
+      return {
+        mimeType: declaredMimeType,
+        buffer,
+      };
+    }
+
+    const mimeType = buffer.subarray(0, 8).equals(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+      ? 'image/png'
+      : buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
         ? 'image/jpeg'
-        : (dataUrlHeaderMatch[1].toLowerCase() as 'image/png' | 'image/jpeg');
-      base64Payload = raw.slice(dataUrlHeaderMatch[0].length);
-    } else if (raw.toLowerCase().startsWith('data:')) {
-      throw new BadRequestException('La captura del modal no es base64 válido.');
-    }
-
-    if (!this.hasValidBase64Chars(base64Payload)) {
-      throw new BadRequestException('La captura del modal no es base64 válido.');
-    }
-
-    const compactBase64 = base64Payload.replace(/\s+/g, '');
-    if (this.estimateDecodedBase64Size(compactBase64) > MAX_MODAL_SCREENSHOT_BYTES) {
-      throw new BadRequestException('La captura del modal es demasiado grande.');
-    }
-
-    const buffer = Buffer.from(compactBase64, 'base64');
-    if (!mimeType) {
-      mimeType = buffer.subarray(0, 8).equals(
-        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-      )
-        ? 'image/png'
-        : buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))
-          ? 'image/jpeg'
-          : null;
-    }
+        : null;
 
     if (!mimeType) {
       throw new BadRequestException('La captura del modal no es una imagen válida.');
     }
 
     return { mimeType, buffer };
+  }
+
+  private normalizeBase64Payload(payload: string): string {
+    let normalized = '';
+
+    for (const char of payload) {
+      if (char === ' ' || char === '\n' || char === '\r' || char === '\t') {
+        continue;
+      }
+
+      const code = char.charCodeAt(0);
+      const isBase64Char =
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        (code >= 48 && code <= 57) ||
+        char === '+' ||
+        char === '/' ||
+        char === '=';
+
+      if (!isBase64Char) {
+        throw new BadRequestException('La captura del modal no es base64 válido.');
+      }
+
+      normalized += char;
+    }
+
+    if (!normalized || normalized.length % 4 !== 0 || !this.hasValidBase64Padding(normalized)) {
+      throw new BadRequestException('La captura del modal no es base64 válido.');
+    }
+
+    return normalized;
+  }
+
+  private hasValidBase64Padding(payload: string): boolean {
+    const firstPaddingIndex = payload.indexOf('=');
+    if (firstPaddingIndex < 0) {
+      return true;
+    }
+
+    for (let index = firstPaddingIndex; index < payload.length; index += 1) {
+      if (payload[index] !== '=') {
+        return false;
+      }
+    }
+
+    return payload.length - firstPaddingIndex <= 2;
   }
 
   private isSupportedImage(mimeType: string, buffer: Buffer) {

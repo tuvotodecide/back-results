@@ -139,6 +139,56 @@ export class ParticipationService {
     };
   }
 
+  async listParticipationHistoryByCarnet(carnet: string) {
+    const carnetNorm = normalizeCarnet(carnet);
+    if (!carnetNorm) {
+      throw new BadRequestException('carnet inválido');
+    }
+
+    const rows = await this.participationModel
+      .aggregate([
+        { $match: { carnetNorm } },
+        { $sort: { participatedAt: -1, _id: -1 } },
+        {
+          $lookup: {
+            from: 'voting_events',
+            localField: 'eventId',
+            foreignField: '_id',
+            as: 'event',
+          },
+        },
+        { $unwind: { path: '$event', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: 'institutional_tenants',
+            localField: 'event.tenantId',
+            foreignField: '_id',
+            as: 'tenant',
+          },
+        },
+        { $unwind: { path: '$tenant', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            _id: 1,
+            eventId: 1,
+            participatedAt: 1,
+            title: '$event.name',
+            institutionName: '$tenant.name',
+          },
+        },
+      ])
+      .exec();
+
+    return rows.map((row) => ({
+      id: String(row._id),
+      type: 'vote_participation',
+      eventId: String(row.eventId ?? ''),
+      title: row.title || 'Votación institucional',
+      institutionName: row.institutionName || null,
+      participatedAt: row.participatedAt,
+    }));
+  }
+
   private async resolveParticipationStatus(eventId: string, carnetNorm: string) {
     const event = await this.accessService.getEventOrThrow(eventId);
     let outsideVotingWindow = false;
