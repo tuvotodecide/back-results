@@ -27,6 +27,7 @@ import { InstitutionalVotingModule } from './modules/institutional-voting/instit
 import { InstitutionalTenantsModule } from './modules/institutional-tenants/institutional-tenants.module';
 import { InstitutionalAdminApplicationsModule } from './modules/institutional-admin-applications/institutional-admin-applications.module';
 import { HealthChecksModule } from './modules/health-checks/health-checks.module';
+import { PaymentsModule } from './modules/payments/payments.module';
 
 const mockModules =
   process.env.ENABLE_MOCKS?.toLowerCase() === 'true' ? [MocksModule] : [];
@@ -63,6 +64,7 @@ const mockModules =
     InstitutionalVotingModule,
     InstitutionalTenantsModule,
     InstitutionalAdminApplicationsModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

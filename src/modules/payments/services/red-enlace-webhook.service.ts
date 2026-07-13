@@ -1,0 +1,186 @@
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { createHash } from 'crypto';
+import { Model } from 'mongoose';
+import { LoggerService } from '@/core/services/logger.service';
+import {
+  RedEnlaceWebhookDto,
+  RedEnlaceWebhookResponseDto,
+} from '../dto/red-enlace-webhook.dto';
+import { PaymentDomainError } from '../errors/payment-domain.error';
+import { PAYMENT_PROVIDER_RED_ENLACE } from '../payments.constants';
+import {
+  PaymentProviderEvent,
+  PaymentProviderEventDocument,
+} from '../schemas/payment-provider-event.schema';
+import { parseBobAmountToMinor } from '../utils/money.util';
+import { sanitizeProviderDetail } from '../utils/red-enlace-glosa.util';
+import { PaymentTransactionsService } from './payment-transactions.service';
+
+@Injectable()
+export class RedEnlaceWebhookService {
+  private readonly context = 'RedEnlaceWebhookService';
+
+  constructor(
+    @InjectModel(PaymentProviderEvent.name)
+    private readonly eventModel: Model<PaymentProviderEventDocument>,
+    private readonly payments: PaymentTransactionsService,
+    private readonly configService: ConfigService,
+    private readonly logger: LoggerService,
+  ) {}
+
+  async receiveWebhook(dto: RedEnlaceWebhookDto): Promise<RedEnlaceWebhookResponseDto> {
+    const providerReference = dto.numeroReferencia;
+    try {
+      const amount = this.getWebhookAmount(dto);
+      const amountMinor = amount ? parseBobAmountToMinor(amount) : null;
+      const providerStatus = dto.estado || dto.codigoRespuesta || 'UNKNOWN';
+      const responseCode = dto.codigoRespuesta || dto.estado;
+      const currency = dto.moneda ?? dto.transacciones?.moneda ?? null;
+      const achReference =
+        dto.achReference ?? dto.transacciones?.numeroAch ?? null;
+      const paymentDate =
+        dto.fechaPago ?? dto.transacciones?.fechaHoraTransaccion ?? null;
+      const fingerprint = this.fingerprint({
+        providerReference,
+        providerStatus,
+        responseCode: responseCode ?? null,
+        amountMinor,
+        currency,
+        achReference,
+      });
+
+      const event = await this.createInboxEvent({
+        providerReference,
+        eventFingerprint: fingerprint,
+        providerStatus,
+        amountMinor,
+        currency,
+        achReference,
+      });
+
+      if (event.processingStatus === 'DUPLICATE') {
+        return {
+          numeroReferencia: providerReference,
+          codigoRespuesta: '00',
+          detalleRespuesta: null,
+        };
+      }
+
+      await this.eventModel.updateOne(
+        { _id: event._id },
+        { $set: { processingStatus: 'PROCESSING' }, $inc: { attemptCount: 1 } },
+      );
+
+      await this.payments.applyWebhookConfirmation({
+        providerReference,
+        providerStatus,
+        responseCode,
+        responseDetail: dto.detalleRespuesta,
+        amountMinor,
+        currency,
+        achReference,
+        paymentDate: paymentDate ? new Date(paymentDate) : null,
+      });
+
+      await this.eventModel.updateOne(
+        { _id: event._id },
+        { $set: { processingStatus: 'PROCESSED', processedAt: new Date() } },
+      );
+
+      return {
+        numeroReferencia: providerReference,
+        codigoRespuesta: '00',
+        detalleRespuesta: null,
+      };
+    } catch (error: any) {
+      const code =
+        error instanceof PaymentDomainError ? error.code : 'WEBHOOK_PROCESSING_ERROR';
+      await this.markLastEventFailed(providerReference, code);
+      this.logger.warn(
+        JSON.stringify({
+          event: 'red_enlace_webhook_failed',
+          providerReference,
+          code,
+        }),
+        this.context,
+      );
+      return {
+        numeroReferencia: providerReference,
+        codigoRespuesta: '05',
+        detalleRespuesta: sanitizeProviderDetail(code),
+      };
+    }
+  }
+
+  private async createInboxEvent(input: {
+    providerReference: string;
+    eventFingerprint: string;
+    providerStatus: string;
+    amountMinor?: string | null;
+    currency?: string | null;
+    achReference?: string | null;
+  }) {
+    try {
+      return await this.eventModel.create({
+        provider: PAYMENT_PROVIDER_RED_ENLACE,
+        providerReference: input.providerReference,
+        eventFingerprint: input.eventFingerprint,
+        providerStatus: input.providerStatus,
+        amountMinor: input.amountMinor ?? null,
+        currency: input.currency ?? null,
+        achReference: input.achReference ?? null,
+        processingStatus: 'RECEIVED',
+        authenticationMode:
+          this.configService.get<string>('app.redEnlace.webhookAuthMode') ||
+          'api-key',
+        receivedAt: new Date(),
+        attemptCount: 0,
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        const existing = await this.eventModel.findOne({
+          eventFingerprint: input.eventFingerprint,
+        });
+        if (existing) {
+          existing.processingStatus = 'DUPLICATE';
+          return existing;
+        }
+      }
+      throw error;
+    }
+  }
+
+  private async markLastEventFailed(providerReference: string, code: string) {
+    await this.eventModel
+      .findOneAndUpdate(
+        {
+          provider: PAYMENT_PROVIDER_RED_ENLACE,
+          providerReference,
+          processingStatus: { $in: ['RECEIVED', 'PROCESSING'] },
+        },
+        {
+          $set: {
+            processingStatus: 'FAILED',
+            lastErrorCode: code.slice(0, 80),
+            processedAt: new Date(),
+          },
+        },
+        { sort: { receivedAt: -1 } },
+      )
+      .exec();
+  }
+
+  private getWebhookAmount(dto: RedEnlaceWebhookDto) {
+    if (dto.monto) return dto.monto;
+    if (dto.transacciones?.monto != null) {
+      return String(dto.transacciones.monto);
+    }
+    return null;
+  }
+
+  private fingerprint(value: Record<string, string | null>) {
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  }
+}
