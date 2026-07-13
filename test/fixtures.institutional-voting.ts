@@ -2,9 +2,9 @@ export const institutionalVotingFixtures = {
   event: {
     name: 'Eleccion Directiva 2026',
     objective: 'Elegir directiva institucional',
-    votingStart: '2026-07-10T08:00:00-04:00',
-    votingEnd: '2026-07-10T18:00:00-04:00',
-    resultsPublishAt: '2026-07-10T20:00:00-04:00',
+    votingStart: '2030-07-10T08:00:00-04:00',
+    votingEnd: '2030-07-10T18:00:00-04:00',
+    resultsPublishAt: '2030-07-10T20:00:00-04:00',
   },
   rolePresident: {
     name: 'Presidente',
