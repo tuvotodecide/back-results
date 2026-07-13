@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { ApiBody, ApiOkResponse, ApiOperation } from '@nestjs/swagger';
 import { Public } from '@/core/decorators/public.decorator';
 import { RedEnlaceWebhookDto } from '../dto/red-enlace-webhook.dto';
@@ -15,6 +15,7 @@ export class RedEnlaceWebhookController {
     'qr/confirmed',
     'integrations/red-enlace/pay-in/webhook',
   ])
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Callback QR Red Enlace confirmado',
     description:

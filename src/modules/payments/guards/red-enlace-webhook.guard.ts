@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 import { Request } from 'express';
 import { RED_ENLACE_API_KEY_HEADER } from '../payments.constants';
 
@@ -39,9 +39,8 @@ export class RedEnlaceWebhookGuard implements CanActivate {
   }
 
   private safeEquals(a: string, b: string) {
-    const left = Buffer.from(a);
-    const right = Buffer.from(b);
-    if (left.length !== right.length) return false;
+    const left = createHash('sha256').update(a).digest();
+    const right = createHash('sha256').update(b).digest();
     return timingSafeEqual(left, right);
   }
 }

@@ -9,6 +9,7 @@ import { InstitutionalTenant } from '@/modules/institutional-tenants/schemas/ins
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { PaymentsController } from '@/modules/payments/controllers/payments.controller';
 import { RedEnlaceWebhookController } from '@/modules/payments/controllers/red-enlace-webhook.controller';
+import { PaymentDomainError } from '@/modules/payments/errors/payment-domain.error';
 import { RedEnlaceWebhookGuard } from '@/modules/payments/guards/red-enlace-webhook.guard';
 import { QR_PAYMENT_PROVIDER } from '@/modules/payments/payments.constants';
 import { MockRedEnlaceQrProvider } from '@/modules/payments/providers/mock-red-enlace-qr.provider';
@@ -20,9 +21,9 @@ import { PaymentTenantAccessService } from '@/modules/payments/services/payment-
 import { PaymentTransactionsService } from '@/modules/payments/services/payment-transactions.service';
 import { RedEnlaceWebhookService } from '@/modules/payments/services/red-enlace-webhook.service';
 
-function redEnlacePayload() {
+function redEnlacePayload(numeroReferencia: number | string = 1511556): any {
   return {
-    numeroReferencia: '1511556',
+    numeroReferencia,
     estado: '00',
     transacciones: {
       monto: 10.0,
@@ -177,6 +178,103 @@ describe('RedEnlaceWebhookService', () => {
     expect(JSON.stringify(persistedEvent)).not.toContain('14240008');
     expect(JSON.stringify(persistedEvent)).not.toContain('1011000024');
     expect(JSON.stringify(persistedEvent)).not.toContain('BANCO ECONOMICO');
+  });
+
+  it('returns a controlled 05 response when the provider reference is unknown', async () => {
+    const { service, eventModel, payments } = createService({
+      payments: {
+        applyWebhookConfirmation: jest
+          .fn()
+          .mockRejectedValue(
+            new PaymentDomainError('PAYMENT_NOT_FOUND', 'Pago no encontrado', 404),
+          ),
+      },
+    });
+
+    await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
+      numeroReferencia: '1511556',
+      codigoRespuesta: '05',
+      detalleRespuesta: 'PAYMENT_NOT_FOUND',
+    });
+
+    expect(payments.applyWebhookConfirmation).toHaveBeenCalledTimes(1);
+    expect(eventModel.updateOne).toHaveBeenCalledTimes(1);
+    expect(eventModel.updateOne).toHaveBeenCalledWith(
+      { _id: 'event-id' },
+      { $set: { processingStatus: 'PROCESSING' }, $inc: { attemptCount: 1 } },
+    );
+    expect(eventModel.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerReference: '1511556',
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          processingStatus: 'FAILED',
+          lastErrorCode: 'PAYMENT_NOT_FOUND',
+        }),
+      }),
+      { sort: { receivedAt: -1 } },
+    );
+  });
+
+  it('does not confirm when Red Enlace reports a different amount', async () => {
+    const { service, eventModel, payments } = createService({
+      payments: {
+        applyWebhookConfirmation: jest
+          .fn()
+          .mockRejectedValue(
+            new PaymentDomainError(
+              'RED_ENLACE_AMOUNT_MISMATCH',
+              'Monto de Red Enlace no coincide',
+              409,
+            ),
+          ),
+      },
+    });
+
+    await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
+      numeroReferencia: '1511556',
+      codigoRespuesta: '05',
+      detalleRespuesta: 'RED_ENLACE_AMOUNT_MISMATCH',
+    });
+
+    expect(payments.applyWebhookConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountMinor: '1000',
+        currency: 'BOB',
+      }),
+    );
+    expect(eventModel.updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not confirm when Red Enlace reports a different currency', async () => {
+    const { service, eventModel, payments } = createService({
+      payments: {
+        applyWebhookConfirmation: jest
+          .fn()
+          .mockRejectedValue(
+            new PaymentDomainError(
+              'RED_ENLACE_CURRENCY_MISMATCH',
+              'Moneda de Red Enlace no coincide',
+              409,
+            ),
+          ),
+      },
+    });
+
+    await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
+      numeroReferencia: '1511556',
+      codigoRespuesta: '05',
+      detalleRespuesta: 'RED_ENLACE_CURRENCY_MISMATCH',
+    });
+
+    expect(payments.applyWebhookConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amountMinor: '1000',
+        currency: 'BOB',
+      }),
+    );
+    expect(eventModel.updateOne).toHaveBeenCalledTimes(1);
   });
 
   it('detects a duplicate inbox event and does not apply payment processing again', async () => {

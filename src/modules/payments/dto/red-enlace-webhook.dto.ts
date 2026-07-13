@@ -1,12 +1,16 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
+  IsDefined,
   IsNumber,
   IsOptional,
   IsString,
   MaxLength,
-  ValidateIf,
+  Validate,
   ValidateNested,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 
 export class RedEnlaceWebhookClientDto {
@@ -73,46 +77,46 @@ export class RedEnlaceWebhookTransactionsDto {
   banco?: RedEnlaceWebhookBankDto;
 }
 
+@ValidatorConstraint({
+  name: 'RedEnlaceSuccessTransactionData',
+  async: false,
+})
+class RedEnlaceSuccessTransactionDataConstraint
+  implements ValidatorConstraintInterface
+{
+  validate(
+    transacciones: RedEnlaceWebhookTransactionsDto | undefined,
+    args: ValidationArguments,
+  ) {
+    const dto = args.object as RedEnlaceWebhookDto;
+    if (dto.estado !== '00') return true;
+
+    return (
+      transacciones != null &&
+      transacciones.monto != null &&
+      transacciones.moneda != null &&
+      String(transacciones.moneda).trim().length > 0
+    );
+  }
+
+  defaultMessage() {
+    return 'transacciones, transacciones.monto and transacciones.moneda are required when estado is 00';
+  }
+}
+
 export class RedEnlaceWebhookDto {
+  @IsDefined()
+  @Transform(({ value }) => (value == null ? value : String(value)))
   @IsString()
   @MaxLength(80)
   numeroReferencia: string;
 
-  @ValidateIf((dto: RedEnlaceWebhookDto) => !dto.estado)
-  @IsString()
-  @MaxLength(20)
-  codigoRespuesta?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(240)
-  detalleRespuesta?: string | null;
-
-  @ValidateIf((dto: RedEnlaceWebhookDto) => !dto.codigoRespuesta)
+  @IsDefined()
   @IsString()
   @MaxLength(40)
-  estado?: string;
+  estado: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  monto?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(3)
-  moneda?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(80)
-  achReference?: string;
-
-  @IsOptional()
-  @IsDateString()
-  fechaPago?: string;
-
-  @IsOptional()
+  @Validate(RedEnlaceSuccessTransactionDataConstraint)
   @ValidateNested()
   @Type(() => RedEnlaceWebhookTransactionsDto)
   transacciones?: RedEnlaceWebhookTransactionsDto;

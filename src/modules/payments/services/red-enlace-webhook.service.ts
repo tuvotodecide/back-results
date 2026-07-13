@@ -31,17 +31,15 @@ export class RedEnlaceWebhookService {
   ) {}
 
   async receiveWebhook(dto: RedEnlaceWebhookDto): Promise<RedEnlaceWebhookResponseDto> {
-    const providerReference = dto.numeroReferencia;
+    const providerReference = String(dto.numeroReferencia);
     try {
       const amount = this.getWebhookAmount(dto);
       const amountMinor = amount ? parseBobAmountToMinor(amount) : null;
-      const providerStatus = dto.estado || dto.codigoRespuesta || 'UNKNOWN';
-      const responseCode = dto.codigoRespuesta || dto.estado;
-      const currency = dto.moneda ?? dto.transacciones?.moneda ?? null;
-      const achReference =
-        dto.achReference ?? dto.transacciones?.numeroAch ?? null;
-      const paymentDate =
-        dto.fechaPago ?? dto.transacciones?.fechaHoraTransaccion ?? null;
+      const providerStatus = dto.estado;
+      const responseCode = providerStatus;
+      const currency = dto.transacciones?.moneda ?? null;
+      const achReference = dto.transacciones?.numeroAch ?? null;
+      const paymentDate = dto.transacciones?.fechaHoraTransaccion ?? null;
       const fingerprint = this.fingerprint({
         providerReference,
         providerStatus,
@@ -77,7 +75,7 @@ export class RedEnlaceWebhookService {
         providerReference,
         providerStatus,
         responseCode,
-        responseDetail: dto.detalleRespuesta,
+        responseDetail: null,
         amountMinor,
         currency,
         achReference,
@@ -173,7 +171,6 @@ export class RedEnlaceWebhookService {
   }
 
   private getWebhookAmount(dto: RedEnlaceWebhookDto) {
-    if (dto.monto) return dto.monto;
     if (dto.transacciones?.monto != null) {
       return String(dto.transacciones.monto);
     }
