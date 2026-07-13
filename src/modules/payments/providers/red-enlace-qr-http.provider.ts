@@ -1,7 +1,6 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AxiosError } from 'axios';
 import { PaymentDomainError } from '../errors/payment-domain.error';
 import {
   RED_ENLACE_API_KEY_HEADER,
@@ -251,8 +250,8 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     if (error instanceof PaymentDomainError) {
       throw error;
     }
-    const axiosError = error as AxiosError;
-    if (axiosError.code === 'ECONNABORTED') {
+    const transportError = error as { code?: string };
+    if (transportError.code === 'ECONNABORTED') {
       throw new PaymentDomainError(
         'RED_ENLACE_TIMEOUT',
         'Tiempo de espera agotado con Red Enlace',
