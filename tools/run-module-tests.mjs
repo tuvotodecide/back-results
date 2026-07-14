@@ -31,7 +31,7 @@ function discoverSpecFiles(dir, base = dir) {
     }
 
     const relative = fullPath.slice(rootDir.length + 1).replaceAll('\\', '/');
-    if (/(\.spec\.ts|\.test\.ts|e2e-spec\.ts)$/.test(relative)) files.push(relative);
+    if (/(\.spec\.ts|\.test\.ts|-spec\.ts)$/.test(relative)) files.push(relative);
   }
 
   return files;
@@ -86,6 +86,8 @@ function runJest(files) {
     jestBin,
     '-c',
     './jest.config.ts',
+    '--testRegex',
+    '.*(\\.spec\\.ts|\\.test\\.ts|-spec\\.ts)$',
     '--runInBand',
     '--runTestsByPath',
     ...files,

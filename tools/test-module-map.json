@@ -1,32 +1,91 @@
 {
+  "auth-admin": {
+    "name": "Authentication and admin accounts - Security P0",
+    "flows": [
+      "SEC-P0",
+      "AUTH",
+      "ADMIN_ACCOUNTS"
+    ],
+    "files": [
+      "test/acceptance/auth-context.contract.spec.ts",
+      "test/end-to-end/auth.e2e.spec.ts"
+    ]
+  },
+  "institutional-access": {
+    "name": "Institutional applications and tenants - Institutional access P0",
+    "flows": [
+      "ACCESS-P0",
+      "TENANTS",
+      "INSTITUTIONAL_APPLICATIONS"
+    ],
+    "files": [
+      "test/end-to-end/tenant-access.e2e.spec.ts",
+      "test/integration/institutional-voting/multi-tenant-access.spec.ts",
+      "test/unit/institutional-admin-applications.service.unit.spec.ts",
+      "test/unit/institutional-tenants.service.unit.spec.ts"
+    ]
+  },
+  "users-zk": {
+    "name": "Public users and ZK security - App access P0",
+    "flows": [
+      "USERS",
+      "ZK_AUTH",
+      "API_KEY"
+    ],
+    "files": [
+      "test/unit/users.attest-participation.unit.spec.ts",
+      "test/unit/users.controller.unit.spec.ts",
+      "test/unit/users.service.unit.spec.ts",
+      "test/unit/zk-auth.controller.unit.spec.ts",
+      "test/unit/zk-auth.service.unit.spec.ts"
+    ]
+  },
   "results": {
-    "name": "Results and ballots",
-    "flows": ["BRS-F01", "BRS-F02", "BRS-F03", "BRS-F04", "BRS-F05"],
+    "name": "Electoral results - BRS-F01 to BRS-F02",
+    "flows": [
+      "BRS-F01",
+      "BRS-F02"
+    ],
     "files": [
       "test/acceptance/results.acceptance.spec.ts",
-      "test/acceptance/ballots.acceptance.spec.ts",
       "test/end-to-end/results.e2e.spec.ts",
+      "test/integration/results.service.int-spec.ts",
+      "test/unit/results.controller.unit.spec.ts",
+      "test/unit/results.service.unit.spec.ts"
+    ]
+  },
+  "ballots-worksheets": {
+    "name": "Ballots and worksheets - BRS-F03 to BRS-F05",
+    "flows": [
+      "BRS-F03",
+      "BRS-F04",
+      "BRS-F05"
+    ],
+    "files": [
+      "test/acceptance/ballots.acceptance.spec.ts",
       "test/end-to-end/observed-records.e2e.spec.ts",
       "test/end-to-end/worksheet.e2e.spec.ts",
-      "test/end-to-end/complete.e2e.spec.ts",
-      "test/unit/results.service.unit.spec.ts",
-      "test/unit/results.controller.unit.spec.ts",
       "test/unit/ballot.service.unit.spec.ts"
     ]
   },
   "attestation": {
-    "name": "Attestation and oracle",
-    "flows": ["BRS-F06", "BRS-F07"],
+    "name": "Attestation and oracle - BRS-F06 to BRS-F07",
+    "flows": [
+      "BRS-F06",
+      "BRS-F07"
+    ],
     "files": [
       "test/unit/attestation.service.unit.spec.ts",
       "test/unit/attestation-resolver.service.unit.spec.ts",
-      "test/unit/oracle-resolver.service.unit.spec.ts",
-      "test/unit/users.attest-participation.unit.spec.ts"
+      "test/unit/oracle-resolver.service.unit.spec.ts"
     ]
   },
   "geography": {
-    "name": "Geography and electoral configuration",
-    "flows": ["BRS-F08", "BRS-F09"],
+    "name": "Geography, parties and configuration - BRS-F08 to BRS-F09",
+    "flows": [
+      "BRS-F08",
+      "BRS-F09"
+    ],
     "files": [
       "test/acceptance/elections.acceptance.spec.ts",
       "test/acceptance/political-parties.acceptance.spec.ts",
@@ -42,7 +101,7 @@
     ]
   },
   "institutional-voting": {
-    "name": "Institutional voting",
+    "name": "Institutional voting - BRS-F10 to BRS-F19",
     "flows": [
       "BRS-F10",
       "BRS-F11",
@@ -72,6 +131,7 @@
       "test/integration/institutional-voting/public-participation-check.spec.ts",
       "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
       "test/integration/institutional-voting/publication-results.spec.ts",
+      "test/integration/institutional-voting/participation-report.spec.ts",
       "test/unit/institutional-voting/access.service.unit.spec.ts",
       "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
       "test/unit/institutional-voting/lifecycle.service.unit.spec.ts",
@@ -88,9 +148,13 @@
       "test/unit/institutional-voting/voting-results.service.unit.spec.ts"
     ]
   },
-  "notifications": {
-    "name": "News and notifications",
-    "flows": ["BRS-F20", "BRS-F21"],
+  "notifications-mail": {
+    "name": "News, notifications and mail - BRS-F20 to BRS-F21",
+    "flows": [
+      "BRS-F20",
+      "BRS-F21",
+      "MAIL"
+    ],
     "files": [
       "test/end-to-end/notifications-announcements.e2e.spec.ts",
       "test/end-to-end/notifications-internal-push.e2e.spec.ts",
@@ -99,32 +163,29 @@
       "test/unit/notifications/direct-push.service.unit.spec.ts"
     ]
   },
-  "contracts-security": {
-    "name": "Reports, contracts and security",
-    "flows": ["BRS-F22", "BRS-F23"],
+  "contracts-reports": {
+    "name": "Contracts, delegates and reports - BRS-F22 to BRS-F23",
+    "flows": [
+      "BRS-F22",
+      "BRS-F23"
+    ],
     "files": [
-      "test/acceptance/auth-context.contract.spec.ts",
-      "test/end-to-end/auth.e2e.spec.ts",
+      "test/end-to-end/complete.e2e.spec.ts",
       "test/end-to-end/participation.e2e.spec.ts",
-      "test/end-to-end/tenant-access.e2e.spec.ts",
-      "test/integration/institutional-voting/multi-tenant-access.spec.ts",
-      "test/integration/institutional-voting/participation-report.spec.ts",
       "test/unit/client-reports.controller.unit.spec.ts",
       "test/unit/client-reports.service.unit.spec.ts",
       "test/unit/contracts.service.unit.spec.ts",
       "test/unit/delegates.service.unit.spec.ts",
-      "test/unit/institutional-admin-applications.service.unit.spec.ts",
-      "test/unit/institutional-tenants.service.unit.spec.ts",
-      "test/unit/territorial-restriction.guard.unit.spec.ts",
-      "test/unit/users.controller.unit.spec.ts",
-      "test/unit/users.service.unit.spec.ts",
-      "test/unit/zk-auth.controller.unit.spec.ts",
-      "test/unit/zk-auth.service.unit.spec.ts"
+      "test/unit/territorial-restriction.guard.unit.spec.ts"
     ]
   },
-  "health": {
-    "name": "Health and infrastructure",
-    "flows": ["BRS-F24"],
+  "health-core-database": {
+    "name": "Health, core and database - BRS-F24",
+    "flows": [
+      "BRS-F24",
+      "CORE",
+      "DATABASE"
+    ],
     "files": [
       "src/app.controller.spec.ts",
       "test/app.e2e-spec.ts",
@@ -134,8 +195,10 @@
     ]
   },
   "payments": {
-    "name": "QR payments and Red Enlace",
-    "flows": ["BRS-F25"],
+    "name": "QR payments and Red Enlace - BRS-F25",
+    "flows": [
+      "BRS-F25"
+    ],
     "files": [
       "test/integration/red-enlace-webhook-route.spec.ts",
       "test/unit/payment-transactions.service.unit.spec.ts",

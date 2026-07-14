@@ -13,6 +13,26 @@ import {
   ElectoralTable,
   ElectoralTableSchema,
 } from '../../src/modules/geographic/schemas/electoral-table.schema';
+import {
+  Department,
+  DepartmentSchema,
+} from '../../src/modules/geographic/schemas/department.schema';
+import {
+  Municipality,
+  MunicipalitySchema,
+} from '../../src/modules/geographic/schemas/municipality.schema';
+import {
+  Province,
+  ProvinceSchema,
+} from '../../src/modules/geographic/schemas/province.schema';
+import {
+  ElectoralSeat,
+  ElectoralSeatSchema,
+} from '../../src/modules/geographic/schemas/electoral-seat.schema';
+import {
+  ElectoralLocation,
+  ElectoralLocationSchema,
+} from '../../src/modules/geographic/schemas/electoral-location.schema';
 
 import {
   ElectionConfig,
@@ -47,6 +67,11 @@ describe('ResultsService integración', () => {
         MongooseModule.forFeature([
           { name: Ballot.name, schema: BallotSchema },
           { name: ElectoralTable.name, schema: ElectoralTableSchema },
+          { name: Department.name, schema: DepartmentSchema },
+          { name: Municipality.name, schema: MunicipalitySchema },
+          { name: Province.name, schema: ProvinceSchema },
+          { name: ElectoralSeat.name, schema: ElectoralSeatSchema },
+          { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
           { name: ElectionConfig.name, schema: ElectionConfigSchema },
         ]),
       ],
@@ -141,7 +166,7 @@ describe('ResultsService integración', () => {
     });
 
     // X2: B -> 1 versión
-    await seedBallot(conn, {
+    const x2 = await seedBallot(conn, {
       electionId: electionB,
       tableCode: 'X2',
       version: 1,
@@ -158,6 +183,18 @@ describe('ResultsService integración', () => {
         circ: { number: 24, type: 'Uninominal', name: 'Circ 24' },
       },
       parties: { valid: 200, null: 0, blank: 0, votes: { A: 120, B: 80 } },
+    });
+    await seedCase(conn, {
+      electionId: electionB,
+      tableCode: 'X2',
+      status: 'CLOSED',
+      winningBallotId: new Types.ObjectId(x2._id),
+    });
+    await upsertTable(conn, {
+      tableCode: 'X2',
+      electoralLocationName: 'U.E Achachicala',
+      active: true,
+      observedMap: { [electionA]: true },
     });
 
     // X3: A -> observada (no cuenta)

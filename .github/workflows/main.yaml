@@ -24,11 +24,11 @@ env:
   CACHE_TAG: buildcache
 
 jobs:
-  validations:
+  module-tests:
     if: github.ref == 'refs/heads/main'
-    name: General validations
+    name: Backend Results - Module tests
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 120
     environment: devops_aws
     permissions:
       contents: read
@@ -82,523 +82,70 @@ jobs:
       - name: Run Nest build
         run: pnpm build
 
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
-
-  coverage:
-    if: github.ref == 'refs/heads/main'
-    name: Unit coverage
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
       - name: Run unit coverage
         run: pnpm test:cov:unit
 
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
+      - name: Check module test map
+        run: pnpm test:modules:check
 
-  results:
-    if: github.ref == 'refs/heads/main'
-    name: Results and ballots - BRS-F01 to BRS-F05
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Run module tests - Authentication and admin accounts
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:auth-admin
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
+      - name: Run module tests - Institutional applications and tenants
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:institutional-access
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
+      - name: Run module tests - Public users and ZK security
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:users-zk
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run Results and ballots module tests
+      - name: Run module tests - Electoral results
+        if: ${{ !cancelled() }}
         run: pnpm test:module:results
 
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
+      - name: Run module tests - Ballots and worksheets
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:ballots-worksheets
 
-  attestation:
-    if: github.ref == 'refs/heads/main'
-    name: Attestation and oracle - BRS-F06 to BRS-F07
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run Attestation and oracle module tests
+      - name: Run module tests - Attestation and oracle
+        if: ${{ !cancelled() }}
         run: pnpm test:module:attestation
 
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
-
-  geography:
-    if: github.ref == 'refs/heads/main'
-    name: Geography and electoral configuration - BRS-F08 to BRS-F09
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run Geography and electoral configuration module tests
+      - name: Run module tests - Geography, parties and configuration
+        if: ${{ !cancelled() }}
         run: pnpm test:module:geography
 
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
-
-  institutional-voting:
-    if: github.ref == 'refs/heads/main'
-    name: Institutional voting - BRS-F10 to BRS-F19
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run Institutional voting module tests
+      - name: Run module tests - Institutional voting
+        if: ${{ !cancelled() }}
         run: pnpm test:module:institutional-voting
 
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
+      - name: Run module tests - News, notifications and mail
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:notifications-mail
 
-  notifications:
-    if: github.ref == 'refs/heads/main'
-    name: News and notifications - BRS-F20 to BRS-F21
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Run module tests - Contracts, delegates and reports
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:contracts-reports
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
+      - name: Run module tests - Health, core and database
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:health-core-database
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run News and notifications module tests
-        run: pnpm test:module:notifications
-
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
-
-  contracts-security:
-    if: github.ref == 'refs/heads/main'
-    name: Reports, contracts and security - BRS-F22 to BRS-F23
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run Reports, contracts and security module tests
-        run: pnpm test:module:contracts-security
-
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
-
-  health:
-    if: github.ref == 'refs/heads/main'
-    name: Health and infrastructure - BRS-F24
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run Health and infrastructure module tests
-        run: pnpm test:module:health
-
-      - name: Cleanup .env
-        if: always()
-        run: shred -u .env || rm -f .env
-
-  payments:
-    if: github.ref == 'refs/heads/main'
-    name: QR payments and Red Enlace - BRS-F25
-    needs: validations
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    environment: devops_aws
-    permissions:
-      contents: read
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
-      SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
-      SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Get .env File
-        run: |
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
-          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
-          sed -i 's/\r$//' .env
-          echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
-
-      - name: Run QR payments and Red Enlace module tests
+      - name: Run module tests - QR payments and Red Enlace
+        if: ${{ !cancelled() }}
         run: pnpm test:module:payments
 
       - name: Cleanup .env
         if: always()
         run: shred -u .env || rm -f .env
 
-  backend-results-compliance:
-    if: github.ref == 'refs/heads/main'
-    name: Backend Results compliance
-    needs:
-      - coverage
-      - results
-      - attestation
-      - geography
-      - institutional-voting
-      - notifications
-      - contracts-security
-      - health
-      - payments
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Summarize modular test compliance
-        run: echo "Backend Results passes the automated test battery organized by functional modules."
-
   build:
     name: Build & Push Docker image
-    needs: [backend-results-compliance]
+    needs: [module-tests]
     if: |
       always() &&
-      (needs.backend-results-compliance.result == 'success' || (needs.backend-results-compliance.result == 'skipped' && startsWith(github.ref, 'refs/tags/')))
+      (needs.module-tests.result == 'success' || (needs.module-tests.result == 'skipped' && startsWith(github.ref, 'refs/tags/')))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -686,7 +233,7 @@ jobs:
   deploy-dev:
     if: github.ref == 'refs/heads/main'
     name: Deploy to Hetzner (dev) via SSH
-    needs: [build, backend-results-compliance]
+    needs: [build, module-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: devops_aws
@@ -778,7 +325,7 @@ jobs:
   backend-metrics:
     name: Backend measurable parameters
     if: always() && github.ref == 'refs/heads/main'
-    needs: [backend-results-compliance, build, deploy-dev]
+    needs: [module-tests, build, deploy-dev]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
