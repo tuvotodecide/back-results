@@ -201,6 +201,8 @@
     ],
     "files": [
       "test/integration/red-enlace-webhook-route.spec.ts",
+      "test/unit/red-enlace-config.unit.spec.ts",
+      "test/unit/red-enlace-qr-http.provider.unit.spec.ts",
       "test/unit/payment-transactions.service.unit.spec.ts",
       "test/unit/red-enlace-webhook.service.unit.spec.ts"
     ]
