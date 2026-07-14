@@ -1,0 +1,145 @@
+{
+  "results": {
+    "name": "Results and ballots",
+    "flows": ["BRS-F01", "BRS-F02", "BRS-F03", "BRS-F04", "BRS-F05"],
+    "files": [
+      "test/acceptance/results.acceptance.spec.ts",
+      "test/acceptance/ballots.acceptance.spec.ts",
+      "test/end-to-end/results.e2e.spec.ts",
+      "test/end-to-end/observed-records.e2e.spec.ts",
+      "test/end-to-end/worksheet.e2e.spec.ts",
+      "test/end-to-end/complete.e2e.spec.ts",
+      "test/unit/results.service.unit.spec.ts",
+      "test/unit/results.controller.unit.spec.ts",
+      "test/unit/ballot.service.unit.spec.ts"
+    ]
+  },
+  "attestation": {
+    "name": "Attestation and oracle",
+    "flows": ["BRS-F06", "BRS-F07"],
+    "files": [
+      "test/unit/attestation.service.unit.spec.ts",
+      "test/unit/attestation-resolver.service.unit.spec.ts",
+      "test/unit/oracle-resolver.service.unit.spec.ts",
+      "test/unit/users.attest-participation.unit.spec.ts"
+    ]
+  },
+  "geography": {
+    "name": "Geography and electoral configuration",
+    "flows": ["BRS-F08", "BRS-F09"],
+    "files": [
+      "test/acceptance/elections.acceptance.spec.ts",
+      "test/acceptance/political-parties.acceptance.spec.ts",
+      "test/unit/election-config.service.unit.spec.ts",
+      "test/unit/department.service.unit.spec.ts",
+      "test/unit/province.service.unit.spec.ts",
+      "test/unit/municipality.service.unit.spec.ts",
+      "test/unit/electoral-location.service.unit.spec.ts",
+      "test/unit/electoral-seat.service.unit.spec.ts",
+      "test/unit/electoral-table.service.unit.spec.ts",
+      "test/unit/political-party.service.unit.spec.ts",
+      "test/unit/guards.unit.spec.ts"
+    ]
+  },
+  "institutional-voting": {
+    "name": "Institutional voting",
+    "flows": [
+      "BRS-F10",
+      "BRS-F11",
+      "BRS-F12",
+      "BRS-F13",
+      "BRS-F14",
+      "BRS-F15",
+      "BRS-F16",
+      "BRS-F17",
+      "BRS-F18",
+      "BRS-F19"
+    ],
+    "files": [
+      "test/acceptance/institutional-public.contract.spec.ts",
+      "test/acceptance/institutional-participation.contract.spec.ts",
+      "test/end-to-end/institutional-voting.e2e.spec.ts",
+      "test/end-to-end/padron-pdf-staging.e2e.spec.ts",
+      "test/end-to-end/padron-certificate.e2e.spec.ts",
+      "test/end-to-end/zk-vote.contract.e2e.spec.ts",
+      "test/integration/institutional-voting/participation-flow.spec.ts",
+      "test/integration/institutional-voting/participation-concurrency.regression.spec.ts",
+      "test/integration/institutional-voting/participation-analytics.spec.ts",
+      "test/integration/institutional-voting/padron-editing-rules.spec.ts",
+      "test/integration/institutional-voting/cancelled-voting-api.spec.ts",
+      "test/integration/institutional-voting/presential-sessions.spec.ts",
+      "test/integration/institutional-voting/participations-history.spec.ts",
+      "test/integration/institutional-voting/public-participation-check.spec.ts",
+      "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
+      "test/integration/institutional-voting/publication-results.spec.ts",
+      "test/unit/institutional-voting/access.service.unit.spec.ts",
+      "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
+      "test/unit/institutional-voting/lifecycle.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron-certificate-pdf.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron-gemini-import.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron-pdf-parser.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron-users.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron.service.unit.spec.ts",
+      "test/unit/institutional-voting/participation-analytics.service.unit.spec.ts",
+      "test/unit/institutional-voting/participation.service.unit.spec.ts",
+      "test/unit/institutional-voting/vote-reader.service.unit.spec.ts",
+      "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
+      "test/unit/institutional-voting/voting-events.service.unit.spec.ts",
+      "test/unit/institutional-voting/voting-results.service.unit.spec.ts"
+    ]
+  },
+  "notifications": {
+    "name": "News and notifications",
+    "flows": ["BRS-F20", "BRS-F21"],
+    "files": [
+      "test/end-to-end/notifications-announcements.e2e.spec.ts",
+      "test/end-to-end/notifications-internal-push.e2e.spec.ts",
+      "test/end-to-end/notifications-logs.e2e.spec.ts",
+      "test/unit/institutional-voting/notifications.service.unit.spec.ts",
+      "test/unit/notifications/direct-push.service.unit.spec.ts"
+    ]
+  },
+  "contracts-security": {
+    "name": "Reports, contracts and security",
+    "flows": ["BRS-F22", "BRS-F23"],
+    "files": [
+      "test/acceptance/auth-context.contract.spec.ts",
+      "test/end-to-end/auth.e2e.spec.ts",
+      "test/end-to-end/participation.e2e.spec.ts",
+      "test/end-to-end/tenant-access.e2e.spec.ts",
+      "test/integration/institutional-voting/multi-tenant-access.spec.ts",
+      "test/integration/institutional-voting/participation-report.spec.ts",
+      "test/unit/client-reports.controller.unit.spec.ts",
+      "test/unit/client-reports.service.unit.spec.ts",
+      "test/unit/contracts.service.unit.spec.ts",
+      "test/unit/delegates.service.unit.spec.ts",
+      "test/unit/institutional-admin-applications.service.unit.spec.ts",
+      "test/unit/institutional-tenants.service.unit.spec.ts",
+      "test/unit/territorial-restriction.guard.unit.spec.ts",
+      "test/unit/users.controller.unit.spec.ts",
+      "test/unit/users.service.unit.spec.ts",
+      "test/unit/zk-auth.controller.unit.spec.ts",
+      "test/unit/zk-auth.service.unit.spec.ts"
+    ]
+  },
+  "health": {
+    "name": "Health and infrastructure",
+    "flows": ["BRS-F24"],
+    "files": [
+      "src/app.controller.spec.ts",
+      "test/app.e2e-spec.ts",
+      "test/integration/core-health.smoke.spec.ts",
+      "test/integration/observability-alerts.spec.ts",
+      "test/unit/health.service.unit.spec.ts"
+    ]
+  },
+  "payments": {
+    "name": "QR payments and Red Enlace",
+    "flows": ["BRS-F25"],
+    "files": [
+      "test/integration/red-enlace-webhook-route.spec.ts",
+      "test/unit/payment-transactions.service.unit.spec.ts",
+      "test/unit/red-enlace-webhook.service.unit.spec.ts"
+    ]
+  }
+}
