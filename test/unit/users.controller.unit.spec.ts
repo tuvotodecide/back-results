@@ -12,6 +12,8 @@ import { NotificationLog } from '@/modules/notifications/schemas/notification-lo
 import { chain } from '../utils/chain';
 
 const mkUsersService = () => ({
+
+  
   findOrCreateByDni: jest.fn(),
   findByDni: jest.fn(),
   updateVotePlaceByDni: jest.fn(),
