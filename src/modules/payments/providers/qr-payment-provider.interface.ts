@@ -34,6 +34,10 @@ export interface VerifyQrResult {
   responseDetail?: string | null;
   achReference?: string | null;
   paymentDate?: Date | null;
+  statusHistory?: Array<{
+    status: string;
+    at?: Date | null;
+  }>;
 }
 
 export interface QrPaymentProvider {

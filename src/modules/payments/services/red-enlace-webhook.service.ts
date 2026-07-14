@@ -47,6 +47,7 @@ export class RedEnlaceWebhookService {
         amountMinor,
         currency,
         achReference,
+        paymentDate,
       });
 
       const event = await this.createInboxEvent({
@@ -56,9 +57,17 @@ export class RedEnlaceWebhookService {
         amountMinor,
         currency,
         achReference,
+        paymentDate: paymentDate ? new Date(paymentDate) : null,
       });
 
       if (event.processingStatus === 'DUPLICATE') {
+        if (event.lastErrorCode) {
+          return {
+            numeroReferencia: providerReference,
+            codigoRespuesta: '05',
+            detalleRespuesta: this.toResponseDetail(event.lastErrorCode),
+          };
+        }
         return {
           numeroReferencia: providerReference,
           codigoRespuesta: '00',
@@ -71,7 +80,7 @@ export class RedEnlaceWebhookService {
         { $set: { processingStatus: 'PROCESSING' }, $inc: { attemptCount: 1 } },
       );
 
-      await this.payments.applyWebhookConfirmation({
+      const payment = await this.payments.applyWebhookConfirmation({
         providerReference,
         providerStatus,
         responseCode,
@@ -84,7 +93,14 @@ export class RedEnlaceWebhookService {
 
       await this.eventModel.updateOne(
         { _id: event._id },
-        { $set: { processingStatus: 'PROCESSED', processedAt: new Date() } },
+        {
+          $set: {
+            processingStatus: 'PROCESSED',
+            processedAt: new Date(),
+            processingResult: 'PROCESSED',
+            paymentId: payment?._id ?? null,
+          },
+        },
       );
 
       return {
@@ -107,7 +123,7 @@ export class RedEnlaceWebhookService {
       return {
         numeroReferencia: providerReference,
         codigoRespuesta: '05',
-        detalleRespuesta: sanitizeProviderDetail(code),
+        detalleRespuesta: this.toResponseDetail(code),
       };
     }
   }
@@ -119,6 +135,7 @@ export class RedEnlaceWebhookService {
     amountMinor?: string | null;
     currency?: string | null;
     achReference?: string | null;
+    paymentDate?: Date | null;
   }) {
     try {
       return await this.eventModel.create({
@@ -129,6 +146,7 @@ export class RedEnlaceWebhookService {
         amountMinor: input.amountMinor ?? null,
         currency: input.currency ?? null,
         achReference: input.achReference ?? null,
+        paymentDate: input.paymentDate ?? null,
         processingStatus: 'RECEIVED',
         authenticationMode:
           this.configService.get<string>('app.redEnlace.webhookAuthMode') ||
@@ -138,12 +156,22 @@ export class RedEnlaceWebhookService {
       });
     } catch (error: any) {
       if (error?.code === 11000) {
-        const existing = await this.eventModel.findOne({
+        const existingByFingerprint = await this.eventModel.findOne({
           eventFingerprint: input.eventFingerprint,
         });
-        if (existing) {
-          existing.processingStatus = 'DUPLICATE';
-          return existing;
+        if (existingByFingerprint) {
+          existingByFingerprint.processingStatus = 'DUPLICATE';
+          return existingByFingerprint;
+        }
+        if (input.achReference) {
+          const existingByAch = await this.eventModel.findOne({
+            provider: PAYMENT_PROVIDER_RED_ENLACE,
+            achReference: input.achReference,
+          });
+          if (existingByAch) {
+            existingByAch.processingStatus = 'DUPLICATE';
+            return existingByAch;
+          }
         }
       }
       throw error;
@@ -162,6 +190,7 @@ export class RedEnlaceWebhookService {
           $set: {
             processingStatus: 'FAILED',
             lastErrorCode: code.slice(0, 80),
+            processingResult: this.toResponseDetail(code),
             processedAt: new Date(),
           },
         },
@@ -179,5 +208,11 @@ export class RedEnlaceWebhookService {
 
   private fingerprint(value: Record<string, string | null>) {
     return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  }
+
+  private toResponseDetail(code: string) {
+    if (code === 'RED_ENLACE_AMOUNT_MISMATCH') return 'AMOUNT_MISMATCH';
+    if (code === 'RED_ENLACE_CURRENCY_MISMATCH') return 'CURRENCY_MISMATCH';
+    return sanitizeProviderDetail(code);
   }
 }

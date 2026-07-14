@@ -37,6 +37,15 @@ export class PaymentProviderEvent {
   @Prop({ type: String, trim: true, maxlength: 80, default: null })
   achReference?: string | null;
 
+  @Prop({ type: Types.ObjectId, ref: 'PaymentTransaction', default: null, index: true })
+  paymentId?: Types.ObjectId | null;
+
+  @Prop({ type: Date, default: null })
+  paymentDate?: Date | null;
+
+  @Prop({ type: String, trim: true, maxlength: 80, default: null })
+  processingResult?: string | null;
+
   @Prop({
     required: true,
     enum: providerEventProcessingStatuses,
@@ -69,3 +78,12 @@ export const PaymentProviderEventSchema =
 
 PaymentProviderEventSchema.index({ eventFingerprint: 1 }, { unique: true });
 PaymentProviderEventSchema.index({ providerReference: 1, processingStatus: 1 });
+PaymentProviderEventSchema.index(
+  { provider: 1, achReference: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      achReference: { $type: 'string', $gt: '' },
+    },
+  },
+);

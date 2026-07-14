@@ -24,6 +24,7 @@ import {
   RED_ENLACE_BRANCH_CODE,
   RED_ENLACE_BRANCH_NAME,
   RED_ENLACE_BUSINESS_CATEGORY,
+  RED_ENLACE_QR_TTL_DEFAULT,
   RED_ENLACE_REFERENCE_MAX_LENGTH,
   validPaymentTransitions,
 } from '../payments.constants';
@@ -36,11 +37,16 @@ import {
   assertMinorWithinBounds,
   parseBobAmountToMinor,
 } from '../utils/money.util';
-import { mapRedEnlaceStatus } from '../utils/payment-status.mapper';
+import {
+  RED_ENLACE_ACTIVE_QR_STATUSES,
+  mapRedEnlaceStatus,
+  normalizeRedEnlaceStatus,
+} from '../utils/payment-status.mapper';
 import {
   buildRedEnlaceGlosa,
   sanitizeProviderDetail,
 } from '../utils/red-enlace-glosa.util';
+import { parseRedEnlaceQrTtl } from '../utils/red-enlace-ttl.util';
 import { PaymentTenantAccessService } from './payment-tenant-access.service';
 
 @Injectable()
@@ -126,13 +132,36 @@ export class PaymentTransactionsService {
       });
 
       this.assertProviderGenerateResult(payment, amountMinor, dto.currency, result);
+      const providerStatus = normalizeRedEnlaceStatus(result.providerStatus);
+      if (!RED_ENLACE_ACTIVE_QR_STATUSES.has(providerStatus)) {
+        const mapping = mapRedEnlaceStatus({
+          providerStatus,
+          responseCode: result.responseCode,
+          source: 'RECONCILIATION',
+        });
+        const updated = await this.paymentModel.findOneAndUpdate(
+          { _id: payment._id, status: 'QR_REQUESTING' },
+          {
+            $set: {
+              providerReference: result.providerReference,
+              providerStatus,
+              providerResponseCode: result.responseCode ?? null,
+              providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
+              status: mapping.status,
+            },
+          },
+          { new: true },
+        );
+
+        return toPublicPaymentDto(updated ?? payment, { includeQr: true });
+      }
 
       const updated = await this.paymentModel.findOneAndUpdate(
         { _id: payment._id, status: 'QR_REQUESTING' },
         {
           $set: {
             providerReference: result.providerReference,
-            providerStatus: result.providerStatus,
+            providerStatus,
             providerResponseCode: result.responseCode ?? null,
             providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
             qrImage: result.qrImage,
@@ -295,6 +324,10 @@ export class PaymentTransactionsService {
     result: VerifyQrResult,
     source: 'WEBHOOK' | 'RECONCILIATION',
   ) {
+    if (payment.status === 'PAYMENT_CONFIRMED') {
+      return payment;
+    }
+
     if (result.amountMinor && result.amountMinor !== payment.amountMinor) {
       await this.markMismatch(payment, 'RED_ENLACE_AMOUNT_MISMATCH', result);
       throw new PaymentDomainError(
@@ -311,10 +344,6 @@ export class PaymentTransactionsService {
         'Moneda de Red Enlace no coincide',
         409,
       );
-    }
-
-    if (payment.status === 'PAYMENT_CONFIRMED') {
-      return payment;
     }
 
     const mapping = mapRedEnlaceStatus({
@@ -336,6 +365,10 @@ export class PaymentTransactionsService {
         },
       );
       return this.getPaymentDocumentOrThrow(String(payment._id));
+    }
+
+    if (this.shouldMoveLateWebhookApprovalToManualReview(payment, mapping.status, source)) {
+      return this.moveLateWebhookApprovalToManualReview(payment, result);
     }
 
     const allowedFrom =
@@ -385,6 +418,45 @@ export class PaymentTransactionsService {
       this.context,
     );
     return updated;
+  }
+
+  private shouldMoveLateWebhookApprovalToManualReview(
+    payment: PaymentTransactionDocument,
+    mappedStatus: PaymentStatus,
+    source: 'WEBHOOK' | 'RECONCILIATION',
+  ) {
+    return (
+      source === 'WEBHOOK' &&
+      mappedStatus === 'PAYMENT_CONFIRMED' &&
+      ['EXPIRED', 'FAILED', 'CANCELLED'].includes(payment.status)
+    );
+  }
+
+  private async moveLateWebhookApprovalToManualReview(
+    payment: PaymentTransactionDocument,
+    result: VerifyQrResult,
+  ) {
+    const updated = (await this.paymentModel
+      .findOneAndUpdate(
+        {
+          _id: payment._id,
+          status: { $in: ['EXPIRED', 'FAILED', 'CANCELLED'] },
+        } as any,
+        {
+          $set: {
+            status: 'MANUAL_REVIEW',
+            providerStatus: result.providerStatus,
+            providerResponseCode: result.responseCode ?? null,
+            providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
+            achReference: result.achReference ?? null,
+            paymentDate: result.paymentDate ?? null,
+          },
+        } as any,
+        { new: true },
+      )
+      .exec()) as PaymentTransactionDocument | null;
+
+    return updated ?? this.getPaymentDocumentOrThrow(String(payment._id));
   }
 
   private async createPaymentWithUniqueReference(input: {
@@ -472,7 +544,15 @@ export class PaymentTransactionsService {
         409,
       );
     }
-    if (!result.providerReference || !result.qrImage) {
+    const providerStatus = normalizeRedEnlaceStatus(result.providerStatus);
+    if (!result.providerReference) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_INVALID_RESPONSE',
+        'Respuesta invalida de Red Enlace',
+        502,
+      );
+    }
+    if (RED_ENLACE_ACTIVE_QR_STATUSES.has(providerStatus) && !result.qrImage) {
       throw new PaymentDomainError(
         'RED_ENLACE_INVALID_RESPONSE',
         'Respuesta invalida de Red Enlace',
@@ -531,11 +611,9 @@ export class PaymentTransactionsService {
 
   private calculateQrExpiresAt() {
     const ttl =
-      this.configService.get<string>('app.redEnlace.qrTtl') || '00:30:00';
-    const [hours, minutes, seconds] = ttl.split(':').map((part) => Number(part));
-    const ttlMs =
-      ((hours || 0) * 60 * 60 + (minutes || 0) * 60 + (seconds || 0)) * 1000;
-    return new Date(Date.now() + (ttlMs > 0 ? ttlMs : 30 * 60 * 1000));
+      this.configService.get<string>('app.redEnlace.qrTtl') ||
+      RED_ENLACE_QR_TTL_DEFAULT;
+    return new Date(Date.now() + parseRedEnlaceQrTtl(ttl).milliseconds);
   }
 
   private assertAmountBounds(amountMinor: string) {

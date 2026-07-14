@@ -111,14 +111,14 @@ export default registerAs('app', () => ({
     mode: process.env.RED_ENLACE_MODE || 'mock',
     baseUrl: process.env.RED_ENLACE_BASE_URL || '',
     apiKey: process.env.RED_ENLACE_API_KEY || '',
-    callbackToken:
-      process.env.RED_ENLACE_CALLBACK_TOKEN ||
-      process.env.RED_ENLACE_WEBHOOK_SECRET ||
-      '',
+    callbackToken: process.env.RED_ENLACE_CALLBACK_TOKEN || '',
+    webhookSecret: process.env.RED_ENLACE_WEBHOOK_SECRET || '',
     httpTimeoutMs: parseInt(process.env.RED_ENLACE_HTTP_TIMEOUT_MS || '5000', 10),
     qrTtl: process.env.RED_ENLACE_QR_TTL || '00:30:00',
+    webhookAuthMode: process.env.RED_ENLACE_WEBHOOK_AUTH_MODE || 'api-key',
     mockVerifyStatus: process.env.RED_ENLACE_MOCK_VERIFY_STATUS || '',
     minAmountMinor: process.env.RED_ENLACE_MIN_AMOUNT_MINOR || '1',
     maxAmountMinor: process.env.RED_ENLACE_MAX_AMOUNT_MINOR || '100000000',
+    maxQrImageBytes: process.env.RED_ENLACE_MAX_QR_IMAGE_BYTES || '',
   },
 }));

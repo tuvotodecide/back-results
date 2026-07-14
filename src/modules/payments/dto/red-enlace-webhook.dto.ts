@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsDateString,
   IsDefined,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -112,7 +113,9 @@ export class RedEnlaceWebhookDto {
   numeroReferencia: string;
 
   @IsDefined()
+  @Transform(({ value }) => (value == null ? value : String(value).trim()))
   @IsString()
+  @IsIn(['00', '03', '05'])
   @MaxLength(40)
   estado: string;
 

@@ -153,6 +153,22 @@ describe('Red Enlace webhook routes', () => {
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 
+  it('POST /api/v1/qr/confirmed rejects callback states outside 00, 03 and 05', async () => {
+    const response = await request(app.getHttpServer())
+      .post(CANONICAL_ROUTE)
+      .set('x-api-key', 'valid-callback-token')
+      .send({
+        numeroReferencia: 1511556,
+        estado: '99',
+      })
+      .expect(400);
+
+    const validationBody = JSON.stringify(response.body);
+    expect(validationBody).toContain('estado');
+    expect(validationBody).not.toContain('codigoRespuesta');
+    expect(receiveWebhook).not.toHaveBeenCalled();
+  });
+
   it('POST /api/v1/qr/confirmed accepts estado 03 without full banking data', async () => {
     const response = await request(app.getHttpServer())
       .post(CANONICAL_ROUTE)

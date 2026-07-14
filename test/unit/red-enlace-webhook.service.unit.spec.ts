@@ -59,7 +59,7 @@ function createService(options?: {
     ...(options?.eventModel ?? {}),
   };
   const payments = {
-    applyWebhookConfirmation: jest.fn().mockResolvedValue({}),
+    applyWebhookConfirmation: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
     ...(options?.payments ?? {}),
   };
   const configService = {
@@ -178,6 +178,16 @@ describe('RedEnlaceWebhookService', () => {
     expect(JSON.stringify(persistedEvent)).not.toContain('14240008');
     expect(JSON.stringify(persistedEvent)).not.toContain('1011000024');
     expect(JSON.stringify(persistedEvent)).not.toContain('BANCO ECONOMICO');
+    expect(eventModel.updateOne).toHaveBeenLastCalledWith(
+      { _id: 'event-id' },
+      {
+        $set: expect.objectContaining({
+          processingStatus: 'PROCESSED',
+          processingResult: 'PROCESSED',
+          paymentId: expect.any(Types.ObjectId),
+        }),
+      },
+    );
   });
 
   it('returns a controlled 05 response when the provider reference is unknown', async () => {
@@ -235,7 +245,7 @@ describe('RedEnlaceWebhookService', () => {
     await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
       numeroReferencia: '1511556',
       codigoRespuesta: '05',
-      detalleRespuesta: 'RED_ENLACE_AMOUNT_MISMATCH',
+      detalleRespuesta: 'AMOUNT_MISMATCH',
     });
 
     expect(payments.applyWebhookConfirmation).toHaveBeenCalledWith(
@@ -265,7 +275,7 @@ describe('RedEnlaceWebhookService', () => {
     await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
       numeroReferencia: '1511556',
       codigoRespuesta: '05',
-      detalleRespuesta: 'RED_ENLACE_CURRENCY_MISMATCH',
+      detalleRespuesta: 'CURRENCY_MISMATCH',
     });
 
     expect(payments.applyWebhookConfirmation).toHaveBeenCalledWith(
@@ -300,6 +310,41 @@ describe('RedEnlaceWebhookService', () => {
     expect(eventModel.updateOne).not.toHaveBeenCalled();
     expect(duplicateEvent.processingStatus).toBe('DUPLICATE');
   });
+
+  it('treats a repeated ACH reference as a persisted duplicate event', async () => {
+    const duplicateEvent = {
+      _id: 'event-id',
+      processingStatus: 'PROCESSED',
+      lastErrorCode: null,
+    };
+    const { service, eventModel, payments } = createService({
+      eventModel: {
+        create: jest.fn().mockRejectedValue({ code: 11000 }),
+        findOne: jest.fn((query) => {
+          if (query.eventFingerprint) return Promise.resolve(null);
+          if (query.achReference === '14262508014140754846') {
+            return Promise.resolve(duplicateEvent);
+          }
+          return Promise.resolve(null);
+        }),
+        updateOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+      },
+    });
+
+    await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
+      numeroReferencia: '1511556',
+      codigoRespuesta: '00',
+      detalleRespuesta: null,
+    });
+
+    expect(eventModel.findOne).toHaveBeenCalledWith({
+      provider: 'RED_ENLACE',
+      achReference: '14262508014140754846',
+    });
+    expect(payments.applyWebhookConfirmation).not.toHaveBeenCalled();
+    expect(eventModel.updateOne).not.toHaveBeenCalled();
+    expect(duplicateEvent.processingStatus).toBe('DUPLICATE');
+  });
 });
 
 describe('RedEnlaceQrHttpProvider', () => {
@@ -313,7 +358,7 @@ describe('RedEnlaceQrHttpProvider', () => {
         numeroReferencia: '6780',
         codigoRespuesta: 'PENDING',
         detalleRespuesta: 'QR generado',
-        imagen: 'base64-qr',
+        imagen: 'UVI=',
       },
     });
     const provider = new RedEnlaceQrHttpProvider(
@@ -348,7 +393,7 @@ describe('RedEnlaceQrHttpProvider', () => {
         currency: 'BOB',
         providerStatus: 'PENDING',
         responseCode: 'PENDING',
-        qrImage: 'base64-qr',
+        qrImage: 'UVI=',
       }),
     );
 
@@ -416,14 +461,15 @@ describe('Red Enlace configuration validation', () => {
     expect(() => validateRedEnlaceConfiguration(config({}), 'mock')).not.toThrow();
   });
 
-  it('requires outgoing API key and callback token in test mode', () => {
+  it('requires callback token in sandbox mode', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'https://red-enlace.test',
+          'app.redEnlace.baseUrl': 'https://appcobranzacert.redenlace.com.bo',
           'app.redEnlace.apiKey': 'red-enlace-outgoing-test-key',
+          'app.redEnlace.qrTtl': '00:30:00',
         }),
-        'test',
+        'sandbox',
       ),
     ).toThrow('RED_ENLACE_CALLBACK_TOKEN');
   });
@@ -434,10 +480,11 @@ describe('Red Enlace configuration validation', () => {
         config({
           'app.redEnlace.baseUrl': 'https://red-enlace.prod',
           'app.redEnlace.callbackToken': 'callback-token',
+          'app.redEnlace.qrTtl': '00:30:00',
         }),
         'production',
       ),
-    ).toThrow('RED_ENLACE_BASE_URL and RED_ENLACE_API_KEY');
+    ).toThrow('RED_ENLACE_API_KEY');
   });
 });
 

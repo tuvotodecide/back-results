@@ -1,5 +1,11 @@
 import { PaymentStatus } from '../payments.constants';
 
+export const RED_ENLACE_ACTIVE_QR_STATUSES = new Set(['PENDING', 'INITIALIZE']);
+
+export function normalizeRedEnlaceStatus(value?: string | null): string {
+  return String(value ?? '').trim().toUpperCase();
+}
+
 export interface ProviderStatusMappingInput {
   providerStatus?: string | null;
   responseCode?: string | null;
@@ -17,7 +23,7 @@ export function mapRedEnlaceStatus(
   input: ProviderStatusMappingInput,
 ): ProviderStatusMappingResult {
   const responseCode = String(input.responseCode ?? '').trim();
-  const providerStatus = String(input.providerStatus ?? '').trim().toUpperCase();
+  const providerStatus = normalizeRedEnlaceStatus(input.providerStatus);
 
   if (input.source === 'WEBHOOK') {
     if (responseCode === '00') {
@@ -43,7 +49,7 @@ export function mapRedEnlaceStatus(
     }
   }
 
-  if (providerStatus === 'PENDING' || providerStatus === 'INITIALIZE') {
+  if (RED_ENLACE_ACTIVE_QR_STATUSES.has(providerStatus)) {
     return {
       status: 'QR_ACTIVE',
       requiresConfirmationValidation: false,
@@ -83,6 +89,13 @@ export function mapRedEnlaceStatus(
       status: 'FAILED',
       requiresConfirmationValidation: false,
       ambiguous: false,
+    };
+  }
+  if (providerStatus === 'NOTFOUND') {
+    return {
+      status: 'MANUAL_REVIEW',
+      requiresConfirmationValidation: false,
+      ambiguous: true,
     };
   }
 

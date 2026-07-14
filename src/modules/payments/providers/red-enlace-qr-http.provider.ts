@@ -10,6 +10,12 @@ import {
   RED_ENLACE_VERIFY_QR_PATH,
 } from '../payments.constants';
 import { sanitizeProviderDetail } from '../utils/red-enlace-glosa.util';
+import { validateRedEnlaceQrImage } from '../utils/red-enlace-qr-image.util';
+import { parseRedEnlaceQrTtl } from '../utils/red-enlace-ttl.util';
+import {
+  RED_ENLACE_ACTIVE_QR_STATUSES,
+  normalizeRedEnlaceStatus,
+} from '../utils/payment-status.mapper';
 import {
   GenerateQrInput,
   GenerateQrResult,
@@ -145,8 +151,14 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
       data?.imagenQr ??
       data?.qr ??
       data?.qrBase64;
+    const providerStatus = this.resolveProviderStatus(data, undefined);
+    const normalizedQrImage = RED_ENLACE_ACTIVE_QR_STATUSES.has(providerStatus)
+      ? this.validateQrImage(qrImage)
+      : qrImage != null
+        ? String(qrImage)
+        : '';
 
-    if (!providerReference || !qrImage) {
+    if (!providerReference) {
       throw new PaymentDomainError(
         'RED_ENLACE_INVALID_RESPONSE',
         'Respuesta invalida de Red Enlace',
@@ -154,48 +166,140 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
       );
     }
 
-    return {
+    const result: GenerateQrResult = {
       providerReference: String(providerReference),
       originMerchantReference:
         data?.origenNumeroReferencia != null
-          ? String(data.origenNumeroReferencia)
+          ? String(data.origenNumeroReferencia).trim()
           : input.merchantReference,
       amountMinor:
         data?.monto != null ? this.providerAmountToMinor(String(data.monto)) : undefined,
-      currency: data?.moneda != null ? String(data.moneda) : undefined,
-      providerStatus: String(data?.estado ?? data?.status ?? 'PENDING'),
+      currency:
+        data?.moneda != null ? String(data.moneda).trim().toUpperCase() : undefined,
+      providerStatus,
       responseCode:
-        data?.codigoRespuesta != null ? String(data.codigoRespuesta) : undefined,
+        data?.codigoRespuesta != null
+          ? normalizeRedEnlaceStatus(data.codigoRespuesta)
+          : undefined,
       responseDetail: sanitizeProviderDetail(data?.detalleRespuesta),
-      qrImage: String(qrImage),
+      qrImage: normalizedQrImage,
       qrExpiresAt: input.expiresAt,
     };
+
+    if (result.originMerchantReference !== input.merchantReference) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_REFERENCE_MISMATCH',
+        'Referencia de Red Enlace no coincide',
+        409,
+      );
+    }
+    if (result.amountMinor && result.amountMinor !== input.amountMinor) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_AMOUNT_MISMATCH',
+        'Monto de Red Enlace no coincide',
+        409,
+      );
+    }
+    if (result.currency && result.currency !== input.currency) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_CURRENCY_MISMATCH',
+        'Moneda de Red Enlace no coincide',
+        409,
+      );
+    }
+
+    return result;
   }
 
   private normalizeVerifyResponse(
     data: any,
     providerReference: string,
   ): VerifyQrResult {
+    const statusHistory = this.parseStatusHistory(data?.estados);
+    const transaction = data?.transacciones;
+    const providerStatus = this.resolveProviderStatus(data, statusHistory);
+
     return {
       providerReference:
         data?.numeroReferenciaAtc != null
           ? String(data.numeroReferenciaAtc)
-          : providerReference,
+          : data?.numeroReferencia != null
+            ? String(data.numeroReferencia)
+            : providerReference,
       originMerchantReference:
         data?.origenNumeroReferencia != null
           ? String(data.origenNumeroReferencia)
           : undefined,
       amountMinor:
-        data?.monto != null ? this.providerAmountToMinor(String(data.monto)) : undefined,
-      currency: data?.moneda != null ? String(data.moneda) : undefined,
-      providerStatus: String(data?.estado ?? data?.status ?? 'NOTFOUND'),
+        transaction?.monto != null
+          ? this.providerAmountToMinor(String(transaction.monto))
+          : data?.monto != null
+            ? this.providerAmountToMinor(String(data.monto))
+            : undefined,
+      currency:
+        transaction?.moneda != null
+          ? String(transaction.moneda).trim().toUpperCase()
+          : data?.moneda != null
+            ? String(data.moneda).trim().toUpperCase()
+            : undefined,
+      providerStatus,
       responseCode:
-        data?.codigoRespuesta != null ? String(data.codigoRespuesta) : undefined,
+        data?.codigoRespuesta != null
+          ? normalizeRedEnlaceStatus(data.codigoRespuesta)
+          : undefined,
       responseDetail: sanitizeProviderDetail(data?.detalleRespuesta),
       achReference:
-        data?.achReference != null ? String(data.achReference).slice(0, 80) : null,
-      paymentDate: data?.fechaPago ? new Date(data.fechaPago) : null,
+        transaction?.numeroAch != null
+          ? String(transaction.numeroAch).slice(0, 80)
+          : data?.achReference != null
+            ? String(data.achReference).slice(0, 80)
+            : null,
+      paymentDate:
+        transaction?.fechaHoraTransaccion != null
+          ? new Date(transaction.fechaHoraTransaccion)
+          : data?.fechaPago
+            ? new Date(data.fechaPago)
+            : null,
+      statusHistory,
     };
+  }
+
+  private resolveProviderStatus(
+    data: any,
+    statusHistory?: Array<{ status: string; at?: Date | null }>,
+  ) {
+    const candidates = [
+      data?.codigoRespuesta,
+      data?.status,
+      data?.estado,
+      statusHistory?.[statusHistory.length - 1]?.status,
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = normalizeRedEnlaceStatus(candidate);
+      if (normalized) return normalized;
+    }
+
+    throw new PaymentDomainError(
+      'RED_ENLACE_INVALID_RESPONSE',
+      'Respuesta invalida de Red Enlace',
+      502,
+    );
+  }
+
+  private parseStatusHistory(value: any) {
+    if (!Array.isArray(value)) return undefined;
+
+    return value
+      .map((entry) => {
+        const status = normalizeRedEnlaceStatus(entry?.estado);
+        if (!status) return null;
+        return {
+          status,
+          at: entry?.fechaHora ? new Date(entry.fechaHora) : null,
+        };
+      })
+      .filter((entry): entry is { status: string; at: Date | null } => !!entry);
   }
 
   private getRequiredBaseUrl() {
@@ -227,10 +331,32 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
   }
 
   private getQrTtl() {
-    return (
+    const ttl =
       this.configService.get<string>('app.redEnlace.qrTtl') ||
-      RED_ENLACE_QR_TTL_DEFAULT
+      RED_ENLACE_QR_TTL_DEFAULT;
+    parseRedEnlaceQrTtl(ttl);
+    return ttl;
+  }
+
+  private validateQrImage(value: unknown) {
+    try {
+      return validateRedEnlaceQrImage(value, this.getMaxQrImageBytes());
+    } catch {
+      throw new PaymentDomainError(
+        'RED_ENLACE_INVALID_RESPONSE',
+        'Respuesta invalida de Red Enlace',
+        502,
+      );
+    }
+  }
+
+  private getMaxQrImageBytes() {
+    const value = this.configService.get<string | number>(
+      'app.redEnlace.maxQrImageBytes',
     );
+    if (value == null || value === '') return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
   }
 
   private minorToProviderAmount(amountMinor: string) {
