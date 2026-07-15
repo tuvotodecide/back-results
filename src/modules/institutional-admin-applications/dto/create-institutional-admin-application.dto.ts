@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
+  IsEthereumAddress,
   IsEmail,
   IsNotEmpty,
   IsOptional,
@@ -46,4 +48,11 @@ export class CreateInstitutionalAdminApplicationDto {
   @MinLength(3)
   @MaxLength(160)
   institutionName: string;
+
+  @ApiProperty({ example: '0x1234567890abcdef1234567890abcdef12345678' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsNotEmpty()
+  @IsEthereumAddress()
+  accountAddress: string;
 }

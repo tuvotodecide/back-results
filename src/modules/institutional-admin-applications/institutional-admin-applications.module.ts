@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MailModule } from '../mail/mail.module';
 import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
@@ -30,6 +31,7 @@ import { InstitutionalAdminApplicationsController } from './controllers/institut
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
       { name: VotingEvent.name, schema: VotingEventSchema },
     ]),
+    HttpModule,
     MailModule,
   ],
   controllers: [InstitutionalAdminApplicationsController],

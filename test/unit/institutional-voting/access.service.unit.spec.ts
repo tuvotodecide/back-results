@@ -87,7 +87,56 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     ).rejects.toThrow(ForbiddenException);
   });
 
+  it('permite escritura con tenant activo y asignación aprobada activa', async () => {
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), active: true }),
+    });
+    assignmentModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ status: 'APPROVED', active: true }),
+    });
+
+    await expect(
+      service.assertTenantWriteAccess(new Types.ObjectId(), {
+        sub: String(new Types.ObjectId()),
+        role: 'TENANT_ADMIN',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it('rechaza escritura cuando no existe asignación activa al tenant', async () => {
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), active: true }),
+    });
+    assignmentModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(null),
+    });
+
+    await expect(
+      service.assertTenantWriteAccess(new Types.ObjectId(), {
+        sub: String(new Types.ObjectId()),
+        role: 'TENANT_ADMIN',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('rechaza escritura cuando el tenant está inactivo aunque el token exista', async () => {
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), active: false }),
+    });
+
+    await expect(
+      service.assertTenantWriteAccess(new Types.ObjectId(), {
+        sub: String(new Types.ObjectId()),
+        role: 'TENANT_ADMIN',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(assignmentModel.findOne).not.toHaveBeenCalled();
+  });
+
+  it('rechaza escritura cuando la asignación está revocada o inactiva', async () => {
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), active: true }),
+    });
     assignmentModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(null),
     });

@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { Types } from 'mongoose';
 import { institutionalVotingFixtures } from '../../fixtures.institutional-voting';
 import {
   bootstrapInstitutionalVotingContext,
@@ -120,6 +121,31 @@ describe('Institutional voting integration - multi tenant access', () => {
         ...institutionalVotingFixtures.event,
         tenantId: ctx.createdTenantId,
       });
+    expect(forbiddenCreate.status).toBe(403);
+  });
+
+  it('bloquea mutaciones con token ya emitido cuando se revoca la asignación institucional', async () => {
+    await ctx.conn.collection('tenant_admin_assignments').updateOne(
+      {
+        tenantId: new Types.ObjectId(ctx.createdTenantId),
+      },
+      {
+        $set: {
+          active: false,
+          status: 'REVOKED',
+          revokedAt: new Date(),
+        },
+      },
+    );
+
+    const forbiddenCreate = await request(ctx.httpServer)
+      .post('/api/v1/voting/events')
+      .auth(ctx.tenantAdminToken, { type: 'bearer' })
+      .send({
+        ...institutionalVotingFixtures.event,
+        tenantId: ctx.createdTenantId,
+      });
+
     expect(forbiddenCreate.status).toBe(403);
   });
 

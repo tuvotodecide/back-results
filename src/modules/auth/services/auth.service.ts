@@ -133,10 +133,27 @@ export class AuthService {
       throw new ForbiddenException('Credenciales inválidas');
     }
 
-    const [availableContexts, accessStatus] = await Promise.all([
-      this.resolveAvailableContexts(user),
-      this.buildAccessStatusForUser(user),
-    ]);
+    const accessStatus = await this.buildAccessStatusForUser(user);
+
+    if (!user.active) {
+      const latestInstitutionalApplication =
+        await this.findLatestInstitutionalApplicationByEmail(email);
+      if (latestInstitutionalApplication?.status === 'PENDING_EMAIL_VERIFICATION') {
+        this.throwInstitutionalApplicationAccessError(
+          latestInstitutionalApplication.status,
+        );
+      }
+      if (this.hasBlockingAccessStatus(accessStatus)) {
+        this.throwNoContextAccessError(accessStatus);
+      }
+      throw new UnauthorizedException({
+        message: 'Usuario inactivo',
+        code: 'USER_INACTIVE',
+        accessStatus,
+      });
+    }
+
+    const availableContexts = await this.resolveAvailableContexts(user);
     const requiresContextSelection = availableContexts.length > 1;
     const defaultContext = availableContexts.length === 1 ? availableContexts[0] : null;
     const defaultTenantContext = defaultContext?.type === 'TENANT' ? defaultContext : null;
@@ -494,23 +511,28 @@ export class AuthService {
           .find({ _id: { $in: Array.from(tenantIds).map((id) => new Types.ObjectId(id)) } })
           .lean()
       : [];
-    const tenantById = new Map(tenants.map((tenant) => [String(tenant._id), tenant.name]));
+    const tenantById = new Map(tenants.map((tenant) => [String(tenant._id), tenant]));
 
-    const tenantItems: AccessStatusDto['tenant']['items'] = memberships.map((membership) => ({
-      applicationId:
-        applications.find(
-          (app) =>
-            String(app.tenantId || '') === String(membership.tenantId) &&
-            String(app.userId || '') === String(user._id),
-        )?._id?.toString() ?? null,
-      membershipId: String(membership._id),
-      status: this.normalizeTenantAccessStatus(
-        membership.status ?? (membership.active ? 'APPROVED' : 'REVOKED'),
-      ),
-      tenantId: String(membership.tenantId),
-      tenantName: tenantById.get(String(membership.tenantId)) ?? null,
-      reason: membership.reason ?? null,
-    }));
+    const tenantItems: AccessStatusDto['tenant']['items'] = memberships.map((membership) => {
+      const tenant = tenantById.get(String(membership.tenantId));
+      const effectiveStatus = membership.active === false || tenant?.active === false
+        ? 'REVOKED'
+        : membership.status ?? (membership.active ? 'APPROVED' : 'REVOKED');
+
+      return {
+        applicationId:
+          applications.find(
+            (app) =>
+              String(app.tenantId || '') === String(membership.tenantId) &&
+              String(app.userId || '') === String(user._id),
+          )?._id?.toString() ?? null,
+        membershipId: String(membership._id),
+        status: this.normalizeTenantAccessStatus(effectiveStatus),
+        tenantId: String(membership.tenantId),
+        tenantName: tenant?.name ?? null,
+        reason: membership.reason ?? null,
+      };
+    });
 
     for (const application of applications) {
       const tenantId = application.tenantId ? String(application.tenantId) : null;
@@ -524,7 +546,7 @@ export class AuthService {
         status: this.normalizeTenantAccessStatus(application.status),
         tenantId,
         tenantName: tenantId
-          ? tenantById.get(tenantId) ?? application.institutionName
+          ? tenantById.get(tenantId)?.name ?? application.institutionName
           : application.institutionName,
         reason: application.reason ?? null,
       });
@@ -621,6 +643,20 @@ export class AuthService {
       code: 'NO_APPROVED_CONTEXTS',
       accessStatus,
     });
+  }
+
+  private hasBlockingAccessStatus(accessStatus: AccessStatusDto): boolean {
+    return (
+      [
+        'PENDING_EMAIL_VERIFICATION',
+        'PENDING_APPROVAL',
+        'REJECTED',
+        'REVOKED',
+      ].includes(accessStatus.territorial.status) ||
+      ['PENDING', 'REJECTED', 'REVOKED'].includes(
+        accessStatus.tenant.latestStatus ?? '',
+      )
+    );
   }
 
   private hasApprovedTerritorialAccess(user: RoledUserDocument): boolean {

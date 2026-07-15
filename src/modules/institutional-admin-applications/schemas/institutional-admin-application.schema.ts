@@ -31,6 +31,9 @@ export class InstitutionalAdminApplication {
   @Prop({ required: true, trim: true })
   institutionNameNorm: string;
 
+  @Prop({ required: true, trim: true })
+  accountAddress: string;
+
   @Prop({
     required: true,
     enum: ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'REVOKED'],
@@ -76,5 +79,6 @@ export const InstitutionalAdminApplicationSchema = SchemaFactory.createForClass(
 
 InstitutionalAdminApplicationSchema.index({ email: 1, status: 1 });
 InstitutionalAdminApplicationSchema.index({ dni: 1, status: 1 });
+InstitutionalAdminApplicationSchema.index({ accountAddress: 1, status: 1 });
 InstitutionalAdminApplicationSchema.index({ verificationToken: 1 });
 InstitutionalAdminApplicationSchema.index({ institutionNameNorm: 1 });

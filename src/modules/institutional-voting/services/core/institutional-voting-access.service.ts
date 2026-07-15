@@ -52,6 +52,11 @@ export class InstitutionalVotingAccessService {
       throw new ForbiddenException('No autorizado para operar este tenant');
     }
 
+    const tenant = await this.tenantModel.findById(tenantId, { active: 1 }).lean();
+    if (!tenant || tenant.active !== true) {
+      throw new ForbiddenException('No autorizado para operar este tenant');
+    }
+
     const assignment = await this.assignmentModel
       .findOne({
         tenantId,

@@ -20,6 +20,7 @@
     ],
     "files": [
       "test/end-to-end/tenant-access.e2e.spec.ts",
+      "test/integration/institutional-admin-applications.wallet.spec.ts",
       "test/integration/institutional-voting/multi-tenant-access.spec.ts",
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
       "test/unit/institutional-tenants.service.unit.spec.ts"

@@ -3,12 +3,15 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { Model, Types } from 'mongoose';
 import bcrypt from 'bcrypt';
+import { isAddress } from 'viem';
 import { MailService } from '@/modules/mail/mail.service';
 import { RoledUser, RoledUserDocument } from '@/modules/auth/schemas/roledUser.schema';
 import {
@@ -26,6 +29,10 @@ import {
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { InstitutionalAdminApplication, InstitutionalAdminApplicationDocument } from '../schemas/institutional-admin-application.schema';
 
+type IdentityHasDniResponse = {
+  ok: boolean;
+};
+
 @Injectable()
 export class InstitutionalAdminApplicationsService {
   constructor(
@@ -41,6 +48,7 @@ export class InstitutionalAdminApplicationsService {
     private readonly votingEventModel: Model<VotingEventDocument>,
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
+    private readonly httpService: HttpService,
   ) {}
 
   async createApplication(dto: CreateInstitutionalAdminApplicationDto) {
@@ -48,6 +56,7 @@ export class InstitutionalAdminApplicationsService {
     const dni = dto.dni.trim();
     const institutionName = this.formatDisplayName(dto.institutionName);
     const institutionNameNorm = this.normalizeName(institutionName);
+    const accountAddress = this.normalizeAccountAddress(dto.accountAddress);
     const existingTenant = await this.tenantModel.findOne({ nameNorm: institutionNameNorm });
     const existingUser = await this.resolveUserByEmailOrDni(email, dni);
 
@@ -84,6 +93,17 @@ export class InstitutionalAdminApplicationsService {
         throw new ConflictException('La solicitud institucional ya existe y sigue pendiente');
       }
     }
+
+    if (latestSameInstitutionApplication && ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED'].includes(latestSameInstitutionApplication.status)) {
+      if (latestSameInstitutionApplication.status === 'APPROVED') {
+        throw new ConflictException(
+          'El usuario ya tiene acceso institucional aprobado para este tenant',
+        );
+      }
+      throw new ConflictException('La solicitud institucional ya existe y sigue pendiente');
+    }
+
+    await this.assertWalletBelongsToDni(accountAddress, dni);
 
     let user = existingUser;
     if (!user) {
@@ -134,6 +154,7 @@ export class InstitutionalAdminApplicationsService {
       created.name = dto.name.trim();
       created.institutionName = institutionName;
       created.institutionNameNorm = institutionNameNorm;
+      created.accountAddress = accountAddress;
       created.status = nextStatus as any;
       created.verificationToken = verificationToken;
       created.verificationTokenExpiresAt = verificationTokenExpiresAt;
@@ -145,13 +166,6 @@ export class InstitutionalAdminApplicationsService {
       created.tenantId = existingTenant?._id;
       created.userId = user._id;
       await created.save();
-    } else if (created && ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED'].includes(created.status)) {
-      if (created.status === 'APPROVED') {
-        throw new ConflictException(
-          'El usuario ya tiene acceso institucional aprobado para este tenant',
-        );
-      }
-      throw new ConflictException('La solicitud institucional ya existe y sigue pendiente');
     } else {
       const passwordHash = this.resolveApplicationPasswordHash(user, dto.password);
       created = await this.applicationModel.create({
@@ -161,6 +175,7 @@ export class InstitutionalAdminApplicationsService {
         name: dto.name.trim(),
         institutionName,
         institutionNameNorm,
+        accountAddress,
         status: nextStatus,
         verificationToken,
         verificationTokenExpiresAt,
@@ -290,6 +305,10 @@ export class InstitutionalAdminApplicationsService {
 
     if (app.status !== 'PENDING_APPROVAL') {
       throw new BadRequestException('La solicitud no está pendiente de aprobación');
+    }
+
+    if (!app.accountAddress) {
+      throw new BadRequestException('La solicitud institucional no tiene wallet verificada');
     }
 
     let user = await this.resolveUserByEmailOrDni(app.email, app.dni);
@@ -515,6 +534,7 @@ export class InstitutionalAdminApplicationsService {
     const institutionName = this.formatDisplayName(dto.institutionName);
     const institutionNameNorm = this.normalizeName(institutionName);
     const name = dto.name.trim();
+    const accountAddress = this.normalizeAccountAddress(dto.accountAddress);
 
     const existingUser = await this.roledUserModel
       .findOne({
@@ -593,6 +613,7 @@ export class InstitutionalAdminApplicationsService {
       name,
       institutionName,
       institutionNameNorm,
+      accountAddress,
       status: 'APPROVED',
       emailVerifiedAt: approvedAt,
       approvedAt,
@@ -675,6 +696,63 @@ export class InstitutionalAdminApplicationsService {
 
   private formatDisplayName(input: string) {
     return input.trim().replace(/\s+/g, ' ');
+  }
+
+  private normalizeAccountAddress(input: string): string {
+    if (typeof input !== 'string') {
+      throw new BadRequestException('accountAddress debe ser una direccion EVM valida');
+    }
+
+    const accountAddress = input.trim();
+    if (!accountAddress || !isAddress(accountAddress)) {
+      throw new BadRequestException('accountAddress debe ser una direccion EVM valida');
+    }
+
+    return accountAddress;
+  }
+
+  private async assertWalletBelongsToDni(accountAddress: string, dni: string): Promise<void> {
+    const identityBaseUrl = this.configService.get<string>('app.identity.baseUrl');
+    const identityApiKey = this.configService.get<string>('app.identity.apiKey');
+    const timeout = this.configService.get<number>('IDENTITY_HTTP_TIMEOUT_MS', 5000);
+
+    if (!identityBaseUrl || !identityApiKey) {
+      throw new ServiceUnavailableException('No se pudo verificar la wallet en este momento');
+    }
+
+    try {
+      const response = await this.httpService.axiosRef.get<IdentityHasDniResponse>(
+        `${identityBaseUrl.replace(/\/$/, '')}/registry/has-dni`,
+        {
+          params: {
+            account: accountAddress,
+            dnis: dni,
+          },
+          headers: {
+            'x-api-key': identityApiKey,
+          },
+          timeout,
+        },
+      );
+
+      if (!response?.data || typeof response.data.ok !== 'boolean') {
+        throw new ServiceUnavailableException('No se pudo verificar la wallet en este momento');
+      }
+
+      if (!response.data.ok) {
+        throw new BadRequestException(
+          'La wallet no esta registrada o no corresponde al usuario solicitante.',
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ServiceUnavailableException
+      ) {
+        throw error;
+      }
+      throw new ServiceUnavailableException('No se pudo verificar la wallet en este momento');
+    }
   }
 
   private async sendVerificationEmail(to: string, name: string, token: string) {
@@ -817,6 +895,7 @@ export class InstitutionalAdminApplicationsService {
       email: row.email,
       name: row.name,
       institutionName: row.institutionName,
+      accountAddress: row.accountAddress,
       status: row.status,
       emailVerifiedAt: row.emailVerifiedAt ?? null,
       approvedAt: row.approvedAt ?? null,

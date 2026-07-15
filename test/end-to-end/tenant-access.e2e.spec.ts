@@ -1,4 +1,5 @@
 import appConfig from '@/config/app.config';
+import { HttpService } from '@nestjs/axios';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { ContractsModule } from '@/modules/contracts/contracts.module';
@@ -12,7 +13,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { Connection } from 'mongoose';
+import { Connection, Types } from 'mongoose';
 import request from 'supertest';
 import { Department } from '@/modules/geographic/schemas/department.schema';
 import { Municipality } from '@/modules/geographic/schemas/municipality.schema';
@@ -45,6 +46,14 @@ const MailMockService = {
   getTemplate: jest.fn(),
 };
 
+const IdentityHttpMockService = {
+  axiosRef: {
+    get: jest.fn().mockResolvedValue({ data: { ok: true } }),
+  },
+};
+
+const validAccountAddress = '0x1234567890abcdef1234567890abcdef12345678';
+
 describe('Tenant access phase 1 (e2e)', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
@@ -55,8 +64,15 @@ describe('Tenant access phase 1 (e2e)', () => {
   let governorToken: string;
   let mayorToken: string;
   let governorUserId: string;
+  let previousIdentityBaseUrl: string | undefined;
+  let previousIdentityApiKey: string | undefined;
 
   beforeAll(async () => {
+    previousIdentityBaseUrl = process.env.IDENTITY_BASE_URL;
+    previousIdentityApiKey = process.env.IDENTITY_API_KEY;
+    process.env.IDENTITY_BASE_URL = 'https://identity.example.test';
+    process.env.IDENTITY_API_KEY = 'identity-test-key';
+
     mongod = await MongoMemoryServer.create({
       instance: {
         launchTimeout: 120000,
@@ -77,6 +93,8 @@ describe('Tenant access phase 1 (e2e)', () => {
     })
       .overrideProvider(MailService)
       .useValue(MailMockService)
+      .overrideProvider(HttpService)
+      .useValue(IdentityHttpMockService)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -135,6 +153,16 @@ describe('Tenant access phase 1 (e2e)', () => {
   });
 
   afterAll(async () => {
+    if (previousIdentityBaseUrl === undefined) {
+      delete process.env.IDENTITY_BASE_URL;
+    } else {
+      process.env.IDENTITY_BASE_URL = previousIdentityBaseUrl;
+    }
+    if (previousIdentityApiKey === undefined) {
+      delete process.env.IDENTITY_API_KEY;
+    } else {
+      process.env.IDENTITY_API_KEY = previousIdentityApiKey;
+    }
     await app?.close();
     await conn?.close();
     await mongod?.stop();
@@ -155,6 +183,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     email: string;
     name: string;
     institutionName: string;
+    accountAddress?: string;
   }) {
     MailMockService.sendEmail.mockClear();
 
@@ -163,6 +192,7 @@ describe('Tenant access phase 1 (e2e)', () => {
       .send({
         ...payload,
         password: 'secret123',
+        accountAddress: payload.accountAddress ?? validAccountAddress,
       })
       .expect(201);
 
@@ -178,6 +208,25 @@ describe('Tenant access phase 1 (e2e)', () => {
       createRes,
       verifyRes,
     };
+  }
+
+  async function createUnverifiedApplication(payload: {
+    dni: string;
+    email: string;
+    name: string;
+    institutionName: string;
+    accountAddress?: string;
+  }) {
+    MailMockService.sendEmail.mockClear();
+
+    return request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications')
+      .send({
+        ...payload,
+        password: 'secret123',
+        accountAddress: payload.accountAddress ?? validAccountAddress,
+      })
+      .expect(201);
   }
 
   async function registerAndApproveTerritorialUser(payload: {
@@ -338,6 +387,30 @@ describe('Tenant access phase 1 (e2e)', () => {
       });
   });
 
+  it('bloquea login de solicitud institucional pendiente de verificación de correo sin consultar Identity', async () => {
+    const email = `pending-email-${Date.now()}@example.com`;
+    await createUnverifiedApplication({
+      dni: `PE${Date.now()}`,
+      email,
+      name: 'Pending Email Tenant',
+      institutionName: `Institution Pending Email ${Date.now()}`,
+    });
+
+    IdentityHttpMockService.axiosRef.get.mockClear();
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.message).toBe('El correo electrónico no ha sido verificado');
+        expect(res.body.code).toBe('EMAIL_NOT_VERIFIED');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
+
+    expect(IdentityHttpMockService.axiosRef.get).not.toHaveBeenCalled();
+  });
+
   it('aprueba acceso tenant y login devuelve contexto tenant por defecto', async () => {
     const email = `approved-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
@@ -373,6 +446,88 @@ describe('Tenant access phase 1 (e2e)', () => {
       }),
     );
     expect(loginRes.body.tenantId).toBe(approveRes.body.tenantId);
+  });
+
+  it('bloquea login de usuario institucional aprobado pero deshabilitado', async () => {
+    const email = `disabled-${Date.now()}@example.com`;
+    const application = await createAndVerifyApplication({
+      dni: `D${Date.now()}`,
+      email,
+      name: 'Disabled Tenant',
+      institutionName: `Institution Disabled ${Date.now()}`,
+    });
+
+    const approveRes = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+
+    await conn.collection('roled_users').updateOne(
+      { _id: new Types.ObjectId(approveRes.body.userId) },
+      { $set: { active: false } },
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.code).toBe('USER_INACTIVE');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
+  });
+
+  it('bloquea login cuando assignment o tenant institucional dejan de estar activos', async () => {
+    const email = `inactive-assignment-${Date.now()}@example.com`;
+    const application = await createAndVerifyApplication({
+      dni: `IA${Date.now()}`,
+      email,
+      name: 'Inactive Assignment Tenant',
+      institutionName: `Institution Inactive Assignment ${Date.now()}`,
+    });
+
+    const approveRes = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      {
+        tenantId: new Types.ObjectId(approveRes.body.tenantId),
+        userId: new Types.ObjectId(approveRes.body.userId),
+      },
+      { $set: { active: false, status: 'REVOKED' } },
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.code).toBe('TENANT_ACCESS_REVOKED');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      {
+        tenantId: new Types.ObjectId(approveRes.body.tenantId),
+        userId: new Types.ObjectId(approveRes.body.userId),
+      },
+      { $set: { active: true, status: 'APPROVED' } },
+    );
+    await conn.collection('institutional_tenants').updateOne(
+      { _id: new Types.ObjectId(approveRes.body.tenantId) },
+      { $set: { active: false } },
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.code).toBe('TENANT_ACCESS_REVOKED');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
   });
 
   it('rechaza solicitud tenant y bloquea el login del solicitante', async () => {
@@ -618,6 +773,7 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Both Access User',
         password: 'secret123',
         institutionName: `Institution Both ${Date.now()}`,
+        accountAddress: validAccountAddress,
       })
       .expect(201);
 
@@ -714,6 +870,7 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Duplicate Pending',
         password: 'secret123',
         institutionName,
+        accountAddress: validAccountAddress,
       });
 
     expect(retryRes.status).toBe(409);
@@ -746,11 +903,17 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Reapply Rejected',
         password: 'secret123',
         institutionName,
+        accountAddress: validAccountAddress,
       })
       .expect(201);
 
     expect(retryRes.body.id).toBe(application.createRes.body.id);
     expect(['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL']).toContain(retryRes.body.status);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401);
   });
 
   it('reabre consistentemente una solicitud tenant revocada cuando el usuario vuelve a solicitar', async () => {
@@ -784,11 +947,17 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Reapply Revoked',
         password: 'secret123',
         institutionName,
+        accountAddress: validAccountAddress,
       })
       .expect(201);
 
     expect(retryRes.body.id).toBe(application.createRes.body.id);
     expect(['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL']).toContain(retryRes.body.status);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401);
   });
 
   it('access-status informa cuando un usuario territorial no tiene acceso tenant todavía', async () => {
