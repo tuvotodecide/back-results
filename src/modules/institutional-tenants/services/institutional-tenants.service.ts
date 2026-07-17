@@ -16,6 +16,7 @@ import { RoledUser, RoledUserDocument } from '@/modules/auth/schemas/roledUser.s
 import {
   AssignTenantAdminDto,
   CreateInstitutionalTenantDto,
+  InstitutionalTenantListQueryDto,
   RegularizeTenantAdminWalletDto,
   TransferTenantPrimaryDto,
   UpdateTenantAdminStatusDto,
@@ -72,6 +73,110 @@ export class InstitutionalTenantsService {
       }
       throw error;
     }
+  }
+
+  async listPublicTenants(query: InstitutionalTenantListQueryDto = {}) {
+    const { filter, page, limit, skip } = this.buildTenantListQuery(query, true);
+    const [tenants, total] = await Promise.all([
+      this.tenantModel
+        .find(filter, { _id: 1, name: 1 })
+        .sort({ name: 1, _id: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.tenantModel.countDocuments(filter),
+    ]);
+
+    return {
+      items: tenants.map((tenant) => ({
+        institutionId: String(tenant._id),
+        institutionName: tenant.name,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async listTenantsForAdmin(query: InstitutionalTenantListQueryDto = {}) {
+    const { filter, page, limit, skip } = this.buildTenantListQuery(query, false);
+    const [tenants, total] = await Promise.all([
+      this.tenantModel
+        .find(filter, { _id: 1, name: 1, active: 1 })
+        .sort({ name: 1, _id: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      this.tenantModel.countDocuments(filter),
+    ]);
+
+    const tenantIds = tenants.map((tenant) => tenant._id);
+    const assignments = tenantIds.length
+      ? await this.assignmentModel
+          .find(
+            { tenantId: { $in: tenantIds } },
+            {
+              _id: 1,
+              tenantId: 1,
+              userId: 1,
+              accountAddress: 1,
+              institutionalRole: 1,
+              status: 1,
+              active: 1,
+            },
+          )
+          .sort({ institutionalRole: 1, active: -1, createdAt: 1, _id: 1 })
+          .lean()
+      : [];
+    const userIds = Array.from(new Set(assignments.map((assignment) => String(assignment.userId))));
+    const users = userIds.length
+      ? await this.roledUserModel
+          .find(
+            { _id: { $in: userIds.map((id) => new Types.ObjectId(id)) } },
+            { _id: 1, name: 1 },
+          )
+          .lean()
+      : [];
+
+    const usersById = new Map(users.map((user) => [String(user._id), user]));
+    const assignmentsByTenant = new Map<string, any[]>();
+    for (const assignment of assignments) {
+      const tenantKey = String(assignment.tenantId);
+      const bucket = assignmentsByTenant.get(tenantKey) ?? [];
+      bucket.push(assignment);
+      assignmentsByTenant.set(tenantKey, bucket);
+    }
+
+    return {
+      items: tenants.map((tenant) => {
+        const tenantAssignments = assignmentsByTenant.get(String(tenant._id)) ?? [];
+        const admins = tenantAssignments.map((assignment) =>
+          this.toGlobalTenantAdminResponse(
+            assignment,
+            usersById.get(String(assignment.userId)),
+          ),
+        );
+        return {
+          tenantId: String(tenant._id),
+          institutionName: tenant.name,
+          active: tenant.active === true,
+          hasPrimary: tenantAssignments.some(
+            (assignment) =>
+              assignment.institutionalRole === 'PRIMARY' &&
+              assignment.active === true &&
+              assignment.status === 'APPROVED',
+          ),
+          adminCount: tenantAssignments.length,
+          walletCount: tenantAssignments.filter((assignment) =>
+            Boolean(assignment.accountAddress?.trim()),
+          ).length,
+          admins,
+        };
+      }),
+      total,
+      page,
+      limit,
+    };
   }
 
   async assignAdmin(tenantId: string, dto: AssignTenantAdminDto) {
@@ -897,6 +1002,49 @@ export class InstitutionalTenantsService {
       approvedAt: assignment.approvedAt ?? null,
       revokedAt: assignment.revokedAt ?? null,
     };
+  }
+
+  private toGlobalTenantAdminResponse(assignment: any, user?: any) {
+    const accountAddress = assignment.accountAddress?.trim() || null;
+    const hasWallet = Boolean(accountAddress);
+    return {
+      assignmentId: String(assignment._id),
+      userId: String(assignment.userId),
+      displayName: user?.name ?? null,
+      institutionalRole: assignment.institutionalRole ?? null,
+      active: assignment.active ?? false,
+      approvalStatus: assignment.status ?? null,
+      accountAddress,
+      hasWallet,
+      walletStatus: hasWallet ? 'VERIFIED' : 'MISSING',
+    };
+  }
+
+  private buildTenantListQuery(
+    query: InstitutionalTenantListQueryDto,
+    activeOnly: boolean,
+  ) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const filter: Record<string, any> = activeOnly ? { active: true } : {};
+    const search = query.search?.trim();
+    if (search) {
+      filter.name = this.buildSafeSearchRegex(search);
+    }
+    return {
+      filter,
+      page,
+      limit,
+      skip: (page - 1) * limit,
+    };
+  }
+
+  private buildSafeSearchRegex(input: string) {
+    const sanitized = input.replace(/[^\p{L}\p{N}\s.'-]/gu, ' ').replace(/\s+/g, ' ').trim();
+    if (!sanitized) {
+      return /^$/;
+    }
+    return new RegExp(this.escapeRegExp(sanitized), 'i');
   }
 
   private resolveRequesterObjectId(requester: any): Types.ObjectId | null {

@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   IsEthereumAddress,
   IsEmail,
+  IsMongoId,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   Matches,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateInstitutionalAdminApplicationDto {
@@ -42,12 +44,24 @@ export class CreateInstitutionalAdminApplicationDto {
   @MaxLength(120)
   name: string;
 
-  @ApiProperty({ example: 'Colegio de Ingenieros' })
+  @ApiPropertyOptional({
+    description: 'ID de institución seleccionada desde el catálogo público.',
+  })
+  @IsOptional()
+  @IsMongoId()
+  institutionId?: string;
+
+  @ApiPropertyOptional({
+    example: 'Colegio de Ingenieros',
+    description:
+      'Requerido solo para el flujo explícito de institución no listada. Si institutionId existe, el backend resuelve el nombre del tenant.',
+  })
+  @ValidateIf((dto) => !dto.institutionId)
   @IsString()
   @IsNotEmpty()
   @MinLength(3)
   @MaxLength(160)
-  institutionName: string;
+  institutionName?: string;
 
   @ApiProperty({ example: '0x1234567890abcdef1234567890abcdef12345678' })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))

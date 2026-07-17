@@ -58,10 +58,16 @@ export class InstitutionalAdminApplicationsService {
   async createApplication(dto: CreateInstitutionalAdminApplicationDto) {
     const email = dto.email.trim().toLowerCase();
     const dni = dto.dni.trim();
-    const institutionName = this.formatDisplayName(dto.institutionName);
+    const selectedTenant = await this.resolveSelectedTenantForRegistration(dto.institutionId);
+    const rawInstitutionName = selectedTenant?.name ?? dto.institutionName;
+    if (!rawInstitutionName) {
+      throw new BadRequestException('Debe seleccionar una institución o enviar un nombre válido');
+    }
+    const institutionName = this.formatDisplayName(rawInstitutionName);
     const institutionNameNorm = this.normalizeName(institutionName);
     const accountAddress = this.normalizeAccountAddress(dto.accountAddress);
-    const existingTenant = await this.tenantModel.findOne({ nameNorm: institutionNameNorm });
+    const existingTenant =
+      selectedTenant ?? (await this.tenantModel.findOne({ nameNorm: institutionNameNorm }));
     const existingUser = await this.resolveUserByEmailOrDni(email, dni);
 
     const latestSameInstitutionApplication = await this.applicationModel
@@ -352,7 +358,9 @@ export class InstitutionalAdminApplicationsService {
 
         const accountAddress = this.normalizeAccountAddress(app.accountAddress);
         let user = await this.resolveUserByEmailOrDni(app.email, app.dni, session);
-        let tenantQuery = this.tenantModel.findOne({ nameNorm: app.institutionNameNorm });
+        let tenantQuery = app.tenantId
+          ? this.tenantModel.findById(app.tenantId)
+          : this.tenantModel.findOne({ nameNorm: app.institutionNameNorm });
         if (tenantQuery && typeof tenantQuery.session === 'function') {
           tenantQuery = tenantQuery.session(session);
         }
@@ -784,6 +792,9 @@ export class InstitutionalAdminApplicationsService {
   ) {
     const email = dto.email.trim().toLowerCase();
     const dni = dto.dni.trim();
+    if (!dto.institutionName) {
+      throw new BadRequestException('institutionName es requerido para crear un admin institucional de prueba');
+    }
     const institutionName = this.formatDisplayName(dto.institutionName);
     const institutionNameNorm = this.normalizeName(institutionName);
     const name = dto.name.trim();
@@ -954,6 +965,22 @@ export class InstitutionalAdminApplicationsService {
 
   private formatDisplayName(input: string) {
     return input.trim().replace(/\s+/g, ' ');
+  }
+
+  private async resolveSelectedTenantForRegistration(
+    institutionId?: string,
+  ): Promise<InstitutionalTenantDocument | null> {
+    if (!institutionId) {
+      return null;
+    }
+    if (!Types.ObjectId.isValid(institutionId)) {
+      throw new BadRequestException('institutionId inválido');
+    }
+    const tenant = await this.tenantModel.findById(institutionId);
+    if (!tenant || tenant.active !== true) {
+      throw new BadRequestException('La institución seleccionada no está disponible');
+    }
+    return tenant;
   }
 
   private normalizeAccountAddress(input: string): string {

@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Public } from '@/core/decorators/public.decorator';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import {
   AssignTenantAdminDto,
   CreateInstitutionalTenantDto,
+  InstitutionalTenantListQueryDto,
   RegularizeTenantAdminWalletDto,
   TransferTenantPrimaryDto,
   UpdateTenantAdminStatusDto,
@@ -15,6 +17,34 @@ import { InstitutionalTenantsService } from '../services/institutional-tenants.s
 @Controller('api/v1/institutional-tenants')
 export class InstitutionalTenantsController {
   constructor(private readonly institutionalTenantsService: InstitutionalTenantsService) {}
+
+  @Get('public')
+  @Public()
+  @ApiOperation({
+    summary: 'Catálogo público de instituciones activas',
+    description: 'Lista instituciones activas para el formulario de registro institucional.',
+  })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiResponse({ status: 200, description: 'Catálogo público de instituciones.' })
+  listPublicTenants(@Query() query: InstitutionalTenantListQueryDto) {
+    return this.institutionalTenantsService.listPublicTenants(query);
+  }
+
+  @Get()
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({
+    summary: 'Listado global de instituciones para ADMIN',
+    description: 'Lista instituciones con administradores y wallets asociadas.',
+  })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  @ApiResponse({ status: 200, description: 'Listado administrativo global de instituciones.' })
+  listTenantsForAdmin(@Query() query: InstitutionalTenantListQueryDto) {
+    return this.institutionalTenantsService.listTenantsForAdmin(query);
+  }
 
   @Post()
   @UseGuards(AdminOnlyGuard)

@@ -29,6 +29,8 @@ describe('Institutional admin application wallet validation (integration)', () =
   let accessService: InstitutionalVotingAccessService;
   let previousIdentityBaseUrl: string | undefined;
   let previousIdentityApiKey: string | undefined;
+  let previousInstitutionalApplicationRateLimit: string | undefined;
+  let previousInstitutionalVerifyEmailRateLimit: string | undefined;
   let currentReviewer: any;
 
   const httpService = {
@@ -46,9 +48,15 @@ describe('Institutional admin application wallet validation (integration)', () =
   beforeAll(async () => {
     previousIdentityBaseUrl = process.env.IDENTITY_BASE_URL;
     previousIdentityApiKey = process.env.IDENTITY_API_KEY;
+    previousInstitutionalApplicationRateLimit =
+      process.env.INSTITUTIONAL_APPLICATION_RATE_LIMIT;
+    previousInstitutionalVerifyEmailRateLimit =
+      process.env.INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT;
     process.env.IDENTITY_BASE_URL = 'https://identity.example.test';
     process.env.IDENTITY_API_KEY = 'identity-test-key';
     process.env.EMAIL_VERIFICATION_BASE_URL = 'https://front.example.test';
+    process.env.INSTITUTIONAL_APPLICATION_RATE_LIMIT = '1000';
+    process.env.INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT = '1000';
 
     mongod = await MongoMemoryReplSet.create({
       replSet: { count: 1 },
@@ -125,6 +133,18 @@ describe('Institutional admin application wallet validation (integration)', () =
       delete process.env.IDENTITY_API_KEY;
     } else {
       process.env.IDENTITY_API_KEY = previousIdentityApiKey;
+    }
+    if (previousInstitutionalApplicationRateLimit === undefined) {
+      delete process.env.INSTITUTIONAL_APPLICATION_RATE_LIMIT;
+    } else {
+      process.env.INSTITUTIONAL_APPLICATION_RATE_LIMIT =
+        previousInstitutionalApplicationRateLimit;
+    }
+    if (previousInstitutionalVerifyEmailRateLimit === undefined) {
+      delete process.env.INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT;
+    } else {
+      process.env.INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT =
+        previousInstitutionalVerifyEmailRateLimit;
     }
     await app?.close();
     await conn?.close();
@@ -215,6 +235,96 @@ describe('Institutional admin application wallet validation (integration)', () =
         headers: { 'x-api-key': 'identity-test-key' },
       }),
     );
+  });
+
+  it('registro acepta institutionId activo, resuelve nombre backend y conserva validacion wallet-DNI', async () => {
+    const tenantId = new Types.ObjectId();
+    await conn.collection('institutional_tenants').insertOne({
+      _id: tenantId,
+      name: 'Institucion Catalogada',
+      nameNorm: 'institucion catalogada',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const payload = {
+      ...validPayload(),
+      email: `catalog-${Date.now()}@example.com`,
+      dni: `cat${Date.now()}`.slice(0, 20),
+      institutionId: String(tenantId),
+      institutionName: 'Nombre enviado por frontend que debe ignorarse',
+    };
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications')
+      .send(payload)
+      .expect(201);
+
+    expect(response.body).toMatchObject({
+      tenantAlreadyExists: true,
+      tenantId: String(tenantId),
+    });
+    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/has-dni',
+      expect.objectContaining({
+        params: { account: validAccountAddress, dnis: payload.dni },
+        headers: { 'x-api-key': 'identity-test-key' },
+      }),
+    );
+
+    const application = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(response.body.id),
+    });
+    expect(application).toMatchObject({
+      tenantId,
+      institutionName: 'Institucion Catalogada',
+      institutionNameNorm: 'institucion catalogada',
+      accountAddress: validAccountAddress,
+    });
+    expect(application?.institutionName).not.toBe(payload.institutionName);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications/verify-email')
+      .send({ token: application?.verificationToken })
+      .expect(201);
+
+    const approveRes = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${response.body.id}/approve`)
+      .auth('admin-token', { type: 'bearer' })
+      .expect(201);
+    expect(approveRes.body.tenantId).toBe(String(tenantId));
+  });
+
+  it('registro rechaza institutionId inexistente o inactivo antes de consultar Identity', async () => {
+    const inactiveTenantId = new Types.ObjectId();
+    await conn.collection('institutional_tenants').insertOne({
+      _id: inactiveTenantId,
+      name: 'Institucion Inactiva',
+      nameNorm: 'institucion inactiva',
+      active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications')
+      .send({
+        ...validPayload(),
+        email: `missing-${Date.now()}@example.com`,
+        institutionId: String(new Types.ObjectId()),
+      })
+      .expect(400);
+    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+
+    await request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications')
+      .send({
+        ...validPayload(),
+        email: `inactive-${Date.now()}@example.com`,
+        institutionId: String(inactiveTenantId),
+      })
+      .expect(400);
+    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
   });
 
   it('rechaza correo duplicado antes de consultar Identity', async () => {

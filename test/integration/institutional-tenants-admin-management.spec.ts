@@ -38,7 +38,13 @@ describe('Institutional tenant admin management (integration)', () => {
       ],
     })
       .overrideGuard(AdminOnlyGuard)
-      .useValue({ canActivate: jest.fn().mockReturnValue(true) })
+      .useValue({
+        canActivate: jest.fn((context) => {
+          const req = context.switchToHttp().getRequest();
+          req.user = currentUser;
+          return currentUser?.role === 'ADMIN';
+        }),
+      })
       .overrideGuard(InstitutionalTenantAdminGuard)
       .useValue({
         canActivate: jest.fn((context) => {
@@ -184,6 +190,124 @@ describe('Institutional tenant admin management (integration)', () => {
       secondSecondaryAssignmentId,
     };
   }
+
+  it('catalogo publico lista solo instituciones activas con busqueda, paginacion y sin datos internos', async () => {
+    const activeOne = await seedTenantWithAdmins('catalog-one');
+    const activeTwo = await seedTenantWithAdmins('catalog-two');
+    await conn.collection('institutional_tenants').insertOne({
+      _id: new Types.ObjectId(),
+      name: 'Tenant Inactivo Catalog',
+      nameNorm: 'tenant inactivo catalog',
+      active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/institutional-tenants/public')
+      .query({ search: 'Catalog', page: 1, limit: 1 })
+      .expect(200);
+
+    expect(response.body.total).toBe(2);
+    expect(response.body.items).toHaveLength(1);
+    expect(response.body.items[0]).toEqual(
+      expect.objectContaining({
+        institutionId: expect.any(String),
+        institutionName: expect.stringMatching(/catalog/i),
+      }),
+    );
+    expect(JSON.stringify(response.body)).not.toContain('accountAddress');
+    expect(JSON.stringify(response.body)).not.toContain('admin');
+    expect(JSON.stringify(response.body)).not.toContain('dni');
+    expect(JSON.stringify(response.body)).not.toContain(String(activeOne.primaryUserId));
+    expect(JSON.stringify(response.body)).not.toContain(String(activeTwo.secondaryAssignmentId));
+
+    const sanitized = await request(app.getHttpServer())
+      .get('/api/v1/institutional-tenants/public')
+      .query({ search: 'Catalog{$ne:null}', page: 1, limit: 10 })
+      .expect(200);
+    expect(sanitized.body.items).toEqual([]);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/institutional-tenants/public')
+      .query({ page: 0, limit: 101 })
+      .expect(400);
+  });
+
+  it('ADMIN lista instituciones con multiples wallets y bloquea roles no globales', async () => {
+    const seeded = await seedTenantWithAdmins('global-list');
+    const emptyTenantId = new Types.ObjectId();
+    await conn.collection('institutional_tenants').insertOne({
+      _id: emptyTenantId,
+      name: 'Tenant Sin Admins',
+      nameNorm: 'tenant sin admins',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.secondSecondaryAssignmentId },
+      { $set: { accountAddress: null } },
+    );
+
+    currentUser = { role: 'ADMIN', sub: String(new Types.ObjectId()), active: true };
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/institutional-tenants')
+      .query({ search: 'Tenant', page: 1, limit: 10 })
+      .expect(200);
+
+    const tenant = response.body.items.find(
+      (item: any) => item.tenantId === String(seeded.tenantId),
+    );
+    expect(tenant).toMatchObject({
+      tenantId: String(seeded.tenantId),
+      institutionName: 'Tenant global-list',
+      active: true,
+      hasPrimary: true,
+      adminCount: 3,
+      walletCount: 2,
+    });
+    expect(tenant.admins).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          assignmentId: String(seeded.primaryAssignmentId),
+          institutionalRole: 'PRIMARY',
+          accountAddress: '0x0000000000000000000000000000000000000101',
+          hasWallet: true,
+          walletStatus: 'VERIFIED',
+        }),
+        expect.objectContaining({
+          assignmentId: String(seeded.secondSecondaryAssignmentId),
+          institutionalRole: 'SECONDARY',
+          accountAddress: null,
+          hasWallet: false,
+          walletStatus: 'MISSING',
+        }),
+      ]),
+    );
+    const empty = response.body.items.find((item: any) => item.tenantId === String(emptyTenantId));
+    expect(empty).toMatchObject({
+      tenantId: String(emptyTenantId),
+      adminCount: 0,
+      walletCount: 0,
+      admins: [],
+    });
+    expect(JSON.stringify(response.body)).not.toContain('accountAddressNormalized');
+    expect(JSON.stringify(response.body)).not.toContain('dni');
+    expect(JSON.stringify(response.body)).not.toContain('hash');
+
+    currentUser = undefined;
+    await request(app.getHttpServer())
+      .get('/api/v1/institutional-tenants')
+      .expect(403);
+
+    for (const role of ['ACCESS_APPROVER', 'USER', 'MAYOR', 'GOVERNOR']) {
+      currentUser = { role, sub: String(new Types.ObjectId()), active: true };
+      await request(app.getHttpServer())
+        .get('/api/v1/institutional-tenants')
+        .expect(403);
+    }
+  });
 
   it('lista administradores del tenant con roles, wallets y sin secretos ni mezcla cross-tenant', async () => {
     const seeded = await seedTenantWithAdmins('list');

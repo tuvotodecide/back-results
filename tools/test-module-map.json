@@ -30,7 +30,15 @@
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
       "test/unit/institutional-audit.service.unit.spec.ts",
       "test/unit/institutional-email-outbox.service.unit.spec.ts",
-      "test/unit/institutional-tenants.service.unit.spec.ts",
+      "test/unit/institutional-tenants.service.unit.spec.ts"
+    ]
+  },
+  "institutional-tools": {
+    "name": "Institutional maintenance tools - optional preflight/index checks",
+    "flows": [
+      "INSTITUTIONAL_TOOLS"
+    ],
+    "files": [
       "test/unit/institutional-tools-preflight.unit.spec.ts"
     ]
   },
