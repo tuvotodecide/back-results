@@ -13,11 +13,10 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import { Connection } from 'mongoose';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { Connection, Types } from 'mongoose';
 import request from 'supertest';
 import { json, urlencoded } from 'express';
-import { seedLocations } from './seeds/locationsSeed';
 import { seedAdmin, seedUsers } from './seeds/usersSeed';
 import { TestLoggerModule } from './module-helpers';
 import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
@@ -52,7 +51,7 @@ export type InstitutionalVotingContext = {
   app: INestApplication;
   moduleRef: TestingModule;
   conn: Connection;
-  mongod: MongoMemoryServer;
+  mongod: MongoMemoryReplSet;
   httpServer: any;
   adminToken: string;
   tenantAdminToken: string;
@@ -60,7 +59,7 @@ export type InstitutionalVotingContext = {
 };
 
 export async function bootstrapInstitutionalVotingContext(): Promise<InstitutionalVotingContext> {
-  let mongod: MongoMemoryServer | null = null;
+  let mongod: MongoMemoryReplSet | null = null;
 
   const firebaseAdminMock = {
     messaging: jest.fn(() => ({
@@ -108,11 +107,13 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
   };
 
   try {
-    mongod = await MongoMemoryServer.create({
-      instance: {
+    mongod = await MongoMemoryReplSet.create({
+      replSet: { count: 1 },
+      instanceOpts: [{
         launchTimeout: 120000,
-      },
+      }],
     });
+    await mongod.waitUntilRunning();
     const mongoUri = mongod.getUri();
 
     const moduleRef = await Test.createTestingModule({
@@ -168,7 +169,7 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     const conn = moduleRef.get<Connection>(getConnectionToken());
     const httpServer = app.getHttpServer();
 
-    await seedLocations(conn);
+    await seedMinimalVotingLocations(conn);
     const users = await seedUsers(conn);
     const admin = await seedAdmin(conn);
     if (!admin) {
@@ -220,6 +221,36 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
     await mongod?.stop();
     throw error;
   }
+}
+
+async function seedMinimalVotingLocations(conn: Connection) {
+  const now = new Date();
+  await conn.collection('departments').updateOne(
+    { name: 'La Paz' },
+    {
+      $setOnInsert: {
+        _id: new Types.ObjectId('650000000000000000000001'),
+        name: 'La Paz',
+        active: true,
+        createdAt: now,
+      },
+      $set: { updatedAt: now },
+    },
+    { upsert: true },
+  );
+  await conn.collection('municipalities').updateOne(
+    { name: 'Cochabamba' },
+    {
+      $setOnInsert: {
+        _id: new Types.ObjectId('650000000000000000000002'),
+        name: 'Cochabamba',
+        active: true,
+        createdAt: now,
+      },
+      $set: { updatedAt: now },
+    },
+    { upsert: true },
+  );
 }
 
 export async function teardownInstitutionalVotingContext(

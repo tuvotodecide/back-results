@@ -23,3 +23,32 @@ export class AssignTenantAdminDto {
   @IsBoolean()
   active?: boolean;
 }
+
+export class UpdateTenantAdminStatusDto {
+  @ApiProperty()
+  @IsBoolean()
+  active: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class TransferTenantPrimaryDto {
+  @ApiProperty()
+  @IsMongoId()
+  assignmentId: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class RegularizeTenantAdminWalletDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  accountAddress: string;
+}

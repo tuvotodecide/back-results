@@ -1,7 +1,12 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
+import { JwtModule } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { InstitutionalAuditModule } from '../institutional-audit/institutional-audit.module';
 import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
 import { InstitutionalTenantsController } from './controllers/institutional-tenants.controller';
+import { InstitutionalTenantAdminGuard } from './guards/institutional-tenant-admin.guard';
 import { InstitutionalTenantsService } from './services/institutional-tenants.service';
 import {
   InstitutionalTenant,
@@ -14,14 +19,23 @@ import {
 
 @Module({
   imports: [
+    HttpModule,
     MongooseModule.forFeature([
       { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
       { name: RoledUser.name, schema: RoledUserSchema },
     ]),
+    JwtModule.registerAsync({
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get('app.jwt.secret'),
+        signOptions: { expiresIn: configService.get('app.jwt.expirationTime') },
+      }),
+      inject: [ConfigService],
+    }),
+    InstitutionalAuditModule,
   ],
   controllers: [InstitutionalTenantsController],
-  providers: [InstitutionalTenantsService],
+  providers: [InstitutionalTenantsService, InstitutionalTenantAdminGuard],
   exports: [InstitutionalTenantsService],
 })
 export class InstitutionalTenantsModule {}

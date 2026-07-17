@@ -25,6 +25,8 @@ import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { ReviewInstitutionalAdminApplicationDto } from '../dto/review-institutional-admin-application.dto';
 import { VerifyInstitutionalAdminApplicationDto } from '../dto/verify-institutional-admin-application.dto';
+import { InstitutionalApplicationReviewGuard } from '../guards/institutional-application-review.guard';
+import { InstitutionalPublicRateLimitGuard } from '../guards/institutional-public-rate-limit.guard';
 import { InstitutionalAdminApplicationsService } from '../services/institutional-admin-applications.service';
 
 @ApiTags('Institutional Admin Applications')
@@ -36,6 +38,7 @@ export class InstitutionalAdminApplicationsController {
 
   @Post()
   @Public()
+  @UseGuards(InstitutionalPublicRateLimitGuard)
   @ApiOperation({
     summary: 'Crear solicitud de alta institucional',
     description:
@@ -49,6 +52,7 @@ export class InstitutionalAdminApplicationsController {
 
   @Post('verify-email')
   @Public()
+  @UseGuards(InstitutionalPublicRateLimitGuard)
   @ApiOperation({
     summary: 'Verificar correo de solicitud institucional',
     description:
@@ -101,7 +105,7 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Post(':applicationId/approve')
-  @UseGuards(AccessApproverGuard)
+  @UseGuards(InstitutionalApplicationReviewGuard)
   @ApiOperation({
     summary: 'Aprobar solicitud institucional',
     description:
@@ -114,7 +118,7 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Post(':applicationId/reject')
-  @UseGuards(AccessApproverGuard)
+  @UseGuards(InstitutionalApplicationReviewGuard)
   @ApiOperation({
     summary: 'Rechazar solicitud institucional',
     description: 'Marca la solicitud como rechazada y deja el membership tenant en REJECTED cuando exista.',

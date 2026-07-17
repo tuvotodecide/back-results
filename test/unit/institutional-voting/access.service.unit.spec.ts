@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -263,6 +264,120 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     await expect(service.getTenantOrThrow(String(new Types.ObjectId()))).rejects.toThrow(
       NotFoundException,
     );
+  });
+
+  it('resolveAdminWalletForTenant devuelve la wallet activa del usuario en el tenant', async () => {
+    const tenantId = new Types.ObjectId();
+    const userId = new Types.ObjectId();
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    });
+    assignmentModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          tenantId,
+          userId,
+          active: true,
+          status: 'APPROVED',
+          accountAddress: '0x1234567890abcdef1234567890abcdef12345678',
+          institutionalRole: 'PRIMARY',
+        },
+      ]),
+    });
+
+    await expect(
+      service.resolveAdminWalletForTenant(String(userId), String(tenantId)),
+    ).resolves.toEqual({
+      tenantId: String(tenantId),
+      userId: String(userId),
+      accountAddress: '0x1234567890abcdef1234567890abcdef12345678',
+      institutionalRole: 'PRIMARY',
+    });
+  });
+
+  it('resolveAdminWalletForTenant rechaza assignment inactivo o tenant ajeno', async () => {
+    const tenantId = new Types.ObjectId();
+    const userId = new Types.ObjectId();
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    });
+    assignmentModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
+
+    await expect(
+      service.resolveAdminWalletForTenant(String(userId), String(tenantId)),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('resolveAdminWalletForTenant rechaza relaciones activas sin wallet', async () => {
+    const tenantId = new Types.ObjectId();
+    const userId = new Types.ObjectId();
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    });
+    assignmentModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { tenantId, userId, active: true, status: 'APPROVED', accountAddress: null },
+      ]),
+    });
+
+    await expect(
+      service.resolveAdminWalletForTenant(String(userId), String(tenantId)),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('resolveAdminWalletForTenant rechaza relaciones activas sin rol institucional', async () => {
+    const tenantId = new Types.ObjectId();
+    const userId = new Types.ObjectId();
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    });
+    assignmentModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          tenantId,
+          userId,
+          active: true,
+          status: 'APPROVED',
+          accountAddress: '0x1234567890abcdef1234567890abcdef12345678',
+        },
+      ]),
+    });
+
+    await expect(
+      service.resolveAdminWalletForTenant(String(userId), String(tenantId)),
+    ).rejects.toThrow(ConflictException);
+  });
+
+  it('resolveAdminWalletForTenant rechaza resultados ambiguos', async () => {
+    const tenantId = new Types.ObjectId();
+    const userId = new Types.ObjectId();
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    });
+    assignmentModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          tenantId,
+          userId,
+          active: true,
+          status: 'APPROVED',
+          accountAddress: '0x1234567890abcdef1234567890abcdef12345678',
+          institutionalRole: 'PRIMARY',
+        },
+        {
+          tenantId,
+          userId,
+          active: true,
+          status: 'APPROVED',
+          accountAddress: '0x9999999999999999999999999999999999999999',
+          institutionalRole: 'SECONDARY',
+        },
+      ]),
+    });
+
+    await expect(
+      service.resolveAdminWalletForTenant(String(userId), String(tenantId)),
+    ).rejects.toThrow(ConflictException);
   });
 
   it('rechaza evento inexistente o identificador inválido', async () => {

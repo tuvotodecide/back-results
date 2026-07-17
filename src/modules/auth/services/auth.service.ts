@@ -33,6 +33,7 @@ import {
   SignInDto,
   SignInResponseDto,
   TenantAccessStatus,
+  TenantWalletStatus,
 } from '../dto/sign-in.dto';
 import {
   PasswordResetContext,
@@ -167,6 +168,7 @@ export class AuthService {
       dni: user.dni,
       role: user.role,
       active: user.active,
+      authVersion: user.authVersion ?? 0,
     };
 
     if (this.hasApprovedTerritorialAccess(user)) {
@@ -252,6 +254,7 @@ export class AuthService {
     user.password = bcrypt.hashSync(dto.password, 10);
     user.passwordResetToken = undefined;
     user.passwordResetTokenExpiresAt = undefined;
+    user.authVersion = (user.authVersion ?? 0) + 1;
 
     await user.save();
   }
@@ -307,6 +310,7 @@ export class AuthService {
 
     if (user.active !== shouldRemainActive) {
       user.active = shouldRemainActive;
+      user.authVersion = (user.authVersion ?? 0) + 1;
       await user.save();
     }
   }
@@ -480,6 +484,7 @@ export class AuthService {
         tenantId: String(membership.tenantId),
         tenantName: tenant.name,
         membershipId: String(membership._id),
+        ...this.buildTenantWalletState(membership),
       });
     }
 
@@ -531,6 +536,7 @@ export class AuthService {
         tenantId: String(membership.tenantId),
         tenantName: tenant?.name ?? null,
         reason: membership.reason ?? null,
+        ...this.buildTenantWalletState(membership),
       };
     });
 
@@ -721,6 +727,19 @@ export class AuthService {
     if (status === 'REJECTED') return 'REJECTED';
     if (status === 'REVOKED') return 'REVOKED';
     return 'PENDING';
+  }
+
+  private buildTenantWalletState(membership: any): {
+    hasWallet: boolean;
+    requiresWalletUpdate: boolean;
+    walletStatus: TenantWalletStatus;
+  } {
+    const hasWallet = Boolean(membership.accountAddress?.trim());
+    return {
+      hasWallet,
+      requiresWalletUpdate: !hasWallet,
+      walletStatus: hasWallet ? 'VERIFIED' : 'MISSING',
+    };
   }
 
   private async resolveUserByEmailOrDni(

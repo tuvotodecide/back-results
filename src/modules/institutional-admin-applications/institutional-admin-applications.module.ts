@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { MailModule } from '../mail/mail.module';
+import { InstitutionalAuditModule } from '../institutional-audit/institutional-audit.module';
 import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
 import {
   InstitutionalTenant,
@@ -21,6 +24,8 @@ import {
 } from '../institutional-voting/schemas/voting-event.schema';
 import { InstitutionalAdminApplicationsService } from './services/institutional-admin-applications.service';
 import { InstitutionalAdminApplicationsController } from './controllers/institutional-admin-applications.controller';
+import { InstitutionalApplicationReviewGuard } from './guards/institutional-application-review.guard';
+import { InstitutionalPublicRateLimitGuard } from './guards/institutional-public-rate-limit.guard';
 
 @Module({
   imports: [
@@ -31,11 +36,23 @@ import { InstitutionalAdminApplicationsController } from './controllers/institut
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
       { name: VotingEvent.name, schema: VotingEventSchema },
     ]),
+    JwtModule.registerAsync({
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get('app.jwt.secret'),
+        signOptions: { expiresIn: configService.get('app.jwt.expirationTime') },
+      }),
+      inject: [ConfigService],
+    }),
     HttpModule,
     MailModule,
+    InstitutionalAuditModule,
   ],
   controllers: [InstitutionalAdminApplicationsController],
-  providers: [InstitutionalAdminApplicationsService],
+  providers: [
+    InstitutionalAdminApplicationsService,
+    InstitutionalApplicationReviewGuard,
+    InstitutionalPublicRateLimitGuard,
+  ],
   exports: [InstitutionalAdminApplicationsService],
 })
 export class InstitutionalAdminApplicationsModule {}

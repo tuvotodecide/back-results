@@ -12,7 +12,7 @@ describe('Institutional voting integration - multi tenant access', () => {
 
   beforeAll(async () => {
     ctx = await bootstrapInstitutionalVotingContext();
-  });
+  }, 240000);
 
   afterAll(async () => {
     await teardownInstitutionalVotingContext(ctx);
