@@ -118,6 +118,7 @@ describe('Institutional wallet regularization (integration)', () => {
     status?: string;
     active?: boolean;
     accountAddress?: string | null;
+    walletVerified?: boolean;
     userActive?: boolean;
     dni?: string | null;
   } = {}) {
@@ -143,13 +144,18 @@ describe('Institutional wallet regularization (integration)', () => {
       updatedAt: new Date(),
     });
     const assignmentId = new Types.ObjectId();
+    const accountAddress = overrides.accountAddress ?? null;
+    const walletVerified = overrides.walletVerified ?? Boolean(accountAddress);
     await conn.collection('tenant_admin_assignments').insertOne({
       _id: assignmentId,
       tenantId,
       userId,
       status: overrides.status ?? 'APPROVED',
       active: overrides.active ?? true,
-      accountAddress: overrides.accountAddress ?? null,
+      accountAddress,
+      accountAddressNormalized: accountAddress ? accountAddress.toLowerCase() : null,
+      walletVerifiedAt: walletVerified ? new Date() : null,
+      walletVerificationSource: walletVerified ? 'TEST' : null,
       institutionalRole: overrides.role === undefined ? 'SECONDARY' : overrides.role,
       approvedAt: new Date(),
       requestedAt: new Date(),
@@ -239,6 +245,41 @@ describe('Institutional wallet regularization (integration)', () => {
       .collection('tenant_admin_assignments')
       .findOne({ _id: timeout.assignmentId });
     expect(stored?.accountAddress).toBeNull();
+  });
+
+  it('completa metadata cuando la misma wallet ya existe sin verificacion persistida', async () => {
+    const seeded = await seedLegacyAssignment({
+      accountAddress: walletA,
+      walletVerified: false,
+    });
+    currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
+
+    const response = await regularize(seeded.tenantId, walletA).expect(201);
+    expect(response.body).toMatchObject({
+      assignmentId: String(seeded.assignmentId),
+      accountAddress: walletA,
+      hasWallet: true,
+      requiresWalletUpdate: false,
+      walletStatus: 'VERIFIED',
+      walletVerificationSource: 'LEGACY_REGULARIZATION',
+      updated: true,
+    });
+    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/has-dni',
+      expect.objectContaining({
+        params: { account: walletA, dnis: expect.any(String) },
+      }),
+    );
+
+    const stored = await conn
+      .collection('tenant_admin_assignments')
+      .findOne({ _id: seeded.assignmentId });
+    expect(stored).toMatchObject({
+      accountAddress: walletA,
+      accountAddressNormalized: walletA.toLowerCase(),
+      walletVerifiedAt: expect.any(Date),
+      walletVerificationSource: 'LEGACY_REGULARIZATION',
+    });
   });
 
   it('bloquea wallet de otro usuario, tenant ajeno, cuenta revocada y reemplazo de wallet', async () => {

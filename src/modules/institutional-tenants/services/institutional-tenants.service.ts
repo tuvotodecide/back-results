@@ -29,6 +29,10 @@ import {
   TenantAdminAssignment,
   TenantAdminAssignmentDocument,
 } from '../schemas/tenant-admin-assignment.schema';
+import {
+  getTenantWalletVerificationState,
+  normalizeTenantWalletAddress,
+} from '../utils/tenant-wallet-verification.util';
 
 @Injectable()
 export class InstitutionalTenantsService {
@@ -120,6 +124,9 @@ export class InstitutionalTenantsService {
               tenantId: 1,
               userId: 1,
               accountAddress: 1,
+              accountAddressNormalized: 1,
+              walletVerifiedAt: 1,
+              walletVerificationSource: 1,
               institutionalRole: 1,
               status: 1,
               active: 1,
@@ -334,55 +341,93 @@ export class InstitutionalTenantsService {
     }
 
     const existingWallet = assignment.accountAddress?.trim();
+    const existingWalletState = getTenantWalletVerificationState(assignment);
     if (existingWallet) {
       if (existingWallet.toLowerCase() === accountAddress.toLowerCase()) {
-        return this.toWalletRegularizationResponse(assignment, existingWallet, false);
+        if (existingWalletState.isWalletVerified) {
+          return this.toWalletRegularizationResponse(assignment, existingWallet, false);
+        }
+        await this.assertWalletCompatibleForAssignment(assignment);
+        await this.assertWalletBelongsToDni(accountAddress, user.dni);
+      } else {
+        throw new ConflictException('La relacion institucional ya tiene una wallet distinta');
       }
-      throw new ConflictException('La relacion institucional ya tiene una wallet distinta');
+    } else {
+      await this.assertWalletCompatibleForAssignment({
+        ...assignment,
+        accountAddress,
+      });
+      await this.assertWalletBelongsToDni(accountAddress, user.dni);
     }
-
-    await this.assertWalletCompatibleForAssignment({
-      ...assignment,
-      accountAddress,
-    });
-    await this.assertWalletBelongsToDni(accountAddress, user.dni);
 
     const session = await this.assignmentModel.db.startSession();
     try {
       let response: any;
       await session.withTransaction(async () => {
-        const updated = await this.assignmentModel.findOneAndUpdate(
-        {
+        const verifiedAt = new Date();
+        const verifiedBy = new Types.ObjectId(requesterId);
+        const accountAddressNormalized = normalizeTenantWalletAddress(accountAddress)?.toLowerCase();
+        if (!accountAddressNormalized) {
+          throw new BadRequestException('accountAddress debe ser una direccion EVM valida');
+        }
+        const updateFilter: Record<string, any> = {
           _id: assignment._id,
           tenantId: tenantObjectId,
           userId: new Types.ObjectId(requesterId),
           active: true,
           status: 'APPROVED',
-          $or: [
+        };
+        if (existingWallet) {
+          updateFilter.accountAddress = this.buildAccountAddressRegex(accountAddress);
+          updateFilter.$or = [
+            { accountAddressNormalized: { $ne: accountAddressNormalized } },
+            { walletVerifiedAt: null },
+            { walletVerifiedAt: { $exists: false } },
+            { walletVerificationSource: null },
+            { walletVerificationSource: '' },
+            { walletVerificationSource: { $exists: false } },
+          ];
+        } else {
+          updateFilter.$or = [
             { accountAddress: null },
             { accountAddress: '' },
             { accountAddress: { $exists: false } },
-          ],
-        },
+          ];
+        }
+
+        const updatedResult: any = await this.assignmentModel.findOneAndUpdate(
+        updateFilter,
         {
           $set: {
             accountAddress,
-            walletVerifiedAt: new Date(),
-            walletVerifiedBy: new Types.ObjectId(requesterId),
+            accountAddressNormalized,
+            walletVerifiedAt: verifiedAt,
+            walletVerifiedBy: verifiedBy,
             walletVerificationSource: 'LEGACY_REGULARIZATION',
           },
         },
         { returnDocument: 'after', session },
         );
 
-        if (!updated) {
+        if (!updatedResult) {
           const current = await this.assignmentModel.findById(assignment._id).session(session).lean();
           const currentWallet = current?.accountAddress?.trim();
-          if (currentWallet?.toLowerCase() === accountAddress.toLowerCase()) {
+          const currentWalletState = getTenantWalletVerificationState(current ?? {});
+          if (
+            currentWallet?.toLowerCase() === accountAddress.toLowerCase() &&
+            currentWalletState.isWalletVerified
+          ) {
             response = this.toWalletRegularizationResponse(current, currentWallet, false);
             return;
           }
           throw new ConflictException('No se pudo regularizar la wallet sin reemplazar una existente');
+        }
+
+        let updated = updatedResult;
+        const updatedQuery = this.assignmentModel.findById(assignment._id);
+        const updatedQuerySession = updatedQuery?.session;
+        if (typeof updatedQuerySession === 'function') {
+          updated = (await updatedQuerySession.call(updatedQuery, session).lean()) ?? updatedResult;
         }
 
         await this.auditService.record({
@@ -395,7 +440,8 @@ export class InstitutionalTenantsService {
           targetUserId: updated.userId,
           assignmentId: updated._id,
           previousState: {
-            hasAccountAddress: false,
+            hasAccountAddress: Boolean(existingWallet),
+            walletVerified: existingWalletState.isWalletVerified,
             status: assignment.status ?? null,
             active: assignment.active ?? false,
             institutionalRole: assignment.institutionalRole ?? null,
@@ -602,7 +648,16 @@ export class InstitutionalTenantsService {
     accountAddress: string,
     updated: boolean,
   ) {
-    const hasWallet = Boolean(accountAddress?.trim());
+    const effectiveAssignment = {
+      ...assignment,
+      accountAddress,
+      accountAddressNormalized: updated
+        ? (assignment.accountAddressNormalized ??
+          normalizeTenantWalletAddress(accountAddress)?.toLowerCase() ??
+          null)
+        : assignment.accountAddressNormalized,
+    };
+    const walletState = getTenantWalletVerificationState(effectiveAssignment);
     return {
       tenantId: String(assignment.tenantId),
       assignmentId: String(assignment._id),
@@ -611,11 +666,11 @@ export class InstitutionalTenantsService {
       institutionalRole: assignment.institutionalRole ?? null,
       status: assignment.status ?? null,
       active: assignment.active ?? false,
-      hasWallet,
-      requiresWalletUpdate: !hasWallet,
-      walletStatus: hasWallet ? 'VERIFIED' : 'MISSING',
-      walletVerifiedAt: assignment.walletVerifiedAt ?? null,
-      walletVerificationSource: assignment.walletVerificationSource ?? null,
+      hasWallet: walletState.hasWallet,
+      requiresWalletUpdate: walletState.requiresWalletUpdate,
+      walletStatus: walletState.walletStatus,
+      walletVerifiedAt: effectiveAssignment.walletVerifiedAt ?? null,
+      walletVerificationSource: effectiveAssignment.walletVerificationSource ?? null,
       updated,
     };
   }
@@ -988,6 +1043,7 @@ export class InstitutionalTenantsService {
   }
 
   private toAdminAssignmentResponse(assignment: any, user?: any) {
+    const walletState = getTenantWalletVerificationState(assignment);
     return {
       assignmentId: String(assignment._id),
       userId: String(assignment.userId),
@@ -995,6 +1051,11 @@ export class InstitutionalTenantsService {
       email: user?.email ?? null,
       userActive: user?.active ?? null,
       accountAddress: assignment.accountAddress ?? null,
+      hasWallet: walletState.hasWallet,
+      requiresWalletUpdate: walletState.requiresWalletUpdate,
+      walletStatus: walletState.walletStatus,
+      walletVerifiedAt: assignment.walletVerifiedAt ?? null,
+      walletVerificationSource: assignment.walletVerificationSource ?? null,
       institutionalRole: assignment.institutionalRole ?? null,
       status: assignment.status ?? null,
       active: assignment.active ?? false,
@@ -1006,7 +1067,7 @@ export class InstitutionalTenantsService {
 
   private toGlobalTenantAdminResponse(assignment: any, user?: any) {
     const accountAddress = assignment.accountAddress?.trim() || null;
-    const hasWallet = Boolean(accountAddress);
+    const walletState = getTenantWalletVerificationState(assignment);
     return {
       assignmentId: String(assignment._id),
       userId: String(assignment.userId),
@@ -1015,8 +1076,11 @@ export class InstitutionalTenantsService {
       active: assignment.active ?? false,
       approvalStatus: assignment.status ?? null,
       accountAddress,
-      hasWallet,
-      walletStatus: hasWallet ? 'VERIFIED' : 'MISSING',
+      hasWallet: walletState.hasWallet,
+      requiresWalletUpdate: walletState.requiresWalletUpdate,
+      walletStatus: walletState.walletStatus,
+      walletVerifiedAt: assignment.walletVerifiedAt ?? null,
+      walletVerificationSource: assignment.walletVerificationSource ?? null,
     };
   }
 

@@ -19,6 +19,7 @@ import {
   TenantAdminAssignment,
   TenantAdminAssignmentDocument,
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
+import { getTenantWalletVerificationState } from '@/modules/institutional-tenants/utils/tenant-wallet-verification.util';
 import {
   InstitutionalTenant,
   InstitutionalTenantDocument,
@@ -734,11 +735,11 @@ export class AuthService {
     requiresWalletUpdate: boolean;
     walletStatus: TenantWalletStatus;
   } {
-    const hasWallet = Boolean(membership.accountAddress?.trim());
+    const walletState = getTenantWalletVerificationState(membership);
     return {
-      hasWallet,
-      requiresWalletUpdate: !hasWallet,
-      walletStatus: hasWallet ? 'VERIFIED' : 'MISSING',
+      hasWallet: walletState.hasWallet,
+      requiresWalletUpdate: walletState.requiresWalletUpdate,
+      walletStatus: walletState.walletStatus,
     };
   }
 

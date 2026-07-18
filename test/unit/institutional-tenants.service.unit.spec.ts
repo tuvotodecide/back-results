@@ -656,6 +656,8 @@ describe('InstitutionalTenantsService (unit)', () => {
       status: 'APPROVED',
       active: true,
       accountAddress: wallet,
+      accountAddressNormalized: wallet.toLowerCase(),
+      walletVerifiedAt: new Date(),
       walletVerificationSource: 'LEGACY_REGULARIZATION',
     });
 
@@ -696,11 +698,117 @@ describe('InstitutionalTenantsService (unit)', () => {
       expect.objectContaining({
         $set: expect.objectContaining({
           accountAddress: wallet,
+          accountAddressNormalized: wallet.toLowerCase(),
+          walletVerifiedAt: expect.any(Date),
+          walletVerifiedBy: expect.any(Types.ObjectId),
           walletVerificationSource: 'LEGACY_REGULARIZATION',
         }),
       }),
       expect.objectContaining({ returnDocument: 'after' }),
     );
+  });
+
+  it('regulariza misma wallet con metadata faltante y la completa', async () => {
+    const tenantId = new Types.ObjectId('64b0000000000000000000c3');
+    const userId = new Types.ObjectId('64b0000000000000000000c4');
+    const assignmentId = new Types.ObjectId('64b0000000000000000000c5');
+    const wallet = '0x00000000000000000000000000000000000000c5';
+    const assignment = {
+      _id: assignmentId,
+      tenantId,
+      userId,
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+      accountAddress: wallet,
+      accountAddressNormalized: wallet.toLowerCase(),
+      walletVerifiedAt: null,
+      walletVerificationSource: null,
+    };
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
+    roledUserModel.findById.mockReturnValue(query({ _id: userId, active: true, dni: '12345678' }));
+    assignmentModel.find
+      .mockReturnValueOnce(query([assignment]))
+      .mockReturnValueOnce(query([assignment]));
+    assignmentModel.findOneAndUpdate.mockResolvedValue({
+      ...assignment,
+      walletVerifiedAt: new Date(),
+      walletVerifiedBy: userId,
+      walletVerificationSource: 'LEGACY_REGULARIZATION',
+    });
+
+    const result = await service.regularizeOwnWallet(
+      String(tenantId),
+      { accountAddress: wallet },
+      { sub: String(userId), role: 'USER' },
+    );
+
+    expect(result).toMatchObject({
+      assignmentId: String(assignmentId),
+      hasWallet: true,
+      requiresWalletUpdate: false,
+      walletStatus: 'VERIFIED',
+      updated: true,
+    });
+    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/has-dni',
+      expect.objectContaining({
+        params: { account: wallet, dnis: '12345678' },
+      }),
+    );
+    expect(assignmentModel.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: assignmentId,
+        accountAddress: expect.any(RegExp),
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          accountAddress: wallet,
+          accountAddressNormalized: wallet.toLowerCase(),
+          walletVerifiedAt: expect.any(Date),
+          walletVerifiedBy: expect.any(Types.ObjectId),
+          walletVerificationSource: 'LEGACY_REGULARIZATION',
+        }),
+      }),
+      expect.objectContaining({ returnDocument: 'after' }),
+    );
+  });
+
+  it('regularizacion con misma wallet y metadata completa es idempotente', async () => {
+    const tenantId = new Types.ObjectId('64b0000000000000000000c6');
+    const userId = new Types.ObjectId('64b0000000000000000000c7');
+    const assignmentId = new Types.ObjectId('64b0000000000000000000c8');
+    const wallet = '0x00000000000000000000000000000000000000c8';
+    const assignment = {
+      _id: assignmentId,
+      tenantId,
+      userId,
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+      accountAddress: wallet,
+      accountAddressNormalized: wallet.toLowerCase(),
+      walletVerifiedAt: new Date(),
+      walletVerificationSource: 'LEGACY_REGULARIZATION',
+    };
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
+    roledUserModel.findById.mockReturnValue(query({ _id: userId, active: true, dni: '12345678' }));
+    assignmentModel.find.mockReturnValueOnce(query([assignment]));
+
+    const result = await service.regularizeOwnWallet(
+      String(tenantId),
+      { accountAddress: wallet },
+      { sub: String(userId), role: 'USER' },
+    );
+
+    expect(result).toMatchObject({
+      hasWallet: true,
+      requiresWalletUpdate: false,
+      walletStatus: 'VERIFIED',
+      updated: false,
+    });
+    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('regularizacion bloquea wallet invalida, Identity false y timeout sin persistir', async () => {
@@ -878,6 +986,9 @@ describe('InstitutionalTenantsService (unit)', () => {
       status: 'APPROVED',
       active: true,
       accountAddress: '0x00000000000000000000000000000000000000f4',
+      accountAddressNormalized: '0x00000000000000000000000000000000000000f4',
+      walletVerifiedAt: new Date(),
+      walletVerificationSource: 'LEGACY_REGULARIZATION',
     }]));
 
     await expect(

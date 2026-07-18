@@ -521,6 +521,57 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(loginRes.body.tenantId).toBe(approveRes.body.tenantId);
   });
 
+  it('access-status no marca VERIFIED si la wallet aprobada no tiene metadata de verificacion', async () => {
+    const email = `approved-unverified-wallet-${Date.now()}@example.com`;
+    const application = await createAndVerifyApplication({
+      dni: `UW${Date.now()}`,
+      email,
+      name: 'Approved Tenant Unverified Wallet',
+      institutionName: `Institution Unverified Wallet ${Date.now()}`,
+    });
+
+    const approveRes = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { tenantId: new Types.ObjectId(approveRes.body.tenantId) },
+      {
+        $set: {
+          walletVerifiedAt: null,
+          walletVerificationSource: null,
+        },
+      },
+    );
+
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(200);
+
+    expect(loginRes.body.defaultContext).toEqual(
+      expect.objectContaining({
+        type: 'TENANT',
+        tenantId: approveRes.body.tenantId,
+        hasWallet: true,
+        requiresWalletUpdate: true,
+        walletStatus: 'MISSING',
+      }),
+    );
+    expect(loginRes.body.accessStatus.tenant.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId: approveRes.body.tenantId,
+          hasWallet: true,
+          requiresWalletUpdate: true,
+          walletStatus: 'MISSING',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(loginRes.body)).not.toContain('accountAddressNormalized');
+  });
+
   it('bloquea login de usuario institucional aprobado pero deshabilitado', async () => {
     const email = `disabled-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({

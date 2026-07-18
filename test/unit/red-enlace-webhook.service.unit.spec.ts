@@ -5,6 +5,7 @@ import { getModelToken } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { LoggerService } from '@/core/services/logger.service';
+import { RoledUser } from '@/modules/auth/schemas/roledUser.schema';
 import { InstitutionalTenant } from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { PaymentsController } from '@/modules/payments/controllers/payments.controller';
@@ -131,6 +132,10 @@ describe('PaymentsModule integration surface', () => {
         },
         {
           provide: getModelToken(TenantAdminAssignment.name),
+          useValue: mockModel,
+        },
+        {
+          provide: getModelToken(RoledUser.name),
           useValue: mockModel,
         },
       ],
@@ -537,6 +542,11 @@ describe('PaymentTransactionsService Red Enlace QR generation', () => {
         name: 'Tenant Con Datos Que No Deben Ir En Glosa',
       }),
       getRequesterObjectId: jest.fn().mockReturnValue(userId),
+      resolvePaymentTargetForRequester: jest.fn().mockResolvedValue({
+        targetAssignmentId: new Types.ObjectId(),
+        targetWallet: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        targetWalletNormalized: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      }),
     };
     const configService = {
       get: jest.fn((key: string) => {

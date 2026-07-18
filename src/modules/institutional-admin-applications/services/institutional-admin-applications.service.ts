@@ -25,6 +25,7 @@ import {
   TenantAdminAssignmentDocument,
   TenantAdminRole,
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
+import { normalizeTenantWalletAddress } from '@/modules/institutional-tenants/utils/tenant-wallet-verification.util';
 import {
   VotingEvent,
   VotingEventDocument,
@@ -357,12 +358,17 @@ export class InstitutionalAdminApplicationsService {
         }
 
         const accountAddress = this.normalizeAccountAddress(app.accountAddress);
+        const accountAddressNormalized = normalizeTenantWalletAddress(accountAddress)?.toLowerCase();
+        if (!accountAddressNormalized) {
+          throw new BadRequestException('La solicitud institucional no tiene wallet verificada');
+        }
         let user = await this.resolveUserByEmailOrDni(app.email, app.dni, session);
         let tenantQuery = app.tenantId
           ? this.tenantModel.findById(app.tenantId)
           : this.tenantModel.findOne({ nameNorm: app.institutionNameNorm });
-        if (tenantQuery && typeof tenantQuery.session === 'function') {
-          tenantQuery = tenantQuery.session(session);
+        const tenantQuerySession = tenantQuery?.session;
+        if (typeof tenantQuerySession === 'function') {
+          tenantQuery = tenantQuerySession.call(tenantQuery, session);
         }
         let tenant = await tenantQuery;
 
@@ -423,8 +429,9 @@ export class InstitutionalAdminApplicationsService {
               const retryTenantQuery = this.tenantModel.findOne({
                 nameNorm: app.institutionNameNorm,
               });
-              if (retryTenantQuery && typeof retryTenantQuery.session === 'function') {
-                retryTenantQuery.session(session);
+              const retryTenantQuerySession = retryTenantQuery?.session;
+              if (typeof retryTenantQuerySession === 'function') {
+                retryTenantQuerySession.call(retryTenantQuery, session);
               }
               tenant = await retryTenantQuery;
             } else {
@@ -467,6 +474,7 @@ export class InstitutionalAdminApplicationsService {
                 status: 'APPROVED',
                 active: true,
                 accountAddress,
+                accountAddressNormalized,
                 applicationId: app._id,
                 institutionalRole,
                 requestedAt: app.emailVerifiedAt ?? (app as any).createdAt ?? new Date(),
@@ -475,6 +483,9 @@ export class InstitutionalAdminApplicationsService {
                 revokedAt: null,
                 approvedBy: requester?.sub ? new Types.ObjectId(requester.sub) : null,
                 reason: null,
+                walletVerifiedAt: approvedAt,
+                walletVerifiedBy: requester?.sub ? new Types.ObjectId(requester.sub) : null,
+                walletVerificationSource: 'IDENTITY',
               },
             },
             { upsert: true, returnDocument: 'after', session },
@@ -583,8 +594,9 @@ export class InstitutionalAdminApplicationsService {
         const tenantQuery = app.tenantId
           ? this.tenantModel.findById(app.tenantId)
           : this.tenantModel.findOne({ nameNorm: app.institutionNameNorm });
-        if (tenantQuery && typeof tenantQuery.session === 'function') {
-          tenantQuery.session(session);
+        const tenantQuerySession = tenantQuery?.session;
+        if (typeof tenantQuerySession === 'function') {
+          tenantQuerySession.call(tenantQuery, session);
         }
         const tenant = await tenantQuery;
         if (!this.isGlobalInstitutionalApprover(requester)) {

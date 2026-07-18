@@ -12,6 +12,13 @@ export const tenantMembershipStatuses = [
 export type TenantMembershipStatus = typeof tenantMembershipStatuses[number];
 export const tenantAdminRoles = ['PRIMARY', 'SECONDARY'] as const;
 export type TenantAdminRole = typeof tenantAdminRoles[number];
+export const tenantWalletVerificationSources = [
+  'IDENTITY',
+  'LEGACY_REGULARIZATION',
+  'TEST',
+] as const;
+export type TenantWalletVerificationSource =
+  typeof tenantWalletVerificationSources[number];
 
 @Schema({ timestamps: true, collection: 'tenant_admin_assignments' })
 export class TenantAdminAssignment {
@@ -68,8 +75,8 @@ export class TenantAdminAssignment {
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', default: null })
   walletVerifiedBy?: Types.ObjectId | null;
 
-  @Prop({ type: String, trim: true, default: null })
-  walletVerificationSource?: string | null;
+  @Prop({ type: String, trim: true, enum: tenantWalletVerificationSources, default: null })
+  walletVerificationSource?: TenantWalletVerificationSource | null;
 }
 
 export const TenantAdminAssignmentSchema = SchemaFactory.createForClass(TenantAdminAssignment);

@@ -89,6 +89,28 @@ export default registerAs('app', () => ({
     privateKey: process.env.BLOCKCHAIN_PRIVATE_KEY || '',
   },
 
+  tvd: {
+    rpcUrl: process.env.TVD_RPC_URL || '',
+    chainId: process.env.TVD_CHAIN_ID || '',
+    tokenContractAddress: process.env.TVD_TOKEN_CONTRACT_ADDRESS || '',
+    assignmentContractAddress: process.env.TVD_ASSIGNMENT_CONTRACT_ADDRESS || '',
+    operatorPrivateKey: process.env.TVD_OPERATOR_PRIVATE_KEY || '',
+    confirmationsRequired: process.env.TVD_CONFIRMATIONS_REQUIRED || '',
+    // Provisional until Paso 3 validates this value against token.decimals().
+    decimals: process.env.TVD_DECIMALS,
+    accreditationWorkerEnabled:
+      process.env.TVD_ACCREDITATION_WORKER_ENABLED || 'false',
+    accreditationPollIntervalMs:
+      process.env.TVD_ACCREDITATION_POLL_INTERVAL_MS || '5000',
+    accreditationBatchSize: process.env.TVD_ACCREDITATION_BATCH_SIZE || '10',
+    accreditationLockTtlMs: process.env.TVD_ACCREDITATION_LOCK_TTL_MS || '60000',
+    operatorLockTtlMs: process.env.TVD_OPERATOR_LOCK_TTL_MS || '60000',
+    accreditationMaxAttempts: process.env.TVD_ACCREDITATION_MAX_ATTEMPTS || '5',
+    accreditationRetryBaseMs: process.env.TVD_ACCREDITATION_RETRY_BASE_MS || '5000',
+    accreditationReconcileAfterMs:
+      process.env.TVD_ACCREDITATION_RECONCILE_AFTER_MS || '15000',
+  },
+
   ai: {
     gemini: {
       apiKey: process.env.GEMINI_API_KEY || '',

@@ -10,6 +10,8 @@ import { PaymentTransactionsService } from '@/modules/payments/services/payment-
 const tenantId = new Types.ObjectId();
 const userId = new Types.ObjectId();
 const paymentId = new Types.ObjectId();
+const assignmentId = new Types.ObjectId();
+const targetWallet = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 const basePayment = (override: Record<string, any> = {}) => ({
   _id: paymentId,
@@ -33,6 +35,8 @@ function createService(options?: {
   provider?: Record<string, jest.Mock>;
   tenantAccess?: Record<string, jest.Mock>;
   config?: Record<string, string | number | undefined>;
+  tvdQuotes?: Record<string, jest.Mock>;
+  tvdQrAccreditations?: Record<string, jest.Mock>;
 }) {
   const paymentModel = {
     create: jest.fn().mockResolvedValue(basePayment()),
@@ -73,6 +77,11 @@ function createService(options?: {
     getRequesterObjectId: jest.fn().mockReturnValue(userId),
     assertTenantAccess: jest.fn().mockResolvedValue(undefined),
     resolveTenantIdsForRead: jest.fn().mockResolvedValue([tenantId]),
+    resolvePaymentTargetForRequester: jest.fn().mockResolvedValue({
+      targetAssignmentId: assignmentId,
+      targetWallet,
+      targetWalletNormalized: targetWallet.toLowerCase(),
+    }),
     ...(options?.tenantAccess ?? {}),
   };
   const configService = {
@@ -87,6 +96,8 @@ function createService(options?: {
     }),
   } as unknown as ConfigService;
   const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+  const tvdQuotes = options?.tvdQuotes;
+  const tvdQrAccreditations = options?.tvdQrAccreditations;
 
   const service = new PaymentTransactionsService(
     paymentModel as any,
@@ -94,9 +105,11 @@ function createService(options?: {
     tenantAccess as any,
     configService,
     logger as unknown as LoggerService,
+    tvdQuotes as any,
+    tvdQrAccreditations as any,
   );
 
-  return { service, paymentModel, provider, tenantAccess, logger };
+  return { service, paymentModel, provider, tenantAccess, logger, tvdQrAccreditations };
 }
 
 describe('PaymentTransactionsService QR payments', () => {
@@ -116,12 +129,19 @@ describe('PaymentTransactionsService QR payments', () => {
       expect.objectContaining({
         tenantId,
         requestedByUserId: userId,
+        targetAssignmentId: assignmentId,
+        targetWallet,
+        targetWalletNormalized: targetWallet.toLowerCase(),
         amountMinor: '1050',
         currency: 'BOB',
         provider: PAYMENT_PROVIDER_RED_ENLACE,
         merchantReference: expect.any(String),
         status: 'CREATED',
       }),
+    );
+    expect(tenantAccess.resolvePaymentTargetForRequester).toHaveBeenCalledWith(
+      tenantId,
+      expect.objectContaining({ tenantId: String(tenantId) }),
     );
     expect(provider.generateQr).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -167,6 +187,37 @@ describe('PaymentTransactionsService QR payments', () => {
     expect(provider.generateQr).toHaveBeenCalledWith(
       expect.objectContaining({
         expiresAt: new Date('2026-07-15T12:00:00.000Z'),
+      }),
+    );
+  });
+
+  it('TVD-QR-POS-U-001/002 | POSITIVO | UNITARIO | creacion QR congela assignment wallet y tvdQuote', async () => {
+    const tvdQuote = {
+      fiatAmountMinor: '1050',
+      fiatCurrency: 'BOB',
+      bobPerToken: '2.10',
+      exchangeRateVersion: 3,
+      tokenAmount: '5',
+      tokenAmountSmallestUnit: '500',
+      quotedAt: new Date('2026-07-17T10:00:00.000Z'),
+    };
+    const { service, paymentModel } = createService({
+      tvdQuotes: {
+        createPaymentQuoteSnapshot: jest.fn().mockResolvedValue(tvdQuote),
+      },
+    });
+
+    await service.createQrPayment(
+      { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
+      { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+    );
+
+    expect(paymentModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetAssignmentId: assignmentId,
+        targetWallet,
+        targetWalletNormalized: targetWallet.toLowerCase(),
+        tvdQuote,
       }),
     );
   });
@@ -312,6 +363,61 @@ describe('PaymentTransactionsService QR payments', () => {
     ).resolves.toEqual(expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }));
 
     expect(paymentModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('TVD-QR-POS-U-010/011 | POSITIVO | UNITARIO | webhook confirmado crea acreditacion sin blockchain y mantiene contrato Red Enlace', async () => {
+    const activePayment = basePayment({
+      status: 'QR_ACTIVE',
+      providerReference: '1511556',
+    });
+    const confirmedPayment = basePayment({
+      status: 'PAYMENT_CONFIRMED',
+      providerReference: '1511556',
+      providerStatus: '00',
+      providerResponseCode: '00',
+      confirmationSource: 'WEBHOOK',
+    });
+    const tvdQrAccreditations = {
+      createOrReuseForConfirmedPayment: jest.fn().mockResolvedValue({
+        accreditationId: new Types.ObjectId(),
+        status: 'PENDING',
+        tokenAmount: '5',
+        reused: false,
+      }),
+    };
+    const { service, paymentModel } = createService({
+      tvdQrAccreditations,
+      paymentModel: {
+        findOne: jest.fn().mockReturnValue({
+          exec: jest.fn().mockResolvedValue(activePayment),
+        }),
+        findOneAndUpdate: jest.fn().mockReturnValue({
+          exec: jest.fn().mockResolvedValue(confirmedPayment),
+        }),
+        findById: jest.fn().mockResolvedValue(confirmedPayment),
+      },
+    });
+
+    await expect(
+      service.applyWebhookConfirmation({
+        providerReference: '1511556',
+        providerStatus: '00',
+        responseCode: '00',
+        amountMinor: '1050',
+        currency: 'BOB',
+      }),
+    ).resolves.toEqual(expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }));
+
+    expect(tvdQrAccreditations.createOrReuseForConfirmedPayment).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }),
+      { source: 'WEBHOOK' },
+    );
+    expect(paymentModel.updateOne).toHaveBeenCalledWith(
+      { _id: paymentId },
+      expect.objectContaining({
+        $set: expect.objectContaining({ tokenAccreditationStatus: 'PENDING' }),
+      }),
+    );
   });
 
   it.each(['EXPIRED', 'FAILED', 'CANCELLED'])(

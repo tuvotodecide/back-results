@@ -20,13 +20,30 @@ export const institutionalAuditActions = [
   'INSTITUTIONAL_RECOVERY_APPROVED',
   'INSTITUTIONAL_RECOVERY_REJECTED',
   'INSTITUTIONAL_WALLET_REGULARIZED',
+  'TVD_MANUAL_ASSIGNMENT_REQUESTED',
+  'TVD_MANUAL_ASSIGNMENT_CONFIRMED',
+  'TVD_MANUAL_ASSIGNMENT_FAILED',
+  'TVD_MANUAL_ASSIGNMENT_NEEDS_REVIEW',
+  'TVD_QR_ACCREDITATION_CREATED',
+  'TVD_QR_ACCREDITATION_REUSED',
+  'TVD_QR_ACCREDITATION_NEEDS_REVIEW',
+  'TVD_ACCREDITATION_CLAIMED',
+  'TVD_ACCREDITATION_PREPARED',
+  'TVD_ACCREDITATION_SUBMITTED',
+  'TVD_ACCREDITATION_CONFIRMED',
+  'TVD_ACCREDITATION_RETRY_SCHEDULED',
+  'TVD_ACCREDITATION_FAILED',
+  'TVD_ACCREDITATION_NEEDS_REVIEW',
+  'TVD_EXCHANGE_RATE_CREATED',
 ] as const;
 
 export type InstitutionalAuditAction = typeof institutionalAuditActions[number];
 export type InstitutionalAuditTargetType =
   | 'InstitutionalAdminApplication'
   | 'TenantAdminAssignment'
-  | 'InstitutionalAccessRecoveryRequest';
+  | 'InstitutionalAccessRecoveryRequest'
+  | 'TokenAccreditation'
+  | 'TvdExchangeRate';
 
 @Schema({ collection: 'institutional_audit_events', versionKey: false })
 export class InstitutionalAuditEvent {

@@ -6,6 +6,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
@@ -30,6 +31,7 @@ import {
 } from '../payments.constants';
 import { QrPaymentProvider, VerifyQrResult } from '../providers/qr-payment-provider.interface';
 import {
+  PaymentTvdQuoteSnapshot,
   PaymentTransaction,
   PaymentTransactionDocument,
 } from '../schemas/payment-transaction.schema';
@@ -48,6 +50,8 @@ import {
 } from '../utils/red-enlace-glosa.util';
 import { parseRedEnlaceQrTtl } from '../utils/red-enlace-ttl.util';
 import { PaymentTenantAccessService } from './payment-tenant-access.service';
+import { TvdQuotesService } from '@/modules/tvd/services/tvd-quotes.service';
+import { TvdQrAccreditationsService } from '@/modules/tvd/services/tvd-qr-accreditations.service';
 
 @Injectable()
 export class PaymentTransactionsService {
@@ -61,6 +65,10 @@ export class PaymentTransactionsService {
     private readonly tenantAccess: PaymentTenantAccessService,
     private readonly configService: ConfigService,
     private readonly logger: LoggerService,
+    @Optional()
+    private readonly tvdQuotes?: TvdQuotesService,
+    @Optional()
+    private readonly tvdQrAccreditations?: TvdQrAccreditationsService,
   ) {}
 
   async createQrPayment(
@@ -102,6 +110,18 @@ export class PaymentTransactionsService {
       }
     }
 
+    const paymentTarget = await this.tenantAccess.resolvePaymentTargetForRequester(
+      tenant._id as Types.ObjectId,
+      requester,
+    );
+
+    const tvdQuote = this.tvdQuotes
+      ? await this.tvdQuotes.createPaymentQuoteSnapshot({
+          amountMinor,
+          currency: dto.currency,
+        })
+      : null;
+
     const payment = await this.createPaymentWithUniqueReference({
       tenantId: tenant._id as Types.ObjectId,
       requestedByUserId,
@@ -109,6 +129,10 @@ export class PaymentTransactionsService {
       currency: dto.currency,
       idempotencyKey: normalizedIdempotencyKey,
       idempotencyRequestHash: requestHash,
+      targetAssignmentId: paymentTarget.targetAssignmentId,
+      targetWallet: paymentTarget.targetWallet,
+      targetWalletNormalized: paymentTarget.targetWalletNormalized,
+      tvdQuote,
     });
 
     await this.transitionPayment(payment._id, 'CREATED', 'QR_REQUESTING');
@@ -325,6 +349,10 @@ export class PaymentTransactionsService {
     source: 'WEBHOOK' | 'RECONCILIATION',
   ) {
     if (payment.status === 'PAYMENT_CONFIRMED') {
+      const providerStatus = normalizeRedEnlaceStatus(result.providerStatus);
+      if (providerStatus === 'SUCCESS' || result.responseCode === '00') {
+        return this.ensureQrAccreditationForConfirmedPayment(payment, source);
+      }
       return payment;
     }
 
@@ -417,6 +445,10 @@ export class PaymentTransactionsService {
       }),
       this.context,
     );
+
+    if (updated.status === 'PAYMENT_CONFIRMED') {
+      return this.ensureQrAccreditationForConfirmedPayment(updated, source);
+    }
     return updated;
   }
 
@@ -462,10 +494,14 @@ export class PaymentTransactionsService {
   private async createPaymentWithUniqueReference(input: {
     tenantId: Types.ObjectId;
     requestedByUserId: Types.ObjectId;
+    targetAssignmentId: Types.ObjectId;
+    targetWallet: string;
+    targetWalletNormalized: string;
     amountMinor: string;
     currency: 'BOB';
     idempotencyKey?: string | null;
     idempotencyRequestHash?: string | null;
+    tvdQuote?: PaymentTvdQuoteSnapshot | null;
   }) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       try {
@@ -474,6 +510,7 @@ export class PaymentTransactionsService {
           provider: PAYMENT_PROVIDER_RED_ENLACE,
           merchantReference: this.generateMerchantReference(),
           status: 'CREATED',
+          tvdQuote: input.tvdQuote ?? null,
         });
       } catch (error: any) {
         if (error?.code === 11000 && error?.keyPattern?.merchantReference) {
@@ -492,6 +529,53 @@ export class PaymentTransactionsService {
     }
 
     throw new InternalServerErrorException('No se pudo generar referencia unica');
+  }
+
+  private async ensureQrAccreditationForConfirmedPayment(
+    payment: PaymentTransactionDocument,
+    source: 'WEBHOOK' | 'RECONCILIATION',
+  ) {
+    if (!this.tvdQrAccreditations) return payment;
+
+    try {
+      const result =
+        await this.tvdQrAccreditations.createOrReuseForConfirmedPayment(payment, {
+          source,
+        });
+
+      await this.paymentModel.updateOne(
+        { _id: payment._id },
+        {
+          $set: {
+            tokenAccreditationId: result.accreditationId ?? null,
+            tokenAccreditationStatus: result.status,
+            tokenAccreditationErrorCode: result.reasonCode ?? null,
+          },
+        },
+      );
+      return this.getPaymentDocumentOrThrow(String(payment._id));
+    } catch (error) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'tvd_qr_accreditation_creation_pending',
+          paymentId: String(payment._id),
+          tenantId: String(payment.tenantId),
+          providerReference: payment.providerReference,
+          code: 'TVD_ACCREDITATION_CREATION_PENDING',
+        }),
+        this.context,
+      );
+      await this.paymentModel.updateOne(
+        { _id: payment._id },
+        {
+          $set: {
+            tokenAccreditationStatus: 'NEEDS_REVIEW',
+            tokenAccreditationErrorCode: 'TVD_ACCREDITATION_CREATION_PENDING',
+          },
+        },
+      );
+      return this.getPaymentDocumentOrThrow(String(payment._id));
+    }
   }
 
   private async transitionPayment(

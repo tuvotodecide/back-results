@@ -418,8 +418,12 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(assignmentModel.findOneAndUpdate.mock.calls[0][1].$set).toEqual(
       expect.objectContaining({
         accountAddress: validAccountAddress,
+        accountAddressNormalized: validAccountAddress.toLowerCase(),
         applicationId: appId,
         institutionalRole: 'PRIMARY',
+        walletVerifiedAt: expect.any(Date),
+        walletVerifiedBy: expect.any(Types.ObjectId),
+        walletVerificationSource: 'IDENTITY',
       }),
     );
     expect(app.save).toHaveBeenCalled();
