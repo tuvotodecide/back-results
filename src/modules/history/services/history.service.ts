@@ -40,7 +40,6 @@ export class HistoryService {
       page = 1,
       limit = 10,
       txHash,
-      operationKey,
       operationName,
       type,
       roledUserId,
@@ -53,7 +52,6 @@ export class HistoryService {
     const filters: Record<string, any> = {};
 
     if (txHash) filters.txHash = txHash;
-    if (operationKey) filters.operationKey = operationKey;
     if (operationName) filters.operationName = operationName;
     if (type) filters.type = type;
     if (roledUserId) filters.roledUserId = new Types.ObjectId(roledUserId);

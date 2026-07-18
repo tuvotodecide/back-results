@@ -206,5 +206,15 @@
       "test/unit/payment-transactions.service.unit.spec.ts",
       "test/unit/red-enlace-webhook.service.unit.spec.ts"
     ]
+  },
+  "history": {
+    "name": "Operations history log",
+    "flows": [
+      "HISTORY"
+    ],
+    "files": [
+      "test/integration/history/history.controller.spec.ts",
+      "test/unit/history.service.unit.spec.ts"
+    ]
   }
 }

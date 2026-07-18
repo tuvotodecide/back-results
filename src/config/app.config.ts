@@ -21,6 +21,14 @@ export default registerAs('app', () => ({
     expirationTime: process.env.JWT_EXPIRATION_TIME || '24h',
   },
 
+  apiKey: {
+    header: process.env.API_KEY_HEADER || 'x-api-key',
+    keys: (process.env.API_KEYS || '')
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean),
+  },
+
   cors: {
     origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
       .split(',')
