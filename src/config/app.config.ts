@@ -21,6 +21,14 @@ export default registerAs('app', () => ({
     expirationTime: process.env.JWT_EXPIRATION_TIME || '24h',
   },
 
+  apiKey: {
+    header: process.env.API_KEY_HEADER || 'x-api-key',
+    keys: (process.env.API_KEYS || '')
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean),
+  },
+
   cors: {
     origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
       .split(',')
@@ -127,6 +135,33 @@ export default registerAs('app', () => ({
   healthChecks: {
     pinataJwt: process.env.PINATA_JWT,
     coinbaseRpc: process.env.BUNDLER_MAIN,
+  },
+
+  contracts: {
+    tvdToken: {
+      address: process.env.TVD_TOKEN_ADDRESS || '',
+      txHash: process.env.TVD_TOKEN_TX_HASH || '',
+    },
+    coreVesting: {
+      address: process.env.CORE_VESTING_ADDRESS || '',
+      txHash: process.env.CORE_VESTING_TX_HASH || '',
+    },
+    institutionalVesting: {
+      address: process.env.INSTITUTIONAL_VESTING_ADDRESS || '',
+      txHash: process.env.INSTITUTIONAL_VESTING_TX_HASH || '',
+    },
+    incentiveCampaigns: {
+      address: process.env.INCENTIVE_CAMPAIGNS_ADDRESS || '',
+      txHash: process.env.INCENTIVE_CAMPAIGNS_TX_HASH || '',
+    },
+    electoralCredits: {
+      address: process.env.ELECTORAL_CREDITS_ADDRESS || '',
+      txHash: process.env.ELECTORAL_CREDITS_TX_HASH || '',
+    },
+    voteManager: {
+      address: process.env.VOTE_MANAGER_ADDRESS || '',
+      txHash: process.env.VOTE_MANAGER_TX_HASH || '',
+    },
   },
 
   redEnlace: {

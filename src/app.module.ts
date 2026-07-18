@@ -31,6 +31,7 @@ import { InstitutionalAuditModule } from './modules/institutional-audit/institut
 import { HealthChecksModule } from './modules/health-checks/health-checks.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { TvdModule } from './modules/tvd/tvd.module';
+import { HistoryModule } from './modules/history/history.module';
 
 const mockModules =
   process.env.ENABLE_MOCKS?.toLowerCase() === 'true' ? [MocksModule] : [];
@@ -71,6 +72,7 @@ const mockModules =
     InstitutionalAuditModule,
     PaymentsModule,
     TvdModule,
+    HistoryModule,
   ],
   controllers: [AppController],
   providers: [

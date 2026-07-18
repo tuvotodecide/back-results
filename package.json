@@ -43,6 +43,7 @@
     "test:module:contracts-reports": "node tools/run-module-tests.mjs contracts-reports",
     "test:module:health-core-database": "node tools/run-module-tests.mjs health-core-database",
     "test:module:payments": "node tools/run-module-tests.mjs payments",
+    "test:module:history": "node tools/run-module-tests.mjs history",
     "test:modules": "node tools/run-module-tests.mjs all",
     "test:modules:check": "node tools/run-module-tests.mjs check",
     "import:electoral": "ts-node -r tsconfig-paths/register src/scripts/import-prov-dept.ts --file ./final_data_replaced.json",
