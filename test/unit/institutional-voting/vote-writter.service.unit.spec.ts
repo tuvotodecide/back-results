@@ -56,6 +56,7 @@ import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 
 import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
+import { MerkletreeService } from '@/modules/merkletree/services/merkletree.service';
 
 describe('VoteWritterService (unit)', () => {
   let service: VoteWritterService;
@@ -76,7 +77,8 @@ describe('VoteWritterService (unit)', () => {
         };
         return values[key];
       }),
-    } as unknown as ConfigService);
+    } as unknown as ConfigService,
+    {} as unknown as MerkletreeService);
     await service.getAccount();
   });
 

@@ -70,6 +70,7 @@ import { VoteWritterService } from './services/core/vote-writter.service';
 import { EmitVoteService } from './services/participation/emit-vote.service';
 import { EnabledSession, EnabledSessionSchema } from './schemas/enabled-session.shcema';
 import { IssuerService } from './services/core/issuer.service';
+import { MerkletreeModule } from '../merkletree/merkletree.module';
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { IssuerService } from './services/core/issuer.service';
     MailModule,
     HttpModule,
     FirebaseModule,
+    MerkletreeModule,
   ],
   controllers: [
     InstitutionalVotingPublicController,

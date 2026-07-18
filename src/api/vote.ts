@@ -5,11 +5,14 @@ import votingContractAbi from "../abi/voteContract.json";
 function createVote(
   chainId: string,
   voteId: string,
+  institutionId: string,
   name: string,
   startDate: number,
   endDate: number,
   resultsDate: number,
-  voters: string[],
+  enabledVotersCount: number,
+  enabledVotersMkRoot: bigint,
+  registeredVotersMkRoot: bigint,
   options: string[]
 ) {
   return {
@@ -18,7 +21,7 @@ function createVote(
     data: encodeFunctionData({
       abi: votingContractAbi,
       functionName: 'createVote',
-      args: [voteId, name, startDate, endDate, resultsDate, voters, options],
+      args: [voteId, institutionId, name, startDate, endDate, resultsDate, enabledVotersCount, enabledVotersMkRoot, registeredVotersMkRoot, options],
     })
   }
 }

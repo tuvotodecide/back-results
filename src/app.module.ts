@@ -29,6 +29,7 @@ import { InstitutionalAdminApplicationsModule } from './modules/institutional-ad
 import { HealthChecksModule } from './modules/health-checks/health-checks.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { HistoryModule } from './modules/history/history.module';
+import { MerkletreeModule } from './modules/merkletree/merkletree.module';
 
 const mockModules =
   process.env.ENABLE_MOCKS?.toLowerCase() === 'true' ? [MocksModule] : [];
@@ -67,6 +68,7 @@ const mockModules =
     InstitutionalAdminApplicationsModule,
     PaymentsModule,
     HistoryModule,
+    MerkletreeModule,
   ],
   controllers: [AppController],
   providers: [
