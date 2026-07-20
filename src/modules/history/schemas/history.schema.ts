@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { Document, Types } from "mongoose";
-import { HistoryType } from "../dto/create-history.dto";
+import { HistoryOperationKey, HistoryType } from "../dto/create-history.dto";
 
 export type HistoryDocument = History & Document;
 
@@ -9,11 +9,8 @@ export class History {
   @Prop({ required: true, trim: true, index: true })
   txHash!: string;
 
-  @Prop({ required: true, trim: true, index: true })
-  operationKey!: string;
-
-  @Prop({ required: true, trim: true, index: true })
-  operationName!: string;
+  @Prop({ type: String, enum: HistoryOperationKey, required: true, index: true })
+  operationName!: HistoryOperationKey;
 
   @Prop({ default: null, trim: true })
   description?: string;

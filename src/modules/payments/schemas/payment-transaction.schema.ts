@@ -11,6 +11,16 @@ import {
 export type PaymentTransactionDocument = PaymentTransaction &
   Document & { _id: Types.ObjectId };
 
+export type PaymentTvdQuoteSnapshot = {
+  fiatAmountMinor: string;
+  fiatCurrency: 'BOB';
+  bobPerToken: string;
+  exchangeRateVersion: number;
+  tokenAmount: string;
+  tokenAmountSmallestUnit?: string | null;
+  quotedAt: Date;
+};
+
 @Schema({ timestamps: true, collection: 'payment_transactions' })
 export class PaymentTransaction {
   @Prop({
@@ -23,6 +33,15 @@ export class PaymentTransaction {
 
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: true, index: true })
   requestedByUserId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'TenantAdminAssignment', default: null, index: true })
+  targetAssignmentId?: Types.ObjectId | null;
+
+  @Prop({ type: String, trim: true, default: null })
+  targetWallet?: string | null;
+
+  @Prop({ type: String, trim: true, lowercase: true, default: null, index: true })
+  targetWalletNormalized?: string | null;
 
   @Prop({
     type: String,
@@ -87,6 +106,36 @@ export class PaymentTransaction {
   @Prop({ type: String, trim: true, maxlength: 80, default: null })
   idempotencyRequestHash?: string | null;
 
+  @Prop({
+    type: {
+      fiatAmountMinor: { type: String, required: true, trim: true },
+      fiatCurrency: { type: String, required: true, enum: ['BOB'] },
+      bobPerToken: { type: String, required: true, trim: true },
+      exchangeRateVersion: { type: Number, required: true },
+      tokenAmount: { type: String, required: true, trim: true },
+      tokenAmountSmallestUnit: { type: String, trim: true, default: null },
+      quotedAt: { type: Date, required: true },
+    },
+    default: null,
+    immutable: true,
+    _id: false,
+  })
+  tvdQuote?: PaymentTvdQuoteSnapshot | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'TokenAccreditation', default: null, index: true })
+  tokenAccreditationId?: Types.ObjectId | null;
+
+  @Prop({
+    type: String,
+    enum: ['PENDING', 'SUBMITTING', 'SUBMITTED', 'CONFIRMED', 'FAILED', 'NEEDS_REVIEW'],
+    default: null,
+    index: true,
+  })
+  tokenAccreditationStatus?: string | null;
+
+  @Prop({ type: String, trim: true, maxlength: 80, default: null })
+  tokenAccreditationErrorCode?: string | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -116,3 +165,25 @@ PaymentTransactionSchema.index(
 
 PaymentTransactionSchema.index({ tenantId: 1, createdAt: -1 });
 PaymentTransactionSchema.index({ status: 1, updatedAt: -1 });
+
+PaymentTransactionSchema.pre('validate', function normalizeTargetWalletBeforeValidate() {
+  const wallet = this.targetWallet?.trim();
+  this.targetWalletNormalized = wallet
+    ? wallet.toLowerCase()
+    : this.targetWalletNormalized;
+});
+
+PaymentTransactionSchema.pre(
+  ['findOneAndUpdate', 'updateOne', 'updateMany'],
+  function preventTvdQuoteOverwrite() {
+    const update = this.getUpdate() as any;
+    const directSet = update?.$set ?? update;
+    const attemptsSnapshotOverwrite =
+      Object.prototype.hasOwnProperty.call(directSet ?? {}, 'tvdQuote') ||
+      Object.keys(directSet ?? {}).some((key) => key.startsWith('tvdQuote.'));
+
+    if (attemptsSnapshotOverwrite) {
+      throw new Error('TVD quote snapshot is immutable');
+    }
+  },
+);

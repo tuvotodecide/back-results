@@ -22,6 +22,9 @@ export class RoledUser {
   @Prop({ default: false })
   active!: boolean;
 
+  @Prop({ type: Number, default: 0, min: 0 })
+  authVersion?: number;
+
   @Prop({ default: null })
   verificationToken?: string;
 
@@ -92,5 +95,6 @@ export const RoledUserSchema = SchemaFactory.createForClass(RoledUser);
 RoledUserSchema.index({ dni: 1 }, { unique: true });
 RoledUserSchema.index({ email: 1 }, { unique: true });
 RoledUserSchema.index({ active: 1 });
+RoledUserSchema.index({ authVersion: 1 });
 RoledUserSchema.index({ verificationToken: 1 });
 RoledUserSchema.index({ passwordResetToken: 1 });

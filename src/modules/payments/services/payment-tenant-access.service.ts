@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { getAddress, isAddress, zeroAddress } from 'viem';
+import { RoledUser, RoledUserDocument } from '@/modules/auth/schemas/roledUser.schema';
 import {
   InstitutionalTenant,
   InstitutionalTenantDocument,
@@ -14,6 +16,10 @@ import {
   TenantAdminAssignment,
   TenantAdminAssignmentDocument,
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
+import {
+  getTenantWalletVerificationState,
+  normalizeTenantWalletAddress,
+} from '@/modules/institutional-tenants/utils/tenant-wallet-verification.util';
 
 @Injectable()
 export class PaymentTenantAccessService {
@@ -22,6 +28,8 @@ export class PaymentTenantAccessService {
     private readonly tenantModel: Model<InstitutionalTenantDocument>,
     @InjectModel(TenantAdminAssignment.name)
     private readonly assignmentModel: Model<TenantAdminAssignmentDocument>,
+    @InjectModel(RoledUser.name)
+    private readonly userModel: Model<RoledUserDocument>,
   ) {}
 
   async resolveTenantForWrite(requester: any, tenantId?: string) {
@@ -124,6 +132,53 @@ export class PaymentTenantAccessService {
 
   getRequesterObjectId(requester: any) {
     return new Types.ObjectId(this.getRequesterId(requester));
+  }
+
+  async resolvePaymentTargetForRequester(
+    tenantId: Types.ObjectId | string,
+    requester: any,
+  ) {
+    const requesterId = this.getRequesterId(requester);
+    const tenantObjectId = new Types.ObjectId(String(tenantId));
+    const requesterObjectId = new Types.ObjectId(requesterId);
+
+    const assignment = await this.assignmentModel
+      .findOne({
+        tenantId: tenantObjectId,
+        userId: requesterObjectId,
+        active: true,
+        status: 'APPROVED',
+      })
+      .lean();
+
+    if (!assignment) {
+      throw new ForbiddenException('No existe assignment institucional aprobado');
+    }
+
+    const user = await this.userModel
+      .findById(requesterObjectId, { active: 1 })
+      .lean();
+    if (!user?.active) {
+      throw new ForbiddenException('Usuario institucional inactivo');
+    }
+
+    const walletState = getTenantWalletVerificationState(assignment);
+    if (!walletState.hasWallet) {
+      throw new BadRequestException('Wallet institucional ausente');
+    }
+    if (!walletState.isWalletVerified) {
+      throw new BadRequestException('Wallet institucional no verificada');
+    }
+    const wallet = normalizeTenantWalletAddress(assignment.accountAddress);
+    if (!wallet || !isAddress(wallet) || getAddress(wallet) === zeroAddress) {
+      throw new BadRequestException('Wallet institucional invalida');
+    }
+
+    return {
+      targetAssignmentId: assignment._id as Types.ObjectId,
+      targetWallet: wallet,
+      targetWalletNormalized: wallet.toLowerCase(),
+    };
   }
 
   private getRequesterId(requester: any) {

@@ -76,7 +76,8 @@ export class MailService {
       await this.sesClient.send(email);
       this.logger.log(
         `Email sent successfully to recipients with the following parameters : ${JSON.stringify({
-          to, template, data
+          recipientCount: emailsList.length,
+          template,
         })}`,
       );
     } catch (error: any) {

@@ -10,7 +10,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { HistoryType } from './create-history.dto';
+import { HistoryOperationKey, HistoryType } from './create-history.dto';
 
 export class FindHistoryDto {
   @ApiProperty({ example: 1, description: 'Número de página', required: false })
@@ -33,12 +33,7 @@ export class FindHistoryDto {
   @IsString()
   txHash?: string;
 
-  @ApiProperty({ example: 'setTvdPerVote', description: 'Filtrar por clave de operación', required: false })
-  @IsOptional()
-  @IsString()
-  operationKey?: string;
-
-  @ApiProperty({ example: 'Cambiar monto TVD por voto', description: 'Filtrar por nombre de operación', required: false })
+  @ApiProperty({ enum: HistoryOperationKey, description: 'Filtrar por operación', required: false, example: HistoryOperationKey.setTvdPerCredit })
   @IsOptional()
   @IsString()
   operationName?: string;

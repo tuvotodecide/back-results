@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -49,6 +50,11 @@ export class InstitutionalVotingAccessService {
 
     const requesterId = requester?.sub ? String(requester.sub) : '';
     if (!requesterId) {
+      throw new ForbiddenException('No autorizado para operar este tenant');
+    }
+
+    const tenant = await this.tenantModel.findById(tenantId, { active: 1 }).lean();
+    if (!tenant || tenant.active !== true) {
       throw new ForbiddenException('No autorizado para operar este tenant');
     }
 
@@ -153,6 +159,69 @@ export class InstitutionalVotingAccessService {
     }
 
     return tenant;
+  }
+
+  async resolveAdminWalletForTenant(userId: string, tenantId: string) {
+    if (!Types.ObjectId.isValid(userId) || !Types.ObjectId.isValid(tenantId)) {
+      throw new BadRequestException('userId o tenantId invalido');
+    }
+
+    const userObjectId = new Types.ObjectId(userId);
+    const tenantObjectId = new Types.ObjectId(tenantId);
+    const tenant = await this.tenantModel
+      .findById(tenantObjectId, { active: 1 })
+      .lean();
+
+    if (!tenant || tenant.active !== true) {
+      throw new ForbiddenException('No autorizado para operar este tenant');
+    }
+
+    const assignments = await this.assignmentModel
+      .find(
+        {
+          tenantId: tenantObjectId,
+          userId: userObjectId,
+          active: true,
+          $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
+        },
+        { tenantId: 1, userId: 1, accountAddress: 1, active: 1, status: 1, institutionalRole: 1 },
+      )
+      .lean();
+
+    if (!assignments.length) {
+      throw new ForbiddenException('No autorizado para operar este tenant');
+    }
+
+    const wallets = assignments
+      .map((assignment) => assignment.accountAddress?.trim())
+      .filter((accountAddress): accountAddress is string => Boolean(accountAddress));
+
+    if (wallets.length !== assignments.length) {
+      throw new ConflictException('La relacion institucional no tiene wallet operativa');
+    }
+
+    const roles = assignments
+      .map((assignment) => assignment.institutionalRole)
+      .filter((role): role is 'PRIMARY' | 'SECONDARY' => Boolean(role));
+    if (roles.length !== assignments.length) {
+      throw new ConflictException('La relacion institucional no tiene rol operativo');
+    }
+
+    const uniqueWallets = new Set(wallets.map((accountAddress) => accountAddress.toLowerCase()));
+    if (uniqueWallets.size !== 1) {
+      throw new ConflictException('Relaciones institucionales incompatibles para este tenant');
+    }
+    const uniqueRoles = new Set(roles);
+    if (uniqueRoles.size !== 1) {
+      throw new ConflictException('Relaciones institucionales incompatibles para este tenant');
+    }
+
+    return {
+      userId,
+      tenantId,
+      accountAddress: wallets[0],
+      institutionalRole: roles[0],
+    };
   }
 
   parseAndValidateDates(

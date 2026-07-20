@@ -20,9 +20,26 @@
     ],
     "files": [
       "test/end-to-end/tenant-access.e2e.spec.ts",
+      "test/integration/institutional-access-recovery-requests.spec.ts",
+      "test/integration/institutional-admin-applications.wallet.spec.ts",
+      "test/integration/institutional-audit.spec.ts",
+      "test/integration/institutional-tenants-admin-management.spec.ts",
+      "test/integration/institutional-wallet-regularization.spec.ts",
       "test/integration/institutional-voting/multi-tenant-access.spec.ts",
+      "test/unit/institutional-access-recovery-requests.service.unit.spec.ts",
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
+      "test/unit/institutional-audit.service.unit.spec.ts",
+      "test/unit/institutional-email-outbox.service.unit.spec.ts",
       "test/unit/institutional-tenants.service.unit.spec.ts"
+    ]
+  },
+  "institutional-tools": {
+    "name": "Institutional maintenance tools - optional preflight/index checks",
+    "flows": [
+      "INSTITUTIONAL_TOOLS"
+    ],
+    "files": [
+      "test/unit/institutional-tools-preflight.unit.spec.ts"
     ]
   },
   "users-zk": {
@@ -205,6 +222,16 @@
       "test/unit/red-enlace-qr-http.provider.unit.spec.ts",
       "test/unit/payment-transactions.service.unit.spec.ts",
       "test/unit/red-enlace-webhook.service.unit.spec.ts"
+    ]
+  },
+  "history": {
+    "name": "Operations history log",
+    "flows": [
+      "HISTORY"
+    ],
+    "files": [
+      "test/integration/history/history.controller.spec.ts",
+      "test/unit/history.service.unit.spec.ts"
     ]
   }
 }

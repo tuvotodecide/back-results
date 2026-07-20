@@ -4,6 +4,41 @@ import { IsDateString, IsEnum, IsMongoId, IsNotEmpty, IsOptional, IsString } fro
 export enum HistoryType {
   MULTISIG = 'multisig',
   OWNER = 'owner',
+  AUTOMATED = 'automated',
+}
+
+export enum HistoryOperationKey {
+  setCoreBlockDuraion = 'Cambio del periodo de congelamiento para el bloque Core',
+  addBeneficiary = 'Nuevo beneficiado para el bloque Core',
+  revokeBeneficiary = 'Beneficiado del bloque Core eliminado',
+  submitMultisigTx = 'Acción multisig propuesto',
+  confirmMultisigTx = 'Acción multisig aprobado',
+  revokeMultisigConfirm = 'Aprobación multisig eliminado',
+  executeMultisigTx = 'Acción multisig ejecutado',
+  addMultisigOwner = 'Nuevo participante multisig',
+  removeMultisigOwner = 'Participante multisig eliminado',
+  changeMultisigReq = 'Umbral multisig actualizado',
+
+  setInstDuration = 'Asignación institucional: Duración de bloqueo actualizado',
+  assignInst = 'Asignación institucional: Tokens asignados',
+  buyInst = 'Asignación institucional: Tokens comprados',
+  releasedInst = 'Asignación institucional: Tokens reclamados',
+
+  createIncentiveCamp = 'Campaña de incentivo creada',
+  pauseIncentive = 'Campaña de incentivo pausada',
+  unpauseIncentive = 'Campaña de incentivo renaudada',
+  grantIncentive = 'Incentivo otorgado',
+  releaseIncentive = 'Incentivo reclamado',
+  
+  setBurnBps = 'Porcentaje de quema actualizado',
+  setTvdPerCredit = 'Valor de TVD por voto actualizado',
+  createElection = 'Elección creada',
+  updateElectionDates = 'Fechas de elección actualizadas',
+  updateRegisteredVoters = 'Votantes registrados actualizados',
+  disableElection = 'Elección deshabilitada',
+  castVote = 'Voto emitido',
+  electionLiquidated = 'Elección liquidada',
+  claimVoteReward = 'Recompensa por voto reclamada'
 }
 
 export class CreateHistoryDto {
@@ -12,12 +47,7 @@ export class CreateHistoryDto {
   @IsNotEmpty()
   txHash!: string;
 
-  @ApiProperty({ example: 'setTvdPerVote, setBurn, pauseRewards, setCoreBlockDuration, ...' })
-  @IsString()
-  @IsNotEmpty()
-  operationKey!: string;
-
-  @ApiProperty({ example: 'Cambiar monto TVD por voto' })
+  @ApiProperty({ enum: HistoryOperationKey, example: HistoryOperationKey.setTvdPerCredit })
   @IsString()
   @IsNotEmpty()
   operationName!: string;

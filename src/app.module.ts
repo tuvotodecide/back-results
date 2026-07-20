@@ -26,8 +26,11 @@ import { WorksheetModule } from './modules/worksheet/worksheet.module';
 import { InstitutionalVotingModule } from './modules/institutional-voting/institutional-voting.module';
 import { InstitutionalTenantsModule } from './modules/institutional-tenants/institutional-tenants.module';
 import { InstitutionalAdminApplicationsModule } from './modules/institutional-admin-applications/institutional-admin-applications.module';
+import { InstitutionalAccessRecoveryRequestsModule } from './modules/institutional-access-recovery-requests/institutional-access-recovery-requests.module';
+import { InstitutionalAuditModule } from './modules/institutional-audit/institutional-audit.module';
 import { HealthChecksModule } from './modules/health-checks/health-checks.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { TvdModule } from './modules/tvd/tvd.module';
 import { HistoryModule } from './modules/history/history.module';
 import { MerkletreeModule } from './modules/merkletree/merkletree.module';
 
@@ -66,7 +69,10 @@ const mockModules =
     InstitutionalVotingModule,
     InstitutionalTenantsModule,
     InstitutionalAdminApplicationsModule,
+    InstitutionalAccessRecoveryRequestsModule,
+    InstitutionalAuditModule,
     PaymentsModule,
+    TvdModule,
     HistoryModule,
     MerkletreeModule,
   ],

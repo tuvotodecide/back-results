@@ -1,4 +1,5 @@
 import appConfig from '@/config/app.config';
+import { HttpService } from '@nestjs/axios';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { ContractsModule } from '@/modules/contracts/contracts.module';
@@ -11,12 +12,11 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import { Connection } from 'mongoose';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import { Connection, Types } from 'mongoose';
 import request from 'supertest';
 import { Department } from '@/modules/geographic/schemas/department.schema';
 import { Municipality } from '@/modules/geographic/schemas/municipality.schema';
-import { seedLocations } from '../utils/seeds/locationsSeed';
 import { seedAdmin, seedUsers } from '../utils/seeds/usersSeed';
 import { TestLoggerModule } from '../utils/module-helpers';
 
@@ -45,23 +45,75 @@ const MailMockService = {
   getTemplate: jest.fn(),
 };
 
+const IdentityHttpMockService = {
+  axiosRef: {
+    get: jest.fn().mockResolvedValue({ data: { ok: true } }),
+  },
+};
+
+function testAccountAddress(seed: string): string {
+  const hex = Array.from(seed)
+    .map((char) => char.charCodeAt(0).toString(16).padStart(2, '0'))
+    .join('');
+  return `0x${hex.padEnd(40, '0').slice(0, 40)}`;
+}
+
+async function seedMinimalVotingLocations(conn: Connection) {
+  const now = new Date();
+  await conn.collection('departments').updateOne(
+    { name: 'La Paz' },
+    {
+      $setOnInsert: {
+        _id: new Types.ObjectId('650000000000000000000001'),
+        name: 'La Paz',
+        active: true,
+        createdAt: now,
+      },
+      $set: { updatedAt: now },
+    },
+    { upsert: true },
+  );
+  await conn.collection('municipalities').updateOne(
+    { name: 'Cochabamba' },
+    {
+      $setOnInsert: {
+        _id: new Types.ObjectId('650000000000000000000002'),
+        name: 'Cochabamba',
+        active: true,
+        createdAt: now,
+      },
+      $set: { updatedAt: now },
+    },
+    { upsert: true },
+  );
+}
+
 describe('Tenant access phase 1 (e2e)', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
-  let mongod: MongoMemoryServer;
+  let mongod: MongoMemoryReplSet;
   let conn: Connection;
   let adminToken: string;
   let accessApproverToken: string;
   let governorToken: string;
   let mayorToken: string;
   let governorUserId: string;
+  let previousIdentityBaseUrl: string | undefined;
+  let previousIdentityApiKey: string | undefined;
 
   beforeAll(async () => {
-    mongod = await MongoMemoryServer.create({
-      instance: {
+    previousIdentityBaseUrl = process.env.IDENTITY_BASE_URL;
+    previousIdentityApiKey = process.env.IDENTITY_API_KEY;
+    process.env.IDENTITY_BASE_URL = 'https://identity.example.test';
+    process.env.IDENTITY_API_KEY = 'identity-test-key';
+
+    mongod = await MongoMemoryReplSet.create({
+      replSet: { count: 1 },
+      instanceOpts: [{
         launchTimeout: 120000,
-      },
+      }],
     });
+    await mongod.waitUntilRunning();
     moduleRef = await Test.createTestingModule({
       imports: [
         CacheModule.register({ isGlobal: true }),
@@ -77,6 +129,8 @@ describe('Tenant access phase 1 (e2e)', () => {
     })
       .overrideProvider(MailService)
       .useValue(MailMockService)
+      .overrideProvider(HttpService)
+      .useValue(IdentityHttpMockService)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -90,7 +144,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     await app.init();
 
     conn = moduleRef.get<Connection>(getConnectionToken());
-    await seedLocations(conn);
+    await seedMinimalVotingLocations(conn);
     const users = await seedUsers(conn);
     const admin = await seedAdmin(conn);
     await conn.collection('roled_users').insertOne({
@@ -132,9 +186,19 @@ describe('Tenant access phase 1 (e2e)', () => {
       .send({ email: users.get('mayorCbba').email, password: 'secret123' })
       .expect(200);
     mayorToken = mayorLogin.body.accessToken;
-  });
+  }, 240000);
 
   afterAll(async () => {
+    if (previousIdentityBaseUrl === undefined) {
+      delete process.env.IDENTITY_BASE_URL;
+    } else {
+      process.env.IDENTITY_BASE_URL = previousIdentityBaseUrl;
+    }
+    if (previousIdentityApiKey === undefined) {
+      delete process.env.IDENTITY_API_KEY;
+    } else {
+      process.env.IDENTITY_API_KEY = previousIdentityApiKey;
+    }
     await app?.close();
     await conn?.close();
     await mongod?.stop();
@@ -155,6 +219,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     email: string;
     name: string;
     institutionName: string;
+    accountAddress?: string;
   }) {
     MailMockService.sendEmail.mockClear();
 
@@ -163,6 +228,8 @@ describe('Tenant access phase 1 (e2e)', () => {
       .send({
         ...payload,
         password: 'secret123',
+        accountAddress:
+          payload.accountAddress ?? testAccountAddress(`${payload.dni}-${payload.email}`),
       })
       .expect(201);
 
@@ -178,6 +245,26 @@ describe('Tenant access phase 1 (e2e)', () => {
       createRes,
       verifyRes,
     };
+  }
+
+  async function createUnverifiedApplication(payload: {
+    dni: string;
+    email: string;
+    name: string;
+    institutionName: string;
+    accountAddress?: string;
+  }) {
+    MailMockService.sendEmail.mockClear();
+
+    return request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications')
+      .send({
+        ...payload,
+        password: 'secret123',
+        accountAddress:
+          payload.accountAddress ?? testAccountAddress(`${payload.dni}-${payload.email}`),
+      })
+      .expect(201);
   }
 
   async function registerAndApproveTerritorialUser(payload: {
@@ -297,11 +384,32 @@ describe('Tenant access phase 1 (e2e)', () => {
           type: 'TENANT',
           tenantId: tenantRes.body.id,
           tenantName: expect.any(String),
+          hasWallet: false,
+          requiresWalletUpdate: true,
+          walletStatus: 'MISSING',
         }),
       ]),
     );
+    expect(JSON.stringify(loginRes.body)).not.toContain('accountAddressNormalized');
     expect(loginRes.body.requiresContextSelection).toBe(true);
     expect(loginRes.body.defaultContext).toBeNull();
+
+    const statusRes = await request(app.getHttpServer())
+      .get('/api/v1/auth/access-status')
+      .auth(loginRes.body.accessToken, { type: 'bearer' })
+      .expect(200);
+
+    expect(statusRes.body.tenant.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId: tenantRes.body.id,
+          hasWallet: false,
+          requiresWalletUpdate: true,
+          walletStatus: 'MISSING',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(statusRes.body)).not.toContain('accountAddressNormalized');
   });
 
   it('mantiene solicitud tenant pendiente y la lista para ADMIN', async () => {
@@ -338,6 +446,30 @@ describe('Tenant access phase 1 (e2e)', () => {
       });
   });
 
+  it('bloquea login de solicitud institucional pendiente de verificación de correo sin consultar Identity', async () => {
+    const email = `pending-email-${Date.now()}@example.com`;
+    await createUnverifiedApplication({
+      dni: `PE${Date.now()}`,
+      email,
+      name: 'Pending Email Tenant',
+      institutionName: `Institution Pending Email ${Date.now()}`,
+    });
+
+    IdentityHttpMockService.axiosRef.get.mockClear();
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.message).toBe('El correo electrónico no ha sido verificado');
+        expect(res.body.code).toBe('EMAIL_NOT_VERIFIED');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
+
+    expect(IdentityHttpMockService.axiosRef.get).not.toHaveBeenCalled();
+  });
+
   it('aprueba acceso tenant y login devuelve contexto tenant por defecto', async () => {
     const email = `approved-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
@@ -370,9 +502,156 @@ describe('Tenant access phase 1 (e2e)', () => {
       expect.objectContaining({
         type: 'TENANT',
         tenantId: approveRes.body.tenantId,
+        hasWallet: true,
+        requiresWalletUpdate: false,
+        walletStatus: 'VERIFIED',
       }),
     );
+    expect(loginRes.body.accessStatus.tenant.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId: approveRes.body.tenantId,
+          hasWallet: true,
+          requiresWalletUpdate: false,
+          walletStatus: 'VERIFIED',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(loginRes.body)).not.toContain('accountAddressNormalized');
     expect(loginRes.body.tenantId).toBe(approveRes.body.tenantId);
+  });
+
+  it('access-status no marca VERIFIED si la wallet aprobada no tiene metadata de verificacion', async () => {
+    const email = `approved-unverified-wallet-${Date.now()}@example.com`;
+    const application = await createAndVerifyApplication({
+      dni: `UW${Date.now()}`,
+      email,
+      name: 'Approved Tenant Unverified Wallet',
+      institutionName: `Institution Unverified Wallet ${Date.now()}`,
+    });
+
+    const approveRes = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { tenantId: new Types.ObjectId(approveRes.body.tenantId) },
+      {
+        $set: {
+          walletVerifiedAt: null,
+          walletVerificationSource: null,
+        },
+      },
+    );
+
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(200);
+
+    expect(loginRes.body.defaultContext).toEqual(
+      expect.objectContaining({
+        type: 'TENANT',
+        tenantId: approveRes.body.tenantId,
+        hasWallet: true,
+        requiresWalletUpdate: true,
+        walletStatus: 'MISSING',
+      }),
+    );
+    expect(loginRes.body.accessStatus.tenant.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tenantId: approveRes.body.tenantId,
+          hasWallet: true,
+          requiresWalletUpdate: true,
+          walletStatus: 'MISSING',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(loginRes.body)).not.toContain('accountAddressNormalized');
+  });
+
+  it('bloquea login de usuario institucional aprobado pero deshabilitado', async () => {
+    const email = `disabled-${Date.now()}@example.com`;
+    const application = await createAndVerifyApplication({
+      dni: `D${Date.now()}`,
+      email,
+      name: 'Disabled Tenant',
+      institutionName: `Institution Disabled ${Date.now()}`,
+    });
+
+    const approveRes = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+
+    await conn.collection('roled_users').updateOne(
+      { _id: new Types.ObjectId(approveRes.body.userId) },
+      { $set: { active: false } },
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.code).toBe('USER_INACTIVE');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
+  });
+
+  it('bloquea login cuando assignment o tenant institucional dejan de estar activos', async () => {
+    const email = `inactive-assignment-${Date.now()}@example.com`;
+    const application = await createAndVerifyApplication({
+      dni: `IA${Date.now()}`,
+      email,
+      name: 'Inactive Assignment Tenant',
+      institutionName: `Institution Inactive Assignment ${Date.now()}`,
+    });
+
+    const approveRes = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      {
+        tenantId: new Types.ObjectId(approveRes.body.tenantId),
+        userId: new Types.ObjectId(approveRes.body.userId),
+      },
+      { $set: { active: false, status: 'REVOKED' } },
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.code).toBe('TENANT_ACCESS_REVOKED');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      {
+        tenantId: new Types.ObjectId(approveRes.body.tenantId),
+        userId: new Types.ObjectId(approveRes.body.userId),
+      },
+      { $set: { active: true, status: 'APPROVED' } },
+    );
+    await conn.collection('institutional_tenants').updateOne(
+      { _id: new Types.ObjectId(approveRes.body.tenantId) },
+      { $set: { active: false } },
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.code).toBe('TENANT_ACCESS_REVOKED');
+        expect(res.body).not.toHaveProperty('accessToken');
+      });
   });
 
   it('rechaza solicitud tenant y bloquea el login del solicitante', async () => {
@@ -618,6 +897,7 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Both Access User',
         password: 'secret123',
         institutionName: `Institution Both ${Date.now()}`,
+        accountAddress: testAccountAddress(`${dni}-${email}`),
       })
       .expect(201);
 
@@ -714,6 +994,7 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Duplicate Pending',
         password: 'secret123',
         institutionName,
+        accountAddress: testAccountAddress(`${dni}-${email}`),
       });
 
     expect(retryRes.status).toBe(409);
@@ -746,11 +1027,17 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Reapply Rejected',
         password: 'secret123',
         institutionName,
+        accountAddress: testAccountAddress(`${dni}-${email}`),
       })
       .expect(201);
 
     expect(retryRes.body.id).toBe(application.createRes.body.id);
     expect(['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL']).toContain(retryRes.body.status);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401);
   });
 
   it('reabre consistentemente una solicitud tenant revocada cuando el usuario vuelve a solicitar', async () => {
@@ -784,11 +1071,17 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Reapply Revoked',
         password: 'secret123',
         institutionName,
+        accountAddress: testAccountAddress(`${dni}-${email}`),
       })
       .expect(201);
 
     expect(retryRes.body.id).toBe(application.createRes.body.id);
     expect(['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL']).toContain(retryRes.body.status);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password: 'secret123' })
+      .expect(401);
   });
 
   it('access-status informa cuando un usuario territorial no tiene acceso tenant todavía', async () => {

@@ -22,7 +22,7 @@ export class PaymentProviderEvent {
   @Prop({ required: true, trim: true, index: true })
   providerReference: string;
 
-  @Prop({ required: true, trim: true, unique: true })
+  @Prop({ required: true, trim: true })
   eventFingerprint: string;
 
   @Prop({ required: true, trim: true, maxlength: 40 })

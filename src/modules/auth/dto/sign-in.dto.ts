@@ -8,6 +8,8 @@ import {
 
 export const tenantAccessStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'REVOKED'] as const;
 export type TenantAccessStatus = typeof tenantAccessStatuses[number];
+export const tenantWalletStatuses = ['MISSING', 'VERIFIED'] as const;
+export type TenantWalletStatus = typeof tenantWalletStatuses[number];
 
 export class AuthContextDto {
   @ApiProperty({
@@ -29,6 +31,15 @@ export class AuthContextDto {
 
   @ApiPropertyOptional()
   membershipId?: string | null;
+
+  @ApiPropertyOptional()
+  hasWallet?: boolean;
+
+  @ApiPropertyOptional()
+  requiresWalletUpdate?: boolean;
+
+  @ApiPropertyOptional({ enum: tenantWalletStatuses })
+  walletStatus?: TenantWalletStatus;
 
   @ApiPropertyOptional()
   votingDepartmentId?: string | null;
@@ -55,6 +66,15 @@ export class TenantAccessItemDto {
 
   @ApiPropertyOptional()
   reason?: string | null;
+
+  @ApiPropertyOptional()
+  hasWallet?: boolean;
+
+  @ApiPropertyOptional()
+  requiresWalletUpdate?: boolean;
+
+  @ApiPropertyOptional({ enum: tenantWalletStatuses })
+  walletStatus?: TenantWalletStatus;
 }
 
 export class TenantAccessSummaryDto {

@@ -136,6 +136,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:module:payments
 
+      - name: Run module tests - Operations history log
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:history
+
       - name: Cleanup .env
         if: always()
         run: shred -u .env || rm -f .env

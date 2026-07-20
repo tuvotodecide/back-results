@@ -5,7 +5,7 @@ import { NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { HistoryService } from '@/modules/history/services/history.service';
 import { History } from '@/modules/history/schemas/history.schema';
-import { HistoryType } from '@/modules/history/dto/create-history.dto';
+import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
 import { chain } from '../utils/chain';
 
 const oid = () => new Types.ObjectId();
@@ -54,8 +54,7 @@ describe('HistoryService (unit)', () => {
     it('crea un history y responde {success, data}', async () => {
       const dto: any = {
         txHash: '0x123',
-        operationKey: 'setTvdPerVote',
-        operationName: 'Cambiar monto TVD por voto',
+        operationName: HistoryOperationKey.setTvdPerCredit,
         type: HistoryType.MULTISIG,
         registerDate: new Date().toISOString(),
       };
@@ -74,8 +73,7 @@ describe('HistoryService (unit)', () => {
 
       await svc.create({
         txHash: '0x123',
-        operationKey: 'setTvdPerVote',
-        operationName: 'Cambiar monto TVD por voto',
+        operationName: HistoryOperationKey.setTvdPerCredit,
         type: HistoryType.MULTISIG,
         registerDate: new Date().toISOString(),
         roledUserId,
@@ -93,8 +91,7 @@ describe('HistoryService (unit)', () => {
     it('no setea ids opcionales cuando no vienen en el dto', async () => {
       await svc.create({
         txHash: '0x123',
-        operationKey: 'setTvdPerVote',
-        operationName: 'Cambiar monto TVD por voto',
+        operationName: HistoryOperationKey.setTvdPerCredit,
         type: HistoryType.MULTISIG,
         registerDate: new Date().toISOString(),
       } as any);
@@ -133,8 +130,7 @@ describe('HistoryService (unit)', () => {
         page: 1,
         limit: 10,
         txHash: '0xabc',
-        operationKey: 'setTvdPerVote',
-        operationName: 'Cambiar monto',
+        operationName: HistoryOperationKey.setTvdPerCredit,
         type: HistoryType.OWNER,
         roledUserId,
         institutionId,
@@ -142,8 +138,7 @@ describe('HistoryService (unit)', () => {
 
       const filters = model.find.mock.calls[0][0];
       expect(filters.txHash).toBe('0xabc');
-      expect(filters.operationKey).toBe('setTvdPerVote');
-      expect(filters.operationName).toBe('Cambiar monto');
+      expect(filters.operationName).toBe(HistoryOperationKey.setTvdPerCredit);
       expect(filters.type).toBe(HistoryType.OWNER);
       expect(filters.roledUserId).toBeInstanceOf(Types.ObjectId);
       expect(filters.institutionId).toBeInstanceOf(Types.ObjectId);
