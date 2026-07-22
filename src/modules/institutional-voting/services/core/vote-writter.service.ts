@@ -79,7 +79,19 @@ export class VoteWritterService {
       returnData = await waitEvent(this.chain, eventName, receipt.blockNumber);
     }
 
-    const block = await this.publicClient.getBlock({blockNumber: receipt.blockNumber});
+    let block: any;
+    for (let i = 0; i < 3; i++) {
+      try {
+        block = await this.publicClient.getBlock({ blockNumber: receipt.blockNumber });
+        break;
+      } catch (error) {
+        if (i >= 2) {
+          throw error;
+        }
+        await this.sleep(i * 2 * 1000);
+      }
+    }
+
     const date = new Date(Number(block.timestamp) * 1000);
     return {returnData, receipt, date: date.toLocaleString()};
   }
@@ -108,6 +120,10 @@ export class VoteWritterService {
       }
     }
   };
+
+  sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   isReceiptTimeoutError(error: any) {
     const name = String(error?.name || '').toLowerCase();
@@ -153,7 +169,7 @@ export class VoteWritterService {
     const callData = VoteContractCalls.createVote(
       this.chain,
       event._id.toString(),
-      '',
+      'default-institution',
       event.name,
       this.dateToUnixTimestamp(event.votingStart!),
       this.dateToUnixTimestamp(event.votingEnd!),
@@ -183,12 +199,22 @@ export class VoteWritterService {
     await this.executeOperation(callData, undefined, undefined);
   }
 
-  async castVote(eventId: string, optionId: string, nullifier: string) {
+  async castVote(
+    eventId: string,
+    optionId: string,
+    voteNullfier: string,
+    rewardHash: string,
+    pia: string[],
+    pib: string[][],
+    pic: string[],
+  ) {
     const callData = VoteContractCalls.castVote(
       this.chain,
       eventId,
       optionId,
-      nullifier
+      voteNullfier,
+      rewardHash,
+      pia, pib, pic
     );
 
     await this.executeOperation(callData, undefined, undefined);

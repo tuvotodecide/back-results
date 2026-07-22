@@ -146,6 +146,10 @@ export default registerAs('app', () => ({
       address: process.env.CORE_VESTING_ADDRESS || '',
       txHash: process.env.CORE_VESTING_TX_HASH || '',
     },
+    multisigWallet: {
+      address: process.env.MULTISIG_WALLET_ADDRESS || '',
+      txHash: process.env.MULTISIG_WALLET_TX_HASH || '',
+    },
     institutionalVesting: {
       address: process.env.INSTITUTIONAL_VESTING_ADDRESS || '',
       txHash: process.env.INSTITUTIONAL_VESTING_TX_HASH || '',

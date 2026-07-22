@@ -1,4 +1,4 @@
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, Hex } from "viem";
 import { availableNetworks } from "./params";
 import votingContractAbi from "../abi/voteContract.json";
 
@@ -15,13 +15,15 @@ function createVote(
   registeredVotersMkRoot: bigint,
   options: string[]
 ) {
+  const voteIdUint = BigInt(`0x${voteId}`);
+
   return {
     to: availableNetworks[chainId].voteContract,
     value: BigInt(0),
     data: encodeFunctionData({
       abi: votingContractAbi,
       functionName: 'createVote',
-      args: [voteId, institutionId, name, startDate, endDate, resultsDate, enabledVotersCount, enabledVotersMkRoot, registeredVotersMkRoot, options],
+      args: [voteIdUint, institutionId, name, startDate, endDate, resultsDate, enabledVotersCount, enabledVotersMkRoot, registeredVotersMkRoot, options],
     })
   }
 }
@@ -48,15 +50,21 @@ function castVote(
   chainId: string,
   voteId: string,
   optionId: string,
-  nullifier: string
+  voteNullifier: string,
+  rewardHash: string,
+  pa: string[],
+  pb: string[][],
+  pc: string[],
 ) {
+  const voteIdUint = BigInt(`0x${voteId}`);
+
   return {
     to: availableNetworks[chainId].voteContract,
     value: BigInt(0),
     data: encodeFunctionData({
       abi: votingContractAbi,
       functionName: 'castVote',
-      args: [voteId, optionId, nullifier],
+      args: [optionId, voteIdUint, voteNullifier, rewardHash, pa, pb, pc],
     })
   }
 }
@@ -92,10 +100,27 @@ function disableVote(
   }
 }
 
+function createInstitution(
+  chainId: string,
+  institutionId: string,
+  admin: Hex
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'createInstitution',
+      args: [institutionId, admin],
+    })
+  }
+}
+
 export const VoteContractCalls = {
   createVote,
   updateVoteSchedule,
   castVote,
   addNewVoters,
-  disableVote
+  disableVote,
+  createInstitution
 }

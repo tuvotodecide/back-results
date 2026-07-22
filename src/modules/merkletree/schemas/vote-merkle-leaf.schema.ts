@@ -3,7 +3,7 @@ import { Types } from "mongoose";
 
 export type VoteMerkleLeafDocument = VoteMerkleLeaf & Document;
 
-@Schema({ timestamps: true, collection: 'ci-merkle-leafs' })
+@Schema({ timestamps: true, collection: 'vote-merkle-leafs' })
 export class VoteMerkleLeaf {
   @Prop({ type: Types.ObjectId, required: true })
   electionId!: Types.ObjectId;

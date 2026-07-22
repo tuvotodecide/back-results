@@ -32,6 +32,11 @@ export class EmitVoteService {
 
   async emitVote(
     optionId: string,
+    voteNullfier: string,
+    rewardHash: string,
+    pia: string[],
+    pib: string[][],
+    pic: string[],
     zkProof: string,
   ): Promise<AuthorizationResponseMessage> {
     const response = await this.zkAuthService.zkRequestCallback('vote', zkProof);
@@ -44,14 +49,14 @@ export class EmitVoteService {
 
     try {
       if (optionId === 'blank') {
-        await this.voteWritterService.castVote(eventId, 'BLANK', nullifier);
+        await this.voteWritterService.castVote(eventId, 'BLANK', voteNullfier, rewardHash, pia, pib, pic);
       } else {
         const option = await this.votingOptionModel.findById(optionId).exec();
         if (!option) {
           throw new NotFoundException('Voting option not found');
         }
 
-        await this.voteWritterService.castVote(eventId, option.name, nullifier);
+        await this.voteWritterService.castVote(eventId, option.name, voteNullfier, rewardHash, pia, pib, pic);
       }
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {

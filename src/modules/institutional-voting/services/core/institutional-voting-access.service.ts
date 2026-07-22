@@ -22,8 +22,8 @@ import {
 
 @Injectable()
 export class InstitutionalVotingAccessService {
-  private readonly createLeadHours = 12;
-  private readonly officialPublicationLeadHours = 6;
+  private readonly createLeadHours = 0;
+  private readonly officialPublicationLeadHours = 0;
 
   constructor(
     @InjectModel(VotingEvent.name)
