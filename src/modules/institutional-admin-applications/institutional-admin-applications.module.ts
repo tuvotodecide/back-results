@@ -5,6 +5,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { MailModule } from '../mail/mail.module';
 import { InstitutionalAuditModule } from '../institutional-audit/institutional-audit.module';
+import { HistoryModule } from '../history/history.module';
 import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
 import {
   InstitutionalTenant,
@@ -46,6 +47,7 @@ import { InstitutionalPublicRateLimitGuard } from './guards/institutional-public
     HttpModule,
     MailModule,
     InstitutionalAuditModule,
+    HistoryModule,
   ],
   controllers: [InstitutionalAdminApplicationsController],
   providers: [

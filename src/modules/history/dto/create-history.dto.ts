@@ -30,6 +30,10 @@ export enum HistoryOperationKey {
   grantIncentive = 'Incentivo otorgado',
   releaseIncentive = 'Incentivo reclamado',
   
+  institutionCreated = 'Institución creada',
+  institutionWalletAdded = 'Institución: nueva wallet asignada',
+  institutionAdminSet = 'Institución: cambio de admin',
+
   setBurnBps = 'Porcentaje de quema actualizado',
   setTvdPerCredit = 'Valor de TVD por voto actualizado',
   createElection = 'Elección creada',
@@ -39,6 +43,58 @@ export enum HistoryOperationKey {
   castVote = 'Voto emitido',
   electionLiquidated = 'Elección liquidada',
   claimVoteReward = 'Recompensa por voto reclamada'
+}
+
+export type HistoryOperationRelatedFnEntry = {
+  fn: string[];
+  isEvent: boolean;
+  amountParam: string;
+};
+
+export const HistoryOperationRelatedFn: Record<string, HistoryOperationRelatedFnEntry> = {
+  assignInst: {
+    fn: ['function assign(address institution, uint256 amount)'],
+    isEvent: false,
+    amountParam: 'amount',
+  },
+  buyInst: {
+    fn: ['function assign(address institution, uint256 amount)'],
+    isEvent: false,
+    amountParam: 'amount',
+  },
+  releasedInst: {
+    fn: ['event TokensReleased(address indexed institution, uint256 amount)'],
+    isEvent: true,
+    amountParam: 'amount',
+  },
+  grantIncentive: {
+    fn: [
+      'event IncentiveAssigned(uint256 indexed campaignId, address indexed recipient, uint256 amount)',
+      'event IncentiveTransferred(uint256 indexed campaignId, address indexed recipient, uint256 amount)'
+    ],
+    isEvent: true,
+    amountParam: 'amount'
+  },
+  releaseIncentive: {
+    fn: ['event IncentiveClaimed(uint256 indexed campaignId, address indexed recipient, uint256 amount)'],
+    isEvent: true,
+    amountParam: 'amount'
+  },
+  setTvdPerCredit: {
+    fn: ['function setTvdPerCredit(uint256 newRate)'],
+    isEvent: false,
+    amountParam: 'newRate'
+  },
+  createElection: {
+    fn: ['event TopUp(address indexed institution, uint256 electionId, uint256 creditsPurchased, uint256 tvdLocked)'],
+    isEvent: true,
+    amountParam: 'tvdLocked'
+  },
+  castVote: {
+    fn: ['event VoteConsumed(address indexed institution, uint256 electionId, uint256 tvdAccrued)'],
+    isEvent: true,
+    amountParam: 'tvdAccrued'
+  },
 }
 
 export class CreateHistoryDto {

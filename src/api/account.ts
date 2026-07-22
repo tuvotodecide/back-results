@@ -1,17 +1,19 @@
-import { Address, createPublicClient, getContract, http } from 'viem';
+import { Address, createPublicClient, getContract, Hex, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
   availableNetworks,
   FACTORY_ADDRESS as RAW_FACTORY_ADDRESS,
   sponsorshipPolicyId,
 } from './params';
-import { entryPoint07Address } from 'viem/account-abstraction';
+import { entryPoint07Address, toCoinbaseSmartAccount } from 'viem/account-abstraction';
 import { toSimpleSmartAccount } from 'permissionless/accounts';
 
 import walletAbi from './contracts/SimpleAccount.json';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { createSmartAccountClient } from 'permissionless';
 
+const RECEIPT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
+const RECEIPT_POLL_INTERVAL_MS = 2000;
 const CHAIN_KEY = (
   process.env.CHAINA) as keyof typeof availableNetworks;
 
@@ -53,6 +55,39 @@ export async function getAccount(privateKey, address, chain) {
   });
 
   return { account, publicClient };
+}
+
+async function getCoinbaseAccount(privateKey: Hex, chain: string) {
+  const {chain: chainConfig, bundler} = availableNetworks[chain];
+
+  const publicClient = createPublicClient({
+    chain: chainConfig,
+    transport: http(bundler),
+  });
+
+  const account = await toCoinbaseSmartAccount({
+    client: publicClient,
+    owners: [privateKeyToAccount(privateKey)],
+    version: '1.1',
+  });
+
+  const pimlicoClient = createPimlicoClient({
+    chain: chainConfig,
+    transport: http(bundler),
+    entryPoint: {
+      address: entryPoint07Address,
+      version: '0.7',
+    },
+  });
+
+  const smartAccountClient = createSmartAccountClient({
+    account,
+    chain: chainConfig,
+    bundlerTransport: http(bundler),
+    paymaster: pimlicoClient,
+  });
+
+  return { publicClient, smartAccountClient }
 }
 
 export async function executeOperation(
@@ -113,6 +148,79 @@ export async function executeOperation(
   });
   const date = new Date(Number(block.timestamp) * 1000);
   return { returnData, receipt, date: date.toLocaleString() };
+}
+
+export async function executeCoinbaseOp(
+  privateKey: Hex,
+  chain: string,
+  callData: any,
+  waitEvent: ((chainId: string, eventName: string, fromBlock: number) => Promise<any>) | undefined,
+  eventName: string | undefined,
+) {
+  const { publicClient, smartAccountClient } = await getCoinbaseAccount(privateKey, chain);
+
+  const txHash = await smartAccountClient.sendTransaction(callData);
+  const receipt = await waitForReceiptWithFallback(publicClient, txHash);
+
+  let returnData: any;
+  if (waitEvent && eventName) {
+    returnData = await waitEvent(chain, eventName, receipt.blockNumber);
+  }
+
+  let block: any;
+  for (let i = 0; i < 3; i++) {
+    try {
+      block = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
+      break;
+    } catch (error) {
+      if (i >= 2) {
+        throw error;
+      }
+      await sleep(i * 2 * 1000);
+    }
+  }
+
+  const date = new Date(Number(block.timestamp) * 1000);
+  return {returnData, receipt, txHash, date: date.toLocaleString()};
+}
+
+async function waitForReceiptWithFallback(publicClient: any, txHash: `0x${string}`) {
+  try {
+    return await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: RECEIPT_WAIT_TIMEOUT_MS,
+      pollingInterval: RECEIPT_POLL_INTERVAL_MS,
+    });
+  } catch (error) {
+    if (!isReceiptTimeoutError(error)) {
+      throw error;
+    }
+
+    try {
+      return await publicClient.getTransactionReceipt({ hash: txHash });
+    } catch {
+      const timeoutError = new Error(
+        `Timed out while waiting for transaction receipt for ${txHash}`,
+      );
+      timeoutError.name = 'WaitForTransactionReceiptTimeoutError';
+      timeoutError.cause = error;
+      throw timeoutError;
+    }
+  }
+};
+
+function isReceiptTimeoutError(error: any) {
+  const name = String(error?.name || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    name.includes('waitfortransactionreceipttimeouterror') ||
+    message.includes('waitfortransactionreceipttimeouterror') ||
+    message.includes('timed out while waiting for transaction')
+  );
+};
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function isWallet(address) {

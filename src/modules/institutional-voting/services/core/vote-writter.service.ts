@@ -139,7 +139,7 @@ export class VoteWritterService {
     return Math.floor(date.getTime() / 1000);
   }
 
-  async createVote(event: VotingEventDocument, voters: string[], options: string[]) {
+  async createVote(event: VotingEventDocument, institutionId: string, voters: string[], options: string[]) {
     const secrets = voters.map(() => {
       // Generate 32 bytes (256 bits)
       const buffer = randomBytes(32);
@@ -169,7 +169,7 @@ export class VoteWritterService {
     const callData = VoteContractCalls.createVote(
       this.chain,
       event._id.toString(),
-      'default-institution',
+      institutionId,
       event.name,
       this.dateToUnixTimestamp(event.votingStart!),
       this.dateToUnixTimestamp(event.votingEnd!),

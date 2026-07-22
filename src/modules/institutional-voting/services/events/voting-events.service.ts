@@ -1172,6 +1172,7 @@ export class VotingEventsService {
 
   async confirmOfficialPublication(
     eventId: string,
+    institutionId: string,
     dto: ConfirmOfficialPublicationDto = {},
     requester: any,
   ) {
@@ -1235,7 +1236,7 @@ export class VotingEventsService {
       });
     }
 
-    const nullifiers = await this.voteWritterService.createVote(event, convotatedUsers, readiness.activeOptions.map((o) => String(o.name)));
+    const nullifiers = await this.voteWritterService.createVote(event, institutionId, convotatedUsers, readiness.activeOptions.map((o) => String(o.name)));
     const credentialData = await this.issuerService.issueCredential(
       dids,
       event._id.toString(),
@@ -1271,10 +1272,11 @@ export class VotingEventsService {
 
   async publishEvent(
     eventId: string,
+    institutionId: string,
     requester: any,
     dto: ConfirmOfficialPublicationDto = {},
   ) {
-    return this.confirmOfficialPublication(eventId, dto, requester);
+    return this.confirmOfficialPublication(eventId, institutionId, dto, requester);
   }
 
   async disableEvent(eventId: string, requester: any) {

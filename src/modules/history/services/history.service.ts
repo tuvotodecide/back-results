@@ -1,17 +1,25 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
-import { Model, Types } from 'mongoose';
-import { CreateHistoryDto } from '../dto/create-history.dto';
+import { ClientSession, Model, Types } from 'mongoose';
+import { CreateHistoryDto, HistoryOperationKey, HistoryOperationRelatedFn } from '../dto/create-history.dto';
 import { FindHistoryDto } from '../dto/find-history.dto';
 import { History, HistoryDocument } from '../schemas/history.schema';
+import { ethers, formatEther, LogDescription } from 'ethers';
+import { availableNetworks } from '@/api/params';
 
 @Injectable()
 export class HistoryService {
+  private readonly provider: ethers.JsonRpcProvider;
+
   constructor(
     @InjectModel(History.name) private historyModel: Model<HistoryDocument>,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+    const chain = this.configService.get<string>('app.blockchain.chain')!;
+    const {bundler} = availableNetworks[chain];
+    this.provider = new ethers.JsonRpcProvider(bundler);
+  }
 
   async create(createHistoryDto: CreateHistoryDto) {
     const history = new this.historyModel({
@@ -28,6 +36,28 @@ export class HistoryService {
     });
 
     const saved = await history.save();
+
+    return {
+      success: true,
+      data: saved,
+    };
+  }
+
+  async createWithSession(createHistoryDto: CreateHistoryDto, session: ClientSession) {
+    const history = new this.historyModel({
+      ...createHistoryDto,
+      roledUserId: createHistoryDto.roledUserId
+        ? new Types.ObjectId(createHistoryDto.roledUserId)
+        : undefined,
+      institutionId: createHistoryDto.institutionId
+        ? new Types.ObjectId(createHistoryDto.institutionId)
+        : undefined,
+      electionId: createHistoryDto.electionId
+        ? new Types.ObjectId(createHistoryDto.electionId)
+        : undefined,
+    });
+
+    const saved = await history.save({ session });
 
     return {
       success: true,
@@ -76,6 +106,8 @@ export class HistoryService {
       this.historyModel.countDocuments(filters),
     ]);
 
+    const itemsWithAmounts = await this.getRelatedAmounts(items);
+
     return {
       success: true,
       data: {
@@ -83,9 +115,67 @@ export class HistoryService {
         limit,
         page,
         totalPages: Math.ceil(totalitems / limit),
-        items,
+        items: itemsWithAmounts,
       },
     };
+  }
+
+  async getRelatedAmounts(items: HistoryDocument[]) {
+    const promises = items.map(async (item) => {
+      const keys = Object.keys(HistoryOperationKey).filter(
+        (key) => HistoryOperationKey[key] === item.operationName
+      );
+      const amountParam = await this.getAmountParamFromOp(keys[0], item.txHash);
+
+      if (!amountParam) return item;
+      return {
+        _id: item._id,
+        operationName: item.operationName,
+        description: item.description,
+        type: item.type,
+        registerDate: item.registerDate,
+        roledUserId: item.roledUserId,
+        institutionId: item.institutionId,
+        electionId: item.electionId,
+        relatedAmount: amountParam
+      }
+    });
+
+    return Promise.all(promises);
+  }
+
+  async getAmountParamFromOp(opKey: string, txHash: string) {
+    const relatedFn = HistoryOperationRelatedFn[opKey];
+    if(!relatedFn) {
+      return null;
+    }
+
+    const iface = new ethers.Interface(relatedFn.fn);
+
+    if(relatedFn.isEvent) {
+      const receipt = await this.provider.getTransactionReceipt(txHash);
+      if (!receipt) return null;
+
+      for (const log of receipt.logs) {
+        let parsed: LogDescription | null;
+        try {
+          parsed = iface.parseLog(log);
+        } catch {
+          continue; // log from a different contract/event, skip
+        }
+
+        if (!parsed) return null;
+        return formatEther(parsed.args[relatedFn.amountParam]);
+      }
+    } else {
+      const tx = await this.provider.getTransaction(txHash);
+      if (!tx) return null;
+
+      const decoded = iface.parseTransaction({ data: tx.data, value: tx.value });
+      if (!decoded) return null;
+
+      return formatEther(decoded.args[relatedFn.amountParam]);
+    }
   }
 
   async findOne(id: string) {

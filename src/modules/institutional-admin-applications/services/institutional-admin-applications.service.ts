@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -12,9 +13,10 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { ClientSession, Model, Types } from 'mongoose';
 import bcrypt from 'bcrypt';
-import { isAddress } from 'viem';
+import { Hex, isAddress } from 'viem';
 import { InstitutionalEmailOutboxService } from '@/modules/mail/institutional-email-outbox.service';
 import { InstitutionalAuditService } from '@/modules/institutional-audit/services/institutional-audit.service';
+import { HistoryService } from '@/modules/history/services/history.service';
 import { RoledUser, RoledUserDocument } from '@/modules/auth/schemas/roledUser.schema';
 import {
   InstitutionalTenant,
@@ -32,6 +34,9 @@ import {
 } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { InstitutionalAdminApplication, InstitutionalAdminApplicationDocument } from '../schemas/institutional-admin-application.schema';
+import { executeCoinbaseOp } from '@/api/account';
+import { VoteContractCalls } from '@/api/vote';
+import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
 
 type IdentityHasDniResponse = {
   ok: boolean;
@@ -39,6 +44,9 @@ type IdentityHasDniResponse = {
 
 @Injectable()
 export class InstitutionalAdminApplicationsService {
+  private readonly chain: string;
+  private readonly pk: string;
+
   constructor(
     @InjectModel(InstitutionalAdminApplication.name)
     private readonly applicationModel: Model<InstitutionalAdminApplicationDocument>,
@@ -54,7 +62,11 @@ export class InstitutionalAdminApplicationsService {
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
     private readonly auditService: InstitutionalAuditService,
-  ) {}
+    private readonly historyService: HistoryService,
+  ) {
+    this.chain = this.configService.get<string>('app.blockchain.chain')!;
+    this.pk = this.configService.get<string>('app.blockchain.privateKey')!;
+  }
 
   async createApplication(dto: CreateInstitutionalAdminApplicationDto) {
     const email = dto.email.trim().toLowerCase();
@@ -569,10 +581,35 @@ export class InstitutionalAdminApplicationsService {
           userId: String(user._id),
           institutionalRole,
         };
+
+        await this.createInstitutionOnChain(applicationId, app.accountAddress, session)
       });
       return response;
     } finally {
       await session.endSession();
+    }
+  }
+
+  async createInstitutionOnChain(applicationId: string, adminAddr: string, session: ClientSession) {
+    try {
+      // Create institution
+      const response = await executeCoinbaseOp(
+        this.pk as Hex,
+        this.chain,
+        VoteContractCalls.createInstitution(this.chain, applicationId, adminAddr as Hex),
+        undefined,
+        undefined
+      );
+
+      await this.historyService.createWithSession({
+        txHash: response.txHash,
+        operationName: HistoryOperationKey.institutionCreated,
+        type: HistoryType.AUTOMATED,
+        registerDate: new Date().toISOString(),
+        institutionId: applicationId,
+      }, session);
+    } catch (error) {
+      throw new Error('Failed to create insitution on-chain', { cause: error });
     }
   }
 
