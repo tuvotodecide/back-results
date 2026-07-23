@@ -1,4 +1,4 @@
-import { encodeFunctionData, Hex } from "viem";
+import { createPublicClient, encodeFunctionData, formatEther, getContract, Hex, http } from "viem";
 import { availableNetworks } from "./params";
 import votingContractAbi from "../abi/voteContract.json";
 
@@ -117,6 +117,38 @@ function createInstitution(
   }
 }
 
+function getVoteReadContract(chainId: string) {
+  const { voteContract, bundler, chain } = availableNetworks[chainId];
+
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(bundler),
+  });
+
+  const vote = getContract({
+    address: voteContract,
+    abi: votingContractAbi,
+    client: {public: publicClient},
+  });
+
+  return vote;
+}
+
+function voteIdToHex(voteId: string) {
+  return BigInt(`0x${voteId}`);
+}
+
+async function rewardByVote(chainId: string) {
+  const vote = getVoteReadContract(chainId);
+  const reward = await vote.read.rewardByVote();
+
+  if(typeof reward === 'bigint') {
+    return BigInt(formatEther(reward));
+  } else {
+    throw new Error('On-chain vote reward is not bigint');
+  }
+}
+
 export const VoteContractCalls = {
   createVote,
   updateVoteSchedule,
@@ -124,4 +156,8 @@ export const VoteContractCalls = {
   addNewVoters,
   disableVote,
   createInstitution
+}
+
+export const VoteContractReads = {
+  rewardByVote,
 }
