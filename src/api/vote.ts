@@ -57,6 +57,7 @@ function castVote(
   pc: string[],
 ) {
   const voteIdUint = BigInt(`0x${voteId}`);
+  const swappedPb = pb.map(p => p.reverse());
 
   return {
     to: availableNetworks[chainId].voteContract,
@@ -64,7 +65,7 @@ function castVote(
     data: encodeFunctionData({
       abi: votingContractAbi,
       functionName: 'castVote',
-      args: [optionId, voteIdUint, voteNullifier, rewardHash, pa, pb, pc],
+      args: [optionId, voteIdUint, voteNullifier, rewardHash, pa, swappedPb, pc],
     })
   }
 }

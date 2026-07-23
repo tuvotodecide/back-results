@@ -3,7 +3,9 @@ import {
   Controller,
   Get,
   Headers,
+  Logger,
   Param,
+  ParseArrayPipe,
   Post,
   Query,
   Res,
@@ -14,7 +16,6 @@ import { Response } from 'express';
 import { Public } from '@/core/decorators/public.decorator';
 import { InstitutionalVotingService } from '../services/institutional-voting.service';
 import { CreateParticipationDto } from '../dto/participation.dto';
-import { EmitVoteDto } from '../dto/emit-vote.dto';
 import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
 
 @ApiTags('Institutional Voting Public')
@@ -292,20 +293,27 @@ export class InstitutionalVotingPublicController {
     name: 'pia',
     isArray: true,
     type: String,
-    description: 'Componente A de la prueba ZK (valores numéricos en string).',
+    description: 'Componente A de la prueba ZK (valores numéricos en string). Enviar como pia=1,2,3...',
   })
   @ApiQuery({
-    name: 'pib',
+    name: 'piba',
     isArray: true,
     type: String,
     description:
-      'Componente B de la prueba ZK: matriz [2][2] de valores numéricos en string. Enviar como pib[0][0]=...&pib[0][1]=...&pib[1][0]=...&pib[1][1]=...',
+      'Componente B de la prueba ZK, primera fila [2]. Enviar como piba=1,2,3...',
+  })
+  @ApiQuery({
+    name: 'pibb',
+    isArray: true,
+    type: String,
+    description:
+      'Componente B de la prueba ZK, segunda fila [2]. Enviar como pibb=1,2,3...',
   })
   @ApiQuery({
     name: 'pic',
     isArray: true,
     type: String,
-    description: 'Componente C de la prueba ZK (valores numéricos en string).',
+    description: 'Componente C de la prueba ZK (valores numéricos en string). Enviar como pic=1,2,3...',
   })
   @ApiBody({
     description: 'Prueba ZK enviada en el body de la petición (raw body, no JSON).',
@@ -316,18 +324,26 @@ export class InstitutionalVotingPublicController {
     description: 'Participación registrada correctamente.',
   })
   async uploadVote(
-    @Query() query: EmitVoteDto,
+    @Query('optionId') optionId: string,
+    @Query('voteNullfier') voteNullfier: string,
+    @Query('rewardHash') rewardHash: string,
+    @Query('pia', new ParseArrayPipe({ items: String, separator: ',' })) pia: string[],
+    @Query('piba', new ParseArrayPipe({ items: String, separator: ',' })) piba: string[],
+    @Query('pibb', new ParseArrayPipe({ items: String, separator: ',' })) pibb: string[],
+    @Query('pic', new ParseArrayPipe({ items: String, separator: ',' })) pic: string[],
     @Body() body: string,
     @Res() res: Response,
   ) {
     const zkProof = body;
+    const pib = [piba, pibb];
+
     const response = await this.institutionalVotingService.emitVote(
-      query.optionId,
-      query.voteNullfier,
-      query.rewardHash,
-      query.pia,
-      query.pib,
-      query.pic,
+      optionId,
+      voteNullfier,
+      rewardHash,
+      pia,
+      pib,
+      pic,
       zkProof,
     );
 
