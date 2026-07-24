@@ -189,11 +189,13 @@ export class InstitutionalVotingAdminController {
       'Confirma la publicación oficial luego del paso externo de MetaMask y cambia el estado a OFFICIALLY_PUBLISHED, bloqueando edición estructural.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({ name: 'institutionId', description: 'ID de la institución.' })
   @ApiBody({ type: ConfirmOfficialPublicationDto })
   @ApiResponse({ status: 200, description: 'Publicación oficial confirmada.' })
   @ApiResponse({ status: 400, description: 'No cumple condiciones para publicación oficial.' })
   confirmOfficialPublication(
     @Param('eventId') eventId: string,
+    @Query('institutionId') institutionId: string,
     @Body() dto: ConfirmOfficialPublicationDto,
     @Req() req: any,
   ) {
@@ -207,10 +209,11 @@ export class InstitutionalVotingAdminController {
       'Compatibilidad temporal: reutiliza la confirmación oficial y requiere que el evento esté en READY_FOR_REVIEW.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({ name: 'institutionId', description: 'ID de la institución.' })
   @ApiResponse({ status: 200, description: 'Evento publicado.' })
   @ApiResponse({ status: 400, description: 'Faltan precondiciones para publicar.' })
-  publishEvent(@Param('eventId') eventId: string, @Req() req: any) {
-    return this.institutionalVotingService.publishEvent(eventId, req.user);
+  publishEvent(@Param('eventId') eventId: string, @Query('institutionId') institutionId: string, @Req() req: any) {
+    return this.institutionalVotingService.publishEvent(eventId, institutionId, req.user);
   }
 
   @Post(':eventId/roles')
