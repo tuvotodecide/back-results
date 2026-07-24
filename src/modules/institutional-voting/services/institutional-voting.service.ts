@@ -87,15 +87,14 @@ export class InstitutionalVotingService {
 
   confirmOfficialPublication(
     eventId: string,
-    institutionId: string,
     dto: ConfirmOfficialPublicationDto,
     requester: any,
   ) {
-    return this.votingEventsService.confirmOfficialPublication(eventId, institutionId, dto, requester);
+    return this.votingEventsService.confirmOfficialPublication(eventId, dto, requester);
   }
 
-  publishEvent(eventId: string, institutionId: string, requester: any) {
-    return this.votingEventsService.publishEvent(eventId, institutionId, requester);
+  publishEvent(eventId: string, requester: any) {
+    return this.votingEventsService.publishEvent(eventId, requester);
   }
 
   disableEvent(eventId: string, requester: any) {

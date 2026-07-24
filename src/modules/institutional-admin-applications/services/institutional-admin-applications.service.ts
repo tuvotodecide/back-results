@@ -82,14 +82,17 @@ export class InstitutionalAdminApplicationsService {
     const existingTenant =
       selectedTenant ?? (await this.tenantModel.findOne({ nameNorm: institutionNameNorm }));
     const existingUser = await this.resolveUserByEmailOrDni(email, dni);
+    const sameInstitutionFilter = existingTenant
+      ? { tenantId: existingTenant._id }
+      : { institutionNameNorm };
 
     const latestSameInstitutionApplication = await this.applicationModel
       .findOne({
-        institutionNameNorm,
-          $or: [
-            { email },
-            { dni },
-            ...(existingUser?._id ? [{ userId: this.toObjectId(existingUser._id) }] : []),
+        ...sameInstitutionFilter,
+        $or: [
+          { email },
+          { dni },
+          ...(existingUser?._id ? [{ userId: this.toObjectId(existingUser._id) }] : []),
         ],
       })
       .sort({ createdAt: -1, _id: -1 });
@@ -109,21 +112,17 @@ export class InstitutionalAdminApplicationsService {
         const currentStatus =
           existingMembership.status ?? (existingMembership.active ? 'APPROVED' : 'REVOKED');
         if (currentStatus === 'APPROVED') {
-          throw new ConflictException(
-            'El usuario ya tiene acceso institucional aprobado para este tenant',
-          );
+          throw new ConflictException('Ya administras esta institución.');
         }
-        throw new ConflictException('La solicitud institucional ya existe y sigue pendiente');
+        throw new ConflictException('Ya tienes una solicitud pendiente para esta institución.');
       }
     }
 
     if (latestSameInstitutionApplication && ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED'].includes(latestSameInstitutionApplication.status)) {
       if (latestSameInstitutionApplication.status === 'APPROVED') {
-        throw new ConflictException(
-          'El usuario ya tiene acceso institucional aprobado para este tenant',
-        );
+        throw new ConflictException('Ya administras esta institución.');
       }
-      throw new ConflictException('La solicitud institucional ya existe y sigue pendiente');
+      throw new ConflictException('Ya tienes una solicitud pendiente para esta institución.');
     }
 
     await this.assertWalletBelongsToDni(accountAddress, dni);
@@ -208,28 +207,6 @@ export class InstitutionalAdminApplicationsService {
       });
     }
 
-    if (!shouldRequireEmailVerification && created.tenantId && created.userId) {
-      await this.assignmentModel.findOneAndUpdate(
-        {
-          tenantId: created.tenantId,
-          userId: created.userId,
-        },
-        {
-          $set: {
-            status: 'PENDING',
-            active: false,
-            requestedAt: new Date(),
-            approvedAt: null,
-            rejectedAt: null,
-            revokedAt: null,
-            approvedBy: null,
-            reason: null,
-          },
-        },
-        { upsert: true, returnDocument: 'after' },
-      );
-    }
-
     if (shouldRequireEmailVerification && verificationToken) {
       await this.sendVerificationEmail(created._id, created.email, created.name, verificationToken);
     }
@@ -279,28 +256,6 @@ export class InstitutionalAdminApplicationsService {
     app.verificationTokenExpiresAt = undefined;
     app.emailVerifiedAt = new Date();
 
-    if (app.tenantId && app.userId) {
-      await this.assignmentModel.findOneAndUpdate(
-        {
-          tenantId: app.tenantId,
-          userId: app.userId,
-        },
-        {
-          $set: {
-            status: 'PENDING',
-            active: false,
-            requestedAt: new Date(),
-            approvedAt: null,
-            rejectedAt: null,
-            revokedAt: null,
-            approvedBy: null,
-            reason: null,
-          },
-        },
-        { upsert: true, returnDocument: 'after' },
-      );
-    }
-
     await app.save();
     await this.auditService.record({
       tenantId: app.tenantId ?? null,
@@ -314,7 +269,7 @@ export class InstitutionalAdminApplicationsService {
       newState: {
         status: app.status,
         emailVerified: true,
-        assignmentPending: Boolean(app.tenantId && app.userId),
+        approvalTarget: app.tenantId ? 'PRIMARY' : 'SUPERADMIN',
       },
     });
 

@@ -12,6 +12,7 @@ import { MailService } from '@/modules/mail/mail.service';
 import { AccessApproverGuard } from '@/core/guards/access-approver.guard';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { InstitutionalAdminApplicationsModule } from '@/modules/institutional-admin-applications/institutional-admin-applications.module';
+import { InstitutionalAdminApplication } from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
 import { InstitutionalApplicationReviewGuard } from '@/modules/institutional-admin-applications/guards/institutional-application-review.guard';
 import { InstitutionalTenant } from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
@@ -107,6 +108,7 @@ describe('Institutional admin application wallet validation (integration)', () =
       conn.model(VotingEvent.name) as any,
       conn.model(InstitutionalTenant.name) as any,
       conn.model(TenantAdminAssignment.name) as any,
+      conn.model(InstitutionalAdminApplication.name) as any,
     );
   });
 

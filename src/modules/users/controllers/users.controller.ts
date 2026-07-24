@@ -26,6 +26,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
+import { UserNotification } from '@/modules/notifications/schemas/user-notification.schema';
 import {
   AttestParticipationDto,
   AttestParticipationResponseDto,
@@ -41,6 +42,8 @@ export class UsersController {
     private readonly usersService: UsersService,
     @InjectModel(NotificationLog.name)
     private logModel: Model<NotificationLog>,
+    @InjectModel(UserNotification.name)
+    private userNotifModel: Model<UserNotification>,
   ) {}
 
   @Post('register')
@@ -140,15 +143,24 @@ export class UsersController {
 
     const skip = (Number(page) - 1) * Number(limit);
 
-    const [data, total] = await Promise.all([
+    const fetchLimit = Math.max(skip + Number(limit), Number(limit));
+    const [logs, userNotifications, logTotal, userNotificationTotal] = await Promise.all([
       this.logModel
         .find({ topic: { $in: topics } })
         .sort({ createdAt: -1, _id: -1 }) // _id como respaldo
-        .skip(skip)
-        .limit(Number(limit))
+        .limit(fetchLimit)
+        .lean(),
+      this.userNotifModel
+        .find({ userId: user._id })
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(fetchLimit)
         .lean(),
       this.logModel.countDocuments({ topic: { $in: topics } }),
+      this.userNotifModel.countDocuments({ userId: user._id }),
     ]);
+    const merged = this.mergeNotificationRows(logs, userNotifications);
+    const data = merged.slice(skip, skip + Number(limit));
+    const total = Math.max(merged.length, logTotal, userNotificationTotal);
 
     return {
       data,
@@ -157,6 +169,29 @@ export class UsersController {
       limit: Number(limit),
       totalPages: Math.ceil(total / Number(limit)),
     };
+  }
+
+  private mergeNotificationRows(
+    logs: any[] = [],
+    userNotifications: any[] = [],
+  ) {
+    const seen = new Set<string>();
+    return [...logs, ...userNotifications]
+      .sort((a, b) => {
+        const bTime = new Date(b.createdAt ?? 0).getTime();
+        const aTime = new Date(a.createdAt ?? 0).getTime();
+        return bTime - aTime;
+      })
+      .filter((row) => {
+        const key =
+          row?.data?.deduplicationKey ||
+          row?.data?.notificationId ||
+          row?.messageId ||
+          String(row?._id ?? '');
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
   }
 
   @Post(':dni/participation-nft')

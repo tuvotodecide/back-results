@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsMongoId,
@@ -30,6 +31,9 @@ export class CreateInstitutionalAccessRecoveryRequestDto {
   phoneNumber: string;
 
   @ApiProperty()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim().toLowerCase() : value,
+  )
   @IsEmail()
   @MaxLength(180)
   newEmail: string;

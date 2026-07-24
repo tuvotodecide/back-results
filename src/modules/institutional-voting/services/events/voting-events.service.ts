@@ -60,6 +60,9 @@ import { PadronUsersService } from '../core/padron-users.service';
 import { IssuerService } from '../core/issuer.service';
 import { EnabledSession, EnabledSessionDocument } from '../../schemas/enabled-session.shcema';
 import { PadronService } from '../padron/padron.service';
+import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.service';
+import { OfficialPublicationFinalizationService } from '../publication/official-publication-finalization.service';
+import { OfficialPublicationPreparationService } from '../publication/official-publication-preparation.service';
 
 @Injectable()
 export class VotingEventsService {
@@ -111,6 +114,9 @@ export class VotingEventsService {
     private readonly padronUsersService: PadronUsersService,
     private readonly issuerService: IssuerService,
     private readonly padronService: PadronService,
+    private readonly tvdBlockchainService: TvdBlockchainService,
+    private readonly officialPublicationPreparationService: OfficialPublicationPreparationService,
+    private readonly officialPublicationFinalizationService: OfficialPublicationFinalizationService,
   ) {}
 
   async createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -1172,7 +1178,6 @@ export class VotingEventsService {
 
   async confirmOfficialPublication(
     eventId: string,
-    institutionId: string,
     dto: ConfirmOfficialPublicationDto = {},
     requester: any,
   ) {
@@ -1236,7 +1241,25 @@ export class VotingEventsService {
       });
     }
 
-    const nullifiers = await this.voteWritterService.createVote(event, institutionId, convotatedUsers, readiness.activeOptions.map((o) => String(o.name)));
+    const publicationInstitution =
+      await this.accessService.resolveOfficialPublicationInstitution(event, requester);
+    const preparedVote = await this.voteWritterService.prepareCreateVote(
+      event,
+      publicationInstitution.institutionId,
+      convotatedUsers,
+      readiness.activeOptions.map((o) => String(o.name)),
+    );
+    await this.tvdBlockchainService.validateVotePublicationPreflight({
+      institutionWallet: publicationInstitution.accountAddress,
+      institutionId: publicationInstitution.institutionId,
+      onChainElectionId: preparedVote.onChainElectionId,
+      requiredCredits: BigInt(convotatedUsers.length),
+      createVoteArgs: preparedVote.createVoteArgs,
+    });
+    const nullifiers = await this.voteWritterService.executePreparedCreateVote(
+      event,
+      preparedVote,
+    );
     const credentialData = await this.issuerService.issueCredential(
       dids,
       event._id.toString(),
@@ -1270,13 +1293,26 @@ export class VotingEventsService {
     };
   }
 
+  async prepareOfficialPublicationRequest(eventId: string, requester: any) {
+    return this.officialPublicationPreparationService.prepareOfficialPublication(
+      eventId,
+      requester,
+    );
+  }
+
+  async finalizeOfficialPublicationRequest(requestId: string, actor = 'system') {
+    return this.officialPublicationFinalizationService.finalizeOfficialPublication(
+      requestId,
+      actor,
+    );
+  }
+
   async publishEvent(
     eventId: string,
-    institutionId: string,
     requester: any,
     dto: ConfirmOfficialPublicationDto = {},
   ) {
-    return this.confirmOfficialPublication(eventId, institutionId, dto, requester);
+    return this.confirmOfficialPublication(eventId, dto, requester);
   }
 
   async disableEvent(eventId: string, requester: any) {

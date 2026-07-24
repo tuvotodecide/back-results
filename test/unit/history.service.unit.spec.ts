@@ -7,6 +7,7 @@ import { HistoryService } from '@/modules/history/services/history.service';
 import { History } from '@/modules/history/schemas/history.schema';
 import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
 import { chain } from '../utils/chain';
+import { ethers } from 'ethers';
 
 const oid = () => new Types.ObjectId();
 
@@ -29,17 +30,21 @@ const contractsConfig = {
   electoralCredits: { address: '0xcredits', txHash: '0xcreditsTx' },
   voteManager: { address: '0xvote', txHash: '0xvoteTx' },
 };
+const configValues: Record<string, unknown> = {
+  'app.contracts': contractsConfig,
+  'app.blockchain.chain': 'base-sepolia',
+};
 
 describe('HistoryService (unit)', () => {
   let svc: HistoryService;
   const model = mkModelCtor();
   const configService = {
-    get: jest.fn().mockReturnValue(contractsConfig),
+    get: jest.fn((key: string) => configValues[key]),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    configService.get.mockReturnValue(contractsConfig);
+    configService.get.mockImplementation((key: string) => configValues[key]);
     const mod = await Test.createTestingModule({
       providers: [
         HistoryService,
@@ -171,6 +176,71 @@ describe('HistoryService (unit)', () => {
 
       expect(queryChain.skip).toHaveBeenCalledWith(10);
       expect(queryChain.limit).toHaveBeenCalledWith(5);
+    });
+
+    it('agrega relatedAmount decimal desde una transaccion asociada sin perder precision', async () => {
+      const iface = new ethers.Interface(['function setTvdPerCredit(uint256 newRate)']);
+      const item: any = {
+        _id: oid(),
+        txHash: '0xrate',
+        operationName: HistoryOperationKey.setTvdPerCredit,
+        type: HistoryType.MULTISIG,
+        registerDate: new Date('2026-01-01T00:00:00.000Z'),
+      };
+      (svc as any).provider.getTransaction = jest.fn().mockResolvedValue({
+        data: iface.encodeFunctionData('setTvdPerCredit', [
+          3000000000000000000n,
+        ]),
+        value: 0n,
+      });
+
+      await expect(svc.getRelatedAmounts([item])).resolves.toEqual([
+        expect.objectContaining({
+          txHash: '0xrate',
+          relatedAmount: '3.0',
+        }),
+      ]);
+    });
+
+    it('agrega relatedAmount desde receipt cuando la operacion viene de evento', async () => {
+      const iface = new ethers.Interface([
+        'event TopUp(address indexed institution, uint256 electionId, uint256 creditsPurchased, uint256 tvdLocked)',
+      ]);
+      const item: any = {
+        _id: oid(),
+        txHash: '0xtopup',
+        operationName: HistoryOperationKey.createElection,
+        type: HistoryType.AUTOMATED,
+        registerDate: new Date('2026-01-01T00:00:00.000Z'),
+      };
+      const event = iface.encodeEventLog(iface.getEvent('TopUp')!, [
+        '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        1n,
+        3n,
+        3000000000000000000n,
+      ]);
+      (svc as any).provider.getTransactionReceipt = jest.fn().mockResolvedValue({
+        logs: [{ topics: event.topics, data: event.data }],
+      });
+
+      await expect(svc.getRelatedAmounts([item])).resolves.toEqual([
+        expect.objectContaining({
+          txHash: '0xtopup',
+          relatedAmount: '3.0',
+        }),
+      ]);
+    });
+
+    it('mantiene compatible un historial anterior sin relatedAmount', async () => {
+      const item: any = {
+        _id: oid(),
+        txHash: '0xlegacy',
+        operationName: HistoryOperationKey.addMultisigOwner,
+        type: HistoryType.MULTISIG,
+        registerDate: new Date('2026-01-01T00:00:00.000Z'),
+      };
+
+      await expect(svc.getRelatedAmounts([item])).resolves.toEqual([item]);
     });
   });
 

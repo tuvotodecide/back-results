@@ -33,3 +33,12 @@ export const UserNotificationSchema = SchemaFactory.createForClass(UserNotificat
 UserNotificationSchema.index({ dni: 1, createdAt: -1 });
 UserNotificationSchema.index({ userId: 1, createdAt: -1 });
 UserNotificationSchema.index({ status: 1, createdAt: -1 });
+UserNotificationSchema.index(
+  { 'data.deduplicationKey': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'data.deduplicationKey': { $exists: true, $type: 'string' },
+    },
+  },
+);

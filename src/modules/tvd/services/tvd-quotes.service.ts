@@ -1,5 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  minorToDecimal,
+  parseBobAmountToMinor,
+} from '@/modules/payments/utils/money.util';
+import {
+  TvdInstitutionalQuoteResponseDto,
+  TvdMyQuoteQueryDto,
+} from '../dto/tvd-quote.dto';
 import { TvdFiatCurrency } from '../tvd.constants';
 import { TvdConversionService } from './tvd-conversion.service';
 import { TvdExchangeRatesService } from './tvd-exchange-rates.service';
@@ -47,6 +55,27 @@ export class TvdQuotesService {
       tokenAmount: conversion.tokenAmount,
       tokenAmountSmallestUnit: conversion.tokenAmountSmallestUnit,
       quotedAt,
+    };
+  }
+
+  async createInstitutionalQuote(
+    input: TvdMyQuoteQueryDto,
+  ): Promise<TvdInstitutionalQuoteResponseDto> {
+    const amountMinor = parseBobAmountToMinor(input.amount);
+    const snapshot = await this.createPaymentQuoteSnapshot({
+      amountMinor,
+      currency: input.currency,
+    });
+
+    return {
+      fiatAmount: minorToDecimal(snapshot.fiatAmountMinor),
+      fiatAmountMinor: snapshot.fiatAmountMinor,
+      fiatCurrency: snapshot.fiatCurrency,
+      estimatedTvd: snapshot.tokenAmount,
+      estimatedTvdSmallestUnit: snapshot.tokenAmountSmallestUnit ?? null,
+      bobPerToken: snapshot.bobPerToken,
+      exchangeRateVersion: snapshot.exchangeRateVersion,
+      quotedAt: snapshot.quotedAt.toISOString(),
     };
   }
 

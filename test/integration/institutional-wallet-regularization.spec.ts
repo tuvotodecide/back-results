@@ -3,6 +3,7 @@ import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { RoledUser } from '@/modules/auth/schemas/roledUser.schema';
 import { InstitutionalTenantAdminGuard } from '@/modules/institutional-tenants/guards/institutional-tenant-admin.guard';
 import { InstitutionalTenantsModule } from '@/modules/institutional-tenants/institutional-tenants.module';
+import { InstitutionalAdminApplication } from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
 import { InstitutionalTenant } from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
@@ -80,6 +81,7 @@ describe('Institutional wallet regularization (integration)', () => {
       {} as any,
       conn.model(InstitutionalTenant.name) as any,
       conn.model(TenantAdminAssignment.name) as any,
+      conn.model(InstitutionalAdminApplication.name) as any,
     );
   });
 

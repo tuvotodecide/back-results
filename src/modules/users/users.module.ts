@@ -6,6 +6,7 @@ import { UsersController } from './controllers/users.controller';
 import { ElectoralTable, ElectoralTableSchema } from '../geographic/schemas/electoral-table.schema';
 import { ElectoralLocation, ElectoralLocationSchema } from '../geographic/schemas/electoral-location.schema';
 import { NotificationLog, NotificationLogSchema } from '../notifications/schemas/notification-log.schema';
+import { UserNotification, UserNotificationSchema } from '../notifications/schemas/user-notification.schema';
 import { ZkAuthModule } from '../zk-auth/zk-auth.module';
 
 @Module({
@@ -15,6 +16,7 @@ import { ZkAuthModule } from '../zk-auth/zk-auth.module';
       { name: ElectoralTable.name, schema: ElectoralTableSchema },
       { name: ElectoralLocation.name, schema: ElectoralLocationSchema },
       { name: NotificationLog.name, schema: NotificationLogSchema },
+      { name: UserNotification.name, schema: UserNotificationSchema },
     ]),
     ZkAuthModule,
   ],

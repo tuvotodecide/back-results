@@ -29,7 +29,10 @@ import {
   RED_ENLACE_REFERENCE_MAX_LENGTH,
   validPaymentTransitions,
 } from '../payments.constants';
-import { QrPaymentProvider, VerifyQrResult } from '../providers/qr-payment-provider.interface';
+import {
+  QrPaymentProvider,
+  VerifyQrResult,
+} from '../providers/qr-payment-provider.interface';
 import {
   PaymentTvdQuoteSnapshot,
   PaymentTransaction,
@@ -84,7 +87,8 @@ export class PaymentTransactionsService {
     const amountMinor = parseBobAmountToMinor(dto.amount);
     this.assertAmountBounds(amountMinor);
 
-    const normalizedIdempotencyKey = this.normalizeIdempotencyKey(idempotencyKey);
+    const normalizedIdempotencyKey =
+      this.normalizeRequiredIdempotencyKey(idempotencyKey);
     const requestHash = this.hashRequest({
       tenantId: String(tenant._id),
       userId: String(requestedByUserId),
@@ -103,17 +107,19 @@ export class PaymentTransactionsService {
         .lean();
 
       if (existing) {
-        if (existing.idempotencyRequestHash !== requestHash) {
-          throw new ConflictException('Idempotency-Key usada con otro payload');
-        }
+        this.assertSameIdempotencyPayload(
+          existing.idempotencyRequestHash,
+          requestHash,
+        );
         return toPublicPaymentDto(existing, { includeQr: true });
       }
     }
 
-    const paymentTarget = await this.tenantAccess.resolvePaymentTargetForRequester(
-      tenant._id as Types.ObjectId,
-      requester,
-    );
+    const paymentTarget =
+      await this.tenantAccess.resolvePaymentTargetForRequester(
+        tenant._id as Types.ObjectId,
+        requester,
+      );
 
     const tvdQuote = this.tvdQuotes
       ? await this.tvdQuotes.createPaymentQuoteSnapshot({
@@ -155,7 +161,12 @@ export class PaymentTransactionsService {
         expiresAt,
       });
 
-      this.assertProviderGenerateResult(payment, amountMinor, dto.currency, result);
+      this.assertProviderGenerateResult(
+        payment,
+        amountMinor,
+        dto.currency,
+        result,
+      );
       const providerStatus = normalizeRedEnlaceStatus(result.providerStatus);
       if (!RED_ENLACE_ACTIVE_QR_STATUSES.has(providerStatus)) {
         const mapping = mapRedEnlaceStatus({
@@ -170,7 +181,9 @@ export class PaymentTransactionsService {
               providerReference: result.providerReference,
               providerStatus,
               providerResponseCode: result.responseCode ?? null,
-              providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
+              providerResponseDetail: sanitizeProviderDetail(
+                result.responseDetail,
+              ),
               status: mapping.status,
             },
           },
@@ -187,7 +200,9 @@ export class PaymentTransactionsService {
             providerReference: result.providerReference,
             providerStatus,
             providerResponseCode: result.responseCode ?? null,
-            providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
+            providerResponseDetail: sanitizeProviderDetail(
+              result.responseDetail,
+            ),
             qrImage: result.qrImage,
             qrExpiresAt: result.qrExpiresAt ?? expiresAt,
             status: 'QR_ACTIVE',
@@ -246,7 +261,10 @@ export class PaymentTransactionsService {
 
   async getPayment(paymentId: string, requester: any) {
     const payment = await this.getPaymentDocumentOrThrow(paymentId);
-    await this.tenantAccess.assertTenantAccess(String(payment.tenantId), requester);
+    await this.tenantAccess.assertTenantAccess(
+      String(payment.tenantId),
+      requester,
+    );
     return toPublicPaymentDto(payment, { includeQr: true });
   }
 
@@ -276,7 +294,9 @@ export class PaymentTransactionsService {
     ]);
 
     return {
-      items: items.map((payment) => toPublicPaymentDto(payment, { includeQr: false })),
+      items: items.map((payment) =>
+        toPublicPaymentDto(payment, { includeQr: false }),
+      ),
       page,
       limit,
       total,
@@ -289,12 +309,16 @@ export class PaymentTransactionsService {
     dto: ReconcilePaymentDto,
   ) {
     if (requester?.role !== 'ADMIN') {
-      throw new BadRequestException('Conciliacion requiere administrador global');
+      throw new BadRequestException(
+        'Conciliacion requiere administrador global',
+      );
     }
 
     const payment = await this.getPaymentDocumentOrThrow(paymentId);
     if (!payment.providerReference) {
-      throw new BadRequestException('La operacion no tiene referencia de proveedor');
+      throw new BadRequestException(
+        'La operacion no tiene referencia de proveedor',
+      );
     }
 
     const result = await this.provider.verifyQr({
@@ -302,7 +326,11 @@ export class PaymentTransactionsService {
       mockStatus: dto.mockStatus,
     });
 
-    const updated = await this.applyProviderResult(payment, result, 'RECONCILIATION');
+    const updated = await this.applyProviderResult(
+      payment,
+      result,
+      'RECONCILIATION',
+    );
     return toPublicPaymentDto(updated ?? payment, { includeQr: true });
   }
 
@@ -324,7 +352,11 @@ export class PaymentTransactionsService {
       .exec();
 
     if (!payment) {
-      throw new PaymentDomainError('PAYMENT_NOT_FOUND', 'Pago no encontrado', 404);
+      throw new PaymentDomainError(
+        'PAYMENT_NOT_FOUND',
+        'Pago no encontrado',
+        404,
+      );
     }
 
     return this.applyProviderResult(
@@ -388,14 +420,22 @@ export class PaymentTransactionsService {
           $set: {
             providerStatus: result.providerStatus,
             providerResponseCode: result.responseCode ?? null,
-            providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
+            providerResponseDetail: sanitizeProviderDetail(
+              result.responseDetail,
+            ),
           },
         },
       );
       return this.getPaymentDocumentOrThrow(String(payment._id));
     }
 
-    if (this.shouldMoveLateWebhookApprovalToManualReview(payment, mapping.status, source)) {
+    if (
+      this.shouldMoveLateWebhookApprovalToManualReview(
+        payment,
+        mapping.status,
+        source,
+      )
+    ) {
       return this.moveLateWebhookApprovalToManualReview(payment, result);
     }
 
@@ -407,22 +447,28 @@ export class PaymentTransactionsService {
     const updated = (await this.paymentModel
       .findOneAndUpdate(
         {
-        _id: payment._id,
-        status: { $in: allowedFrom },
+          _id: payment._id,
+          status: { $in: allowedFrom },
         } as any,
         {
-        $set: {
-          status: mapping.status,
-          providerStatus: result.providerStatus,
-          providerResponseCode: result.responseCode ?? null,
-          providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
-          achReference: result.achReference ?? null,
-          paymentDate: result.paymentDate ?? null,
-          confirmedAt:
-            mapping.status === 'PAYMENT_CONFIRMED' ? new Date() : payment.confirmedAt,
-          confirmationSource:
-            mapping.status === 'PAYMENT_CONFIRMED' ? source : payment.confirmationSource,
-        },
+          $set: {
+            status: mapping.status,
+            providerStatus: result.providerStatus,
+            providerResponseCode: result.responseCode ?? null,
+            providerResponseDetail: sanitizeProviderDetail(
+              result.responseDetail,
+            ),
+            achReference: result.achReference ?? null,
+            paymentDate: result.paymentDate ?? null,
+            confirmedAt:
+              mapping.status === 'PAYMENT_CONFIRMED'
+                ? new Date()
+                : payment.confirmedAt,
+            confirmationSource:
+              mapping.status === 'PAYMENT_CONFIRMED'
+                ? source
+                : payment.confirmationSource,
+          },
         } as any,
         { new: true },
       )
@@ -479,7 +525,9 @@ export class PaymentTransactionsService {
             status: 'MANUAL_REVIEW',
             providerStatus: result.providerStatus,
             providerResponseCode: result.responseCode ?? null,
-            providerResponseDetail: sanitizeProviderDetail(result.responseDetail),
+            providerResponseDetail: sanitizeProviderDetail(
+              result.responseDetail,
+            ),
             achReference: result.achReference ?? null,
             paymentDate: result.paymentDate ?? null,
           },
@@ -512,23 +560,31 @@ export class PaymentTransactionsService {
           status: 'CREATED',
           tvdQuote: input.tvdQuote ?? null,
         });
-      } catch (error: any) {
-        if (error?.code === 11000 && error?.keyPattern?.merchantReference) {
+      } catch (error: unknown) {
+        if (this.isDuplicateKeyError(error, 'merchantReference')) {
           continue;
         }
-        if (error?.code === 11000 && error?.keyPattern?.idempotencyKey) {
+        if (this.isDuplicateKeyError(error, 'idempotencyKey')) {
           const existing = await this.paymentModel.findOne({
             tenantId: input.tenantId,
             requestedByUserId: input.requestedByUserId,
             idempotencyKey: input.idempotencyKey,
           });
-          if (existing) return existing;
+          if (existing) {
+            this.assertSameIdempotencyPayload(
+              existing.idempotencyRequestHash,
+              input.idempotencyRequestHash,
+            );
+            return existing;
+          }
         }
         throw error;
       }
     }
 
-    throw new InternalServerErrorException('No se pudo generar referencia unica');
+    throw new InternalServerErrorException(
+      'No se pudo generar referencia unica',
+    );
   }
 
   private async ensureQrAccreditationForConfirmedPayment(
@@ -539,9 +595,12 @@ export class PaymentTransactionsService {
 
     try {
       const result =
-        await this.tvdQrAccreditations.createOrReuseForConfirmedPayment(payment, {
-          source,
-        });
+        await this.tvdQrAccreditations.createOrReuseForConfirmedPayment(
+          payment,
+          {
+            source,
+          },
+        );
 
       await this.paymentModel.updateOne(
         { _id: payment._id },
@@ -657,7 +716,9 @@ export class PaymentTransactionsService {
           status: 'MISMATCH',
           providerStatus: result.providerStatus,
           providerResponseCode: result.responseCode ?? code,
-          providerResponseDetail: sanitizeProviderDetail(result.responseDetail ?? code),
+          providerResponseDetail: sanitizeProviderDetail(
+            result.responseDetail ?? code,
+          ),
         },
       },
     );
@@ -678,15 +739,46 @@ export class PaymentTransactionsService {
       .slice(0, RED_ENLACE_REFERENCE_MAX_LENGTH);
   }
 
-  private normalizeIdempotencyKey(value?: string) {
+  private normalizeRequiredIdempotencyKey(value?: string) {
     const normalized = String(value ?? '').trim();
-    return normalized ? normalized.slice(0, 120) : null;
+    if (!normalized) {
+      throw new BadRequestException({
+        code: 'PAYMENT_IDEMPOTENCY_KEY_REQUIRED',
+        message: 'Idempotency-Key requerido',
+      });
+    }
+    if (normalized.length > 120) {
+      throw new BadRequestException({
+        code: 'PAYMENT_IDEMPOTENCY_KEY_INVALID',
+        message: 'Idempotency-Key invalido',
+      });
+    }
+    return normalized;
+  }
+
+  private assertSameIdempotencyPayload(
+    currentHash?: string | null,
+    expectedHash?: string | null,
+  ) {
+    if (currentHash !== expectedHash) {
+      throw new ConflictException({
+        code: 'PAYMENT_IDEMPOTENCY_CONFLICT',
+        message: 'Idempotency-Key usada con otro payload',
+      });
+    }
+  }
+
+  private isDuplicateKeyError(error: unknown, key: string) {
+    if (!error || typeof error !== 'object') return false;
+    const mongoError = error as {
+      code?: unknown;
+      keyPattern?: Record<string, unknown>;
+    };
+    return mongoError.code === 11000 && Boolean(mongoError.keyPattern?.[key]);
   }
 
   private hashRequest(value: Record<string, string>) {
-    return createHash('sha256')
-      .update(JSON.stringify(value))
-      .digest('hex');
+    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
   }
 
   private buildCustomerGloss(merchantReference: string) {

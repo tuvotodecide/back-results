@@ -130,6 +130,7 @@ export class HistoryService {
       if (!amountParam) return item;
       return {
         _id: item._id,
+        txHash: item.txHash,
         operationName: item.operationName,
         description: item.description,
         type: item.type,

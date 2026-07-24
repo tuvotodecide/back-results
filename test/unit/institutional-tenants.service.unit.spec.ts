@@ -23,6 +23,13 @@ describe('InstitutionalTenantsService (unit)', () => {
     session: jest.fn().mockReturnThis(),
   });
 
+  const pagedQuery = (value: any) => ({
+    sort: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    lean: jest.fn().mockResolvedValue(value),
+  });
+
   const countQuery = (value: number) => ({
     session: jest.fn().mockResolvedValue(value),
   });
@@ -32,6 +39,8 @@ describe('InstitutionalTenantsService (unit)', () => {
       findOne: jest.fn(),
       create: jest.fn(),
       findById: jest.fn(),
+      find: jest.fn(),
+      countDocuments: jest.fn(),
     };
     session = {
       withTransaction: jest.fn(async (fn) => fn()),
@@ -116,6 +125,64 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.createTenant({ name: 'Tenant Duplicado' }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('listPublicTenants devuelve solo instituciones activas con datos minimos', async () => {
+    const firstTenantId = new Types.ObjectId('64b000000000000000000101');
+    const secondTenantId = new Types.ObjectId('64b000000000000000000102');
+    tenantModel.find.mockReturnValue(
+      pagedQuery([
+        {
+          _id: firstTenantId,
+          name: 'Colegio Activo',
+          active: true,
+          accountAddress: '0x0000000000000000000000000000000000000101',
+          email: 'oculto@example.com',
+          admins: [{ userId: new Types.ObjectId() }],
+        },
+        {
+          _id: secondTenantId,
+          name: 'Universidad Activa',
+          active: true,
+          walletBalance: 100,
+        },
+      ]),
+    );
+    tenantModel.countDocuments.mockResolvedValue(2);
+
+    const result = await service.listPublicTenants({
+      search: 'Activa',
+      page: 1,
+      limit: 10,
+    });
+
+    expect(tenantModel.find).toHaveBeenCalledWith(
+      { active: true, name: expect.any(RegExp) },
+      { _id: 1, name: 1 },
+    );
+    expect(tenantModel.countDocuments).toHaveBeenCalledWith({
+      active: true,
+      name: expect.any(RegExp),
+    });
+    expect(result).toEqual({
+      items: [
+        {
+          institutionId: String(firstTenantId),
+          institutionName: 'Colegio Activo',
+        },
+        {
+          institutionId: String(secondTenantId),
+          institutionName: 'Universidad Activa',
+        },
+      ],
+      total: 2,
+      page: 1,
+      limit: 10,
+    });
+    expect(JSON.stringify(result)).not.toContain('accountAddress');
+    expect(JSON.stringify(result)).not.toContain('oculto@example.com');
+    expect(JSON.stringify(result)).not.toContain('admins');
+    expect(JSON.stringify(result)).not.toContain('walletBalance');
   });
 
   it('assignAdmin aprueba asignacion para tenant y usuario activos', async () => {
@@ -663,7 +730,7 @@ describe('InstitutionalTenantsService (unit)', () => {
 
     const result = await service.regularizeOwnWallet(
       String(tenantId),
-      { accountAddress: wallet },
+      { dni: '12345678', accountAddress: wallet },
       { sub: String(userId), role: 'USER' },
     );
 
@@ -739,7 +806,7 @@ describe('InstitutionalTenantsService (unit)', () => {
 
     const result = await service.regularizeOwnWallet(
       String(tenantId),
-      { accountAddress: wallet },
+      { dni: '12345678', accountAddress: wallet },
       { sub: String(userId), role: 'USER' },
     );
 
@@ -797,7 +864,7 @@ describe('InstitutionalTenantsService (unit)', () => {
 
     const result = await service.regularizeOwnWallet(
       String(tenantId),
-      { accountAddress: wallet },
+      { dni: '12345678', accountAddress: wallet },
       { sub: String(userId), role: 'USER' },
     );
 
@@ -817,7 +884,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x123' },
+        { dni: '12345678', accountAddress: '0x123' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -839,7 +906,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000d1' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000d1' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -859,7 +926,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000d2' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000d2' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toThrow('No se pudo verificar la wallet');
@@ -876,7 +943,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000e1' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000e1' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -898,7 +965,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000e2' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000e2' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -917,7 +984,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000e3' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000e3' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -940,7 +1007,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000f1' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000f1' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -949,7 +1016,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000f1' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000f1' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -966,7 +1033,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000f1' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000f1' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -994,7 +1061,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000F4' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000F4' },
         { sub: String(userId), role: 'USER' },
       ),
     ).resolves.toMatchObject({ updated: false });
@@ -1011,7 +1078,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
-        { accountAddress: '0x00000000000000000000000000000000000000f5' },
+        { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000f5' },
         { sub: String(userId), role: 'USER' },
       ),
     ).rejects.toBeInstanceOf(ConflictException);

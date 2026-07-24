@@ -16,6 +16,16 @@ import {
 } from '@/modules/auth/schemas/roledUser.schema';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
+type JwtPayload = Record<string, unknown> & {
+  sub?: unknown;
+  active?: unknown;
+  authVersion?: unknown;
+};
+
+type AuthenticatedRequest = Request & {
+  user?: JwtPayload;
+};
+
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
@@ -31,7 +41,7 @@ export class JwtAuthGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    const request = context.switchToHttp().getRequest();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = this.extractTokenFromHeader(request);
 
     // Si es ruta pública
@@ -39,13 +49,13 @@ export class JwtAuthGuard implements CanActivate {
       // pero NO lanzar excepción si falla o no existe
       if (token) {
         try {
-          const payload = await this.jwtService.verifyAsync(token);
+          const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
           if (await this.isAllowedPayloadForRequest(payload, request, true)) {
-            request['user'] = payload;
+            request.user = payload;
           }
         } catch {
           // Token inválido en ruta pública: continuar sin usuario
-          request['user'] = undefined;
+          request.user = undefined;
         }
       }
       return true;
@@ -58,14 +68,17 @@ export class JwtAuthGuard implements CanActivate {
     try {
       // 💡 Here the JWT secret key that's used for verifying the payload
       // is the key that was passsed in the JwtModule
-      const payload = await this.jwtService.verifyAsync(token);
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
       if (!(await this.isAllowedPayloadForRequest(payload, request, false))) {
         throw new UnauthorizedException('Usuario inactivo');
       }
       // 💡 We're assigning the payload to the request object here
       // so that we can access it in our route handlers
-      request['user'] = payload;
-    } catch {
+      request.user = payload;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException();
     }
     return true;
@@ -77,17 +90,25 @@ export class JwtAuthGuard implements CanActivate {
   }
 
   private async isAllowedPayloadForRequest(
-    payload: any,
+    payload: JwtPayload,
     request: Request,
     isPublicRoute: boolean,
   ): Promise<boolean> {
-    if (!payload?.active) {
+    if (payload.active !== true) {
       return false;
     }
     if (isPublicRoute || !this.requiresInstitutionalFreshness(request)) {
       return true;
     }
-    return this.isPayloadCurrent(payload);
+    const freshness = await this.resolvePayloadFreshness(payload);
+    if (freshness === 'AUTH_VERSION_MISMATCH') {
+      throw new UnauthorizedException({
+        statusCode: 401,
+        code: 'AUTH_VERSION_MISMATCH',
+        message: 'Authentication session is no longer valid',
+      });
+    }
+    return freshness === 'CURRENT';
   }
 
   private requiresInstitutionalFreshness(request: Request): boolean {
@@ -98,22 +119,25 @@ export class JwtAuthGuard implements CanActivate {
     );
   }
 
-  private async isPayloadCurrent(payload: any): Promise<boolean> {
-    const userId = payload?.sub ? String(payload.sub) : '';
+  private async resolvePayloadFreshness(
+    payload: JwtPayload,
+  ): Promise<'CURRENT' | 'AUTH_VERSION_MISMATCH' | 'INVALID'> {
+    const userId = typeof payload.sub === 'string' ? payload.sub : '';
     if (!userId || !Types.ObjectId.isValid(userId)) {
-      return false;
+      return 'INVALID';
     }
     if (typeof payload.authVersion !== 'number') {
-      return false;
+      return 'INVALID';
     }
     const user = await this.getRoledUserModel()
       .findById(userId, { active: 1, authVersion: 1 })
       .lean();
-    return Boolean(
-      user &&
-        user.active === true &&
-        (user.authVersion ?? 0) === payload.authVersion,
-    );
+    if (!user || user.active !== true) {
+      return 'INVALID';
+    }
+    return (user.authVersion ?? 0) === payload.authVersion
+      ? 'CURRENT'
+      : 'AUTH_VERSION_MISMATCH';
   }
 
   private getRoledUserModel(): Model<RoledUserDocument> {

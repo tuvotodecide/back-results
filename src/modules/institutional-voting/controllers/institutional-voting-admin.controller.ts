@@ -14,6 +14,7 @@ import {
   Req,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -44,11 +45,25 @@ import { UpdateVotingEventDto } from '../dto/update-voting-event.dto';
 import { UpdateVotingOptionDto } from '../dto/update-voting-option.dto';
 import { CreateVotingOptionDto } from '../dto/voting-option.dto';
 import { CreatePresentialSessionDto } from '../dto/presential-session.dto';
+import { TvdCapacityService } from '@/modules/tvd/services/tvd-capacity.service';
+import { TvdEventCapacityQueryDto } from '@/modules/tvd/dto/tvd-capacity.dto';
+import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import {
   CreateParticipationReportDto,
   ParticipationAnalyticsResponseDto,
 } from '../dto/participation-analytics.dto';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
+
+type InstitutionalVotingRequester = {
+  sub?: string;
+  role?: string;
+  active?: boolean;
+  tenantId?: string;
+};
+
+type AuthenticatedInstitutionalVotingRequest = Request & {
+  user: InstitutionalVotingRequester;
+};
 
 @ApiTags('Institutional Voting Admin')
 @Controller('api/v1/voting/events')
@@ -57,7 +72,10 @@ export class InstitutionalVotingAdminController {
     return value === true || value === 'true' || value === '1';
   }
 
-  constructor(private readonly institutionalVotingService: InstitutionalVotingService) {}
+  constructor(
+    private readonly institutionalVotingService: InstitutionalVotingService,
+    private readonly tvdCapacity: TvdCapacityService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -134,6 +152,24 @@ export class InstitutionalVotingAdminController {
     return this.institutionalVotingService.validateReviewReadiness(eventId, req.user);
   }
 
+  @Get(':eventId/tvd-capacity')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Consultar capacidad TVD para publicacion oficial',
+    description:
+      'Calcula capacidad informativa con padrón vigente y saldo on-chain de la wallet del administrador autenticado. No publica, reserva ni consume TVD.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiResponse({ status: 200, description: 'Capacidad TVD calculada.' })
+  @ApiResponse({ status: 404, description: 'Evento o padrón vigente no disponible.' })
+  getTvdCapacity(
+    @Param('eventId') eventId: string,
+    @Query() _query: TvdEventCapacityQueryDto,
+    @Req() req: AuthenticatedInstitutionalVotingRequest,
+  ) {
+    return this.tvdCapacity.getEventCapacity(eventId, req.user);
+  }
+
   @Post(':eventId/ready-for-review')
   @ApiOperation({
     summary: 'Marcar evento como READY_FOR_REVIEW',
@@ -153,17 +189,15 @@ export class InstitutionalVotingAdminController {
       'Confirma la publicación oficial luego del paso externo de MetaMask y cambia el estado a OFFICIALLY_PUBLISHED, bloqueando edición estructural.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
-  @ApiParam({ name: 'institutionId', description: 'ID de la institución.' })
   @ApiBody({ type: ConfirmOfficialPublicationDto })
   @ApiResponse({ status: 200, description: 'Publicación oficial confirmada.' })
   @ApiResponse({ status: 400, description: 'No cumple condiciones para publicación oficial.' })
   confirmOfficialPublication(
     @Param('eventId') eventId: string,
-    @Param('institutionId') institutionId: string,
     @Body() dto: ConfirmOfficialPublicationDto,
     @Req() req: any,
   ) {
-    return this.institutionalVotingService.confirmOfficialPublication(eventId, institutionId, dto, req.user);
+    return this.institutionalVotingService.confirmOfficialPublication(eventId, dto, req.user);
   }
 
   @Post(':eventId/publish')
@@ -173,11 +207,10 @@ export class InstitutionalVotingAdminController {
       'Compatibilidad temporal: reutiliza la confirmación oficial y requiere que el evento esté en READY_FOR_REVIEW.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
-  @ApiParam({ name: 'institutionId', description: 'ID de la institución.' })
   @ApiResponse({ status: 200, description: 'Evento publicado.' })
   @ApiResponse({ status: 400, description: 'Faltan precondiciones para publicar.' })
-  publishEvent(@Param('eventId') eventId: string, @Param('institutionId') institutionId: string, @Req() req: any) {
-    return this.institutionalVotingService.publishEvent(eventId, institutionId, req.user);
+  publishEvent(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.publishEvent(eventId, req.user);
   }
 
   @Post(':eventId/roles')

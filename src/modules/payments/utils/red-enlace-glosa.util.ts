@@ -7,8 +7,16 @@ export interface BuildRedEnlaceGlosaInput {
   customerGloss: string;
 }
 
-function sanitizeGlosaField(value: string, maxLength: number, field: string) {
-  const normalized = String(value ?? '').trim().replace(/\s+/g, ' ');
+function sanitizeGlosaField(
+  value: string,
+  maxLength: number,
+  field: string,
+  options: { preserveTrailingSpace?: boolean } = {},
+) {
+  const raw = String(value ?? '');
+  const normalized = (
+    options.preserveTrailingSpace ? raw.trimStart() : raw.trim()
+  ).replace(/\s+/g, ' ');
   if (!normalized) {
     throw new BadRequestException(`${field} requerido`);
   }
@@ -23,7 +31,14 @@ function sanitizeGlosaField(value: string, maxLength: number, field: string) {
 
 export function buildRedEnlaceGlosa(input: BuildRedEnlaceGlosaInput): string {
   const branchCode = sanitizeGlosaField(input.branchCode, 10, 'CodSucursal');
-  const branchName = sanitizeGlosaField(input.branchName, 50, 'NombreSucursal');
+  const branchName = sanitizeGlosaField(
+    input.branchName,
+    50,
+    'NombreSucursal',
+    {
+      preserveTrailingSpace: true,
+    },
+  );
   const businessCategory = sanitizeGlosaField(
     input.businessCategory,
     10,
@@ -35,12 +50,9 @@ export function buildRedEnlaceGlosa(input: BuildRedEnlaceGlosaInput): string {
     'GlosaCliente',
   );
 
-  const glosa = [
-    branchCode,
-    branchName,
-    businessCategory,
-    customerGloss,
-  ].join('|');
+  const glosa = [branchCode, branchName, businessCategory, customerGloss].join(
+    '|',
+  );
 
   if (glosa.length > 130) {
     throw new BadRequestException('Glosa excede longitud maxima');
@@ -50,7 +62,9 @@ export function buildRedEnlaceGlosa(input: BuildRedEnlaceGlosaInput): string {
 }
 
 export function sanitizeProviderDetail(value?: string | null): string | null {
-  const normalized = String(value ?? '').trim().replace(/\s+/g, ' ');
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
   if (!normalized) return null;
   return normalized.slice(0, 240);
 }

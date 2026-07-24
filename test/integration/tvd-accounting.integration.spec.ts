@@ -18,9 +18,17 @@ import {
 import { TokenAccreditationsService } from '@/modules/tvd/services/token-accreditations.service';
 import { TvdExchangeRatesService } from '@/modules/tvd/services/tvd-exchange-rates.service';
 import { TvdModule } from '@/modules/tvd/tvd.module';
-import { BadRequestException, INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
+import {
+  getConnectionToken,
+  getModelToken,
+  MongooseModule,
+} from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Connection, Model, Types } from 'mongoose';
@@ -60,7 +68,9 @@ describe('TVD accounting models, snapshots and idempotency (integration)', () =>
   };
 
   const tenantAccess = {
-    resolveTenantForWrite: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    resolveTenantForWrite: jest
+      .fn()
+      .mockResolvedValue({ _id: tenantId, active: true }),
     getRequesterObjectId: jest.fn().mockReturnValue(userId),
     assertTenantAccess: jest.fn().mockResolvedValue(undefined),
     resolveTenantIdsForRead: jest.fn().mockResolvedValue([tenantId]),
@@ -104,7 +114,9 @@ describe('TVD accounting models, snapshots and idempotency (integration)', () =>
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
 
     conn = moduleRef.get<Connection>(getConnectionToken());
@@ -149,10 +161,17 @@ describe('TVD accounting models, snapshots and idempotency (integration)', () =>
     });
   }
 
-  async function createQr(idempotencyKey?: string) {
+  async function createQr(
+    idempotencyKey = `qr-accounting-${new Types.ObjectId().toHexString()}`,
+  ) {
     return payments.createQrPayment(
       { amount: '10.00', currency: 'BOB', description: 'Recarga TVD' },
-      { sub: String(userId), role: 'USER', tenantId: String(tenantId), active: true },
+      {
+        sub: String(userId),
+        role: 'USER',
+        tenantId: String(tenantId),
+        active: true,
+      },
       idempotencyKey,
     );
   }
@@ -183,8 +202,14 @@ describe('TVD accounting models, snapshots and idempotency (integration)', () =>
         version: 1,
         active: false,
       });
-      expect(historical?.effectiveTo).toEqual(new Date('2026-07-18T10:00:00.000Z'));
-      expect(second).toMatchObject({ bobPerToken: '5', version: 2, active: true });
+      expect(historical?.effectiveTo).toEqual(
+        new Date('2026-07-18T10:00:00.000Z'),
+      );
+      expect(second).toMatchObject({
+        bobPerToken: '5',
+        version: 2,
+        active: true,
+      });
     });
 
     it('P-INT-013/P-INT-016 | POSITIVO | INTEGRACION | guarda snapshot dentro del pago y cantidades como strings', async () => {
@@ -208,7 +233,9 @@ describe('TVD accounting models, snapshots and idempotency (integration)', () =>
         tokenAmountSmallestUnit: '400',
       });
       expect(typeof persisted?.tvdQuote?.tokenAmount).toBe('string');
-      expect(typeof persisted?.tvdQuote?.tokenAmountSmallestUnit).toBe('string');
+      expect(typeof persisted?.tvdQuote?.tokenAmountSmallestUnit).toBe(
+        'string',
+      );
     });
 
     it('P-INT-007 | POSITIVO | INTEGRACION | devuelve mismo snapshot ante repeticion idempotente', async () => {
@@ -346,7 +373,9 @@ describe('TVD accounting models, snapshots and idempotency (integration)', () =>
     });
 
     it('N-INT-015 | NEGATIVO | INTEGRACION | rechaza un pago sin tasa aplicable', async () => {
-      await expect(createQr()).rejects.toThrow('No existe tasa TVD activa vigente');
+      await expect(createQr()).rejects.toThrow(
+        'No existe tasa TVD activa vigente',
+      );
       expect(await paymentModel.countDocuments()).toBe(0);
     });
 

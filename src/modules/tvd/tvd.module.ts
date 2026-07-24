@@ -1,9 +1,15 @@
 import { Module } from '@nestjs/common';
+import { HttpModule } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { RoledUser, RoledUserSchema } from '@/modules/auth/schemas/roledUser.schema';
 import { InstitutionalAuditModule } from '@/modules/institutional-audit/institutional-audit.module';
+import { HistoryModule } from '@/modules/history/history.module';
+import {
+  History,
+  HistorySchema,
+} from '@/modules/history/schemas/history.schema';
 import {
   PaymentTransaction,
   PaymentTransactionSchema,
@@ -12,6 +18,22 @@ import {
   InstitutionalTenant,
   InstitutionalTenantSchema,
 } from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
+import {
+  PadronEntry,
+  PadronEntrySchema,
+} from '@/modules/institutional-voting/schemas/padron-entry.schema';
+import {
+  PadronImportJob,
+  PadronImportJobSchema,
+} from '@/modules/institutional-voting/schemas/padron-import-job.schema';
+import {
+  PadronVersion,
+  PadronVersionSchema,
+} from '@/modules/institutional-voting/schemas/padron-version.schema';
+import {
+  VotingEvent,
+  VotingEventSchema,
+} from '@/modules/institutional-voting/schemas/voting-event.schema';
 import {
   TenantAdminAssignment,
   TenantAdminAssignmentSchema,
@@ -41,6 +63,7 @@ import { TvdBlockchainService } from './services/tvd-blockchain.service';
 import { TvdConversionService } from './services/tvd-conversion.service';
 import { TvdExchangeRatesService } from './services/tvd-exchange-rates.service';
 import { TvdExchangeRateAdminService } from './services/tvd-exchange-rate-admin.service';
+import { TvdCapacityService } from './services/tvd-capacity.service';
 import { TvdManualAssignmentsService } from './services/tvd-manual-assignments.service';
 import { TvdQuotesService } from './services/tvd-quotes.service';
 import { TvdQrAccreditationsService } from './services/tvd-qr-accreditations.service';
@@ -48,9 +71,11 @@ import { TvdReceiptValidatorService } from './services/tvd-receipt-validator.ser
 import { TvdOperatorTransactionLockService } from './services/tvd-operator-transaction-lock.service';
 import { TVD_BLOCKCHAIN_CLIENT_FACTORY } from './types/tvd-blockchain.types';
 import { TvdQueryService } from './services/tvd-query.service';
+import { TvdWalletLookupService } from './services/tvd-wallet-lookup.service';
 
 @Module({
   imports: [
+    HttpModule,
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService) => ({
         secret: configService.get('app.jwt.secret'),
@@ -59,7 +84,9 @@ import { TvdQueryService } from './services/tvd-query.service';
       inject: [ConfigService],
     }),
     InstitutionalAuditModule,
+    HistoryModule,
     MongooseModule.forFeature([
+      { name: History.name, schema: HistorySchema },
       { name: TvdExchangeRate.name, schema: TvdExchangeRateSchema },
       { name: TokenAccreditation.name, schema: TokenAccreditationSchema },
       {
@@ -70,6 +97,10 @@ import { TvdQueryService } from './services/tvd-query.service';
       { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
       { name: RoledUser.name, schema: RoledUserSchema },
+      { name: VotingEvent.name, schema: VotingEventSchema },
+      { name: PadronVersion.name, schema: PadronVersionSchema },
+      { name: PadronEntry.name, schema: PadronEntrySchema },
+      { name: PadronImportJob.name, schema: PadronImportJobSchema },
     ]),
   ],
   controllers: [
@@ -83,6 +114,7 @@ import { TvdQueryService } from './services/tvd-query.service';
     TvdExchangeRatesService,
     TvdExchangeRateAdminService,
     TvdQuotesService,
+    TvdCapacityService,
     TokenAccreditationsService,
     TvdAccreditationProcessorService,
     TvdAccreditationReconciliationService,
@@ -93,6 +125,7 @@ import { TvdQueryService } from './services/tvd-query.service';
     TvdReceiptValidatorService,
     TvdBlockchainService,
     TvdQueryService,
+    TvdWalletLookupService,
     {
       provide: TVD_BLOCKCHAIN_CLIENT_FACTORY,
       useValue: createViemTvdBlockchainClients,
@@ -103,6 +136,7 @@ import { TvdQueryService } from './services/tvd-query.service';
     TvdExchangeRatesService,
     TvdExchangeRateAdminService,
     TvdQuotesService,
+    TvdCapacityService,
     TokenAccreditationsService,
     TvdAccreditationProcessorService,
     TvdAccreditationReconciliationService,
@@ -113,6 +147,7 @@ import { TvdQueryService } from './services/tvd-query.service';
     TvdReceiptValidatorService,
     TvdBlockchainService,
     TvdQueryService,
+    TvdWalletLookupService,
   ],
 })
 export class TvdModule {}

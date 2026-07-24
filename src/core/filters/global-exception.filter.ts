@@ -31,6 +31,7 @@ type SafeErrorResponse = {
   path: string;
   method: string;
   requestId: string;
+  code?: string;
   message: string | string[];
 };
 
@@ -97,6 +98,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       path,
       method,
       requestId,
+      code: this.getClientCode(exception),
       message: this.getClientMessage(exception),
     } satisfies SafeErrorResponse);
   }
@@ -139,6 +141,22 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     }
 
     return exception.message;
+  }
+
+  private getClientCode(exception: unknown): string | undefined {
+    if (!(exception instanceof HttpException)) return undefined;
+
+    const exceptionResponse = exception.getResponse();
+    if (
+      exceptionResponse &&
+      typeof exceptionResponse === 'object' &&
+      'code' in exceptionResponse
+    ) {
+      const code = (exceptionResponse as { code?: unknown }).code;
+      if (typeof code === 'string' && code.trim()) return code;
+    }
+
+    return undefined;
   }
 
   private serializeRequestBody(body: unknown): string {

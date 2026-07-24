@@ -9,7 +9,7 @@ const input = {
   merchantReference: '203414',
   amountMinor: '2000',
   currency: 'BOB' as const,
-  glosa: '461362|BLOCKCHAIN API QR|7372|PAGO 203414',
+  glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
   description: 'Recarga institucional',
   expiresAt: new Date('2026-07-14T12:30:00.000Z'),
 };
@@ -82,7 +82,9 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
   it('accepts a valid Base64 data URI QR image', async () => {
     const dataUri = `data:image/png;base64,${validQrBase64}`;
 
-    await expect(generate(generateResponse({ imagen: dataUri }))).resolves.toEqual(
+    await expect(
+      generate(generateResponse({ imagen: dataUri })),
+    ).resolves.toEqual(
       expect.objectContaining({
         providerStatus: 'PENDING',
         qrImage: dataUri,
@@ -107,7 +109,9 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
 
   it('normalizes codigoRespuesta whitespace and case', async () => {
     await expect(
-      generate(generateResponse({ codigoRespuesta: ' closed ', imagen: undefined })),
+      generate(
+        generateResponse({ codigoRespuesta: ' closed ', imagen: undefined }),
+      ),
     ).resolves.toEqual(
       expect.objectContaining({
         providerStatus: 'CLOSED',
@@ -133,11 +137,15 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
   });
 
   it('rejects amount and currency mismatches', async () => {
-    await expect(generate(generateResponse({ monto: 21.0 }))).rejects.toMatchObject({
+    await expect(
+      generate(generateResponse({ monto: 21.0 })),
+    ).rejects.toMatchObject({
       code: 'RED_ENLACE_AMOUNT_MISMATCH',
     } satisfies Partial<PaymentDomainError>);
 
-    await expect(generate(generateResponse({ moneda: 'USD' }))).rejects.toMatchObject({
+    await expect(
+      generate(generateResponse({ moneda: 'USD' })),
+    ).rejects.toMatchObject({
       code: 'RED_ENLACE_CURRENCY_MISMATCH',
     } satisfies Partial<PaymentDomainError>);
   });
@@ -151,14 +159,20 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
   });
 
   it('rejects an empty image for PENDING', async () => {
-    await expect(generate(generateResponse({ imagen: ' ' }))).rejects.toMatchObject({
+    await expect(
+      generate(generateResponse({ imagen: ' ' })),
+    ).rejects.toMatchObject({
       code: 'RED_ENLACE_INVALID_RESPONSE',
     } satisfies Partial<PaymentDomainError>);
   });
 
   it('rejects invalid Base64 for PENDING without logging the image', async () => {
-    const consoleLog = jest.spyOn(console, 'log').mockImplementation(() => undefined);
-    const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const consoleLog = jest
+      .spyOn(console, 'log')
+      .mockImplementation(() => undefined);
+    const consoleWarn = jest
+      .spyOn(console, 'warn')
+      .mockImplementation(() => undefined);
     const invalidImage = 'not-base64-qr';
 
     await expect(
@@ -167,15 +181,21 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
       code: 'RED_ENLACE_INVALID_RESPONSE',
     } satisfies Partial<PaymentDomainError>);
 
-    expect(consoleLog).not.toHaveBeenCalledWith(expect.stringContaining(invalidImage));
-    expect(consoleWarn).not.toHaveBeenCalledWith(expect.stringContaining(invalidImage));
+    expect(consoleLog).not.toHaveBeenCalledWith(
+      expect.stringContaining(invalidImage),
+    );
+    expect(consoleWarn).not.toHaveBeenCalledWith(
+      expect.stringContaining(invalidImage),
+    );
     consoleLog.mockRestore();
     consoleWarn.mockRestore();
   });
 
   it('does not require image for ERROR and preserves the real state', async () => {
     await expect(
-      generate(generateResponse({ codigoRespuesta: 'ERROR', imagen: undefined })),
+      generate(
+        generateResponse({ codigoRespuesta: 'ERROR', imagen: undefined }),
+      ),
     ).resolves.toEqual(
       expect.objectContaining({
         providerStatus: 'ERROR',
@@ -215,17 +235,23 @@ describe('RedEnlaceQrHttpProvider verify parsing', () => {
     ['CANCELLED'],
     ['ERROR'],
     ['NOTFOUND'],
-  ])('uses simple codigoRespuesta %s as provider status', async (codigoRespuesta) => {
-    await expect(
-      verify({ codigoRespuesta, detalleRespuesta: `Estado ${codigoRespuesta}` }),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        providerReference: '6780',
-        providerStatus: codigoRespuesta,
-        responseCode: codigoRespuesta,
-      }),
-    );
-  });
+  ])(
+    'uses simple codigoRespuesta %s as provider status',
+    async (codigoRespuesta) => {
+      await expect(
+        verify({
+          codigoRespuesta,
+          detalleRespuesta: `Estado ${codigoRespuesta}`,
+        }),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          providerReference: '6780',
+          providerStatus: codigoRespuesta,
+          responseCode: codigoRespuesta,
+        }),
+      );
+    },
+  );
 
   it('normalizes simple codigoRespuesta whitespace and case', async () => {
     await expect(
@@ -289,7 +315,9 @@ describe('RedEnlaceQrHttpProvider verify parsing', () => {
   });
 
   it('does not classify malformed JSON as NOTFOUND', async () => {
-    await expect(verify({ detalleRespuesta: 'sin estado' })).rejects.toMatchObject({
+    await expect(
+      verify({ detalleRespuesta: 'sin estado' }),
+    ).rejects.toMatchObject({
       code: 'RED_ENLACE_INVALID_RESPONSE',
     } satisfies Partial<PaymentDomainError>);
   });

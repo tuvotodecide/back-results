@@ -1,7 +1,10 @@
 import appConfig from '@/config/app.config';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { LoggerService } from '@/core/services/logger.service';
-import { RoledUser, RoledUserSchema } from '@/modules/auth/schemas/roledUser.schema';
+import {
+  RoledUser,
+  RoledUserSchema,
+} from '@/modules/auth/schemas/roledUser.schema';
 import {
   InstitutionalTenant,
   InstitutionalTenantSchema,
@@ -14,8 +17,14 @@ import { PaymentsController } from '@/modules/payments/controllers/payments.cont
 import { RedEnlaceWebhookController } from '@/modules/payments/controllers/red-enlace-webhook.controller';
 import { RedEnlaceWebhookGuard } from '@/modules/payments/guards/red-enlace-webhook.guard';
 import { QR_PAYMENT_PROVIDER } from '@/modules/payments/payments.constants';
-import { PaymentProviderEvent, PaymentProviderEventSchema } from '@/modules/payments/schemas/payment-provider-event.schema';
-import { PaymentTransaction, PaymentTransactionSchema } from '@/modules/payments/schemas/payment-transaction.schema';
+import {
+  PaymentProviderEvent,
+  PaymentProviderEventSchema,
+} from '@/modules/payments/schemas/payment-provider-event.schema';
+import {
+  PaymentTransaction,
+  PaymentTransactionSchema,
+} from '@/modules/payments/schemas/payment-transaction.schema';
 import { PaymentTenantAccessService } from '@/modules/payments/services/payment-tenant-access.service';
 import { PaymentTransactionsService } from '@/modules/payments/services/payment-transactions.service';
 import { RedEnlaceWebhookService } from '@/modules/payments/services/red-enlace-webhook.service';
@@ -24,7 +33,11 @@ import { TvdExchangeRatesService } from '@/modules/tvd/services/tvd-exchange-rat
 import { TvdModule } from '@/modules/tvd/tvd.module';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
+import {
+  getConnectionToken,
+  getModelToken,
+  MongooseModule,
+} from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Connection, Model, Types } from 'mongoose';
@@ -78,9 +91,15 @@ describe('TVD QR accreditations controlled e2e', () => {
         TvdModule,
         MongooseModule.forFeature([
           { name: PaymentTransaction.name, schema: PaymentTransactionSchema },
-          { name: PaymentProviderEvent.name, schema: PaymentProviderEventSchema },
+          {
+            name: PaymentProviderEvent.name,
+            schema: PaymentProviderEventSchema,
+          },
           { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
-          { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
+          {
+            name: TenantAdminAssignment.name,
+            schema: TenantAdminAssignmentSchema,
+          },
           { name: RoledUser.name, schema: RoledUserSchema },
         ]),
       ],
@@ -107,7 +126,9 @@ describe('TVD QR accreditations controlled e2e', () => {
       req.user = currentUser;
       next();
     });
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
 
     conn = moduleRef.get<Connection>(getConnectionToken());
@@ -181,7 +202,11 @@ describe('TVD QR accreditations controlled e2e', () => {
     const qr = await request(app.getHttpServer())
       .post('/api/v1/payments/qr')
       .set('Idempotency-Key', 'qr-e2e-key')
-      .send({ amount: '10.50', currency: 'BOB', description: 'Recarga operativa' })
+      .send({
+        amount: '10.50',
+        currency: 'BOB',
+        description: 'Recarga operativa',
+      })
       .expect(201);
 
     await request(app.getHttpServer())
@@ -213,16 +238,23 @@ describe('TVD QR accreditations controlled e2e', () => {
         tokenAmount: '5',
       },
     });
-    await expect(accreditationModel.countDocuments({
-      sourceType: 'QR_PAYMENT',
-      sourceId: qr.body.id,
-    })).resolves.toBe(1);
+    await expect(
+      accreditationModel.countDocuments({
+        sourceType: 'QR_PAYMENT',
+        sourceId: qr.body.id,
+      }),
+    ).resolves.toBe(1);
   });
 
   it('TVD-QR-E2E-002 | POSITIVO | E2E | webhook repetido reutiliza la misma acreditacion', async () => {
     const qr = await request(app.getHttpServer())
       .post('/api/v1/payments/qr')
-      .send({ amount: '10.50', currency: 'BOB', description: 'Recarga operativa' })
+      .set('Idempotency-Key', 'qr-e2e-key-duplicate-webhook')
+      .send({
+        amount: '10.50',
+        currency: 'BOB',
+        description: 'Recarga operativa',
+      })
       .expect(201);
 
     const payload = {
@@ -235,12 +267,20 @@ describe('TVD QR accreditations controlled e2e', () => {
         numeroAch: 'ACH-E2E-002',
       },
     };
-    await request(app.getHttpServer()).post('/api/v1/qr/confirmed').send(payload).expect(200);
-    await request(app.getHttpServer()).post('/api/v1/qr/confirmed').send(payload).expect(200);
+    await request(app.getHttpServer())
+      .post('/api/v1/qr/confirmed')
+      .send(payload)
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/api/v1/qr/confirmed')
+      .send(payload)
+      .expect(200);
 
-    await expect(accreditationModel.countDocuments({
-      sourceType: 'QR_PAYMENT',
-      sourceId: qr.body.id,
-    })).resolves.toBe(1);
+    await expect(
+      accreditationModel.countDocuments({
+        sourceType: 'QR_PAYMENT',
+        sourceId: qr.body.id,
+      }),
+    ).resolves.toBe(1);
   });
 });

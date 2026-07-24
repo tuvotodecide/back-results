@@ -14,7 +14,10 @@ import { PaymentDomainError } from '@/modules/payments/errors/payment-domain.err
 import { RedEnlaceWebhookGuard } from '@/modules/payments/guards/red-enlace-webhook.guard';
 import { QR_PAYMENT_PROVIDER } from '@/modules/payments/payments.constants';
 import { MockRedEnlaceQrProvider } from '@/modules/payments/providers/mock-red-enlace-qr.provider';
-import { createQrPaymentProvider, validateRedEnlaceConfiguration } from '@/modules/payments/providers/qr-payment-provider.factory';
+import {
+  createQrPaymentProvider,
+  validateRedEnlaceConfiguration,
+} from '@/modules/payments/providers/qr-payment-provider.factory';
 import { RedEnlaceQrHttpProvider } from '@/modules/payments/providers/red-enlace-qr-http.provider';
 import { PaymentProviderEvent } from '@/modules/payments/schemas/payment-provider-event.schema';
 import { PaymentTransaction } from '@/modules/payments/schemas/payment-transaction.schema';
@@ -60,7 +63,9 @@ function createService(options?: {
     ...(options?.eventModel ?? {}),
   };
   const payments = {
-    applyWebhookConfirmation: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+    applyWebhookConfirmation: jest
+      .fn()
+      .mockResolvedValue({ _id: new Types.ObjectId() }),
     ...(options?.payments ?? {}),
   };
   const configService = {
@@ -98,7 +103,11 @@ describe('PaymentsModule integration surface', () => {
         RedEnlaceQrHttpProvider,
         {
           provide: QR_PAYMENT_PROVIDER,
-          inject: [ConfigService, MockRedEnlaceQrProvider, RedEnlaceQrHttpProvider],
+          inject: [
+            ConfigService,
+            MockRedEnlaceQrProvider,
+            RedEnlaceQrHttpProvider,
+          ],
           useFactory: createQrPaymentProvider,
         },
         {
@@ -201,7 +210,11 @@ describe('RedEnlaceWebhookService', () => {
         applyWebhookConfirmation: jest
           .fn()
           .mockRejectedValue(
-            new PaymentDomainError('PAYMENT_NOT_FOUND', 'Pago no encontrado', 404),
+            new PaymentDomainError(
+              'PAYMENT_NOT_FOUND',
+              'Pago no encontrado',
+              404,
+            ),
           ),
       },
     });
@@ -386,7 +399,7 @@ describe('RedEnlaceQrHttpProvider', () => {
         merchantReference: '203414',
         amountMinor: '2000',
         currency: 'BOB',
-        glosa: '461362|BLOCKCHAIN API QR|7372|PAGO 203414',
+        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
         description: 'no debe salir en glosa',
         expiresAt: new Date('2025-08-01T16:30:57.286Z'),
       }),
@@ -406,7 +419,7 @@ describe('RedEnlaceQrHttpProvider', () => {
       'https://red-enlace.test/cobranza-0.0.1/atc/generarQr',
       {
         numeroReferencia: 203414,
-        glosa: '461362|BLOCKCHAIN API QR|7372|PAGO 203414',
+        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
         monto: 20,
         moneda: 'BOB',
         canal: 'WEB',
@@ -463,7 +476,9 @@ describe('Red Enlace configuration validation', () => {
   }
 
   it('allows mock mode without real Red Enlace credentials', () => {
-    expect(() => validateRedEnlaceConfiguration(config({}), 'mock')).not.toThrow();
+    expect(() =>
+      validateRedEnlaceConfiguration(config({}), 'mock'),
+    ).not.toThrow();
   });
 
   it('requires callback token in sandbox mode', () => {
@@ -518,6 +533,9 @@ describe('PaymentTransactionsService Red Enlace QR generation', () => {
       qrExpiresAt: new Date('2025-08-01T16:30:57.286Z'),
     };
     const paymentModel = {
+      findOne: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue(null),
+      }),
       create: jest.fn().mockResolvedValue(basePayment),
       findOneAndUpdate: jest
         .fn()
@@ -573,6 +591,7 @@ describe('PaymentTransactionsService Red Enlace QR generation', () => {
         description: 'Compra con CI 14240008',
       },
       { sub: String(userId), role: 'ADMIN' },
+      'red-enlace-glosa-key',
     );
 
     expect(provider.generateQr).toHaveBeenCalledWith(
@@ -580,10 +599,12 @@ describe('PaymentTransactionsService Red Enlace QR generation', () => {
         merchantReference: '203414',
         amountMinor: '2000',
         currency: 'BOB',
-        glosa: '461362|BLOCKCHAIN API QR|7372|PAGO 203414',
+        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
       }),
     );
-    expect(provider.generateQr.mock.calls[0][0].glosa).not.toContain('14240008');
+    expect(provider.generateQr.mock.calls[0][0].glosa).not.toContain(
+      '14240008',
+    );
     expect(provider.generateQr.mock.calls[0][0].glosa).not.toContain('Tenant');
   });
 });

@@ -33,6 +33,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { TvdModule } from './modules/tvd/tvd.module';
 import { HistoryModule } from './modules/history/history.module';
 import { MerkletreeModule } from './modules/merkletree/merkletree.module';
+import { InstitutionalWalletsModule } from './modules/institutional-wallets/institutional-wallets.module';
 
 const mockModules =
   process.env.ENABLE_MOCKS?.toLowerCase() === 'true' ? [MocksModule] : [];
@@ -69,6 +70,7 @@ const mockModules =
     InstitutionalVotingModule,
     InstitutionalTenantsModule,
     InstitutionalAdminApplicationsModule,
+    InstitutionalWalletsModule,
     InstitutionalAccessRecoveryRequestsModule,
     InstitutionalAuditModule,
     PaymentsModule,

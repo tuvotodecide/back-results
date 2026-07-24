@@ -52,7 +52,8 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
       findOne: jest.fn(),
     };
     mailService = {
-      sendEmail: jest.fn().mockResolvedValue(undefined),
+      enqueueInstitutionalPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+      processPendingBatch: jest.fn().mockResolvedValue(undefined),
     };
     configService = {
       get: jest.fn((key: string, fallback?: any) => {
@@ -126,7 +127,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
       }),
     );
     expect(JSON.stringify(result)).not.toContain('old@example.com');
-    expect(mailService.sendEmail).not.toHaveBeenCalled();
+    expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
   });
 
   it('rechaza institucion inexistente, email duplicado y solicitud pendiente duplicada', async () => {
@@ -250,6 +251,10 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
       tenantId,
       newEmail: 'new@example.com',
       status: 'PENDING',
+      candidateUserId: userId,
+      candidateAssignmentId: assignmentId,
+      accountAddress: '0x0000000000000000000000000000000000000043',
+      institutionalRole: 'PRIMARY',
       save: jest.fn().mockResolvedValue(undefined),
     };
     const userDoc: any = {
@@ -292,12 +297,13 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(userDoc.passwordResetTokenExpiresAt).toBeInstanceOf(Date);
     expect(requestDoc.accountAddress).toBe('0x0000000000000000000000000000000000000043');
     expect(requestDoc.institutionalRole).toBe('PRIMARY');
-    expect(mailService.sendEmail).toHaveBeenCalledWith(
-      'new@example.com',
-      'Restablecer contraseña',
-      'reset-password',
-      expect.objectContaining({ resetLink: expect.stringContaining('token=') }),
-    );
+    expect(mailService.enqueueInstitutionalPasswordResetEmail).toHaveBeenCalledWith({
+      recipient: 'new@example.com',
+      name: 'Admin',
+      targetId: userId,
+      session,
+    });
+    expect(mailService.processPendingBatch).toHaveBeenCalledWith(1);
     expect(JSON.stringify(result)).not.toContain(userDoc.passwordResetToken);
   });
 
@@ -325,6 +331,8 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
       tenantId,
       newEmail: 'new@example.com',
       status: 'PENDING',
+      candidateUserId: userId,
+      candidateAssignmentId: assignmentId,
       save: jest.fn(),
     }));
     tenantModel.findById.mockReturnValue(query({ _id: tenantId }));
@@ -359,7 +367,111 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('si falla el envio de correo la aprobacion propaga error dentro de la transaccion', async () => {
+  it('bloquea aprobacion si el objetivo no corresponde al candidato capturado', async () => {
+    const requestId = new Types.ObjectId('64c000000000000000000055');
+    const tenantId = new Types.ObjectId('64c000000000000000000056');
+    const userId = new Types.ObjectId('64c000000000000000000057');
+    const assignmentId = new Types.ObjectId('64c000000000000000000058');
+    const otherUserId = new Types.ObjectId('64c000000000000000000059');
+    recoveryRequestModel.findById.mockReturnValue(sessionDocQuery({
+      _id: requestId,
+      tenantId,
+      newEmail: 'new@example.com',
+      status: 'PENDING',
+      candidateUserId: userId,
+      candidateAssignmentId: assignmentId,
+      accountAddress: '0x0000000000000000000000000000000000000058',
+      institutionalRole: 'PRIMARY',
+      save: jest.fn(),
+    }));
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId }));
+    roledUserModel.findById.mockReturnValue(sessionDocQuery({
+      _id: otherUserId,
+      email: 'other@example.com',
+      name: 'Other Admin',
+      save: jest.fn(),
+    }));
+    assignmentModel.findOne.mockReturnValue(query({
+      _id: assignmentId,
+      tenantId,
+      userId,
+      accountAddress: '0x0000000000000000000000000000000000000058',
+      institutionalRole: 'PRIMARY',
+    }));
+    roledUserModel.findOne.mockReturnValue(query(null));
+
+    await expect(
+      service.approveRequest(
+        String(requestId),
+        { targetUserId: String(otherUserId), targetAssignmentId: String(assignmentId) },
+        { role: 'ADMIN' },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
+  });
+
+  it('bloquea aprobacion si wallet o rol cambiaron desde la solicitud', async () => {
+    const requestId = new Types.ObjectId('64c00000000000000000005a');
+    const tenantId = new Types.ObjectId('64c00000000000000000005b');
+    const userId = new Types.ObjectId('64c00000000000000000005c');
+    const assignmentId = new Types.ObjectId('64c00000000000000000005d');
+    const requestDoc: any = {
+      _id: requestId,
+      tenantId,
+      newEmail: 'new@example.com',
+      status: 'PENDING',
+      candidateUserId: userId,
+      candidateAssignmentId: assignmentId,
+      accountAddress: '0x000000000000000000000000000000000000005d',
+      institutionalRole: 'PRIMARY',
+      save: jest.fn(),
+    };
+    recoveryRequestModel.findById.mockReturnValue(sessionDocQuery(requestDoc));
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId }));
+    roledUserModel.findById.mockReturnValue(sessionDocQuery({
+      _id: userId,
+      email: 'old@example.com',
+      name: 'Admin',
+      save: jest.fn(),
+    }));
+    roledUserModel.findOne.mockReturnValue(query(null));
+    assignmentModel.findOne.mockReturnValueOnce(query({
+      _id: assignmentId,
+      tenantId,
+      userId,
+      accountAddress: '0x0000000000000000000000000000000000000001',
+      institutionalRole: 'PRIMARY',
+    }));
+
+    await expect(
+      service.approveRequest(
+        String(requestId),
+        { targetUserId: String(userId), targetAssignmentId: String(assignmentId) },
+        { role: 'ADMIN' },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    assignmentModel.findOne.mockReturnValueOnce(query({
+      _id: assignmentId,
+      tenantId,
+      userId,
+      accountAddress: '0x000000000000000000000000000000000000005d',
+      institutionalRole: 'SECONDARY',
+    }));
+
+    await expect(
+      service.approveRequest(
+        String(requestId),
+        { targetUserId: String(userId), targetAssignmentId: String(assignmentId) },
+        { role: 'ADMIN' },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
+  });
+
+  it('si falla el outbox la aprobacion propaga error dentro de la transaccion', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000060');
     const tenantId = new Types.ObjectId('64c000000000000000000061');
     const userId = new Types.ObjectId('64c000000000000000000062');
@@ -369,6 +481,10 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
       tenantId,
       newEmail: 'new@example.com',
       status: 'PENDING',
+      candidateUserId: userId,
+      candidateAssignmentId: assignmentId,
+      accountAddress: null,
+      institutionalRole: null,
       save: jest.fn(),
     }));
     tenantModel.findById.mockReturnValue(query({ _id: tenantId }));
@@ -380,7 +496,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     }));
     assignmentModel.findOne.mockReturnValue(query({ _id: assignmentId, tenantId, userId }));
     roledUserModel.findOne.mockReturnValue(query(null));
-    mailService.sendEmail.mockRejectedValueOnce(new Error('SES down'));
+    mailService.enqueueInstitutionalPasswordResetEmail.mockRejectedValueOnce(new Error('outbox down'));
 
     await expect(
       service.approveRequest(
@@ -388,7 +504,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
         { targetUserId: String(userId), targetAssignmentId: String(assignmentId) },
         { role: 'ADMIN' },
       ),
-    ).rejects.toThrow('SES down');
+    ).rejects.toThrow('outbox down');
   });
 
   it('rechaza solicitud sin modificar cuenta ni assignment', async () => {

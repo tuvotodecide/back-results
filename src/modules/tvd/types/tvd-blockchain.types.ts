@@ -10,6 +10,12 @@ export type TvdBlockchainConfig = {
   decimals: number;
 };
 
+export type TvdElectoralCreditsConfig = TvdBlockchainConfig & {
+  electoralCreditsAddress: Address;
+  voteManagerAddress: Address;
+  voteManagerImplementationAddress: Address;
+};
+
 export type TvdBlockchainValidationResult =
   | { configured: false }
   | {
@@ -83,6 +89,39 @@ export type TvdTotalBalanceResult = {
   totalBalanceFormatted: string;
   isUnlocked: boolean;
   unlockTime: string;
+};
+
+export type TvdVotePublicationPreflightInput = {
+  institutionWallet: string;
+  institutionId: string;
+  onChainElectionId: bigint;
+  requiredCredits: bigint;
+  createVoteArgs: readonly unknown[];
+};
+
+export type TvdVotePublicationPreflightResult = {
+  chainId: number;
+  proxyAddress: Address;
+  implementationAddress: Address;
+  creditsContractAddress: Address;
+  tokenAddress: Address;
+  spenderAddress: Address;
+  institutionWallet: Address;
+  institutionAdminAddress: Address;
+  tvdPerCredit: string;
+  requiredCredits: string;
+  requiredTvd: string;
+  tvdSource: 'VESTING' | 'INCENTIVES' | 'WALLET';
+  assignedBalanceSmallestUnit: string;
+  liquidBalanceSmallestUnit: string;
+  allowanceSmallestUnit: string;
+  walletDebitRequiredSmallestUnit: string;
+  hasCapacity: boolean;
+  hasRequiredAllowance: boolean;
+  proxyAuthorizedForCredits: boolean;
+  institutionAuthorizedOnChain: boolean;
+  electionExistsOnChain: boolean;
+  simulated: boolean;
 };
 
 export type TvdUnlockInformation = {

@@ -29,12 +29,12 @@ export default registerAs('app', () => ({
       .filter(Boolean),
   },
 
-  cors: {
-    origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-  },
+  // cors: {
+  //   origins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
+  //     .split(',')
+  //     .map((s) => s.trim())
+  //     .filter(Boolean),
+  // },
 
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '300', 10),
@@ -81,6 +81,18 @@ export default registerAs('app', () => ({
   identity: {
     baseUrl: process.env.IDENTITY_BASE_URL,
     apiKey: process.env.IDENTITY_API_KEY,
+  },
+
+  officialPublicationMobileAuth: {
+    callbackUrl: process.env.OFFICIAL_PUBLICATION_MOBILE_AUTH_CALLBACK_URL,
+    ttlMs: parseInt(
+      process.env.OFFICIAL_PUBLICATION_MOBILE_AUTH_TTL_MS || '600000',
+      10,
+    ),
+    pendingTtlMs: parseInt(
+      process.env.OFFICIAL_PUBLICATION_MOBILE_AUTH_PENDING_TTL_MS || '180000',
+      10,
+    ),
   },
 
   issuer: {
@@ -137,6 +149,27 @@ export default registerAs('app', () => ({
     coinbaseRpc: process.env.BUNDLER_MAIN,
   },
 
+  officialPublicationArtifactEncryptionKey:
+    process.env.OFFICIAL_PUBLICATION_ARTIFACT_ENCRYPTION_KEY || '',
+
+  officialPublication: {
+    requiredConfirmations:
+      process.env.OFFICIAL_PUBLICATION_REQUIRED_CONFIRMATIONS || '1',
+    reconciliationEnabled:
+      process.env.OFFICIAL_PUBLICATION_RECONCILIATION_ENABLED || 'false',
+    reconciliationIntervalMs:
+      process.env.OFFICIAL_PUBLICATION_RECONCILIATION_INTERVAL_MS || '10000',
+    reconciliationBatchSize:
+      process.env.OFFICIAL_PUBLICATION_RECONCILIATION_BATCH_SIZE || '10',
+    reconciliationLockMs:
+      process.env.OFFICIAL_PUBLICATION_RECONCILIATION_LOCK_MS || '60000',
+    maxRetries: process.env.OFFICIAL_PUBLICATION_MAX_RETRIES || '5',
+    entryPointAddress:
+      process.env.OFFICIAL_PUBLICATION_ENTRY_POINT_ADDRESS || '',
+    entryPointVersion:
+      process.env.OFFICIAL_PUBLICATION_ENTRY_POINT_VERSION || '0.6',
+  },
+
   contracts: {
     tvdToken: {
       address: process.env.TVD_TOKEN_ADDRESS || '',
@@ -147,8 +180,8 @@ export default registerAs('app', () => ({
       txHash: process.env.CORE_VESTING_TX_HASH || '',
     },
     multisigWallet: {
-      address: process.env.MULTISIG_WALLET_ADDRESS || '',
-      txHash: process.env.MULTISIG_WALLET_TX_HASH || '',
+      address: process.env.TVD_MULTISIG_WALLET_ADDRESS || '',
+      txHash: process.env.TVD_MULTISIG_WALLET_TX_HASH || '',
     },
     institutionalVesting: {
       address: process.env.INSTITUTIONAL_VESTING_ADDRESS || '',
@@ -159,12 +192,13 @@ export default registerAs('app', () => ({
       txHash: process.env.INCENTIVE_CAMPAIGNS_TX_HASH || '',
     },
     electoralCredits: {
-      address: process.env.ELECTORAL_CREDITS_ADDRESS || '',
-      txHash: process.env.ELECTORAL_CREDITS_TX_HASH || '',
+      address: process.env.TVD_ELECTORAL_CREDITS_ADDRESS || '',
+      txHash: process.env.TVD_ELECTORAL_CREDITS_TX_HASH || '',
     },
     voteManager: {
-      address: process.env.VOTE_MANAGER_ADDRESS || '',
-      txHash: process.env.VOTE_MANAGER_TX_HASH || '',
+      address: process.env.TVD_VOTE_MANAGER_ADDRESS || '',
+      txHash: process.env.TVD_VOTE_MANAGER_TX_HASH || '',
+      implementationAddress: process.env.TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS || '',
     },
   },
 

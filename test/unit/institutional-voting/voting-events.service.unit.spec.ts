@@ -22,6 +22,9 @@ import { VoteWritterService } from '@/modules/institutional-voting/services/core
 import { PadronUsersService } from '@/modules/institutional-voting/services/core/padron-users.service';
 import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 import { PadronService } from '@/modules/institutional-voting/services/padron/padron.service';
+import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.service';
+import { OfficialPublicationFinalizationService } from '@/modules/institutional-voting/services/publication/official-publication-finalization.service';
+import { OfficialPublicationPreparationService } from '@/modules/institutional-voting/services/publication/official-publication-preparation.service';
 
 describe('VotingEventsService (unit)', () => {
   let service: VotingEventsService;
@@ -42,6 +45,7 @@ describe('VotingEventsService (unit)', () => {
   let notificationsService: any;
   let voteReaderService: any;
   let voteWritterService: any;
+  let tvdBlockchainService: any;
   let padronUsersService: any;
   let issuerService: any;
   let padronService: any;
@@ -133,6 +137,13 @@ describe('VotingEventsService (unit)', () => {
       canModifyPadronDuringVoting: jest.fn(() => false),
       hasPublicationWindowExpired: jest.fn(() => false),
       normalizeName: jest.fn((value: string) => value.trim().toLowerCase()),
+      resolveOfficialPublicationInstitution: jest.fn().mockResolvedValue({
+        institutionId: '64f000000000000000000010',
+        applicationId: '64f000000000000000000010',
+        accountAddress: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        assignmentId: new Types.ObjectId(),
+        institutionalRole: 'PRIMARY',
+      }),
     };
     notificationsService = {
       notifyConvocationIfEligible: jest.fn(),
@@ -146,8 +157,36 @@ describe('VotingEventsService (unit)', () => {
     };
     voteWritterService = {
       createVote: jest.fn(),
+      prepareCreateVote: jest.fn().mockResolvedValue({
+        secrets: ['nullifier-1'],
+        ciMerkleTree: { root: 10n, layers: [] },
+        voteMerkleTree: { root: 20n, layers: [] },
+        optionsWithBlank: ['Frente Azul', 'BLANK'],
+        callData: { to: '0xVoteContract', value: 0n, data: '0xcreate' },
+        createVoteArgs: [
+          1n,
+          'Eleccion 2026',
+          '64f000000000000000000010',
+          1n,
+          2n,
+          3n,
+          10n,
+          20n,
+          1n,
+          ['Frente Azul', 'BLANK'],
+        ],
+        onChainElectionId: 1n,
+      }),
+      executePreparedCreateVote: jest.fn().mockResolvedValue(['nullifier-1']),
       updateVoteSchedule: jest.fn(),
       castVote: jest.fn(),
+    };
+    tvdBlockchainService = {
+      validateVotePublicationPreflight: jest.fn().mockResolvedValue({
+        simulated: true,
+        requiredCredits: '1',
+        requiredTvd: '1000000000000000000',
+      }),
     };
     padronUsersService = {
       getPadronUsersFromEvent: jest.fn(),
@@ -193,9 +232,18 @@ describe('VotingEventsService (unit)', () => {
         },
         { provide: VoteReaderService, useValue: voteReaderService },
         { provide: VoteWritterService, useValue: voteWritterService },
+        { provide: TvdBlockchainService, useValue: tvdBlockchainService },
         { provide: PadronUsersService, useValue: padronUsersService },
         { provide: IssuerService, useValue: issuerService },
         { provide: PadronService, useValue: padronService },
+        {
+          provide: OfficialPublicationPreparationService,
+          useValue: { prepareOfficialPublication: jest.fn() },
+        },
+        {
+          provide: OfficialPublicationFinalizationService,
+          useValue: { finalizeOfficialPublication: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -542,13 +590,12 @@ describe('VotingEventsService (unit)', () => {
       lean: jest.fn().mockResolvedValue([{ name: 'Presidente' }]),
     });
     votingOptionModel.find.mockReturnValue({
-      lean: jest.fn().mockResolvedValue([{ active: true, candidates: [{ roleName: 'Presidente' }] }]),
+      lean: jest.fn().mockResolvedValue([{ name: 'Frente Azul', active: true, candidates: [{ roleName: 'Presidente' }] }]),
     });
     padronVersionModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
     padronUsersService.getPadronUsersFromEvent.mockResolvedValue([{ dni: '111' }]);
-    voteWritterService.createVote.mockResolvedValue(['nullifier-1']);
     issuerService.issueCredential.mockResolvedValue({
       '111': { credentialData: 'credential-111' },
     });
@@ -568,6 +615,26 @@ describe('VotingEventsService (unit)', () => {
       }),
     );
     expect(event.save).toHaveBeenCalled();
+    expect(accessService.resolveOfficialPublicationInstitution).toHaveBeenCalledWith(
+      event,
+      { sub: 'admin-1' },
+    );
+    expect(voteWritterService.prepareCreateVote).toHaveBeenCalledWith(
+      event,
+      '64f000000000000000000010',
+      ['111'],
+      ['Frente Azul'],
+    );
+    expect(tvdBlockchainService.validateVotePublicationPreflight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        institutionWallet: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        institutionId: '64f000000000000000000010',
+        onChainElectionId: 1n,
+        requiredCredits: 1n,
+      }),
+    );
+    expect(voteWritterService.executePreparedCreateVote).toHaveBeenCalled();
+    expect(voteWritterService.createVote).not.toHaveBeenCalled();
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
     expect(notificationsService.notifyOfficialPublicationConfirmed).toHaveBeenCalledWith(event);
     expect(result.state).toBe('OFFICIALLY_PUBLISHED');
@@ -594,7 +661,7 @@ describe('VotingEventsService (unit)', () => {
       lean: jest.fn().mockResolvedValue([{ name: 'Presidente' }]),
     });
     votingOptionModel.find.mockReturnValue({
-      lean: jest.fn().mockResolvedValue([{ active: true, candidates: [{ roleName: 'Presidente' }] }]),
+      lean: jest.fn().mockResolvedValue([{ name: 'Frente Azul', active: true, candidates: [{ roleName: 'Presidente' }] }]),
     });
     padronVersionModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(null),
@@ -636,7 +703,6 @@ describe('VotingEventsService (unit)', () => {
     });
     padronUsersService.getPadronUsersFromEvent.mockResolvedValue([{ dni: '111' }]);
     issuerService.getDidsByDnis.mockResolvedValue([{ dni: '111' }]);
-    voteWritterService.createVote.mockResolvedValue(['nullifier-1']);
     issuerService.issueCredential.mockResolvedValue({
       '111': { credentialData: 'credential-111' },
     });

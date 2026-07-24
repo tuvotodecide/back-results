@@ -14,10 +14,14 @@ export const paymentStatuses = [
   'MANUAL_REVIEW',
 ] as const;
 
-export type PaymentStatus = typeof paymentStatuses[number];
+export type PaymentStatus = (typeof paymentStatuses)[number];
 
-export const confirmationSources = ['WEBHOOK', 'RECONCILIATION', 'MOCK'] as const;
-export type ConfirmationSource = typeof confirmationSources[number];
+export const confirmationSources = [
+  'WEBHOOK',
+  'RECONCILIATION',
+  'MOCK',
+] as const;
+export type ConfirmationSource = (typeof confirmationSources)[number];
 
 export const providerEventProcessingStatuses = [
   'RECEIVED',
@@ -28,7 +32,7 @@ export const providerEventProcessingStatuses = [
 ] as const;
 
 export type ProviderEventProcessingStatus =
-  typeof providerEventProcessingStatuses[number];
+  (typeof providerEventProcessingStatuses)[number];
 
 export const validPaymentTransitions: Record<PaymentStatus, PaymentStatus[]> = {
   CREATED: ['QR_REQUESTING'],
@@ -55,6 +59,6 @@ export const RED_ENLACE_API_KEY_HEADER = 'x-api-key';
 export const RED_ENLACE_GENERATE_QR_PATH = '/cobranza-0.0.1/atc/generarQr';
 export const RED_ENLACE_VERIFY_QR_PATH = '/cobranza-0.0.1/atc/verificaQr';
 export const RED_ENLACE_BRANCH_CODE = '461362';
-export const RED_ENLACE_BRANCH_NAME = 'BLOCKCHAIN API QR';
+export const RED_ENLACE_BRANCH_NAME = 'BLOCKCHAIN API QR ';
 export const RED_ENLACE_BUSINESS_CATEGORY = '7372';
 export const RED_ENLACE_CHANNEL = 'WEB';

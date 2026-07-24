@@ -104,6 +104,42 @@ export class MerkletreeService implements OnModuleInit {
     }
   }
 
+  async createIfMissing(electionId: Types.ObjectId, type: 'ci' | 'vote', layers: bigint[][]) {
+    if (await this.hasCompleteTree(electionId, type, layers)) {
+      return { created: false };
+    }
+
+    try {
+      await this.create(electionId, type, layers);
+      return { created: true };
+    } catch (error) {
+      if (this.isDuplicateKeyError(error) && await this.hasCompleteTree(electionId, type, layers)) {
+        return { created: false };
+      }
+      throw error;
+    }
+  }
+
+  private async hasCompleteTree(
+    electionId: Types.ObjectId,
+    type: 'ci' | 'vote',
+    layers: bigint[][],
+  ) {
+    const leafModel = type === 'ci' ? this.ciMerkleLeafModel : this.voteMerkleLeafModel;
+    const nodeModel = type === 'ci' ? this.ciMerkleNodeModel : this.voteMerkleNodeModel;
+    const expectedLeaves = layers[0]?.length ?? 0;
+    const expectedNodes = layers.slice(1).reduce((total, layer) => total + layer.length, 0);
+    const [leafCount, nodeCount] = await Promise.all([
+      leafModel.countDocuments({ electionId }),
+      nodeModel.countDocuments({ electionId }),
+    ]);
+    return leafCount === expectedLeaves && nodeCount === expectedNodes;
+  }
+
+  private isDuplicateKeyError(error: any) {
+    return error?.code === 11000 || error?.codeName === 'DuplicateKey';
+  }
+
   findElementsAndIndices(leaf: bigint, layers: bigint[][]): { pathElements: bigint[]; pathIndices: number[] } {
     const leafIndex = layers[0].indexOf(leaf);
     if (leafIndex === -1) {

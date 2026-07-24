@@ -31,9 +31,41 @@ import {
 } from '../schemas/institutional-access-recovery-request.schema';
 
 type RecoveryCandidate = {
-  user?: any;
-  assignment?: any;
+  user?: {
+    _id: Types.ObjectId;
+    name?: string;
+    email?: string;
+  };
+  assignment?: {
+    _id: Types.ObjectId;
+    tenantId: Types.ObjectId;
+    userId: Types.ObjectId;
+    accountAddress?: string | null;
+    institutionalRole?: string | null;
+  };
   warnings: string[];
+};
+
+type RecoveryApprovalResponse = {
+  requestId: string;
+  status: string;
+  tenantId: string;
+  userId: string;
+  assignmentId: string;
+  resolvedAt?: Date | null;
+};
+
+type RecoveryListItem = {
+  requestId: string;
+  tenantId: string;
+  institutionName: string;
+  fullName: string;
+  phoneNumber: string;
+  newEmail: string;
+  supervisorPhoneNumber: string;
+  status: string;
+  requestedAt?: Date | null;
+  resolvedAt?: Date | null;
 };
 
 @Injectable()
@@ -149,7 +181,7 @@ export class InstitutionalAccessRecoveryRequestsService {
 
     const session = await this.recoveryRequestModel.db.startSession();
     try {
-      let response: any;
+      let response: RecoveryApprovalResponse | undefined;
       await session.withTransaction(async () => {
         response = await this.approveRequestInTransaction(
           requestObjectId,
@@ -161,6 +193,9 @@ export class InstitutionalAccessRecoveryRequestsService {
         );
       });
       await this.emailOutboxService.processPendingBatch?.(1);
+      if (!response) {
+        throw new Error('La aprobacion no produjo respuesta');
+      }
       return response;
     } finally {
       await session.endSession();
@@ -176,7 +211,7 @@ export class InstitutionalAccessRecoveryRequestsService {
     const requestObjectId = this.toObjectIdOrBadRequest(requestId, 'requestId invalido');
     const session = await this.recoveryRequestModel.db.startSession();
     try {
-      let response: any;
+      let response: RecoveryListItem | undefined;
       await session.withTransaction(async () => {
         const request = await this.recoveryRequestModel.findById(requestObjectId).session(session);
         if (!request) {
@@ -207,6 +242,9 @@ export class InstitutionalAccessRecoveryRequestsService {
         });
         response = this.toListResponse(request);
       });
+      if (!response) {
+        throw new Error('El rechazo no produjo respuesta');
+      }
       return response;
     } finally {
       await session.endSession();
@@ -220,7 +258,7 @@ export class InstitutionalAccessRecoveryRequestsService {
     actorId: Types.ObjectId | null,
     reason: string | undefined,
     session: ClientSession,
-  ) {
+  ): Promise<RecoveryApprovalResponse> {
     const request = await this.recoveryRequestModel.findById(requestId).session(session);
     if (!request) {
       throw new NotFoundException('Solicitud de recuperacion no encontrada');
@@ -242,8 +280,25 @@ export class InstitutionalAccessRecoveryRequestsService {
     if (!user) {
       throw new NotFoundException('Usuario objetivo no encontrado');
     }
+    if (
+      !request.candidateUserId ||
+      !request.candidateAssignmentId ||
+      String(request.candidateUserId) !== String(targetUserId) ||
+      String(request.candidateAssignmentId) !== String(targetAssignmentId)
+    ) {
+      throw new ConflictException('La solicitud no corresponde al administrador objetivo');
+    }
     if (!assignment || String(assignment.userId) !== String(user._id)) {
       throw new ConflictException('La relacion institucional objetivo no es coherente');
+    }
+    if (String(assignment.tenantId) !== String(request.tenantId)) {
+      throw new ConflictException('La relacion institucional no corresponde a la institucion');
+    }
+    if ((request.accountAddress ?? null) !== (assignment.accountAddress ?? null)) {
+      throw new ConflictException('La wallet institucional cambio durante la recuperacion');
+    }
+    if ((request.institutionalRole ?? null) !== (assignment.institutionalRole ?? null)) {
+      throw new ConflictException('El rol institucional cambio durante la recuperacion');
     }
     if (emailOwner && String(emailOwner._id) !== String(user._id)) {
       throw new ConflictException('El nuevo correo ya esta registrado por otro usuario');
@@ -381,27 +436,6 @@ export class InstitutionalAccessRecoveryRequestsService {
     userId: Types.ObjectId,
     session: ClientSession,
   ) {
-    const resetBaseUrl = this.configService.get<string>('app.mail.passwordResetBaseUrl');
-    if (!resetBaseUrl) {
-      throw new Error('Base URL no configurada');
-    }
-    if (typeof this.emailOutboxService.enqueueInstitutionalPasswordResetEmail !== 'function') {
-      const resetLink = this.buildEmailLink(
-        '',
-        resetBaseUrl,
-        '/votacion/restablecer',
-      ).replace('token=', `token=${String(userId)}`);
-      await (this.emailOutboxService as any).sendEmail(
-        to,
-        'Restablecer contraseña',
-        'reset-password',
-        {
-          name: name.split(' ')[0],
-          resetLink,
-        },
-      );
-      return;
-    }
     await this.emailOutboxService.enqueueInstitutionalPasswordResetEmail({
       recipient: to,
       name,
@@ -410,27 +444,7 @@ export class InstitutionalAccessRecoveryRequestsService {
     });
   }
 
-  private buildEmailLink(
-    token: string,
-    baseUrl: string | undefined,
-    canonicalPath: string,
-  ): string {
-    if (!baseUrl) {
-      throw new Error('Base URL no configurada');
-    }
-    try {
-      const url = new URL(baseUrl);
-      url.pathname = canonicalPath;
-      url.search = '';
-      url.searchParams.set('token', token);
-      return url.toString();
-    } catch {
-      const normalizedBase = baseUrl.replace(/\/$/, '');
-      return `${normalizedBase}${canonicalPath}?token=${token}`;
-    }
-  }
-
-  private toListResponse(request: any) {
+  private toListResponse(request: any): RecoveryListItem {
     return {
       requestId: String(request._id),
       tenantId: String(request.tenantId),

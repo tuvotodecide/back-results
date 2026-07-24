@@ -1,7 +1,10 @@
 import appConfig from '@/config/app.config';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
-import { RoledUser, RoledUserSchema } from '@/modules/auth/schemas/roledUser.schema';
+import {
+  RoledUser,
+  RoledUserSchema,
+} from '@/modules/auth/schemas/roledUser.schema';
 import {
   InstitutionalTenant,
   InstitutionalTenantSchema,
@@ -18,6 +21,10 @@ import {
   TokenAccreditation,
   TokenAccreditationSchema,
 } from '@/modules/tvd/schemas/token-accreditation.schema';
+import {
+  TvdExchangeRate,
+  TvdExchangeRateSchema,
+} from '@/modules/tvd/schemas/tvd-exchange-rate.schema';
 import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.service';
 import { TvdModule } from '@/modules/tvd/tvd.module';
 import {
@@ -26,8 +33,13 @@ import {
   UnauthorizedException,
   ValidationPipe,
 } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
-import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
+import {
+  getConnectionToken,
+  getModelToken,
+  MongooseModule,
+} from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Connection, Model, Types } from 'mongoose';
@@ -36,7 +48,10 @@ import { getAddress } from 'viem';
 
 const walletA = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 const walletB = getAddress('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
-const assignmentContract = getAddress('0x2222222222222222222222222222222222222222');
+const walletC = getAddress('0xcccccccccccccccccccccccccccccccccccccccc');
+const assignmentContract = getAddress(
+  '0x2222222222222222222222222222222222222222',
+);
 const txHash = `0x${'7'.repeat(64)}`;
 
 describe('TVD query endpoints (integration)', () => {
@@ -49,8 +64,18 @@ describe('TVD query endpoints (integration)', () => {
   let userModel: Model<any>;
   let paymentModel: Model<any>;
   let accreditationModel: Model<any>;
+  let rateModel: Model<any>;
   let currentUser: any;
   let seed: Awaited<ReturnType<typeof seedData>>;
+  let previousIdentityBaseUrl: string | undefined;
+  let previousIdentityApiKey: string | undefined;
+  let previousTvdDecimals: string | undefined;
+
+  const httpService = {
+    axiosRef: {
+      get: jest.fn(),
+    },
+  };
 
   const blockchain = {
     getTotalBalance: jest.fn(async () => ({
@@ -74,6 +99,13 @@ describe('TVD query endpoints (integration)', () => {
   };
 
   beforeAll(async () => {
+    previousIdentityBaseUrl = process.env.IDENTITY_BASE_URL;
+    previousIdentityApiKey = process.env.IDENTITY_API_KEY;
+    previousTvdDecimals = process.env.TVD_DECIMALS;
+    process.env.IDENTITY_BASE_URL = 'https://identity.example.test';
+    process.env.IDENTITY_API_KEY = 'identity-test-key';
+    process.env.TVD_DECIMALS = '18';
+
     mongod = await MongoMemoryReplSet.create({
       replSet: { count: 1 },
       instanceOpts: [{ launchTimeout: 120000 }],
@@ -87,15 +119,21 @@ describe('TVD query endpoints (integration)', () => {
         TvdModule,
         MongooseModule.forFeature([
           { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
-          { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
+          {
+            name: TenantAdminAssignment.name,
+            schema: TenantAdminAssignmentSchema,
+          },
           { name: RoledUser.name, schema: RoledUserSchema },
           { name: PaymentTransaction.name, schema: PaymentTransactionSchema },
           { name: TokenAccreditation.name, schema: TokenAccreditationSchema },
+          { name: TvdExchangeRate.name, schema: TvdExchangeRateSchema },
         ]),
       ],
     })
       .overrideProvider(TvdBlockchainService)
       .useValue(blockchain)
+      .overrideProvider(HttpService)
+      .useValue(httpService)
       .overrideGuard(JwtAuthGuard)
       .useValue({
         canActivate: jest.fn((context) => {
@@ -139,17 +177,29 @@ describe('TVD query endpoints (integration)', () => {
     userModel = moduleRef.get(getModelToken(RoledUser.name));
     paymentModel = moduleRef.get(getModelToken(PaymentTransaction.name));
     accreditationModel = moduleRef.get(getModelToken(TokenAccreditation.name));
+    rateModel = moduleRef.get(getModelToken(TvdExchangeRate.name));
     await Promise.all([
       tenantModel.init(),
       assignmentModel.init(),
       userModel.init(),
       paymentModel.init(),
       accreditationModel.init(),
+      rateModel.init(),
     ]);
   });
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    httpService.axiosRef.get.mockResolvedValue({
+      data: {
+        ok: true,
+        record: {
+          accountAddress: walletA,
+          discoverableHash: '0x-sensitive-hash',
+          guardianContractAddress: '0x-sensitive-guardian',
+        },
+      },
+    });
     blockchain.getTotalBalance.mockResolvedValue({
       wallet: walletA,
       decimals: 18,
@@ -168,6 +218,7 @@ describe('TVD query endpoints (integration)', () => {
       conn.collection('roled_users').deleteMany({}),
       conn.collection('payment_transactions').deleteMany({}),
       conn.collection('token_accreditations').deleteMany({}),
+      conn.collection('tvd_exchange_rates').deleteMany({}),
     ]);
     seed = await seedData();
     currentUser = {
@@ -179,6 +230,21 @@ describe('TVD query endpoints (integration)', () => {
   });
 
   afterAll(async () => {
+    if (previousIdentityBaseUrl === undefined) {
+      delete process.env.IDENTITY_BASE_URL;
+    } else {
+      process.env.IDENTITY_BASE_URL = previousIdentityBaseUrl;
+    }
+    if (previousIdentityApiKey === undefined) {
+      delete process.env.IDENTITY_API_KEY;
+    } else {
+      process.env.IDENTITY_API_KEY = previousIdentityApiKey;
+    }
+    if (previousTvdDecimals === undefined) {
+      delete process.env.TVD_DECIMALS;
+    } else {
+      process.env.TVD_DECIMALS = previousTvdDecimals;
+    }
     await app?.close();
     await conn?.close();
     await mongod?.stop();
@@ -415,8 +481,214 @@ describe('TVD query endpoints (integration)', () => {
       .expect(404);
   });
 
+  it('TVD-QUOTE-POS-I-001 | POSITIVO | INTEGRACION | admin institucional consulta cotizacion BOB/TVD read-only', async () => {
+    await rateModel.create({
+      currency: 'BOB',
+      bobPerToken: '2.5',
+      version: 1,
+      active: true,
+      effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      createdBy: seed.userA._id,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/quote')
+      .set('Authorization', 'Bearer institutional')
+      .query({ amount: '10.50', currency: 'bob' })
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      fiatAmount: '10.50',
+      fiatAmountMinor: '1050',
+      fiatCurrency: 'BOB',
+      estimatedTvd: '4.2',
+      estimatedTvdSmallestUnit: '4200000000000000000',
+      bobPerToken: '2.5',
+      exchangeRateVersion: 1,
+    });
+    expect(typeof res.body.quotedAt).toBe('string');
+    expect(res.body).not.toHaveProperty('validUntil');
+    expect(res.body).not.toHaveProperty('wallet');
+    expect(res.body).not.toHaveProperty('balance');
+    expect(blockchain.getTotalBalance).not.toHaveBeenCalled();
+  });
+
+  it('TVD-QUOTE-NEG-I-001/002/003 | NEGATIVO | INTEGRACION | cotizacion valida monto moneda y wallet institucional', async () => {
+    await rateModel.create({
+      currency: 'BOB',
+      bobPerToken: '2.5',
+      version: 1,
+      active: true,
+      effectiveFrom: new Date('2020-01-01T00:00:00.000Z'),
+      createdBy: seed.userA._id,
+    });
+
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/quote')
+      .set('Authorization', 'Bearer institutional')
+      .query({ amount: '0', currency: 'BOB' })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/quote')
+      .set('Authorization', 'Bearer institutional')
+      .query({ amount: '10.123', currency: 'BOB' })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/quote')
+      .set('Authorization', 'Bearer institutional')
+      .query({ amount: '10.50', currency: 'USD' })
+      .expect(400);
+
+    await assignmentModel.updateOne(
+      { _id: seed.assignmentA._id },
+      { $set: { walletVerifiedAt: null, walletVerificationSource: null } },
+    );
+
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/quote')
+      .set('Authorization', 'Bearer institutional')
+      .query({ amount: '10.50', currency: 'BOB' })
+      .expect(400);
+  });
+
+  it('TVD-CAPACITY-EST-POS-I-001 | POSITIVO | INTEGRACION | calcula capacidad estimada sin efectos economicos', async () => {
+    blockchain.getTotalBalance.mockResolvedValueOnce({
+      wallet: walletA,
+      decimals: 18,
+      liquidBalanceSmallestUnit: '0',
+      assignedBalanceSmallestUnit: '80000000000000000000',
+      totalBalanceSmallestUnit: '80000000000000000000',
+      liquidBalanceFormatted: '0',
+      assignedBalanceFormatted: '80',
+      totalBalanceFormatted: '80',
+      isUnlocked: false,
+      unlockTime: '0',
+    });
+
+    const beforePayments = await paymentModel.countDocuments({});
+    const beforeAccreditations = await accreditationModel.countDocuments({});
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional')
+      .send({ estimatedParticipants: 100 })
+      .expect(201);
+
+    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletA);
+    expect(res.body).toMatchObject({
+      estimatedParticipants: '100',
+      tokensPerParticipant: '1',
+      estimatedRequiredTokens: '100',
+      estimatedRequiredSmallestUnit: '100000000000000000000',
+      availableTokens: '80',
+      availableSmallestUnit: '80000000000000000000',
+      estimatedMissingTokens: '20',
+      estimatedMissingSmallestUnit: '20000000000000000000',
+      hasEstimatedCapacity: false,
+      reasonCode: 'INSUFFICIENT_TVD_BALANCE',
+      balanceSource: 'BLOCKCHAIN',
+      usableBalanceField: 'totalBalanceSmallestUnit',
+      walletAddress: walletA,
+    });
+    expect(await paymentModel.countDocuments({})).toBe(beforePayments);
+    expect(await accreditationModel.countDocuments({})).toBe(beforeAccreditations);
+  });
+
+  it('TVD-CAPACITY-EST-NEG-I-001 | NEGATIVO | INTEGRACION | rechaza inputs invalidos y campos autoritativos del frontend', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional')
+      .send({ estimatedParticipants: '   ' })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional')
+      .send({ estimatedParticipants: 0 })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional')
+      .send({ estimatedParticipants: 10.5 })
+      .expect(400);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional')
+      .send({
+        estimatedParticipants: 10,
+        walletAddress: walletB,
+        availableTokens: '999',
+        canPublish: true,
+      })
+      .expect(400);
+
+    expect(blockchain.getTotalBalance).not.toHaveBeenCalled();
+  });
+
+  it('TVD-CAPACITY-EST-POS-I-002 | POSITIVO | INTEGRACION | dos admins del mismo tenant conservan wallets independientes', async () => {
+    const userC = await userModel.create({
+      dni: '333',
+      email: 'c@example.test',
+      name: 'User C',
+      password: 'hash',
+      role: 'USER',
+      active: true,
+    });
+    await assignmentModel.create({
+      tenantId: seed.tenantA._id,
+      userId: userC._id,
+      status: 'APPROVED',
+      active: true,
+      institutionalRole: 'SECONDARY',
+      accountAddress: walletB,
+      accountAddressNormalized: walletB.toLowerCase(),
+      walletVerifiedAt: new Date(),
+      walletVerificationSource: 'TEST',
+    });
+    currentUser = {
+      sub: String(userC._id),
+      role: 'USER',
+      active: true,
+      tenantId: String(seed.tenantA._id),
+    };
+    blockchain.getTotalBalance.mockResolvedValueOnce({
+      wallet: walletB,
+      decimals: 18,
+      liquidBalanceSmallestUnit: '0',
+      assignedBalanceSmallestUnit: '100000000000000000000',
+      totalBalanceSmallestUnit: '100000000000000000000',
+      liquidBalanceFormatted: '0',
+      assignedBalanceFormatted: '100',
+      totalBalanceFormatted: '100',
+      isUnlocked: false,
+      unlockTime: '0',
+    });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional-c')
+      .send({ estimatedParticipants: 100 })
+      .expect(201);
+
+    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletB);
+    expect(blockchain.getTotalBalance).not.toHaveBeenCalledWith(walletA);
+    expect(res.body).toMatchObject({
+      walletAddress: walletB,
+      availableTokens: '100',
+      hasEstimatedCapacity: true,
+      reasonCode: null,
+    });
+  });
+
   it('TVD-QUERY-POS-I-006/007 | POSITIVO | INTEGRACION | ADMIN lista instituciones y wallets elegibles', async () => {
-    currentUser = { sub: new Types.ObjectId().toHexString(), role: 'ADMIN', active: true };
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'ADMIN',
+      active: true,
+    };
 
     const institutions = await request(app.getHttpServer())
       .get('/api/v1/tvd/admin/institutions')
@@ -445,7 +717,11 @@ describe('TVD query endpoints (integration)', () => {
   });
 
   it('TVD-QUERY-POS-I-008 | POSITIVO | INTEGRACION | ADMIN consulta acreditaciones globales', async () => {
-    currentUser = { sub: new Types.ObjectId().toHexString(), role: 'ADMIN', active: true };
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'ADMIN',
+      active: true,
+    };
 
     const list = await request(app.getHttpServer())
       .get('/api/v1/tvd/admin/accreditations')
@@ -461,10 +737,182 @@ describe('TVD query endpoints (integration)', () => {
     expect(detail.body.id).toBe(String(seed.accreditationA._id));
   });
 
-  it('TVD-QUERY-NEG-I-001/002/003 | NEGATIVO | INTEGRACION | bloquea sin JWT rol incorrecto y usuario sin assignment', async () => {
-    await request(app.getHttpServer()).get('/api/v1/tvd/me/summary').expect(401);
+  it('TVD-WALLET-LOOKUP-POS-I-001 | POSITIVO | INTEGRACION | ADMIN consulta wallet asociada con contrato seguro', async () => {
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'ADMIN',
+      active: true,
+    };
 
-    currentUser = { sub: new Types.ObjectId().toHexString(), role: 'USER', active: true };
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .set('Authorization', 'Bearer admin')
+      .query({ accountAddress: walletA.toLowerCase() })
+      .expect(200);
+
+    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/by-account',
+      expect.objectContaining({
+        params: { accountAddress: walletA },
+        headers: { 'x-api-key': 'identity-test-key' },
+        timeout: 5000,
+      }),
+    );
+    expect(res.body).toMatchObject({
+      accountAddress: walletA,
+      registeredInIdentity: true,
+      identityStatus: 'REGISTERED',
+      associationStatus: 'ASSOCIATED',
+      canUse: true,
+      reasonCode: 'WALLET_ASSOCIATED',
+      associations: [
+        {
+          tenantId: String(seed.tenantA._id),
+          tenantName: 'Tenant A',
+          assignmentId: String(seed.assignmentA._id),
+          userId: String(seed.userA._id),
+          institutionalRole: 'PRIMARY',
+          assignmentStatus: 'APPROVED',
+          assignmentActive: true,
+          userActive: true,
+          walletStatus: 'VERIFIED',
+        },
+      ],
+    });
+    const serialized = JSON.stringify(res.body);
+    expect(serialized).not.toContain('identity-test-key');
+    expect(serialized).not.toContain('discoverableHash');
+    expect(serialized).not.toContain('guardianContractAddress');
+    expect(serialized).not.toContain('dni');
+    expect(serialized).not.toContain('password');
+  });
+
+  it('TVD-WALLET-LOOKUP-POS-I-002 | POSITIVO | INTEGRACION | ADMIN recibe wallet no registrada sin datos sensibles', async () => {
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'ADMIN',
+      active: true,
+    };
+    httpService.axiosRef.get.mockResolvedValueOnce({
+      data: { ok: false, error: 'not-found' },
+    });
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .set('Authorization', 'Bearer admin')
+      .query({ accountAddress: walletC })
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      accountAddress: walletC,
+      registeredInIdentity: false,
+      identityStatus: 'NOT_REGISTERED',
+      associationStatus: 'UNASSOCIATED',
+      canUse: false,
+      reasonCode: 'WALLET_NOT_REGISTERED',
+      associations: [],
+    });
+    expect(JSON.stringify(res.body)).not.toContain('identity-test-key');
+  });
+
+  it('TVD-WALLET-LOOKUP-NEG-I-001 | NEGATIVO | INTEGRACION | bloquea lookup global sin JWT o sin rol ADMIN', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .query({ accountAddress: walletA })
+      .expect(401);
+
+    currentUser = { sub: String(seed.userA._id), role: 'USER', active: true };
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .set('Authorization', 'Bearer institutional')
+      .query({ accountAddress: walletA })
+      .expect(403);
+  });
+
+  it('TVD-WALLET-LOOKUP-NEG-I-002 | NEGATIVO | INTEGRACION | valida direccion y normaliza errores de Identity', async () => {
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'ADMIN',
+      active: true,
+    };
+
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .set('Authorization', 'Bearer admin')
+      .query({ accountAddress: 'not-a-wallet' })
+      .expect(400);
+    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+
+    httpService.axiosRef.get.mockRejectedValueOnce(
+      new Error(
+        'ECONNREFUSED https://identity.internal.local identity-test-key',
+      ),
+    );
+    const unavailable = await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .set('Authorization', 'Bearer admin')
+      .query({ accountAddress: walletA })
+      .expect(503);
+    expect(unavailable.body).toMatchObject({
+      code: 'TVD_IDENTITY_UNAVAILABLE',
+    });
+    expect(JSON.stringify(unavailable.body)).not.toContain('ECONNREFUSED');
+    expect(JSON.stringify(unavailable.body)).not.toContain('identity-test-key');
+
+    httpService.axiosRef.get.mockResolvedValueOnce({ data: { ok: true } });
+    const invalid = await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .set('Authorization', 'Bearer admin')
+      .query({ accountAddress: walletA })
+      .expect(502);
+    expect(invalid.body).toMatchObject({
+      code: 'TVD_IDENTITY_INVALID_RESPONSE',
+    });
+  });
+
+  it('TVD-WALLET-LOOKUP-NEG-I-003 | NEGATIVO | INTEGRACION | identifica wallet local deshabilitada sin combinar wallets del tenant', async () => {
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'ADMIN',
+      active: true,
+    };
+    await assignmentModel.updateOne(
+      { _id: seed.assignmentA._id },
+      { $set: { active: false } },
+    );
+
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/tvd/admin/wallet-lookup')
+      .set('Authorization', 'Bearer admin')
+      .query({ accountAddress: walletA })
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      accountAddress: walletA,
+      associationStatus: 'DISABLED',
+      canUse: false,
+      reasonCode: 'WALLET_DISABLED',
+    });
+    expect(res.body.associations).toHaveLength(1);
+    expect(res.body.associations[0].assignmentId).toBe(
+      String(seed.assignmentA._id),
+    );
+    expect(JSON.stringify(res.body)).not.toContain(
+      String(seed.assignmentB._id),
+    );
+    expect(JSON.stringify(res.body)).not.toContain(walletB);
+  });
+
+  it('TVD-QUERY-NEG-I-001/002/003 | NEGATIVO | INTEGRACION | bloquea sin JWT rol incorrecto y usuario sin assignment', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/summary')
+      .expect(401);
+
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'USER',
+      active: true,
+    };
     await request(app.getHttpServer())
       .get('/api/v1/tvd/admin/institutions')
       .set('Authorization', 'Bearer institutional')
@@ -492,7 +940,9 @@ describe('TVD query endpoints (integration)', () => {
       })
       .expect(400);
 
-    blockchain.getTotalBalance.mockRejectedValueOnce(new Error('rpc unavailable with secret'));
+    blockchain.getTotalBalance.mockRejectedValueOnce(
+      new Error('rpc unavailable with secret'),
+    );
     const res = await request(app.getHttpServer())
       .get('/api/v1/tvd/me/summary')
       .set('Authorization', 'Bearer institutional')
@@ -500,7 +950,9 @@ describe('TVD query endpoints (integration)', () => {
     expect(res.body).toMatchObject({
       code: 'TVD_BALANCE_TEMPORARILY_UNAVAILABLE',
     });
-    expect(JSON.stringify(res.body)).not.toContain('rpc unavailable with secret');
+    expect(JSON.stringify(res.body)).not.toContain(
+      'rpc unavailable with secret',
+    );
   });
 
   it('TVD-QUERY-NEG-I-007 | NEGATIVO | INTEGRACION | wallet sin metadata no es elegible ni consultable por me', async () => {
@@ -514,7 +966,11 @@ describe('TVD query endpoints (integration)', () => {
       .set('Authorization', 'Bearer institutional')
       .expect(400);
 
-    currentUser = { sub: new Types.ObjectId().toHexString(), role: 'ADMIN', active: true };
+    currentUser = {
+      sub: new Types.ObjectId().toHexString(),
+      role: 'ADMIN',
+      active: true,
+    };
     const wallets = await request(app.getHttpServer())
       .get(`/api/v1/tvd/admin/institutions/${seed.tenantA._id}/wallets`)
       .set('Authorization', 'Bearer admin')

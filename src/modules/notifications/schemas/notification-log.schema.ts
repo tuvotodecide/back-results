@@ -19,8 +19,11 @@ export class NotificationLog {
 
   @Prop({ type: Object }) data?: Record<string, any>;
 
-  @Prop({ required: true, enum: ['SENT', 'FAILED'] })
-  status: 'SENT' | 'FAILED';
+  @Prop({
+    required: true,
+    enum: ['PENDING', 'SENDING', 'SENT', 'FAILED', 'FAILED_RETRYABLE', 'FAILED_FINAL', 'CANCELLED'],
+  })
+  status: 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'FAILED_RETRYABLE' | 'FAILED_FINAL' | 'CANCELLED';
 
   @Prop() messageId?: string;
   @Prop() error?: string;

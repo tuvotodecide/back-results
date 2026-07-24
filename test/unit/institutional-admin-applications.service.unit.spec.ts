@@ -1,3 +1,13 @@
+jest.mock('@/api/account', () => ({
+  executeCoinbaseOp: jest.fn().mockResolvedValue({ txHash: '0xabc123' }),
+}));
+
+jest.mock('@/api/vote', () => ({
+  VoteContractCalls: {
+    createInstitution: jest.fn().mockReturnValue({ calldata: '0x' }),
+  },
+}));
+
 import {
   BadRequestException,
   ConflictException,
@@ -7,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { InstitutionalAdminApplicationsService } from '@/modules/institutional-admin-applications/services/institutional-admin-applications.service';
+import { executeCoinbaseOp } from '@/api/account';
 
 const execResolved = <T>(value: T) => ({ exec: jest.fn().mockResolvedValue(value) });
 const sortResolved = <T>(value: T) => ({ sort: jest.fn().mockResolvedValue(value) });
@@ -22,6 +33,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
   let configService: any;
   let httpService: any;
   let auditService: any;
+  let historyService: any;
   let service: InstitutionalAdminApplicationsService;
   let session: any;
 
@@ -94,6 +106,10 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       record: jest.fn().mockResolvedValue(undefined),
       resolveActorInstitutionalRole: jest.fn().mockResolvedValue(null),
     };
+    historyService = {
+      createWithSession: jest.fn().mockResolvedValue({ success: true, data: null }),
+    };
+    (executeCoinbaseOp as jest.Mock).mockClear();
     service = new InstitutionalAdminApplicationsService(
       applicationModel,
       roledUserModel,
@@ -104,6 +120,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       configService,
       httpService,
       auditService,
+      historyService,
     );
   });
 
@@ -188,6 +205,154 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     ).rejects.toBeInstanceOf(ConflictException);
     expect(httpService.axiosRef.get).not.toHaveBeenCalled();
     expect(roledUserModel.create).not.toHaveBeenCalled();
+    expect(applicationModel.create).not.toHaveBeenCalled();
+  });
+
+  it('createApplication para institucion existente queda pendiente sin crear tenant, assignment ni on-chain', async () => {
+    const existingTenant = {
+      _id: tenantId,
+      name: 'Institucion Activa',
+      active: true,
+    };
+    const existingUser = {
+      _id: userId,
+      email: 'admin@example.com',
+      dni: '123456',
+      verificationToken: undefined,
+      password: 'hashed',
+    };
+    tenantModel.findById.mockResolvedValue(existingTenant);
+    roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([existingUser]) });
+    applicationModel.findOne.mockReturnValue(sortResolved(null));
+    assignmentModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    applicationModel.create.mockResolvedValue({
+      _id: appId,
+      status: 'PENDING_APPROVAL',
+      email: 'admin@example.com',
+      name: 'Admin Tenant',
+      tenantId,
+      userId,
+      accountAddress: validAccountAddress,
+    });
+
+    await expect(
+      service.createApplication({
+        dni: '123456',
+        email: 'admin@example.com',
+        name: 'Admin Tenant',
+        institutionId: String(tenantId),
+        accountAddress: validAccountAddress,
+      }),
+    ).resolves.toEqual({
+      id: appId.toString(),
+      status: 'PENDING_APPROVAL',
+      email: 'admin@example.com',
+      tenantAlreadyExists: true,
+      tenantId: tenantId.toString(),
+      userId: userId.toString(),
+    });
+
+    expect(tenantModel.findById).toHaveBeenCalledWith(String(tenantId));
+    expect(tenantModel.findOne).not.toHaveBeenCalled();
+    expect(tenantModel.create).not.toHaveBeenCalled();
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+    expect(applicationModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        institutionName: 'Institucion Activa',
+        institutionNameNorm: 'institucion activa',
+        tenantId,
+        userId,
+        status: 'PENDING_APPROVAL',
+      }),
+    );
+    expect(httpService.axiosRef.get).toHaveBeenCalled();
+  });
+
+  it('createApplication rechaza institucion existente inactiva o inexistente', async () => {
+    tenantModel.findById.mockResolvedValue(null);
+
+    await expect(
+      service.createApplication({
+        dni: '123456',
+        email: 'admin@example.com',
+        name: 'Admin Tenant',
+        password: 'secret123',
+        institutionId: String(tenantId),
+        accountAddress: validAccountAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'La institución seleccionada no está disponible',
+    });
+
+    tenantModel.findById.mockResolvedValue({ _id: tenantId, name: 'Tenant', active: false });
+    await expect(
+      service.createApplication({
+        dni: '123456',
+        email: 'admin@example.com',
+        name: 'Admin Tenant',
+        password: 'secret123',
+        institutionId: String(tenantId),
+        accountAddress: validAccountAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'La institución seleccionada no está disponible',
+    });
+
+    expect(applicationModel.create).not.toHaveBeenCalled();
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('createApplication rechaza solicitud pendiente duplicada para la misma institucion existente', async () => {
+    tenantModel.findById.mockResolvedValue({ _id: tenantId, name: 'Institucion Activa', active: true });
+    roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
+    applicationModel.findOne.mockReturnValue(sortResolved({ status: 'PENDING_APPROVAL' }));
+
+    await expect(
+      service.createApplication({
+        dni: '123456',
+        email: 'admin@example.com',
+        name: 'Admin Tenant',
+        password: 'secret123',
+        institutionId: String(tenantId),
+        accountAddress: validAccountAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Ya tienes una solicitud pendiente para esta institución.',
+    });
+
+    expect(applicationModel.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId,
+        $or: expect.arrayContaining([{ email: 'admin@example.com' }, { dni: '123456' }]),
+      }),
+    );
+    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+    expect(applicationModel.create).not.toHaveBeenCalled();
+  });
+
+  it('createApplication rechaza usuario ya asociado a la institucion existente', async () => {
+    const existingUser = { _id: userId, email: 'admin@example.com', dni: '123456' };
+    tenantModel.findById.mockResolvedValue({ _id: tenantId, name: 'Institucion Activa', active: true });
+    roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([existingUser]) });
+    applicationModel.findOne.mockReturnValue(sortResolved(null));
+    assignmentModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ status: 'APPROVED', active: true }),
+    });
+
+    await expect(
+      service.createApplication({
+        dni: '123456',
+        email: 'admin@example.com',
+        name: 'Admin Tenant',
+        institutionId: String(tenantId),
+        accountAddress: validAccountAddress,
+      }),
+    ).rejects.toMatchObject({
+      message: 'Ya administras esta institución.',
+    });
+
+    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
@@ -322,7 +487,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     );
   });
 
-  it('verifyEmail cambia a PENDING_APPROVAL y rechaza token expirado', async () => {
+  it('verifyEmail cambia a PENDING_APPROVAL sin crear assignment y rechaza token expirado', async () => {
     const app = {
       _id: appId,
       status: 'PENDING_EMAIL_VERIFICATION',
@@ -341,13 +506,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       emailVerifiedAt: expect.any(Date),
     });
     expect(app.save).toHaveBeenCalled();
-    expect(assignmentModel.findOneAndUpdate).toHaveBeenCalledWith(
-      { tenantId, userId },
-      expect.objectContaining({
-        $set: expect.objectContaining({ status: 'PENDING', active: false }),
-      }),
-      expect.objectContaining({ upsert: true, returnDocument: 'after' }),
-    );
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
 
     applicationModel.findOne.mockResolvedValueOnce({
       status: 'PENDING_EMAIL_VERIFICATION',

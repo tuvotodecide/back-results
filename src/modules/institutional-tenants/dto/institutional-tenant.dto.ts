@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsMongoId, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsMongoId, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
 export class CreateInstitutionalTenantDto {
   @ApiProperty()
@@ -48,6 +48,12 @@ export class TransferTenantPrimaryDto {
 }
 
 export class RegularizeTenantAdminWalletDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[A-Za-z0-9-]{5,20}$/)
+  dni: string;
+
   @ApiProperty()
   @IsString()
   @IsNotEmpty()

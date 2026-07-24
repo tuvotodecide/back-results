@@ -40,7 +40,9 @@ function createService(options?: {
 }) {
   const paymentModel = {
     create: jest.fn().mockResolvedValue(basePayment()),
-    findOne: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
+    findOne: jest
+      .fn()
+      .mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
     findOneAndUpdate: jest
       .fn()
       .mockResolvedValueOnce(basePayment({ status: 'QR_REQUESTING' }))
@@ -73,7 +75,9 @@ function createService(options?: {
     ...(options?.provider ?? {}),
   };
   const tenantAccess = {
-    resolveTenantForWrite: jest.fn().mockResolvedValue({ _id: tenantId, active: true }),
+    resolveTenantForWrite: jest
+      .fn()
+      .mockResolvedValue({ _id: tenantId, active: true }),
     getRequesterObjectId: jest.fn().mockReturnValue(userId),
     assertTenantAccess: jest.fn().mockResolvedValue(undefined),
     resolveTenantIdsForRead: jest.fn().mockResolvedValue([tenantId]),
@@ -109,7 +113,14 @@ function createService(options?: {
     tvdQrAccreditations as any,
   );
 
-  return { service, paymentModel, provider, tenantAccess, logger, tvdQrAccreditations };
+  return {
+    service,
+    paymentModel,
+    provider,
+    tenantAccess,
+    logger,
+    tvdQrAccreditations,
+  };
 }
 
 describe('PaymentTransactionsService QR payments', () => {
@@ -119,6 +130,7 @@ describe('PaymentTransactionsService QR payments', () => {
     const result = await service.createQrPayment(
       { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
       { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+      'qr-key-create',
     );
 
     expect(tenantAccess.resolveTenantForWrite).toHaveBeenCalledWith(
@@ -147,7 +159,7 @@ describe('PaymentTransactionsService QR payments', () => {
       expect.objectContaining({
         amountMinor: '1050',
         currency: 'BOB',
-        glosa: '461362|BLOCKCHAIN API QR|7372|PAGO 203414',
+        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
       }),
     );
     expect(result).toEqual(
@@ -178,7 +190,12 @@ describe('PaymentTransactionsService QR payments', () => {
     try {
       await service.createQrPayment(
         { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
-        { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+        {
+          sub: String(userId),
+          role: 'TENANT_ADMIN',
+          tenantId: String(tenantId),
+        },
+        'qr-key-expiration',
       );
     } finally {
       jest.useRealTimers();
@@ -210,6 +227,7 @@ describe('PaymentTransactionsService QR payments', () => {
     await service.createQrPayment(
       { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
       { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+      'qr-key-quote',
     );
 
     expect(paymentModel.create).toHaveBeenCalledWith(
@@ -273,7 +291,11 @@ describe('PaymentTransactionsService QR payments', () => {
     await expect(
       service.createQrPayment(
         { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
-        { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+        {
+          sub: String(userId),
+          role: 'TENANT_ADMIN',
+          tenantId: String(tenantId),
+        },
         'same-key',
       ),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -298,7 +320,12 @@ describe('PaymentTransactionsService QR payments', () => {
     await expect(
       service.createQrPayment(
         { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
-        { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+        {
+          sub: String(userId),
+          role: 'TENANT_ADMIN',
+          tenantId: String(tenantId),
+        },
+        'qr-key-incomplete',
       ),
     ).rejects.toBeInstanceOf(HttpException);
 
@@ -311,6 +338,94 @@ describe('PaymentTransactionsService QR payments', () => {
         },
       },
     );
+  });
+
+  it('rejects QR creation without Idempotency-Key before calling Red Enlace', async () => {
+    const { service, paymentModel, provider } = createService();
+
+    await expect(
+      service.createQrPayment(
+        { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
+        {
+          sub: String(userId),
+          role: 'TENANT_ADMIN',
+          tenantId: String(tenantId),
+        },
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'PAYMENT_IDEMPOTENCY_KEY_REQUIRED',
+      }),
+    });
+
+    expect(paymentModel.create).not.toHaveBeenCalled();
+    expect(provider.generateQr).not.toHaveBeenCalled();
+  });
+
+  it('rejects an overlong Idempotency-Key without silent truncation', async () => {
+    const { service, paymentModel, provider } = createService();
+
+    await expect(
+      service.createQrPayment(
+        { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
+        {
+          sub: String(userId),
+          role: 'TENANT_ADMIN',
+          tenantId: String(tenantId),
+        },
+        'x'.repeat(121),
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'PAYMENT_IDEMPOTENCY_KEY_INVALID',
+      }),
+    });
+
+    expect(paymentModel.create).not.toHaveBeenCalled();
+    expect(provider.generateQr).not.toHaveBeenCalled();
+  });
+
+  it('rechecks payload hash when concurrent creation hits the idempotency unique index', async () => {
+    const existing = basePayment({
+      status: 'CREATED',
+      idempotencyKey: 'race-key',
+      idempotencyRequestHash: 'different-hash',
+    });
+    const { service, paymentModel, provider } = createService({
+      paymentModel: {
+        create: jest.fn().mockRejectedValue({
+          code: 11000,
+          keyPattern: { idempotencyKey: 1 },
+        }),
+        findOne: jest
+          .fn()
+          .mockReturnValueOnce({ lean: jest.fn().mockResolvedValue(null) })
+          .mockResolvedValueOnce(existing),
+      },
+    });
+
+    await expect(
+      service.createQrPayment(
+        { amount: '10.50', currency: 'BOB', description: 'Recarga operativa' },
+        {
+          sub: String(userId),
+          role: 'TENANT_ADMIN',
+          tenantId: String(tenantId),
+        },
+        'race-key',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'PAYMENT_IDEMPOTENCY_CONFLICT',
+      }),
+    });
+
+    expect(provider.generateQr).not.toHaveBeenCalled();
+    expect(paymentModel.findOne).toHaveBeenLastCalledWith({
+      tenantId,
+      requestedByUserId: userId,
+      idempotencyKey: 'race-key',
+    });
   });
 
   it('applies a successful webhook once and keeps repeated confirmations idempotent', async () => {
@@ -332,8 +447,12 @@ describe('PaymentTransactionsService QR payments', () => {
       paymentModel: {
         findOne: jest
           .fn()
-          .mockReturnValueOnce({ exec: jest.fn().mockResolvedValue(activePayment) })
-          .mockReturnValueOnce({ exec: jest.fn().mockResolvedValue(confirmedPayment) }),
+          .mockReturnValueOnce({
+            exec: jest.fn().mockResolvedValue(activePayment),
+          })
+          .mockReturnValueOnce({
+            exec: jest.fn().mockResolvedValue(confirmedPayment),
+          }),
         findOneAndUpdate: jest.fn().mockReturnValue({
           exec: jest.fn().mockResolvedValue(confirmedPayment),
         }),
@@ -350,7 +469,9 @@ describe('PaymentTransactionsService QR payments', () => {
         achReference: '14262508014140754846',
         paymentDate: new Date('2026-07-13T11:00:00.000Z'),
       }),
-    ).resolves.toEqual(expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }));
+    ).resolves.toEqual(
+      expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }),
+    );
 
     await expect(
       service.applyWebhookConfirmation({
@@ -360,7 +481,9 @@ describe('PaymentTransactionsService QR payments', () => {
         amountMinor: '1050',
         currency: 'BOB',
       }),
-    ).resolves.toEqual(expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }));
+    ).resolves.toEqual(
+      expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }),
+    );
 
     expect(paymentModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
   });
@@ -406,9 +529,13 @@ describe('PaymentTransactionsService QR payments', () => {
         amountMinor: '1050',
         currency: 'BOB',
       }),
-    ).resolves.toEqual(expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }));
+    ).resolves.toEqual(
+      expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }),
+    );
 
-    expect(tvdQrAccreditations.createOrReuseForConfirmedPayment).toHaveBeenCalledWith(
+    expect(
+      tvdQrAccreditations.createOrReuseForConfirmedPayment,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }),
       { source: 'WEBHOOK' },
     );
@@ -478,50 +605,53 @@ describe('PaymentTransactionsService QR payments', () => {
   it.each([
     ['03', 'EXPIRED'],
     ['05', 'FAILED'],
-  ])('maps webhook estado %s over an active QR to %s', async (estado, expectedStatus) => {
-    const activePayment = basePayment({
-      status: 'QR_ACTIVE',
-      providerReference: '1511556',
-    });
-    const updatedPayment = basePayment({
-      status: expectedStatus,
-      providerReference: '1511556',
-      providerStatus: estado,
-      providerResponseCode: estado,
-    });
-    const { service, paymentModel } = createService({
-      paymentModel: {
-        findOne: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValue(activePayment),
-        }),
-        findOneAndUpdate: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValue(updatedPayment),
-        }),
-      },
-    });
-
-    await expect(
-      service.applyWebhookConfirmation({
+  ])(
+    'maps webhook estado %s over an active QR to %s',
+    async (estado, expectedStatus) => {
+      const activePayment = basePayment({
+        status: 'QR_ACTIVE',
+        providerReference: '1511556',
+      });
+      const updatedPayment = basePayment({
+        status: expectedStatus,
         providerReference: '1511556',
         providerStatus: estado,
-        responseCode: estado,
-      }),
-    ).resolves.toEqual(expect.objectContaining({ status: expectedStatus }));
+        providerResponseCode: estado,
+      });
+      const { service, paymentModel } = createService({
+        paymentModel: {
+          findOne: jest.fn().mockReturnValue({
+            exec: jest.fn().mockResolvedValue(activePayment),
+          }),
+          findOneAndUpdate: jest.fn().mockReturnValue({
+            exec: jest.fn().mockResolvedValue(updatedPayment),
+          }),
+        },
+      });
 
-    expect(paymentModel.findOneAndUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        _id: paymentId,
-        status: { $in: ['QR_ACTIVE', 'MISMATCH'] },
-      }),
-      expect.objectContaining({
-        $set: expect.objectContaining({
-          status: expectedStatus,
+      await expect(
+        service.applyWebhookConfirmation({
+          providerReference: '1511556',
           providerStatus: estado,
+          responseCode: estado,
         }),
-      }),
-      { new: true },
-    );
-  });
+      ).resolves.toEqual(expect.objectContaining({ status: expectedStatus }));
+
+      expect(paymentModel.findOneAndUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _id: paymentId,
+          status: { $in: ['QR_ACTIVE', 'MISMATCH'] },
+        }),
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            status: expectedStatus,
+            providerStatus: estado,
+          }),
+        }),
+        { new: true },
+      );
+    },
+  );
 
   it.each(['03', '05'])(
     'does not degrade an already confirmed payment when webhook estado %s arrives late',
@@ -550,7 +680,9 @@ describe('PaymentTransactionsService QR payments', () => {
           amountMinor: '1050',
           currency: 'BOB',
         }),
-      ).resolves.toEqual(expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }));
+      ).resolves.toEqual(
+        expect.objectContaining({ status: 'PAYMENT_CONFIRMED' }),
+      );
 
       expect(paymentModel.findOneAndUpdate).not.toHaveBeenCalled();
       expect(paymentModel.updateOne).not.toHaveBeenCalled();
@@ -632,12 +764,10 @@ describe('PaymentTransactionsService QR payments', () => {
         providerStatus: '00',
         responseCode: '00',
       }),
-    ).rejects.toMatchObject(
-      {
-        code: 'PAYMENT_NOT_FOUND',
-        httpStatus: 404,
-      } satisfies Partial<PaymentDomainError>,
-    );
+    ).rejects.toMatchObject({
+      code: 'PAYMENT_NOT_FOUND',
+      httpStatus: 404,
+    } satisfies Partial<PaymentDomainError>);
   });
 
   it('does not confirm a SUCCESS reconciliation when amount differs', async () => {

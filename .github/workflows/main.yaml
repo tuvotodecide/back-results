@@ -85,6 +85,18 @@ jobs:
       - name: Run unit coverage
         run: pnpm test:cov:unit
 
+      - name: Official publication focused tests
+        if: ${{ !cancelled() }}
+        run: >
+          npx jest --config jest.config.ts
+          test/unit/institutional-voting/official-publication-api.service.unit.spec.ts
+          test/unit/institutional-voting/official-publication-request-state.service.unit.spec.ts
+          test/unit/institutional-voting/official-publication-request.service.unit.spec.ts
+          test/unit/institutional-voting/official-publication-chain-verification.service.unit.spec.ts
+          test/unit/institutional-voting/official-publication-reconciliation.worker.unit.spec.ts
+          test/unit/institutional-voting/official-publication-finalization.service.unit.spec.ts
+          --runInBand
+
       - name: Check module test map
         run: pnpm test:modules:check
 

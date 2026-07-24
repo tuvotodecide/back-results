@@ -167,6 +167,24 @@ describe('Institutional access recovery requests (integration)', () => {
     expect(JSON.stringify(detail.body)).not.toContain('hash');
   });
 
+  it('normaliza nuevo correo y rechaza correo invalido, vacio o ya registrado', async () => {
+    const seeded = await seedAdminAssignment();
+    const existingUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+
+    const normalized = await createRecovery(seeded.tenantId, '  Normalized@Example.COM  ').expect(201);
+    expect(normalized.body).toMatchObject({ status: 'PENDING' });
+    expect(
+      await conn.collection('institutional_access_recovery_requests').findOne({
+        _id: new Types.ObjectId(normalized.body.requestId),
+      }),
+    ).toMatchObject({ newEmail: 'normalized@example.com' });
+
+    await conn.collection('institutional_access_recovery_requests').deleteMany({});
+    await createRecovery(seeded.tenantId, 'correo-invalido').expect(400);
+    await createRecovery(seeded.tenantId, '   ').expect(400);
+    await createRecovery(seeded.tenantId, String(existingUser?.email)).expect(409);
+  });
+
   it('aprueba recuperacion sobre PRIMARY conservando usuario tenant assignment wallet y rol', async () => {
     const seeded = await seedAdminAssignment('PRIMARY');
     const created = await createRecovery(seeded.tenantId, 'primary-new@example.com').expect(201);
@@ -193,6 +211,7 @@ describe('Institutional access recovery requests (integration)', () => {
         email: 'primary-new@example.com',
         role: 'USER',
         active: true,
+        authVersion: 1,
         passwordResetToken: expect.any(String),
       }),
     );
@@ -213,6 +232,25 @@ describe('Institutional access recovery requests (integration)', () => {
       'reset-password',
       expect.objectContaining({ resetLink: expect.stringContaining('token=') }),
     );
+    expect(JSON.stringify(user)).not.toContain('primary-new@example.com?token=');
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/approve`)
+      .send({
+        targetUserId: String(seeded.userId),
+        targetAssignmentId: String(seeded.assignmentId),
+      })
+      .expect(409);
+
+    expect(
+      await conn.collection('roled_users').findOne({ _id: seeded.userId }),
+    ).toMatchObject({ email: 'primary-new@example.com', authVersion: 1 });
+    expect(
+      await conn.collection('institutional_email_outbox').countDocuments({
+        targetId: seeded.userId,
+        type: 'INSTITUTIONAL_PASSWORD_RESET',
+      }),
+    ).toBe(1);
   });
 
   it('aprueba recuperacion sobre SECONDARY y cuenta revocada conserva revocacion', async () => {
@@ -283,6 +321,98 @@ describe('Institutional access recovery requests (integration)', () => {
         _id: new Types.ObjectId(created.body.requestId),
       }),
     ).toMatchObject({ status: 'REJECTED', resolutionReason: 'No coincide evidencia' });
+  });
+
+  it('rechaza aprobacion si intentan resolver contra otro administrador del mismo tenant', async () => {
+    const seeded = await seedAdminAssignment('PRIMARY');
+    const created = await createRecovery(seeded.tenantId, 'same-admin-only@example.com').expect(201);
+    const otherUserId = new Types.ObjectId();
+    const otherAssignmentId = new Types.ObjectId();
+    const now = new Date();
+    await conn.collection('roled_users').insertOne({
+      _id: otherUserId,
+      dni: 'other-admin-dni',
+      email: 'other-admin@example.com',
+      name: 'Admin Secundario',
+      password: 'hash',
+      role: 'USER',
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await conn.collection('tenant_admin_assignments').insertOne({
+      _id: otherAssignmentId,
+      tenantId: seeded.tenantId,
+      userId: otherUserId,
+      accountAddress: '0x0000000000000000000000000000000000000802',
+      institutionalRole: 'SECONDARY',
+      status: 'APPROVED',
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/approve`)
+      .send({
+        targetUserId: String(otherUserId),
+        targetAssignmentId: String(otherAssignmentId),
+      })
+      .expect(409);
+
+    expect(
+      await conn.collection('roled_users').findOne({ _id: seeded.userId }),
+    ).toMatchObject({ email: expect.stringContaining('old-') });
+    expect(
+      await conn.collection('roled_users').findOne({ _id: otherUserId }),
+    ).toMatchObject({ email: 'other-admin@example.com' });
+  });
+
+  it('bloquea aprobacion si wallet o rol del assignment cambiaron desde la solicitud', async () => {
+    const seeded = await seedAdminAssignment('PRIMARY');
+    const walletChanged = await createRecovery(
+      seeded.tenantId,
+      'wallet-changed@example.com',
+    ).expect(201);
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.assignmentId },
+      { $set: { accountAddress: '0x0000000000000000000000000000000000000999' } },
+    );
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${walletChanged.body.requestId}/approve`)
+      .send({
+        targetUserId: String(seeded.userId),
+        targetAssignmentId: String(seeded.assignmentId),
+      })
+      .expect(409);
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.assignmentId },
+      {
+        $set: {
+          accountAddress: '0x0000000000000000000000000000000000000801',
+          institutionalRole: 'SECONDARY',
+        },
+      },
+    );
+    const roleChanged = await createRecovery(seeded.tenantId, 'role-changed@example.com').expect(201);
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.assignmentId },
+      { $set: { institutionalRole: 'PRIMARY' } },
+    );
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${roleChanged.body.requestId}/approve`)
+      .send({
+        targetUserId: String(seeded.userId),
+        targetAssignmentId: String(seeded.assignmentId),
+      })
+      .expect(409);
+
+    expect(
+      await conn.collection('roled_users').findOne({ _id: seeded.userId }),
+    ).toMatchObject({ email: expect.stringContaining('old-') });
   });
 
   it('fallo de correo en aprobacion conserva recuperacion aprobada y deja outbox fallido', async () => {

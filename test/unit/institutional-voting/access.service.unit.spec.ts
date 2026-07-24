@@ -11,6 +11,7 @@ import { InstitutionalVotingAccessService } from '@/modules/institutional-voting
 import { VotingEvent } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { InstitutionalTenant } from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
+import { InstitutionalAdminApplication } from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
 
 describe('InstitutionalVotingAccessService (unit)', () => {
   let service: InstitutionalVotingAccessService;
@@ -26,6 +27,9 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     findOne: jest.Mock;
     find: jest.Mock;
   };
+  let applicationModel: {
+    findOne: jest.Mock;
+  };
 
   beforeEach(async () => {
     votingEventModel = {
@@ -40,6 +44,9 @@ describe('InstitutionalVotingAccessService (unit)', () => {
       findOne: jest.fn(),
       find: jest.fn(),
     };
+    applicationModel = {
+      findOne: jest.fn(),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -52,6 +59,10 @@ describe('InstitutionalVotingAccessService (unit)', () => {
         {
           provide: getModelToken(TenantAdminAssignment.name),
           useValue: assignmentModel,
+        },
+        {
+          provide: getModelToken(InstitutionalAdminApplication.name),
+          useValue: applicationModel,
         },
       ],
     }).compile();
@@ -93,7 +104,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
       lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), active: true }),
     });
     assignmentModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue({ status: 'APPROVED', active: true }),
+      lean: jest.fn().mockResolvedValue({ status: 'APPROVED', active: true, accountAddress: '0x1234567890abcdef1234567890abcdef12345678' }),
     });
 
     await expect(
@@ -102,6 +113,22 @@ describe('InstitutionalVotingAccessService (unit)', () => {
         role: 'TENANT_ADMIN',
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('rechaza escritura cuando la asignación activa no tiene wallet operativa', async () => {
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), active: true }),
+    });
+    assignmentModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ status: 'APPROVED', active: true, accountAddress: null }),
+    });
+
+    await expect(
+      service.assertTenantWriteAccess(new Types.ObjectId(), {
+        sub: String(new Types.ObjectId()),
+        role: 'TENANT_ADMIN',
+      }),
+    ).rejects.toThrow(ConflictException);
   });
 
   it('rechaza escritura cuando no existe asignación activa al tenant', async () => {

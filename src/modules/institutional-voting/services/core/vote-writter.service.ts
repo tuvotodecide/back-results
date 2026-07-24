@@ -12,6 +12,20 @@ import { randomBytes } from 'crypto';
 import { buildPoseidon } from 'circomlibjs';
 import { MerkletreeService } from '@/modules/merkletree/services/merkletree.service';
 
+export type PreparedVotePublication = {
+  secrets: string[];
+  ciMerkleTree: { root: bigint; layers: bigint[][] };
+  voteMerkleTree: { root: bigint; layers: bigint[][] };
+  optionsWithBlank: string[];
+  callData: {
+    to: string;
+    value: bigint;
+    data: `0x${string}`;
+  };
+  createVoteArgs: readonly unknown[];
+  onChainElectionId: bigint;
+};
+
 @Injectable()
 export class VoteWritterService {
   private readonly chain: string;
@@ -139,7 +153,12 @@ export class VoteWritterService {
     return Math.floor(date.getTime() / 1000);
   }
 
-  async createVote(event: VotingEventDocument, institutionId: string, voters: string[], options: string[]) {
+  async prepareCreateVote(
+    event: VotingEventDocument,
+    institutionId: string,
+    voters: string[],
+    options: string[],
+  ): Promise<PreparedVotePublication> {
     const secrets = voters.map(() => {
       // Generate 32 bytes (256 bits)
       const buffer = randomBytes(32);
@@ -166,6 +185,20 @@ export class VoteWritterService {
     const optionsWithBlank = [...options];
     optionsWithBlank.push('BLANK');
 
+    const onChainElectionId = BigInt(`0x${event._id.toString()}`);
+    const createVoteArgs = [
+      onChainElectionId,
+      institutionId,
+      event.name,
+      this.dateToUnixTimestamp(event.votingStart!),
+      this.dateToUnixTimestamp(event.votingEnd!),
+      this.dateToUnixTimestamp(event.resultsPublishAt!),
+      voters.length,
+      ciMerkleTree.root,
+      voteMerkleTree.root,
+      optionsWithBlank,
+    ] as const;
+
     const callData = VoteContractCalls.createVote(
       this.chain,
       event._id.toString(),
@@ -180,11 +213,38 @@ export class VoteWritterService {
       optionsWithBlank
     );
 
-    await this.executeOperation(callData, undefined, undefined);
+    return {
+      secrets,
+      ciMerkleTree,
+      voteMerkleTree,
+      optionsWithBlank,
+      callData,
+      createVoteArgs,
+      onChainElectionId,
+    };
+  }
 
-    await this.merkletreeService.create(event._id, 'ci', ciMerkleTree.layers);
-    await this.merkletreeService.create(event._id, 'vote', voteMerkleTree.layers);
-    return secrets;
+  async executePreparedCreateVote(
+    event: VotingEventDocument,
+    prepared: PreparedVotePublication,
+  ) {
+    await this.executeOperation(prepared.callData, undefined, undefined);
+
+    await this.persistPreparedMerkleTrees(event, prepared);
+    return prepared.secrets;
+  }
+
+  async persistPreparedMerkleTrees(
+    event: VotingEventDocument,
+    prepared: Pick<PreparedVotePublication, 'ciMerkleTree' | 'voteMerkleTree'>,
+  ) {
+    await this.merkletreeService.createIfMissing(event._id, 'ci', prepared.ciMerkleTree.layers);
+    await this.merkletreeService.createIfMissing(event._id, 'vote', prepared.voteMerkleTree.layers);
+  }
+
+  async createVote(event: VotingEventDocument, institutionId: string, voters: string[], options: string[]) {
+    const prepared = await this.prepareCreateVote(event, institutionId, voters, options);
+    return this.executePreparedCreateVote(event, prepared);
   }
 
   async updateVoteSchedule(eventId: string, start: Date, end: Date, publishAt: Date) {

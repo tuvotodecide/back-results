@@ -309,6 +309,7 @@ export class InstitutionalTenantsService {
       throw new ForbiddenException('No autorizado para regularizar wallet institucional');
     }
     const accountAddress = this.normalizeAccountAddress(dto.accountAddress);
+    const providedDni = dto.dni.trim();
 
     const [tenant, user, assignments] = await Promise.all([
       this.tenantModel.findById(tenantObjectId, { active: 1 }).lean(),
@@ -330,6 +331,9 @@ export class InstitutionalTenantsService {
     if (!user.dni?.trim()) {
       throw new ConflictException('El usuario institucional no tiene DNI interno');
     }
+    if (user.dni.trim() !== providedDni) {
+      throw new BadRequestException('El DNI no corresponde al usuario autenticado');
+    }
     if (assignments.length !== 1) {
       throw new ConflictException('Relacion institucional ambigua o inexistente');
     }
@@ -348,7 +352,7 @@ export class InstitutionalTenantsService {
           return this.toWalletRegularizationResponse(assignment, existingWallet, false);
         }
         await this.assertWalletCompatibleForAssignment(assignment);
-        await this.assertWalletBelongsToDni(accountAddress, user.dni);
+        await this.assertWalletBelongsToDni(accountAddress, providedDni);
       } else {
         throw new ConflictException('La relacion institucional ya tiene una wallet distinta');
       }
@@ -357,7 +361,7 @@ export class InstitutionalTenantsService {
         ...assignment,
         accountAddress,
       });
-      await this.assertWalletBelongsToDni(accountAddress, user.dni);
+      await this.assertWalletBelongsToDni(accountAddress, providedDni);
     }
 
     const session = await this.assignmentModel.db.startSession();

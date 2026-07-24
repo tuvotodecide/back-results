@@ -16,14 +16,18 @@ import {
   TenantAdminAssignmentDocument,
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import {
+  InstitutionalAdminApplication,
+  InstitutionalAdminApplicationDocument,
+} from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
+import {
   VotingEvent,
   VotingEventDocument,
 } from '../../schemas/voting-event.schema';
 
 @Injectable()
 export class InstitutionalVotingAccessService {
-  private readonly createLeadHours = 0;
-  private readonly officialPublicationLeadHours = 0;
+  private readonly createLeadHours = 12;
+  private readonly officialPublicationLeadHours = 6;
 
   constructor(
     @InjectModel(VotingEvent.name)
@@ -32,6 +36,8 @@ export class InstitutionalVotingAccessService {
     private readonly tenantModel: Model<InstitutionalTenantDocument>,
     @InjectModel(TenantAdminAssignment.name)
     private readonly assignmentModel: Model<TenantAdminAssignmentDocument>,
+    @InjectModel(InstitutionalAdminApplication.name)
+    private readonly applicationModel: Model<InstitutionalAdminApplicationDocument>,
   ) {}
 
   async getEventOrThrow(eventId: string) {
@@ -59,16 +65,24 @@ export class InstitutionalVotingAccessService {
     }
 
     const assignment = await this.assignmentModel
-      .findOne({
-        tenantId,
-        userId: new Types.ObjectId(requesterId),
-        active: true,
-        $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
-      })
+      .findOne(
+        {
+          tenantId,
+          userId: new Types.ObjectId(requesterId),
+          active: true,
+          $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
+        },
+        { accountAddress: 1 },
+      )
       .lean();
 
     if (!assignment) {
       throw new ForbiddenException('No autorizado para operar este tenant');
+    }
+
+    const accountAddress = assignment.accountAddress?.trim();
+    if (!accountAddress) {
+      throw new ConflictException('La relacion institucional no tiene wallet operativa');
     }
   }
 
@@ -221,6 +235,96 @@ export class InstitutionalVotingAccessService {
       tenantId,
       accountAddress: wallets[0],
       institutionalRole: roles[0],
+    };
+  }
+
+  async resolveOfficialPublicationInstitution(
+    event: Pick<VotingEventDocument, '_id' | 'tenantId'>,
+    requester: any,
+  ) {
+    const requesterId = requester?.sub ? String(requester.sub) : '';
+    if (!Types.ObjectId.isValid(requesterId)) {
+      throw new ForbiddenException('No autorizado para publicar esta votacion');
+    }
+
+    const tenantId = event.tenantId as Types.ObjectId;
+    const assignment = await this.assignmentModel
+      .findOne(
+        {
+          tenantId,
+          userId: new Types.ObjectId(requesterId),
+          active: true,
+          $or: [{ status: 'APPROVED' }, { status: { $exists: false } }],
+        },
+        {
+          _id: 1,
+          tenantId: 1,
+          userId: 1,
+          applicationId: 1,
+          accountAddress: 1,
+          institutionalRole: 1,
+        },
+      )
+      .lean();
+
+    if (!assignment) {
+      throw new ForbiddenException('No autorizado para publicar esta votacion');
+    }
+    if (!assignment.applicationId) {
+      throw new ConflictException({
+        code: 'EVENT_INSTITUTION_RELATION_MISSING',
+        message: 'La relacion institucional no tiene institucion on-chain asociada',
+      });
+    }
+    const accountAddress = assignment.accountAddress?.trim();
+    if (!accountAddress) {
+      throw new ConflictException({
+        code: 'EVENT_INSTITUTION_WALLET_MISSING',
+        message: 'La relacion institucional no tiene wallet operativa',
+      });
+    }
+
+    const application = await this.applicationModel
+      .findOne(
+        {
+          _id: assignment.applicationId,
+          tenantId,
+          userId: new Types.ObjectId(requesterId),
+          status: 'APPROVED',
+        },
+        { _id: 1, tenantId: 1, userId: 1, accountAddress: 1, status: 1 },
+      )
+      .lean();
+
+    if (!application) {
+      throw new ConflictException({
+        code: 'EVENT_INSTITUTION_APPLICATION_NOT_FOUND',
+        message: 'La institucion on-chain no esta disponible para esta votacion',
+      });
+    }
+
+    const institutionId = String(application._id);
+    const applicationWallet = application.accountAddress?.trim();
+    if (
+      applicationWallet &&
+      applicationWallet.toLowerCase() !== accountAddress.toLowerCase()
+    ) {
+      throw new ConflictException({
+        code: 'EVENT_INSTITUTION_WALLET_MISMATCH',
+        message: 'La wallet institucional no coincide con la institucion on-chain',
+      });
+    }
+
+    return {
+      eventId: String(event._id),
+      tenantId: String(tenantId),
+      assignmentId: String(assignment._id),
+      applicationId: institutionId,
+      institutionId,
+      accountAddress,
+      signerUserId: requesterId,
+      smartAccountAddress: accountAddress,
+      institutionalRole: assignment.institutionalRole ?? null,
     };
   }
 
