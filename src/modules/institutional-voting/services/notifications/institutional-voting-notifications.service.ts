@@ -1,8 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as admin from 'firebase-admin';
 import { MailService } from '@/modules/mail/mail.service';
+import { VoteContractReads } from '@/api/vote';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 import { UserNotification } from '@/modules/notifications/schemas/user-notification.schema';
 import {
@@ -18,6 +20,7 @@ import {
 import { PadronUsersService } from '../core/padron-users.service';
 
 const CONVOCATION_DATA_TYPE = 'INSTITUTIONAL_PADRON_REVIEW_OPEN';
+const VOTE_REWARD_AVAILABLE_TYPE = 'VOTE_REWARD_AVAILABLE';
 
 type NotificationPayload = {
   type: string;
@@ -38,6 +41,9 @@ type VotingReminderOffsetMinutes = 60 | 15;
 
 @Injectable()
 export class InstitutionalVotingNotificationsService {
+  private readonly logger = new Logger(InstitutionalVotingNotificationsService.name);
+  private readonly chain: string;
+
   constructor(
     @Inject('FIREBASE_ADMIN')
     private readonly fb: typeof admin,
@@ -53,7 +59,12 @@ export class InstitutionalVotingNotificationsService {
     private readonly roledUserModel: Model<RoledUserDocument>,
     private readonly padronUsersService: PadronUsersService,
     private readonly mailService: MailService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.chain = this.configService.get<string>(
+      'app.blockchain.chain',
+    )!;
+  }
 
   private buildPublicElectionPath(eventId: string) {
     return `/votacion/elecciones/${eventId}/publica`;
@@ -357,6 +368,109 @@ export class InstitutionalVotingNotificationsService {
         deepLink: `myapp://event/${eventId}`,
       },
     });
+  }
+
+  async notifyVoteRewardAvailableIfEligible(eventId: string, carnet: string) {
+    let rewardAmount: bigint;
+    try {
+      rewardAmount = await VoteContractReads.rewardByVote(this.chain);
+    } catch (error: any) {
+      this.logger.warn({
+        message: 'Vote reward lookup failed after confirmed participation',
+        eventId,
+        error: error?.message || String(error),
+      });
+      return { sent: 0, skipped: 'reward_lookup_failed' };
+    }
+
+    if (rewardAmount <= 0n) {
+      return { sent: 0, skipped: 'no_reward' };
+    }
+
+    const recipients = await this.padronUsersService.getUsersByCarnets([carnet], {
+      createMissing: false,
+    });
+    const recipient = recipients[0];
+    if (!recipient?._id) {
+      return { sent: 0, skipped: 'no_linked_user' };
+    }
+
+    const userId = String(recipient._id);
+    const topic = `user_${userId}`;
+    const deduplicationKey = `${VOTE_REWARD_AVAILABLE_TYPE}:${eventId}:${userId}`;
+    const data = {
+      type: VOTE_REWARD_AVAILABLE_TYPE,
+      action: 'OPEN_VOTE_REWARD',
+      eventId,
+      deduplicationKey,
+    };
+
+    try {
+      await this.userNotificationModel.create({
+        userId: recipient._id,
+        dni: recipient.dni,
+        topic,
+        title: 'Recompensa disponible',
+        body: 'Tu voto fue registrado correctamente. Tienes una recompensa disponible para reclamar.',
+        data,
+        status: 'NEW',
+      });
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        return { sent: 0, skipped: 'already_notified' };
+      }
+      this.logger.warn({
+        message: 'Vote reward notification inbox registration failed',
+        eventId,
+        userId,
+        error: error?.message || String(error),
+      });
+      return { sent: 0, skipped: 'notification_registration_failed' };
+    }
+
+    try {
+      const messageId = await this.fb.messaging().send({
+        topic,
+        notification: {
+          title: 'Recompensa disponible',
+          body: 'Tu voto fue registrado correctamente. Tienes una recompensa disponible para reclamar.',
+        },
+        data,
+        android: { priority: 'high' },
+        apns: { headers: { 'apns-priority': '10' } },
+      });
+
+      await this.notificationLogModel.create({
+        type: 'generic',
+        topic,
+        title: 'Recompensa disponible',
+        body: 'Tu voto fue registrado correctamente. Tienes una recompensa disponible para reclamar.',
+        data,
+        status: 'SENT',
+        messageId,
+      });
+
+      return { sent: 1 };
+    } catch (error: any) {
+      this.logger.warn({
+        message: 'Vote reward push delivery failed',
+        eventId,
+        userId,
+        error: error?.message || String(error),
+      });
+
+      await this.notificationLogModel.create({
+        type: 'generic',
+        topic,
+        title: 'Recompensa disponible',
+        body: 'Tu voto fue registrado correctamente. Tienes una recompensa disponible para reclamar.',
+        data,
+        status: 'FAILED',
+        error: error?.message || String(error),
+      }).catch(() => undefined);
+
+      return { sent: 0, failed: 1 };
+    }
   }
 
   async notifyVotingReminderIfEligible(

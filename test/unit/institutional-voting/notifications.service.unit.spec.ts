@@ -1,4 +1,5 @@
 import { getModelToken } from '@nestjs/mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { RoledUser } from '@/modules/auth/schemas/roledUser.schema';
@@ -9,6 +10,13 @@ import { InstitutionalVotingNotificationsService } from '@/modules/institutional
 import { MailService } from '@/modules/mail/mail.service';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 import { UserNotification } from '@/modules/notifications/schemas/user-notification.schema';
+import { VoteContractReads } from '@/api/vote';
+
+jest.mock('@/api/vote', () => ({
+  VoteContractReads: {
+    rewardByVote: jest.fn(),
+  },
+}));
 
 describe('InstitutionalVotingNotificationsService (unit)', () => {
   let service: InstitutionalVotingNotificationsService;
@@ -32,6 +40,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       sendEmail: jest.fn().mockResolvedValue(undefined),
     };
     userNotificationModel = {
+      create: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
       insertMany: jest.fn().mockResolvedValue([]),
     };
     notificationLogModel = {
@@ -39,6 +48,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
         lean: jest.fn().mockResolvedValue([]),
       }),
       exists: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
       insertMany: jest.fn().mockResolvedValue([]),
     };
     votingEventModel = {
@@ -78,10 +88,12 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
           useValue: padronUsersService,
         },
         { provide: MailService, useValue: mailService },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('hardhat') } },
       ],
     }).compile();
 
     service = moduleRef.get(InstitutionalVotingNotificationsService);
+    (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValue(5n);
   });
 
   it('notifica convocatoria inicial solo a empadronados habilitados y marca primera notificación', async () => {
@@ -275,6 +287,101 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       skippedWithoutUser: 0,
       failed: 0,
     });
+  });
+
+  it('notifica recompensa por voto una sola vez cuando rewardByVote es mayor que cero', async () => {
+    const userId = new Types.ObjectId();
+    padronUsersService.getUsersByCarnets.mockResolvedValue([
+      { _id: userId, dni: '1234567', active: true, enabled: true },
+    ]);
+
+    const result = await service.notifyVoteRewardAvailableIfEligible('event-1', '1234567');
+
+    expect(VoteContractReads.rewardByVote).toHaveBeenCalledWith('hardhat');
+    expect(userNotificationModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        dni: '1234567',
+        topic: `user_${String(userId)}`,
+        title: 'Recompensa disponible',
+        body: 'Tu voto fue registrado correctamente. Tienes una recompensa disponible para reclamar.',
+        data: {
+          type: 'VOTE_REWARD_AVAILABLE',
+          action: 'OPEN_VOTE_REWARD',
+          eventId: 'event-1',
+          deduplicationKey: `VOTE_REWARD_AVAILABLE:event-1:${String(userId)}`,
+        },
+      }),
+    );
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: `user_${String(userId)}`,
+        data: {
+          type: 'VOTE_REWARD_AVAILABLE',
+          action: 'OPEN_VOTE_REWARD',
+          eventId: 'event-1',
+          deduplicationKey: `VOTE_REWARD_AVAILABLE:event-1:${String(userId)}`,
+        },
+      }),
+    );
+    expect(notificationLogModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'SENT',
+        data: expect.objectContaining({
+          type: 'VOTE_REWARD_AVAILABLE',
+          action: 'OPEN_VOTE_REWARD',
+        }),
+      }),
+    );
+    expect(result).toEqual({ sent: 1 });
+  });
+
+  it('no notifica recompensa por voto cuando rewardByVote es cero', async () => {
+    (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValueOnce(0n);
+
+    const result = await service.notifyVoteRewardAvailableIfEligible('event-1', '1234567');
+
+    expect(result).toEqual({ sent: 0, skipped: 'no_reward' });
+    expect(padronUsersService.getUsersByCarnets).not.toHaveBeenCalled();
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+  });
+
+  it('no duplica recompensa por voto cuando ya existe deduplicationKey', async () => {
+    const userId = new Types.ObjectId();
+    padronUsersService.getUsersByCarnets.mockResolvedValue([
+      { _id: userId, dni: '1234567', active: true, enabled: true },
+    ]);
+    userNotificationModel.create.mockRejectedValueOnce({ code: 11000 });
+
+    const result = await service.notifyVoteRewardAvailableIfEligible('event-1', '1234567');
+
+    expect(result).toEqual({ sent: 0, skipped: 'already_notified' });
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+  });
+
+  it('mantiene el flujo exitoso aunque falle RPC o Firebase al notificar recompensa', async () => {
+    (VoteContractReads.rewardByVote as jest.Mock).mockRejectedValueOnce(new Error('rpc down'));
+
+    await expect(
+      service.notifyVoteRewardAvailableIfEligible('event-1', '1234567'),
+    ).resolves.toEqual({ sent: 0, skipped: 'reward_lookup_failed' });
+
+    const userId = new Types.ObjectId();
+    (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValueOnce(5n);
+    padronUsersService.getUsersByCarnets.mockResolvedValueOnce([
+      { _id: userId, dni: '1234567', active: true, enabled: true },
+    ]);
+    firebaseMessaging.send.mockRejectedValueOnce(new Error('firebase down'));
+
+    await expect(
+      service.notifyVoteRewardAvailableIfEligible('event-1', '1234567'),
+    ).resolves.toEqual({ sent: 0, failed: 1 });
+    expect(notificationLogModel.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'FAILED',
+        error: 'firebase down',
+      }),
+    );
   });
 
   it('notifica votación eliminada a los usuarios del padrón actual con payload de cancelación', async () => {

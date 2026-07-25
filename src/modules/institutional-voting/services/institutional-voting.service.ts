@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { CreateVotingEventDto } from '../dto/create-voting-event.dto';
 import { MaterializePadronCertificateDto } from '../dto/materialize-padron-certificate.dto';
 import { ConfirmOfficialPublicationDto } from '../dto/official-publication.dto';
@@ -32,9 +32,12 @@ import { VotingResultsService } from './results/voting-results.service';
 import { AuthorizationResponseMessage } from '@iden3/js-iden3-auth/dist/types/types-sdk';
 import { ZkAuthService } from '@/modules/zk-auth/services/zk-auth.service';
 import { EmitVoteService } from './participation/emit-vote.service';
+import { InstitutionalVotingNotificationsService } from './notifications/institutional-voting-notifications.service';
 
 @Injectable()
 export class InstitutionalVotingService {
+  private readonly logger = new Logger(InstitutionalVotingService.name);
+
   constructor(
     private readonly votingEventsService: VotingEventsService,
     private readonly padronService: PadronService,
@@ -43,6 +46,7 @@ export class InstitutionalVotingService {
     private readonly presentialSessionsService: PresentialSessionsService,
     private readonly votingResultsService: VotingResultsService,
     private readonly emitVoteService: EmitVoteService,
+    private readonly notificationsService: InstitutionalVotingNotificationsService,
   ) {}
 
   createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -331,7 +335,26 @@ export class InstitutionalVotingService {
       );
     }
 
+    await this.notifyVoteRewardAfterConfirmedParticipation(eventId, dto.carnet);
+
     return out;
+  }
+
+  private async notifyVoteRewardAfterConfirmedParticipation(eventId: string, carnet: string) {
+    try {
+      const status = await this.participationService.checkParticipationStatus(eventId, carnet);
+      if (status?.status !== 'ALREADY_VOTED' || status?.alreadyVoted !== true) {
+        return;
+      }
+
+      await this.notificationsService.notifyVoteRewardAvailableIfEligible(eventId, carnet);
+    } catch (error: any) {
+      this.logger.warn({
+        message: 'Vote reward notification flow failed after confirmed participation',
+        eventId,
+        error: error?.message || String(error),
+      });
+    }
   }
 
   async getVoteVc(eventId: string, dni: string): Promise<{ vc: string }> {
