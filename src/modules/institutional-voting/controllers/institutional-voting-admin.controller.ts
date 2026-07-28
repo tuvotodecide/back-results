@@ -209,11 +209,10 @@ export class InstitutionalVotingAdminController {
       'Compatibilidad temporal: reutiliza la confirmación oficial y requiere que el evento esté en READY_FOR_REVIEW.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
-  @ApiQuery({ name: 'institutionId', description: 'ID de la institución.' })
   @ApiResponse({ status: 200, description: 'Evento publicado.' })
   @ApiResponse({ status: 400, description: 'Faltan precondiciones para publicar.' })
-  publishEvent(@Param('eventId') eventId: string, @Query('institutionId') institutionId: string, @Req() req: any) {
-    return this.institutionalVotingService.publishEvent(eventId, institutionId, req.user);
+  publishEvent(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.publishEvent(eventId, req.user);
   }
 
   @Post(':eventId/roles')

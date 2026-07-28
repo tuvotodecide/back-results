@@ -15,6 +15,12 @@ import { Public } from '@/core/decorators/public.decorator';
 import { OfficialPublicationMobileRateLimitGuard } from '@/modules/institutional-voting/auth/official-publication-mobile-rate-limit.guard';
 import { InstitutionalMobileZkAuthService } from '../auth/institutional-mobile-zk-auth.service';
 
+type InstitutionalMobileAuthRequestResponse = {
+  apiKey: string;
+  request: Record<string, unknown>;
+  expiresAt: string;
+};
+
 @ApiTags('Institutional Mobile Auth')
 @UseGuards(OfficialPublicationMobileRateLimitGuard)
 @Controller('api/v1/mobile/institutional-authorizations/auth')
@@ -29,8 +35,11 @@ export class InstitutionalMobileAuthController {
   @ApiOperation({ summary: 'Generar auth request ZK para autorización institucional móvil' })
   @ApiParam({ name: 'applicationId', description: 'ID de la autorización institucional.' })
   @ApiResponse({ status: 200, description: 'Auth request generado.' })
-  async createRequest(@Param('applicationId') applicationId: string) {
-    return this.authService.createAuthRequest(applicationId);
+  async createRequest(
+    @Param('applicationId') applicationId: string,
+  ): Promise<InstitutionalMobileAuthRequestResponse> {
+    const response = await this.authService.createAuthRequest(applicationId);
+    return response as unknown as InstitutionalMobileAuthRequestResponse;
   }
 
   @Post('callback')
