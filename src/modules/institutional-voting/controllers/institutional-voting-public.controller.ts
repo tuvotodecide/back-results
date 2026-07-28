@@ -1,11 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Headers,
-  Logger,
   Param,
-  ParseArrayPipe,
   Post,
   Query,
   Res,
@@ -13,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
+import { isAddress } from 'viem';
 import { Public } from '@/core/decorators/public.decorator';
 import { InstitutionalVotingService } from '../services/institutional-voting.service';
 import { CreateParticipationDto } from '../dto/participation.dto';
@@ -281,40 +281,6 @@ export class InstitutionalVotingPublicController {
     name: 'optionId',
     description: 'ID de la opción de votación.',
   })
-  @ApiQuery({
-    name: 'voteNullfier',
-    description: 'Nullifier del voto (numérico en string).',
-  })
-  @ApiQuery({
-    name: 'rewardHash',
-    description: 'Hash de recompensa (numérico en string).',
-  })
-  @ApiQuery({
-    name: 'pia',
-    isArray: true,
-    type: String,
-    description: 'Componente A de la prueba ZK (valores numéricos en string). Enviar como pia=1,2,3...',
-  })
-  @ApiQuery({
-    name: 'piba',
-    isArray: true,
-    type: String,
-    description:
-      'Componente B de la prueba ZK, primera fila [2]. Enviar como piba=1,2,3...',
-  })
-  @ApiQuery({
-    name: 'pibb',
-    isArray: true,
-    type: String,
-    description:
-      'Componente B de la prueba ZK, segunda fila [2]. Enviar como pibb=1,2,3...',
-  })
-  @ApiQuery({
-    name: 'pic',
-    isArray: true,
-    type: String,
-    description: 'Componente C de la prueba ZK (valores numéricos en string). Enviar como pic=1,2,3...',
-  })
   @ApiBody({
     description: 'Prueba ZK enviada en el body de la petición (raw body, no JSON).',
     type: String,
@@ -325,25 +291,50 @@ export class InstitutionalVotingPublicController {
   })
   async uploadVote(
     @Query('optionId') optionId: string,
-    @Query('voteNullfier') voteNullfier: string,
-    @Query('rewardHash') rewardHash: string,
-    @Query('pia', new ParseArrayPipe({ items: String, separator: ',' })) pia: string[],
-    @Query('piba', new ParseArrayPipe({ items: String, separator: ',' })) piba: string[],
-    @Query('pibb', new ParseArrayPipe({ items: String, separator: ',' })) pibb: string[],
-    @Query('pic', new ParseArrayPipe({ items: String, separator: ',' })) pic: string[],
     @Body() body: string,
     @Res() res: Response,
   ) {
     const zkProof = body;
-    const pib = [piba, pibb];
-
     const response = await this.institutionalVotingService.emitVote(
       optionId,
-      voteNullfier,
-      rewardHash,
-      pia,
-      pib,
-      pic,
+      zkProof,
+    );
+
+    return res.status(200).json(response);
+  }
+
+  @Post('claim-reward')
+  @Public()
+  @ApiOperation({
+    summary:
+      'Otorga una recompensas al usuario usando una prueba ZK.',
+  })
+  @ApiQuery({
+    name: 'recipient',
+    description: 'Dirección de wallet del usuario',
+  })
+  @ApiBody({
+    description: 'Prueba ZK enviada en el body de la petición (raw body, no JSON).',
+    type: String,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Recompensa otorgada correctamente.',
+  })
+  async claimReward(
+    @Query('recipient') recipient: string,
+    @Body() body: string,
+    @Res() res: Response,
+  ) {
+    if (!isAddress(recipient)) {
+      throw new BadRequestException(
+        'recipient debe ser una dirección de wallet válida (0x...)',
+      );
+    }
+
+    const zkProof = body;
+    const response = await this.institutionalVotingService.claimReward(
+      recipient,
       zkProof,
     );
 

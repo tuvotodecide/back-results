@@ -3,11 +3,11 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createSmartAccountClient, SmartAccountClient } from "permissionless";
 import { createPimlicoClient } from "permissionless/clients/pimlico";
-import { createPublicClient, http } from "viem";
+import { createPublicClient, Hex, http } from "viem";
 import { entryPoint07Address, toCoinbaseSmartAccount } from "viem/account-abstraction";
 import { privateKeyToAccount } from "viem/accounts";
 import { VotingEventDocument } from "../../schemas/voting-event.schema";
-import { VoteContractCalls } from "@/api/vote";
+import { VoteContractCalls, VoteContractReads, VoteContractUtils } from "@/api/vote";
 import { randomBytes } from 'crypto';
 import { buildPoseidon } from 'circomlibjs';
 import { MerkletreeService } from '@/modules/merkletree/services/merkletree.service';
@@ -15,7 +15,6 @@ import { MerkletreeService } from '@/modules/merkletree/services/merkletree.serv
 export type PreparedVotePublication = {
   secrets: string[];
   ciMerkleTree: { root: bigint; layers: bigint[][] };
-  voteMerkleTree: { root: bigint; layers: bigint[][] };
   optionsWithBlank: string[];
   callData: {
     to: string;
@@ -166,20 +165,11 @@ export class VoteWritterService {
       return '0x' + buffer.toString('hex');  
     });
 
-    const poseidon = await buildPoseidon();
-    const F = poseidon.F;
-
     const ciHashes = voters.map(voter => 
       this.merkletreeService.stringToFieldElement(voter)
-    )
-
-    const voteHashes = secrets.map((secret, index) => {
-      const secretInt = BigInt(secret);
-      return F.toObject(poseidon([secretInt, ciHashes[index]])) as bigint;
-    });
+    );
 
     const ciMerkleTree = await this.merkletreeService.buildMerkleTree(ciHashes);
-    const voteMerkleTree = await this.merkletreeService.buildMerkleTree(voteHashes);
 
     // Copy options and add 'BLANK' as an additional option
     const optionsWithBlank = [...options];
@@ -195,7 +185,6 @@ export class VoteWritterService {
       this.dateToUnixTimestamp(event.resultsPublishAt!),
       voters.length,
       ciMerkleTree.root,
-      voteMerkleTree.root,
       optionsWithBlank,
     ] as const;
 
@@ -209,14 +198,12 @@ export class VoteWritterService {
       this.dateToUnixTimestamp(event.resultsPublishAt!),
       voters.length,
       ciMerkleTree.root,
-      voteMerkleTree.root,
       optionsWithBlank
     );
 
     return {
       secrets,
       ciMerkleTree,
-      voteMerkleTree,
       optionsWithBlank,
       callData,
       createVoteArgs,
@@ -236,10 +223,9 @@ export class VoteWritterService {
 
   async persistPreparedMerkleTrees(
     event: VotingEventDocument,
-    prepared: Pick<PreparedVotePublication, 'ciMerkleTree' | 'voteMerkleTree'>,
+    prepared: Pick<PreparedVotePublication, 'ciMerkleTree'>,
   ) {
-    await this.merkletreeService.createIfMissing(event._id, 'ci', prepared.ciMerkleTree.layers);
-    await this.merkletreeService.createIfMissing(event._id, 'vote', prepared.voteMerkleTree.layers);
+    await this.merkletreeService.createIfMissing(event._id, prepared.ciMerkleTree.layers);
   }
 
   async createVote(event: VotingEventDocument, institutionId: string, voters: string[], options: string[]) {
@@ -262,44 +248,50 @@ export class VoteWritterService {
   async castVote(
     eventId: string,
     optionId: string,
-    voteNullfier: string,
-    rewardHash: string,
-    pia: string[],
-    pib: string[][],
-    pic: string[],
+    secret: string,
   ) {
+    const voteNullfier = await VoteContractUtils.getVoteHash(eventId, secret);
     const callData = VoteContractCalls.castVote(
       this.chain,
       eventId,
       optionId,
       voteNullfier,
-      rewardHash,
-      pia, pib, pic
     );
 
     await this.executeOperation(callData, undefined, undefined);
-  }
-
-  async addNewVoters(eventId: string, count: number) {
-    const newNullifiers = Array.from({ length: count }, () => {
-      const uint32 = new Uint32Array(1);
-      crypto.getRandomValues(uint32);
-      return uint32[0].toString();
-    });
-
-    const callData = VoteContractCalls.addNewVoters(
-      this.chain,
-      eventId,
-      newNullifiers
-    );
-    await this.executeOperation(callData, undefined, undefined);
-    return newNullifiers;
   }
 
   async disableVote(eventId: string) {
     const callData = VoteContractCalls.disableVote(
       this.chain,
       eventId
+    );
+    await this.executeOperation(callData, undefined, undefined);
+  }
+
+  async addNewVoters(count: number) {
+    const newNullifiers = Array.from({ length: count }, () => {
+      const buffer = randomBytes(32);
+      return '0x' + buffer.toString('hex');  
+    });
+
+    return newNullifiers;
+  }
+
+  async claimVoteReward(eventId: string, secret: string, recipient: Hex) {
+    const voteHash = await VoteContractUtils.getVoteHash(eventId, secret);
+    const hasVoted = await VoteContractReads.getHashVoted(this.chain, eventId, voteHash);
+
+    if(!hasVoted) {
+      throw new Error('User has no voted yet');
+    }
+
+    const rewardHash = await VoteContractUtils.getRewardHash(eventId, secret);
+    const callData = VoteContractCalls.claimVoteReward(
+      this.chain,
+      eventId,
+      rewardHash,
+      recipient
     );
     await this.executeOperation(callData, undefined, undefined);
   }

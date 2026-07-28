@@ -28,6 +28,15 @@ export class ZkAuthController {
     return this.zkAuthService.getVoteRequest();
   }
 
+  @Get('request/claim-reward')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get ZK Auth request for claim reward' })
+  @ApiResponse({ status: 200, description: 'ZK Auth request for claim generated' })
+  async requestClaimReward(): Promise<{ request: AuthorizationRequestMessage }> {
+    return this.zkAuthService.getRewardRequest();
+  }
+
   @Post('callback')
   @Public()
   @HttpCode(HttpStatus.OK)

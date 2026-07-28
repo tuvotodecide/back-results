@@ -25,36 +25,20 @@ export type TvdBlockchainValidationResult =
       expectedChainId: number;
       chainIdMatches: boolean;
       signerAddress: Address;
-      operatorAddress: Address;
-      operatorMatches: boolean;
+      signerHasOperatorRole: boolean;
       assignmentTokenAddress: Address;
       expectedTokenAddress: Address;
       tokenAddressMatches: boolean;
       tokenDecimals: number;
       configuredDecimals: number;
       decimalsMatch: boolean;
-      signerNativeGasBalance: string;
-      signerHasGas: boolean;
       assignmentContractTokenBalance: string;
-      assignmentContractTotalAssigned: string;
       assignmentContractAssignableBalance: string;
-      assignmentAccountingConsistent: boolean;
     };
 
 export type TvdAssignTokensInput = {
   institutionWallet: string;
   amountSmallestUnit: string;
-};
-
-export type TvdAssignTokensResult = {
-  txHash: Hash;
-  blockNumber: string;
-  chainId: number;
-  contractAddress: Address;
-  operatorAddress: Address;
-  institutionWallet: Address;
-  amountSmallestUnit: string;
-  confirmations: number;
 };
 
 export type TvdOperatorContext = {
@@ -64,9 +48,9 @@ export type TvdOperatorContext = {
 };
 
 export type TvdPreparedAssignTransaction = {
-  txHash: Hash;
+  userOpHash: Hash;
   nonce: string;
-  serializedTransaction: `0x${string}`;
+  serializedTransaction: string;
   chainId: number;
   contractAddress: Address;
   operatorAddress: Address;
@@ -74,9 +58,13 @@ export type TvdPreparedAssignTransaction = {
   amountSmallestUnit: string;
 };
 
-export type TvdPrepareAssignTransactionInput = TvdAssignTokensInput & {
-  nonce: string;
+export type TvdBroadcastAssignTransactionResult = {
+  txHash: Hash;
+  userOpHash: Hash;
+  alreadyKnown: boolean;
 };
+
+export type TvdPrepareAssignTransactionInput = TvdAssignTokensInput;
 
 export type TvdTotalBalanceResult = {
   wallet: Address;

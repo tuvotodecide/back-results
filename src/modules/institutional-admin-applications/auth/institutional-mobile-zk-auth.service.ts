@@ -94,7 +94,11 @@ export class InstitutionalMobileZkAuthService {
     this.identityApiKey = this.config.get<string>('app.identity.apiKey') || '';
   }
 
-  async createAuthRequest(applicationId: string) {
+  async createAuthRequest(applicationId: string): Promise<{
+    apiKey: string,
+    request: AuthorizationRequestMessage,
+    expiresAt: string,
+  }> {
     this.assertConfigured(['callbackUrl', 'audience']);
     const { application, primary } = await this.loadApplicationContext(applicationId);
     const sessionId = randomBytes(32).toString('hex');

@@ -363,14 +363,16 @@ export class InstitutionalVotingService {
 
   async emitVote(
     optionId: string,
-    voteNullfier: string,
-    rewardHash: string,
-    pia: string[],
-    pib: string[][],
-    pic: string[],
     zkProof: string,
   ): Promise<AuthorizationResponseMessage> {
-    return this.emitVoteService.emitVote(optionId, voteNullfier, rewardHash, pia, pib, pic, zkProof);
+    return this.emitVoteService.emitVote(optionId, zkProof);
+  }
+
+  async claimReward( 
+    recipient: `0x${string}`,
+    zkProof: string,
+  ): Promise<AuthorizationResponseMessage> {
+    return this.emitVoteService.claimReward(recipient, zkProof);
   }
 
   checkParticipationStatus(eventId: string, carnet: string) {

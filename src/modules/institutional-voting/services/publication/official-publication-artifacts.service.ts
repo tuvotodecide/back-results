@@ -29,7 +29,6 @@ export type PreparedPublicationArtifactPayload = {
 export type SerializedPreparedVotePublication = {
   secrets: string[];
   ciMerkleTree: { root: string; layers: string[][] };
-  voteMerkleTree: { root: string; layers: string[][] };
   optionsWithBlank: string[];
   callData: {
     to: string;
@@ -155,12 +154,6 @@ export class OfficialPublicationArtifactsService implements OnModuleInit {
           layer.map((item) => BigInt(item)),
         ),
       },
-      voteMerkleTree: {
-        root: BigInt(preparedVote.voteMerkleTree.root),
-        layers: preparedVote.voteMerkleTree.layers.map((layer) =>
-          layer.map((item) => BigInt(item)),
-        ),
-      },
       optionsWithBlank: [...preparedVote.optionsWithBlank],
       callData: {
         to: preparedVote.callData.to,
@@ -180,12 +173,6 @@ export class OfficialPublicationArtifactsService implements OnModuleInit {
       ciMerkleTree: {
         root: preparedVote.ciMerkleTree.root.toString(),
         layers: preparedVote.ciMerkleTree.layers.map((layer) =>
-          layer.map((item) => item.toString()),
-        ),
-      },
-      voteMerkleTree: {
-        root: preparedVote.voteMerkleTree.root.toString(),
-        layers: preparedVote.voteMerkleTree.layers.map((layer) =>
           layer.map((item) => item.toString()),
         ),
       },

@@ -691,8 +691,7 @@ export class PadronService {
       throw new NotFoundException('No se encontró al usuario registrado en el servicio de identidad');
     }
 
-    const nullifiers = await this.voteWritterService.addNewVoters(event._id.toString(), 1);
-
+    const nullifiers = await this.voteWritterService.addNewVoters(1);
     const credentialData = await this.issuerService.issueCredential(
       dids,
       event._id.toString(),

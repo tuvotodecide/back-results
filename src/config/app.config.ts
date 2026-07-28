@@ -68,6 +68,7 @@ export default registerAs('app', () => ({
     zkAuthTtl: parseInt(process.env.ZK_AUTH_API_KEY_TTL || '86400', 10), // 24 hours
     callbackUrl: process.env.ZK_AUTH_CALLBACK_URL,
     voteCallbackUrl: process.env.VOTE_CALLBACK_URL,
+    rewardCallbackUrl: process.env.REWARD_CALLBACK_URL,
     audience: process.env.VERIFIER_DID,
     rpcUrl: process.env.ZK_AUTH_RPC_URL,
     network: process.env.ZK_AUTH_NETWORK,

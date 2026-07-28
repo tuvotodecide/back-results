@@ -8,7 +8,7 @@ export type ValidateTvdAssignReceiptInput = {
   expectedChainId: number;
   actualChainId: number;
   expectedContractAddress: Address;
-  expectedOperatorAddress: Address;
+  expectedEntryPointAddress: Address;
   expectedInstitutionWallet: Address;
   expectedAmountSmallestUnit: string;
   confirmationsRequired: number;
@@ -39,18 +39,16 @@ export class TvdReceiptValidatorService {
       throw new TvdBlockchainError('TVD_RECEIPT_FAILED');
     }
 
+    // The assignment is submitted via an ERC-4337 bundler, so the top-level transaction
+    // calls the EntryPoint (not the assignment contract) and is sent from the bundler's
+    // relayer (not the operator). That the operator actually invoked `assign()` is proven
+    // below by the TokensAssigned event emitted by expectedContractAddress, which the
+    // contract only allows for callers holding OPERATOR_ROLE.
     if (
       receipt.to &&
-      getAddress(receipt.to) !== getAddress(input.expectedContractAddress)
+      getAddress(receipt.to) !== getAddress(input.expectedEntryPointAddress)
     ) {
       throw new TvdBlockchainError('TVD_RECEIPT_CONTRACT_MISMATCH');
-    }
-
-    if (
-      receipt.from &&
-      getAddress(receipt.from) !== getAddress(input.expectedOperatorAddress)
-    ) {
-      throw new TvdBlockchainError('TVD_RECEIPT_SENDER_MISMATCH');
     }
 
     const blockNumber = BigInt(receipt.blockNumber ?? 0);

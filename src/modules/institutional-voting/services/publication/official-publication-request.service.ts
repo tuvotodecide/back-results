@@ -62,7 +62,6 @@ export type CreateOfficialPublicationRequestInput = {
   optionsHash: string;
   merkleRoots: {
     ciMerkleRoot: string;
-    voteMerkleRoot: string;
   };
   nullifiersRef: {
     storage: string;

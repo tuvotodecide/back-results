@@ -189,7 +189,7 @@ export class TvdAccreditationProcessorService {
 
     let lockKey: string | null = null;
     try {
-      const context = this.blockchain.getOperatorContext();
+      const context = await this.blockchain.getOperatorContext();
       lockKey = this.operatorLocks.buildLockKey({
         chainId: context.chainId,
         operatorAddress: context.operatorAddress,
@@ -203,12 +203,18 @@ export class TvdAccreditationProcessorService {
         return this.scheduleRetry(accreditation, 'TVD_OPERATOR_LOCK_BUSY', ownerId);
       }
 
+      Logger.debug('start assignment')
       const prepared = await this.prepareIfNeeded(accreditation, ownerId);
+      let resolvedTxHash: string | null = null;
       try {
-        await this.blockchain.broadcastSignedTransaction(
+        Logger.debug('start transaction')
+        const broadcast = await this.blockchain.broadcastSignedTransaction(
           prepared.serializedTransaction as `0x${string}`,
         );
+        resolvedTxHash = broadcast.txHash;
+        Logger.debug('success')
       } catch (error) {
+        Logger.error(error);
         const code = this.sanitizeErrorCode(error);
         this.logger.warn(
           JSON.stringify({
@@ -216,7 +222,7 @@ export class TvdAccreditationProcessorService {
             accreditationId: String(accreditation._id),
             sourceType: accreditation.sourceType,
             tenantId: String(accreditation.tenantId),
-            txHash: prepared.txHash,
+            userOpHash: prepared.userOpHash,
             nonce: prepared.nonce,
             errorCode: code,
             workerId: ownerId,
@@ -224,7 +230,7 @@ export class TvdAccreditationProcessorService {
         );
       }
 
-      return this.markSubmitted(accreditation._id, ownerId);
+      return this.markSubmitted(accreditation._id, ownerId, resolvedTxHash);
     } catch (error) {
       const code = this.sanitizeErrorCode(error);
       const classification = this.classifyPreBroadcastError(
@@ -252,7 +258,7 @@ export class TvdAccreditationProcessorService {
       accreditation.serializedTransaction
     ) {
       return {
-        txHash: accreditation.txHash,
+        userOpHash: accreditation.txHash,
         nonce: accreditation.nonce,
         serializedTransaction: accreditation.serializedTransaction,
       };
@@ -262,11 +268,9 @@ export class TvdAccreditationProcessorService {
       institutionWallet: accreditation.targetWallet,
       amountSmallestUnit: accreditation.tokenAmountSmallestUnit as string,
     });
-    const nonce = await this.blockchain.getPendingNonce();
     const prepared = await this.blockchain.prepareSignedAssignTransaction({
       institutionWallet: accreditation.targetWallet,
       amountSmallestUnit: accreditation.tokenAmountSmallestUnit as string,
-      nonce,
     });
     await this.accreditationModel.updateOne(
       {
@@ -277,7 +281,9 @@ export class TvdAccreditationProcessorService {
       {
         $set: {
           nonce: prepared.nonce,
-          txHash: prepared.txHash,
+          // Pre-broadcast tracking hash (ERC-4337 UserOperation hash). Overwritten with
+          // the real bundle transaction hash once broadcastSignedTransaction resolves it.
+          txHash: prepared.userOpHash,
           serializedTransaction: prepared.serializedTransaction,
           chainId: prepared.chainId,
           contractAddress: prepared.contractAddress,
@@ -287,19 +293,38 @@ export class TvdAccreditationProcessorService {
       },
     );
     accreditation.nonce = prepared.nonce;
-    accreditation.txHash = prepared.txHash;
+    accreditation.txHash = prepared.userOpHash;
     accreditation.serializedTransaction = prepared.serializedTransaction;
     accreditation.chainId = prepared.chainId;
     accreditation.contractAddress = prepared.contractAddress;
     await this.recordAuditSafely('TVD_ACCREDITATION_PREPARED', accreditation, {
-      txHash: prepared.txHash,
+      txHash: prepared.userOpHash,
       nonce: prepared.nonce,
     });
-    return prepared;
+    return {
+      userOpHash: prepared.userOpHash,
+      nonce: prepared.nonce,
+      serializedTransaction: prepared.serializedTransaction,
+    };
   }
 
-  private async markSubmitted(accreditationId: Types.ObjectId, ownerId: string) {
+  private async markSubmitted(
+    accreditationId: Types.ObjectId,
+    ownerId: string,
+    resolvedTxHash: string | null,
+  ) {
     const now = new Date();
+    const setFields: Record<string, unknown> = {
+      status: 'SUBMITTED',
+      submittedAt: now,
+      lastBroadcastAt: now,
+      lastErrorCode: null,
+      failureCategory: null,
+      retryable: true,
+    };
+    if (resolvedTxHash) {
+      setFields.txHash = resolvedTxHash;
+    }
     const updated = await this.accreditationModel
       .findOneAndUpdate(
         {
@@ -308,14 +333,7 @@ export class TvdAccreditationProcessorService {
           processingOwner: ownerId,
         },
         {
-          $set: {
-            status: 'SUBMITTED',
-            submittedAt: now,
-            lastBroadcastAt: now,
-            lastErrorCode: null,
-            failureCategory: null,
-            retryable: true,
-          },
+          $set: setFields,
           $unset: {
             processingOwner: '',
             processingLockedAt: '',

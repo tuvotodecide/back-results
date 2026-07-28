@@ -11,14 +11,10 @@ export class FindElementsAndIndicesDto {
   @IsMongoId()
   electionId!: string;
 
-  @ApiProperty({ enum: MerkleTreeType, example: MerkleTreeType.CI, description: 'Árbol de merkle a consultar' })
-  @IsEnum(MerkleTreeType)
-  type!: MerkleTreeType;
-
   @ApiProperty({
     example: '1234567',
     description:
-      'Valor de la hoja: CI del votante para type=ci, o el hash de voto (decimal/hex) para type=vote',
+      'Valor de la hoja: CI del votante',
   })
   @IsString()
   @IsNotEmpty()

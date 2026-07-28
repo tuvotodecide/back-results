@@ -143,7 +143,7 @@ export class TvdQueryService {
         status: { $in: ['PENDING', 'SUBMITTING', 'SUBMITTED'] },
       }),
     ]);
-    const operatorContext = this.getOperatorContextSafely();
+    const operatorContext = await this.getOperatorContextSafely();
 
     return {
       tenantId: String(context.tenant._id),
@@ -1064,9 +1064,9 @@ export class TvdQueryService {
     }
   }
 
-  private getOperatorContextSafely() {
+  private async getOperatorContextSafely() {
     try {
-      return this.blockchain.getOperatorContext();
+      return await this.blockchain.getOperatorContext();
     } catch {
       return {
         chainId: null,

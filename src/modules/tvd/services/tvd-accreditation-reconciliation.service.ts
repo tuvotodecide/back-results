@@ -181,9 +181,16 @@ export class TvdAccreditationReconciliationService {
   private async rebroadcastSameTransactionSafely(accreditation: TokenAccreditationDocument) {
     if (!accreditation.serializedTransaction) return;
     try {
-      await this.blockchain.broadcastSignedTransaction(
+      const broadcast = await this.blockchain.broadcastSignedTransaction(
         accreditation.serializedTransaction as `0x${string}`,
       );
+      if (broadcast.txHash && broadcast.txHash !== accreditation.txHash) {
+        await this.accreditationModel.updateOne(
+          { _id: accreditation._id },
+          { $set: { txHash: broadcast.txHash } },
+        );
+        accreditation.txHash = broadcast.txHash;
+      }
       this.logger.log(
         JSON.stringify({
           event: 'tvd_accreditation_rebroadcast_same_transaction',
@@ -191,6 +198,7 @@ export class TvdAccreditationReconciliationService {
           sourceType: accreditation.sourceType,
           tenantId: String(accreditation.tenantId),
           txHash: accreditation.txHash,
+          userOpHash: broadcast.userOpHash,
           nonce: accreditation.nonce,
         }),
       );

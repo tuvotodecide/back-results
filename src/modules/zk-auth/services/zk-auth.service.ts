@@ -7,7 +7,7 @@ import { Cache } from 'cache-manager';
 import { randomBytes } from 'crypto';
 import path from 'path';
 
-export type ZkRequestType = 'vote';
+export type ZkRequestType = 'vote' | 'reward';
 
 @Injectable()
 export class ZkAuthService {
@@ -15,6 +15,7 @@ export class ZkAuthService {
   private readonly ttlSeconds: number;
   private readonly callbackUrl: string;
 	private readonly voteCallbackUrl: string;
+	private readonly rewardCallbackUrl: string;
   private readonly audience: string;
 	private readonly network: string;
 	private readonly rpcUrl: string;
@@ -34,6 +35,7 @@ export class ZkAuthService {
     this.ttlSeconds = Number.isFinite(ttl) && ttl > 0 ? ttl : 24 * 60 * 60;
     const callback = this.config.get<string>('app.zkAuth.callbackUrl');
     const voteCallback = this.config.get<string>('app.zkAuth.voteCallbackUrl');
+    const rewardCallback = this.config.get<string>('app.zkAuth.rewardCallbackUrl');
     const audience = this.config.get<string>('app.zkAuth.audience');
 		const rpc = this.config.get<string>('app.zkAuth.rpcUrl');
 		const network = this.config.get<string>('app.zkAuth.network');
@@ -43,11 +45,12 @@ export class ZkAuthService {
 		const credType = this.config.get<string>('app.zkAuth.credType');
 		const issuerDid = this.config.get<string>('app.issuer.did');	
 
-    if (!audience || !callback || !voteCallback || !rpc || !network || !stateContract || !ipfsGateway || !credContext || !credType || !issuerDid) {
+    if (!audience || !callback || !voteCallback || !rewardCallback || !rpc || !network || !stateContract || !ipfsGateway || !credContext || !credType || !issuerDid) {
       throw new Error('ZK Auth env variables are not configured');
     }
     this.callbackUrl = callback;
     this.voteCallbackUrl = voteCallback;
+		this.rewardCallbackUrl = rewardCallback;
     this.audience = audience;
 		this.rpcUrl = rpc;
 		this.network = network;
@@ -58,6 +61,7 @@ export class ZkAuthService {
 		this.issuerDid = issuerDid;
 
 		this.generateVoteRequest();
+		this.generateRewardRequest();
   }
 
 	private generateVoteRequest() {
@@ -101,6 +105,47 @@ export class ZkAuthService {
 		this.requests.set('vote', request);
 	}
 
+	private generateRewardRequest() {
+    const uri = `${this.rewardCallbackUrl}`;
+
+		const request = auth.createAuthorizationRequest(
+			"Auth request to claim a reward",
+			this.audience,
+			uri
+		);
+
+		const eventIdProof: ZeroKnowledgeProofRequest = {
+			id: 1,
+			circuitId: 'credentialAtomicQuerySigV2' as any,
+			query: {
+				allowedIssuers: [this.issuerDid],
+				type: this.credType,
+				context: this.credContext,
+				credentialSubject: {
+					eventId: {},
+				},
+			},
+		};
+
+		const nullifierProof: ZeroKnowledgeProofRequest = {
+			id: 2,
+			circuitId: 'credentialAtomicQuerySigV2' as any,
+			query: {
+				allowedIssuers: [this.issuerDid],
+				type: this.credType,
+				context: this.credContext,
+				credentialSubject: {
+					nullifier: {},
+				},
+			},
+		};
+
+		const scope = request.body.scope ?? [];
+		request.body.scope = [...scope, eventIdProof, nullifierProof];
+
+		this.requests.set('reward', request);
+	}
+
   getAuthRequest(): { apiKey: string; request: AuthorizationRequestMessage } {
     const sessionId = randomBytes(32).toString('hex');
 		const uri = `${this.callbackUrl}?sessionId=${sessionId}`;
@@ -119,6 +164,15 @@ export class ZkAuthService {
 		const request = this.requests.get('vote');
 		if (!request) {
 			throw new InternalServerErrorException('Vote request not found');
+		}
+
+		return { request };
+	}
+
+	getRewardRequest(): { request: AuthorizationRequestMessage } {
+		const request = this.requests.get('reward');
+		if (!request) {
+			throw new InternalServerErrorException('Reward request not found');
 		}
 
 		return { request };

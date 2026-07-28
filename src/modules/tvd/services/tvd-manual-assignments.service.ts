@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -137,6 +138,7 @@ export class TvdManualAssignmentsService {
 
     try {
       const ownerId = `tvd-manual-assignment:${String(accreditation._id)}`;
+      Logger.log('Init on chain');
       const processed = await this.processor.processAccreditationById(
         accreditation._id,
         { ownerId },

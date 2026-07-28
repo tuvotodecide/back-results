@@ -11,16 +11,11 @@ export class MerkletreeController {
 
   @Get('proof')
   async findElementsAndIndicesByLeaf(@Query() query: FindElementsAndIndicesDto) {
-    const { electionId, type, leaf } = query;
+    const { electionId, leaf } = query;
 
-    const leafValue =
-      type === MerkleTreeType.CI
-        ? this.merkletreeService.stringToFieldElement(leaf)
-        : this.merkletreeService.hexToFieldElement(leaf);
-
+    const leafValue = this.merkletreeService.stringToFieldElement(leaf);
     const data = await this.merkletreeService.findElementsAndIndicesByLeaf(
       new Types.ObjectId(electionId),
-      type,
       leafValue,
     );
 

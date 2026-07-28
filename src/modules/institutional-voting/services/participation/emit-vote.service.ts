@@ -6,6 +6,7 @@ import { EnabledSession, EnabledSessionDocument } from "../../schemas/enabled-se
 import { Model, Types } from "mongoose";
 import { VoteWritterService } from "../core/vote-writter.service";
 import { VotingOption, VotingOptionDocument } from "../../schemas/voting-option.schema";
+import { VoteContractUtils } from "@/api/vote";
 
 @Injectable()
 export class EmitVoteService {
@@ -32,11 +33,6 @@ export class EmitVoteService {
 
   async emitVote(
     optionId: string,
-    voteNullfier: string,
-    rewardHash: string,
-    pia: string[],
-    pib: string[][],
-    pic: string[],
     zkProof: string,
   ): Promise<AuthorizationResponseMessage> {
     const response = await this.zkAuthService.zkRequestCallback('vote', zkProof);
@@ -47,16 +43,16 @@ export class EmitVoteService {
       throw new BadRequestException('data not found in ZK proof');
     }
 
-    try {
+    try {      
       if (optionId === 'blank') {
-        await this.voteWritterService.castVote(eventId, 'BLANK', voteNullfier, rewardHash, pia, pib, pic);
+        await this.voteWritterService.castVote(eventId, 'BLANK', nullifier);
       } else {
         const option = await this.votingOptionModel.findById(optionId).exec();
         if (!option) {
           throw new NotFoundException('Voting option not found');
         }
 
-        await this.voteWritterService.castVote(eventId, option.name, voteNullfier, rewardHash, pia, pib, pic);
+        await this.voteWritterService.castVote(eventId, option.name, nullifier);
       }
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
@@ -64,6 +60,36 @@ export class EmitVoteService {
       }
       if (error?.message?.includes('Nullifier already used')) {
         throw new BadRequestException('This vote has already been cast');
+      } else {
+        Logger.error('Error casting vote:', error);
+        throw new InternalServerErrorException('An error occurred while casting the vote');
+      }
+    }
+
+    return response;
+  }
+
+  async claimReward(
+    recipient: `0x${string}`,
+    zkProof: string,
+  ) {
+    const response = await this.zkAuthService.zkRequestCallback('reward', zkProof);
+
+    const eventId = response.body.scope.find((scope) => scope.id === 1)?.vp?.verifiableCredential.credentialSubject.eventId.toString();
+    const nullifier = response.body.scope.find((scope) => scope.id === 2)?.vp?.verifiableCredential.credentialSubject.nullifier.toString();
+    if (!eventId || !nullifier) {
+      throw new BadRequestException('data not found in ZK proof');
+    }
+
+    try {
+      await this.voteWritterService.claimVoteReward(eventId, nullifier, recipient)
+    } catch (error: any) {
+      if (error?.message?.includes('Already rewarded')) {
+        throw new BadRequestException('User has already claimed the reward');
+      } else if (error?.message?.includes('Insufficient contract balance')) {
+        throw new BadRequestException('Insufficient contract balance');
+      } else if (error?.message?.includes('User has no voted yet')) {
+        throw new BadRequestException('User has no voted yet');
       } else {
         Logger.error('Error casting vote:', error);
         throw new InternalServerErrorException('An error occurred while casting the vote');

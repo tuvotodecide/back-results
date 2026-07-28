@@ -1,6 +1,29 @@
 import { createPublicClient, encodeFunctionData, formatEther, getContract, Hex, http } from "viem";
 import { availableNetworks } from "./params";
 import votingContractAbi from "../abi/voteContract.json";
+import { buildPoseidon } from "circomlibjs";
+
+function idToHex(mongoId: string) {
+  return BigInt(`0x${mongoId}`)
+}
+
+async function getVoteHash(eventId: string, secret: string) {
+  const poseidon = await buildPoseidon();
+  const F = poseidon.F;
+
+  const voteIdHex = idToHex(eventId);
+  const secretInt = BigInt(secret);
+  return F.toObject(poseidon([secretInt, voteIdHex])) as bigint;
+}
+
+async function getRewardHash(eventId: string, secret: string) {
+  const poseidon = await buildPoseidon();
+  const F = poseidon.F;
+
+  const voteClaimIdHex = VoteContractUtils.idToHex(eventId + '2D526577617264'); // + 'reward' in hex
+  const secretInt = BigInt(secret);
+  return F.toObject(poseidon([secretInt, voteClaimIdHex])) as bigint;
+}
 
 function createVote(
   chainId: string,
@@ -12,7 +35,6 @@ function createVote(
   resultsDate: number,
   enabledVotersCount: number,
   enabledVotersMkRoot: bigint,
-  registeredVotersMkRoot: bigint,
   options: string[]
 ) {
   const voteIdUint = BigInt(`0x${voteId}`);
@@ -23,7 +45,7 @@ function createVote(
     data: encodeFunctionData({
       abi: votingContractAbi,
       functionName: 'createVote',
-      args: [voteIdUint, institutionId, name, startDate, endDate, resultsDate, enabledVotersCount, enabledVotersMkRoot, registeredVotersMkRoot, options],
+      args: [voteIdUint, institutionId, name, startDate, endDate, resultsDate, enabledVotersCount, enabledVotersMkRoot, options],
     })
   }
 }
@@ -50,14 +72,9 @@ function castVote(
   chainId: string,
   voteId: string,
   optionId: string,
-  voteNullifier: string,
-  rewardHash: string,
-  pa: string[],
-  pb: string[][],
-  pc: string[],
+  voteNullifier: bigint,
 ) {
-  const voteIdUint = BigInt(`0x${voteId}`);
-  const swappedPb = pb.map(p => p.reverse());
+  const voteIdUint = idToHex(voteId);
 
   return {
     to: availableNetworks[chainId].voteContract,
@@ -65,23 +82,7 @@ function castVote(
     data: encodeFunctionData({
       abi: votingContractAbi,
       functionName: 'castVote',
-      args: [optionId, voteIdUint, voteNullifier, rewardHash, pa, swappedPb, pc],
-    })
-  }
-}
-
-function addNewVoters(
-  chainId: string,
-  voteId: string,
-  newNullifiers: string[]
-) {
-  return {
-    to: availableNetworks[chainId].voteContract,
-    value: BigInt(0),
-    data: encodeFunctionData({
-      abi: votingContractAbi,
-      functionName: 'addNewVoters',
-      args: [voteId, newNullifiers],
+      args: [optionId, voteIdUint, voteNullifier],
     })
   }
 }
@@ -96,7 +97,7 @@ function disableVote(
     data: encodeFunctionData({
       abi: votingContractAbi,
       functionName: 'disableVote',
-      args: [voteId],
+      args: [idToHex(voteId)],
     })
   }
 }
@@ -129,6 +130,18 @@ function addAuthorizedAddress(
       abi: votingContractAbi,
       functionName: 'addAuthorizedAddress',
       args: [institutionId, address],
+    })
+  }
+}
+
+function claimVoteReward(chainId: string, voteId: string, rewardHash: bigint, recipient: Hex) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'claimVoteReward',
+      args: [idToHex(voteId), rewardHash, recipient],
     })
   }
 }
@@ -166,10 +179,6 @@ function getVoteReadContract(chainId: string) {
   return vote;
 }
 
-function voteIdToHex(voteId: string) {
-  return BigInt(`0x${voteId}`);
-}
-
 async function rewardByVote(chainId: string) {
   const vote = getVoteReadContract(chainId);
   const reward = await vote.read.rewardByVote();
@@ -191,19 +200,37 @@ async function isAuthorizedAddress(chainId: string, institutionId: string, addre
   return vote.read.isAuthorizedAddress([institutionId, address]);
 }
 
+async function getHashVoted(chainId: string, voteId: string, voteHash: bigint) {
+  const vote = getVoteReadContract(chainId);
+
+  try {
+    const result = await vote.read.getOwnVoteInfo([idToHex(voteId), voteHash]) as [boolean, string];
+    return result[0];
+  } catch {
+    return false;
+  }
+}
+
+export const VoteContractUtils = {
+  idToHex,
+  getVoteHash,
+  getRewardHash,
+}
+
 export const VoteContractCalls = {
   createVote,
   updateVoteSchedule,
   castVote,
-  addNewVoters,
   disableVote,
   createInstitution,
   addAuthorizedAddress,
   removeAuthorizedAddress,
+  claimVoteReward,
 }
 
 export const VoteContractReads = {
   rewardByVote,
   getInstitutionAdmin,
   isAuthorizedAddress,
+  getHashVoted,
 }

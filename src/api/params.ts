@@ -48,7 +48,7 @@ export const availableNetworks = {
       '0x9f70476b4563c57c3056cc4e8dffc8025828c99ea7a458e33c1502f84b53cc94',
     attestationNft: '0x5D4f9dBD942C8D37dA57F6Ffd64cC9bF45939b0e',
     participationNft: '',
-    voteContract: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb'
+    voteContract: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523'
   },
   base: {
     chain: base,

@@ -157,7 +157,6 @@ export class OfficialPublicationPreparationService {
       votersCount: convotatedUsers.length,
       optionsHash,
       ciMerkleRoot: preparedVote.ciMerkleTree.root.toString(),
-      voteMerkleRoot: preparedVote.voteMerkleTree.root.toString(),
       callDataHash,
     });
 
@@ -202,7 +201,6 @@ export class OfficialPublicationPreparationService {
       optionsHash,
       merkleRoots: {
         ciMerkleRoot: preparedVote.ciMerkleTree.root.toString(),
-        voteMerkleRoot: preparedVote.voteMerkleTree.root.toString(),
       },
       nullifiersRef: {
         storage: 'official_publication_artifacts',

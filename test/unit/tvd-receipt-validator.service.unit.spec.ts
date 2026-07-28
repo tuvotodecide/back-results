@@ -8,7 +8,8 @@ const CASE_TYPE_NEGATIVE = 'NEGATIVO';
 const LEVEL_UNIT = 'UNITARIO';
 
 const assignment = getAddress('0x2222222222222222222222222222222222222222');
-const operator = getAddress('0x3333333333333333333333333333333333333333');
+const entryPoint = getAddress('0x0000000071727De22E5E9d8BAf0edAc6f37da032');
+const bundlerRelayer = getAddress('0x3333333333333333333333333333333333333333');
 const institution = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 const otherInstitution = getAddress('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
 
@@ -28,8 +29,8 @@ function receipt(overrides: Record<string, any> = {}) {
   return {
     transactionHash: '0x' + '1'.repeat(64),
     status: 'success',
-    to: assignment,
-    from: operator,
+    to: entryPoint,
+    from: bundlerRelayer,
     blockNumber: 100n,
     logs: [tokensAssignedLog()],
     ...overrides,
@@ -43,7 +44,7 @@ function validate(overrides: Record<string, any> = {}) {
     expectedChainId: 84532,
     actualChainId: 84532,
     expectedContractAddress: assignment,
-    expectedOperatorAddress: operator,
+    expectedEntryPointAddress: entryPoint,
     expectedInstitutionWallet: institution,
     expectedAmountSmallestUnit: '1000',
     confirmationsRequired: 3,
@@ -100,6 +101,12 @@ describe('TVD receipt validator service', () => {
         'monto del evento distinto',
         { receipt: { logs: [tokensAssignedLog(assignment, institution, '999')] } },
         'TVD_EVENT_AMOUNT_MISMATCH',
+      ],
+      [
+        'N-UNIT-022',
+        'receipt.to distinto del EntryPoint (no es una transaccion AA)',
+        { receipt: { to: assignment } },
+        'TVD_RECEIPT_CONTRACT_MISMATCH',
       ],
       [
         'N-UNIT-023',

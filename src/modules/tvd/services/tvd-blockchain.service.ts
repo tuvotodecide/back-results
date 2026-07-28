@@ -4,11 +4,13 @@ import {
   Address,
   BaseError,
   decodeErrorResult,
+  createPublicClient,
   encodeFunctionData,
   formatUnits,
   getAddress,
+  Hex,
+  http,
   isAddress,
-  keccak256,
   zeroAddress,
 } from 'viem';
 import votingContractAbi from '@/abi/voteContract.json';
@@ -17,16 +19,25 @@ import {
   TVD_ELECTORAL_CREDITS_ABI,
   TVD_TOKEN_ABI,
 } from '../contracts/tvd-abis';
+import { privateKeyToAccount } from 'viem/accounts';
+import {
+  entryPoint07Address,
+  getUserOperationHash,
+  toCoinbaseSmartAccount,
+} from 'viem/account-abstraction';
+import { createPimlicoClient } from 'permissionless/clients/pimlico';
+import { createSmartAccountClient } from 'permissionless';
+import { availableNetworks } from '@/api/params';
 import { TvdBlockchainError } from '../errors/tvd-blockchain.error';
 import {
   TVD_BLOCKCHAIN_CLIENT_FACTORY,
   TvdAssignTokensInput,
-  TvdAssignTokensResult,
   TvdBlockchainClientFactory,
   TvdBlockchainConfig,
   TvdBlockchainValidationResult,
   TvdElectoralCreditsConfig,
   TvdOperatorContext,
+  TvdBroadcastAssignTransactionResult,
   TvdPrepareAssignTransactionInput,
   TvdPreparedAssignTransaction,
   TvdTotalBalanceResult,
@@ -36,6 +47,10 @@ import {
 } from '../types/tvd-blockchain.types';
 import { TvdReceiptValidatorService } from './tvd-receipt-validator.service';
 
+const TRANSACTION_RECEIPT_MAX_ATTEMPTS = 3;
+const TRANSACTION_RECEIPT_RETRY_DELAY_MS = 3000;
+const USER_OPERATION_RECEIPT_TIMEOUT_MS = 30000;
+const USER_OPERATION_RECEIPT_POLLING_INTERVAL_MS = 2000;
 const POSITIVE_INTEGER_REGEX = /^[1-9]\d*$/;
 const NON_NEGATIVE_INTEGER_REGEX = /^(?:0|[1-9]\d*)$/;
 const EIP1967_IMPLEMENTATION_SLOT =
@@ -55,13 +70,18 @@ const ERC20_ERROR_ABI = [
 @Injectable()
 export class TvdBlockchainService {
   private readonly logger = new Logger(TvdBlockchainService.name);
+  private readonly chain: string;
+  private readonly pk: string;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly receiptValidator: TvdReceiptValidatorService,
     @Inject(TVD_BLOCKCHAIN_CLIENT_FACTORY)
     private readonly clientFactory: TvdBlockchainClientFactory,
-  ) {}
+  ) {
+    this.chain = this.configService.get<string>('app.blockchain.chain')!;
+    this.pk = this.configService.get<string>('app.blockchain.privateKey')!;
+  }
 
   getAbiSummary() {
     return {
@@ -83,31 +103,28 @@ export class TvdBlockchainService {
       () => clients.publicClient.getChainId(),
       'TVD_RPC_UNAVAILABLE',
     );
-    const operatorAddress = getAddress(
-      await this.readAssignmentContract(config, 'operator'),
+    const { account: smartAccount } = await this.getCoinbaseSmartAccountClients();
+    const signerAddress = getAddress(smartAccount.address);
+    const operatorRole = await this.readAssignmentContract(
+      config,
+      'OPERATOR_ROLE',
+    );
+    const signerHasOperatorRole = Boolean(
+      await this.readAssignmentContract(config, 'hasRole', [
+        operatorRole,
+        signerAddress,
+      ]),
     );
     const assignmentTokenAddress = getAddress(
       await this.readAssignmentContract(config, 'token'),
     );
     const tokenDecimals = Number(await this.readTokenContract(config, 'decimals'));
-    const signerNativeGasBalance = await this.callRpc(
-      () => clients.publicClient.getBalance({ address: clients.account.address }),
-      'TVD_RPC_UNAVAILABLE',
-    );
     const assignmentContractTokenBalance = await this.readTokenContract(
       config,
       'balanceOf',
       [config.assignmentContractAddress],
     );
-    const assignmentContractTotalAssigned = await this.readAssignmentContract(
-      config,
-      'totalAssigned',
-    );
-    const assignmentAccountingConsistent =
-      assignmentContractTotalAssigned <= assignmentContractTokenBalance;
-    const assignmentContractAssignableBalance = assignmentAccountingConsistent
-      ? assignmentContractTokenBalance - assignmentContractTotalAssigned
-      : 0n;
+    const assignmentContractAssignableBalance = assignmentContractTokenBalance;
 
     return {
       configured: true,
@@ -115,10 +132,8 @@ export class TvdBlockchainService {
       chainId,
       expectedChainId: config.chainId,
       chainIdMatches: chainId === config.chainId,
-      signerAddress: getAddress(clients.account.address),
-      operatorAddress,
-      operatorMatches:
-        getAddress(clients.account.address) === getAddress(operatorAddress),
+      signerAddress,
+      signerHasOperatorRole,
       assignmentTokenAddress,
       expectedTokenAddress: config.tokenContractAddress,
       tokenAddressMatches:
@@ -127,13 +142,9 @@ export class TvdBlockchainService {
       tokenDecimals,
       configuredDecimals: config.decimals,
       decimalsMatch: tokenDecimals === config.decimals,
-      signerNativeGasBalance: signerNativeGasBalance.toString(),
-      signerHasGas: signerNativeGasBalance > 0n,
       assignmentContractTokenBalance: assignmentContractTokenBalance.toString(),
-      assignmentContractTotalAssigned: assignmentContractTotalAssigned.toString(),
       assignmentContractAssignableBalance:
         assignmentContractAssignableBalance.toString(),
-      assignmentAccountingConsistent,
     };
   }
 
@@ -145,16 +156,18 @@ export class TvdBlockchainService {
     );
   }
 
-  getConfiguredSignerAddress() {
-    const config = this.getConfigOrThrow();
-    return getAddress(this.createClients(config).account.address);
+  async getConfiguredSignerAddress() {
+    this.getConfigOrThrow();
+    const { account } = await this.getCoinbaseSmartAccountClients();
+    return getAddress(account.address);
   }
 
-  getOperatorContext(): TvdOperatorContext {
+  async getOperatorContext(): Promise<TvdOperatorContext> {
     const config = this.getConfigOrThrow();
+    const { account } = await this.getCoinbaseSmartAccountClients();
     return {
       chainId: config.chainId,
-      operatorAddress: getAddress(this.createClients(config).account.address),
+      operatorAddress: getAddress(account.address),
       assignmentContractAddress: config.assignmentContractAddress,
     };
   }
@@ -371,8 +384,9 @@ export class TvdBlockchainService {
   async getNativeGasBalance() {
     const config = this.getConfigOrThrow();
     const clients = this.createClients(config);
+    const { account } = await this.getCoinbaseSmartAccountClients();
     const balance = await this.callRpc(
-      () => clients.publicClient.getBalance({ address: clients.account.address }),
+      () => clients.publicClient.getBalance({ address: account.address }),
       'TVD_RPC_UNAVAILABLE',
     );
     return balance.toString();
@@ -386,23 +400,6 @@ export class TvdBlockchainService {
     return balance.toString();
   }
 
-  async getPendingNonce(operatorAddress?: string) {
-    const config = this.getConfigOrThrow();
-    const clients = this.createClients(config);
-    const address = operatorAddress
-      ? this.parseWallet(operatorAddress)
-      : getAddress(clients.account.address);
-    const nonce = await this.callRpc(
-      () =>
-        clients.publicClient.getTransactionCount({
-          address,
-          blockTag: 'pending',
-        }),
-      'TVD_RPC_UNAVAILABLE',
-    );
-    return String(nonce);
-  }
-
   async validateAssignReadiness(input: TvdAssignTokensInput) {
     const institutionWallet = this.parseWallet(input.institutionWallet);
     const amount = this.parseAmountSmallestUnit(input.amountSmallestUnit);
@@ -414,7 +411,7 @@ export class TvdBlockchainService {
     if (!validation.chainIdMatches) {
       throw new TvdBlockchainError('TVD_CHAIN_MISMATCH');
     }
-    if (!validation.operatorMatches) {
+    if (!validation.signerHasOperatorRole) {
       throw new TvdBlockchainError('TVD_OPERATOR_MISMATCH');
     }
     if (!validation.tokenAddressMatches) {
@@ -423,13 +420,7 @@ export class TvdBlockchainService {
     if (!validation.decimalsMatch) {
       throw new TvdBlockchainError('TVD_DECIMALS_MISMATCH');
     }
-    if (!validation.signerHasGas) {
-      throw new TvdBlockchainError('TVD_INSUFFICIENT_GAS');
-    }
-    if (
-      !validation.assignmentAccountingConsistent ||
-      BigInt(validation.assignmentContractAssignableBalance) < amount
-    ) {
+    if (BigInt(validation.assignmentContractAssignableBalance) < amount) {
       throw new TvdBlockchainError('TVD_INSUFFICIENT_CONTRACT_BALANCE');
     }
 
@@ -447,68 +438,70 @@ export class TvdBlockchainService {
   ): Promise<TvdPreparedAssignTransaction> {
     const config = this.getConfigOrThrow();
     const readiness = await this.validateAssignReadiness(input);
-    const nonce = this.parseNonce(input.nonce);
     const amount = BigInt(readiness.amountSmallestUnit);
-    const clients = this.createClients(config);
     const data = encodeFunctionData({
       abi: TVD_ASSIGNMENT_ABI,
       functionName: 'assign',
       args: [readiness.institutionWallet, amount],
     });
-    const request = await this.callRpc(
+
+    const { account, smartAccountClient } = await this.getCoinbaseSmartAccountClients();
+
+    const preparedUserOperation = await this.callRpc(
       () =>
-        clients.walletClient.prepareTransactionRequest
-          ? clients.walletClient.prepareTransactionRequest({
-              account: clients.account,
-              chain: null,
+        smartAccountClient.prepareUserOperation({
+          calls: [
+            {
               to: config.assignmentContractAddress,
               data,
-              nonce: Number(nonce),
-              value: 0n,
-            })
-          : {
-              account: clients.account,
-              to: config.assignmentContractAddress,
-              data,
-              nonce: Number(nonce),
               value: 0n,
             },
+          ],
+        }),
       'TVD_RPC_UNAVAILABLE',
     );
-    const account = clients.account as any;
-    const serializedTransaction = await this.callRpc(
-      () =>
-        account.signTransaction
-          ? account.signTransaction(request)
-          : clients.walletClient.signTransaction({
-              account: clients.account,
-              ...request,
-            }),
+    const signature = await this.callRpc(
+      () => account.signUserOperation(preparedUserOperation),
       'TVD_ASSIGN_REVERTED',
-    ) as `0x${string}`;
-    const txHash = keccak256(serializedTransaction);
+    );
+    const signedUserOperation = { ...preparedUserOperation, signature };
+    const userOpHash = getUserOperationHash({
+      chainId: config.chainId,
+      entryPointAddress: account.entryPoint.address,
+      entryPointVersion: account.entryPoint.version,
+      userOperation: signedUserOperation,
+    });
 
     return {
-      txHash,
-      nonce: nonce.toString(),
-      serializedTransaction,
+      userOpHash,
+      nonce: signedUserOperation.nonce.toString(),
+      serializedTransaction: this.serializeUserOperation(signedUserOperation),
       chainId: config.chainId,
       contractAddress: config.assignmentContractAddress,
-      operatorAddress: getAddress(clients.account.address),
+      operatorAddress: getAddress(account.address),
       institutionWallet: readiness.institutionWallet,
       amountSmallestUnit: amount.toString(),
     };
   }
 
-  async broadcastSignedTransaction(serializedTransaction: `0x${string}`) {
+  async broadcastSignedTransaction(
+    serializedTransaction: string,
+  ): Promise<TvdBroadcastAssignTransactionResult> {
     const config = this.getConfigOrThrow();
-    const txHash = keccak256(serializedTransaction);
+    const { account, smartAccountClient } = await this.getCoinbaseSmartAccountClients();
+    const signedUserOperation = this.deserializeUserOperation(serializedTransaction);
+    const predictedHash = getUserOperationHash({
+      chainId: config.chainId,
+      entryPointAddress: account.entryPoint.address,
+      entryPointVersion: account.entryPoint.version,
+      userOperation: signedUserOperation,
+    });
+
+    let userOpHash: Hex;
+    let alreadyKnown = false;
     try {
-      const clients = this.createClients(config);
-      const broadcastHash = await clients.walletClient.sendRawTransaction({
-        serializedTransaction,
-      });
-      return { txHash: broadcastHash ?? txHash, alreadyKnown: false };
+      userOpHash =
+        (await smartAccountClient.sendUserOperation(signedUserOperation)) ?? predictedHash;
     } catch (error: any) {
       const message = String(error?.shortMessage ?? error?.message ?? '').toLowerCase();
       if (
@@ -516,32 +509,53 @@ export class TvdBlockchainService {
         message.includes('already imported') ||
         message.includes('known transaction')
       ) {
-        return { txHash, alreadyKnown: true };
+        userOpHash = predictedHash;
+        alreadyKnown = true;
+      } else {
+        throw new TvdBlockchainError('TVD_RPC_UNAVAILABLE', error);
       }
-      throw new TvdBlockchainError('TVD_RPC_UNAVAILABLE', error);
     }
+
+    const txHash = await this.resolveBundleTransactionHash(smartAccountClient, userOpHash);
+    return { txHash, userOpHash, alreadyKnown };
+  }
+
+  private async resolveBundleTransactionHash(smartAccountClient: any, userOpHash: Hex) {
+    const receipt = await this.callRpc(
+      () =>
+        smartAccountClient.waitForUserOperationReceipt({
+          hash: userOpHash,
+          timeout: USER_OPERATION_RECEIPT_TIMEOUT_MS,
+          pollingInterval: USER_OPERATION_RECEIPT_POLLING_INTERVAL_MS,
+        }),
+      'TVD_RECEIPT_NOT_FOUND',
+    );
+    if (!receipt.success) {
+      throw new TvdBlockchainError('TVD_ASSIGN_REVERTED');
+    }
+    return receipt.receipt.transactionHash as Hex;
   }
 
   async validateSubmittedAssignReceipt(input: {
     receipt: any;
     expectedInstitutionWallet: string;
     expectedAmountSmallestUnit: string;
-    expectedOperatorAddress?: string | null;
   }) {
     const config = this.getConfigOrThrow();
     const clients = this.createClients(config);
-    const currentBlockNumber = await this.callRpc(
-      () => clients.publicClient.getBlockNumber(),
-      'TVD_RPC_UNAVAILABLE',
-    );
+    const [currentBlockNumber, { account }] = await Promise.all([
+      this.callRpc(
+        () => clients.publicClient.getBlockNumber(),
+        'TVD_RPC_UNAVAILABLE',
+      ),
+      this.getCoinbaseSmartAccountClients(),
+    ]);
     return this.receiptValidator.validateAssignReceipt({
       receipt: input.receipt,
       expectedChainId: config.chainId,
       actualChainId: config.chainId,
       expectedContractAddress: config.assignmentContractAddress,
-      expectedOperatorAddress: input.expectedOperatorAddress
-        ? getAddress(input.expectedOperatorAddress)
-        : getAddress(clients.account.address),
+      expectedEntryPointAddress: getAddress(account.entryPoint.address),
       expectedInstitutionWallet: this.parseWallet(input.expectedInstitutionWallet),
       expectedAmountSmallestUnit: this.parseAmountSmallestUnit(
         input.expectedAmountSmallestUnit,
@@ -610,95 +624,30 @@ export class TvdBlockchainService {
     };
   }
 
-  async assignTokens(input: TvdAssignTokensInput): Promise<TvdAssignTokensResult> {
-    const config = this.getConfigOrThrow();
-    const institutionWallet = this.parseWallet(input.institutionWallet);
-    const amount = this.parseAmountSmallestUnit(input.amountSmallestUnit);
-    const validation = await this.validateBlockchainConfiguration();
-
-    if (!validation.configured) {
-      throw new TvdBlockchainError('TVD_CONFIG_INCOMPLETE');
-    }
-    if (!validation.chainIdMatches) {
-      throw new TvdBlockchainError('TVD_CHAIN_MISMATCH');
-    }
-    if (!validation.operatorMatches) {
-      throw new TvdBlockchainError('TVD_OPERATOR_MISMATCH');
-    }
-    if (!validation.tokenAddressMatches) {
-      throw new TvdBlockchainError('TVD_TOKEN_ADDRESS_MISMATCH');
-    }
-    if (!validation.decimalsMatch) {
-      throw new TvdBlockchainError('TVD_DECIMALS_MISMATCH');
-    }
-    if (!validation.signerHasGas) {
-      throw new TvdBlockchainError('TVD_INSUFFICIENT_GAS');
-    }
-    if (
-      !validation.assignmentAccountingConsistent ||
-      BigInt(validation.assignmentContractAssignableBalance) < amount
-    ) {
-      throw new TvdBlockchainError('TVD_INSUFFICIENT_CONTRACT_BALANCE');
-    }
-
-    const clients = this.createClients(config);
-    const txHash = await this.callRpc(
-      () =>
-        clients.walletClient.writeContract({
-          account: clients.account,
-          address: config.assignmentContractAddress,
-          abi: TVD_ASSIGNMENT_ABI,
-          functionName: 'assign',
-          args: [institutionWallet, amount],
-        }),
-      'TVD_ASSIGN_REVERTED',
-    );
-    const receipt = await this.callRpc(
-      () =>
-        clients.publicClient.waitForTransactionReceipt({
-          hash: txHash,
-          confirmations: config.confirmationsRequired,
-        }),
-      'TVD_RECEIPT_NOT_FOUND',
-    );
-    const currentBlockNumber = await this.callRpc(
-      () => clients.publicClient.getBlockNumber(),
-      'TVD_RPC_UNAVAILABLE',
-    );
-    const receiptValidation = this.receiptValidator.validateAssignReceipt({
-      receipt,
-      expectedChainId: config.chainId,
-      actualChainId: validation.chainId,
-      expectedContractAddress: config.assignmentContractAddress,
-      expectedOperatorAddress: validation.signerAddress,
-      expectedInstitutionWallet: institutionWallet,
-      expectedAmountSmallestUnit: amount.toString(),
-      confirmationsRequired: config.confirmationsRequired,
-      currentBlockNumber,
-    });
-
-    return {
-      txHash,
-      blockNumber: receiptValidation.blockNumber,
-      chainId: config.chainId,
-      contractAddress: config.assignmentContractAddress,
-      operatorAddress: validation.signerAddress,
-      institutionWallet,
-      amountSmallestUnit: amount.toString(),
-      confirmations: receiptValidation.confirmations,
-    };
-  }
-
   async getTransactionReceipt(txHash: string) {
     const config = this.getConfigOrThrow();
-    const receipt = await this.callRpc(
-      () => this.createClients(config).publicClient.getTransactionReceipt({ hash: txHash }),
-      'TVD_RECEIPT_NOT_FOUND',
-    );
-    if (!receipt) {
-      throw new TvdBlockchainError('TVD_RECEIPT_NOT_FOUND');
+    for (let attempt = 1; attempt <= TRANSACTION_RECEIPT_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const receipt = await this.callRpc(
+          () => this.createClients(config).publicClient.getTransactionReceipt({ hash: txHash }),
+          'TVD_RECEIPT_NOT_FOUND',
+        );
+        if (!receipt) {
+          throw new TvdBlockchainError('TVD_RECEIPT_NOT_FOUND');
+        }
+        return receipt;
+      } catch (error) {
+        if (attempt >= TRANSACTION_RECEIPT_MAX_ATTEMPTS) {
+          throw error;
+        }
+        await this.sleep(TRANSACTION_RECEIPT_RETRY_DELAY_MS);
+      }
     }
-    return receipt;
+    throw new TvdBlockchainError('TVD_RECEIPT_NOT_FOUND');
+  }
+
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private async readTokenContract(
@@ -819,6 +768,53 @@ export class TvdBlockchainService {
     }
   }
 
+  private async getCoinbaseSmartAccountClients() {
+    const { chain: chainConfig, bundler } = availableNetworks[this.chain];
+
+    const publicClient = createPublicClient({
+      chain: chainConfig,
+      transport: http(bundler),
+    });
+
+    const account = await toCoinbaseSmartAccount({
+      client: publicClient,
+      owners: [privateKeyToAccount(this.pk as Hex)],
+      version: '1.1',
+    });
+
+    const pimlicoClient = createPimlicoClient({
+      chain: chainConfig,
+      transport: http(bundler),
+      entryPoint: {
+        address: entryPoint07Address,
+        version: '0.7',
+      },
+    });
+
+    const smartAccountClient = createSmartAccountClient({
+      account,
+      chain: chainConfig,
+      bundlerTransport: http(bundler),
+      paymaster: pimlicoClient,
+    });
+
+    return { publicClient, account, smartAccountClient };
+  }
+
+  private serializeUserOperation(userOperation: Record<string, unknown>): string {
+    return JSON.stringify(userOperation, (_key, value) =>
+      typeof value === 'bigint' ? { __bigint__: value.toString() } : value,
+    );
+  }
+
+  private deserializeUserOperation(serialized: string): any {
+    return JSON.parse(serialized, (_key, value) =>
+      value && typeof value === 'object' && '__bigint__' in value
+        ? BigInt(value.__bigint__)
+        : value,
+    );
+  }
+
   private createClients(config: TvdBlockchainConfig) {
     try {
       return this.clientFactory(config);
@@ -838,6 +834,7 @@ export class TvdBlockchainService {
     try {
       return await operation();
     } catch (error) {
+      Logger.error(error);
       throw new TvdBlockchainError(errorCode, error);
     }
   }
@@ -1089,14 +1086,6 @@ export class TvdBlockchainService {
       throw new TvdBlockchainError('TVD_INVALID_AMOUNT');
     }
     return BigInt(amount);
-  }
-
-  private parseNonce(value: string) {
-    const nonce = String(value ?? '').trim();
-    if (!NON_NEGATIVE_INTEGER_REGEX.test(nonce)) {
-      throw new TvdBlockchainError('TVD_INVALID_AMOUNT');
-    }
-    return BigInt(nonce);
   }
 
   private parsePrivateKey(value: string) {
