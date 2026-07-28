@@ -1,4 +1,12 @@
 import appConfig from '@/config/app.config';
+
+jest.mock('@/api/vote', () => ({
+  VoteContractReads: {
+    getInstitutionAdmin: jest.fn().mockResolvedValue('0x0000000000000000000000000000000000000000'),
+    isAuthorizedAddress: jest.fn().mockResolvedValue(false),
+  },
+}));
+
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { RoledUser } from '@/modules/auth/schemas/roledUser.schema';
 import { InstitutionalTenantAdminGuard } from '@/modules/institutional-tenants/guards/institutional-tenant-admin.guard';
@@ -16,6 +24,7 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Connection, Types } from 'mongoose';
 import request from 'supertest';
 import { TestLoggerModule } from '../utils/module-helpers';
+import { VoteContractReads } from '@/api/vote';
 
 describe('Institutional wallet regularization (integration)', () => {
   let app: INestApplication;
@@ -29,6 +38,7 @@ describe('Institutional wallet regularization (integration)', () => {
 
   const httpService = {
     axiosRef: {
+      post: jest.fn(),
       get: jest.fn(),
     },
   };
@@ -87,7 +97,18 @@ describe('Institutional wallet regularization (integration)', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    httpService.axiosRef.get.mockResolvedValue({ data: { ok: true } });
+    httpService.axiosRef.post.mockReset();
+    httpService.axiosRef.get.mockReset();
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockReset();
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockReset();
+    httpService.axiosRef.post.mockResolvedValue({
+      data: { registered: true, accountAddress: walletA },
+    });
+    httpService.axiosRef.get.mockResolvedValue({ data: { records: [] } });
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(
+      '0x0000000000000000000000000000000000000000',
+    );
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
     await conn.collection('tenant_admin_assignments').deleteMany({});
     await conn.collection('institutional_tenants').deleteMany({});
     await conn.collection('roled_users').deleteMany({});
@@ -126,6 +147,7 @@ describe('Institutional wallet regularization (integration)', () => {
   } = {}) {
     const tenantId = overrides.tenantId ?? new Types.ObjectId();
     const userId = overrides.userId ?? new Types.ObjectId();
+    const dni = overrides.dni === undefined ? `dni-${String(userId).slice(-6)}` : overrides.dni;
     await conn.collection('institutional_tenants').insertOne({
       _id: tenantId,
       name: `Tenant ${String(tenantId).slice(-6)}`,
@@ -136,7 +158,7 @@ describe('Institutional wallet regularization (integration)', () => {
     });
     await conn.collection('roled_users').insertOne({
       _id: userId,
-      dni: overrides.dni === undefined ? `dni-${String(userId).slice(-6)}` : overrides.dni,
+      dni,
       active: overrides.userActive ?? true,
       email: `${String(userId)}@example.test`,
       name: `User ${String(userId).slice(-6)}`,
@@ -164,16 +186,19 @@ describe('Institutional wallet regularization (integration)', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    return { tenantId, userId, assignmentId };
+    return { tenantId, userId, assignmentId, dni };
   }
 
-  function regularize(tenantId: Types.ObjectId, accountAddress: string) {
+  function regularize(
+    tenantId: Types.ObjectId,
+    body: { dni: string; accountAddress?: string },
+  ) {
     return request(app.getHttpServer())
       .post(`/api/v1/institutional-tenants/${tenantId}/admins/me/wallet-regularization`)
-      .send({ accountAddress });
+      .send(body);
   }
 
-  it('persiste wallet validada y el resolver pasa de bloquear a devolverla sin cambiar rol ni estado', async () => {
+  it('D-REG-001/D-REG-002/D-REG-006: resuelve wallet por Identity y crea una sola operación si la institución no existe en la red', async () => {
     const seeded = await seedLegacyAssignment({ role: 'PRIMARY' });
     currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
 
@@ -181,7 +206,7 @@ describe('Institutional wallet regularization (integration)', () => {
       accessService.resolveAdminWalletForTenant(String(seeded.userId), String(seeded.tenantId)),
     ).rejects.toThrow('wallet operativa');
 
-    const response = await regularize(seeded.tenantId, walletA).expect(201);
+    const response = await regularize(seeded.tenantId, { dni: seeded.dni! }).expect(201);
     expect(response.body).toMatchObject({
       tenantId: String(seeded.tenantId),
       assignmentId: String(seeded.assignmentId),
@@ -200,20 +225,17 @@ describe('Institutional wallet regularization (integration)', () => {
     expect(response.body.password).toBeUndefined();
     expect(response.body.accountAddressNormalized).toBeUndefined();
 
-    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
-      'https://identity.example.test/registry/has-dni',
+    expect(httpService.axiosRef.post).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/resolve-account-by-dni',
+      { dni: seeded.dni },
       expect.objectContaining({
-        params: { account: walletA, dnis: expect.any(String) },
         headers: { 'x-api-key': 'identity-test-key' },
       }),
     );
 
-    const resolved = await accessService.resolveAdminWalletForTenant(
-      String(seeded.userId),
-      String(seeded.tenantId),
-    );
-    expect(resolved.accountAddress).toBe(walletA);
-    expect(resolved.institutionalRole).toBe('PRIMARY');
+    await expect(
+      accessService.resolveAdminWalletForTenant(String(seeded.userId), String(seeded.tenantId)),
+    ).rejects.toThrow('pendiente de confirmacion de la red');
 
     const stored = await conn
       .collection('tenant_admin_assignments')
@@ -225,14 +247,28 @@ describe('Institutional wallet regularization (integration)', () => {
       active: true,
       walletVerificationSource: 'LEGACY_REGULARIZATION',
     });
+    const tenant = await conn.collection('institutional_tenants').findOne({ _id: seeded.tenantId });
+    expect(tenant?.stableInstitutionId).toBe(String(seeded.tenantId));
+    expect(await conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      stableInstitutionId: String(seeded.tenantId),
+      chainStatus: 'PENDING_SEND',
+    })).toBe(1);
+    expect(VoteContractReads.getInstitutionAdmin).toHaveBeenCalledWith(
+      expect.any(String),
+      String(seeded.tenantId),
+    );
   });
 
-  it('no persiste cuando Identity rechaza o no responde', async () => {
+  it('D-REG-003/D-REG-004: no persiste cuando Identity no encuentra persona o no responde', async () => {
     const rejected = await seedLegacyAssignment();
     currentUser = { sub: String(rejected.userId), role: 'USER', active: true };
-    httpService.axiosRef.get.mockResolvedValueOnce({ data: { ok: false } });
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: false, accountAddress: null },
+    });
+    httpService.axiosRef.get.mockResolvedValueOnce({ data: { records: [] } });
 
-    await regularize(rejected.tenantId, walletA).expect(400);
+    await regularize(rejected.tenantId, { dni: rejected.dni! }).expect(400);
     let stored = await conn
       .collection('tenant_admin_assignments')
       .findOne({ _id: rejected.assignmentId });
@@ -240,23 +276,24 @@ describe('Institutional wallet regularization (integration)', () => {
 
     const timeout = await seedLegacyAssignment();
     currentUser = { sub: String(timeout.userId), role: 'USER', active: true };
-    httpService.axiosRef.get.mockRejectedValueOnce(new Error('timeout'));
+    httpService.axiosRef.post.mockRejectedValueOnce(new Error('timeout'));
 
-    await regularize(timeout.tenantId, walletB).expect(503);
+    await regularize(timeout.tenantId, { dni: timeout.dni! }).expect(503);
     stored = await conn
       .collection('tenant_admin_assignments')
       .findOne({ _id: timeout.assignmentId });
     expect(stored?.accountAddress).toBeNull();
   });
 
-  it('completa metadata cuando la misma wallet ya existe sin verificacion persistida', async () => {
+  it('D-REG-005: si la institución ya existe en la red completa metadata sin crear operación nueva', async () => {
     const seeded = await seedLegacyAssignment({
       accountAddress: walletA,
       walletVerified: false,
     });
     currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(walletA);
 
-    const response = await regularize(seeded.tenantId, walletA).expect(201);
+    const response = await regularize(seeded.tenantId, { dni: seeded.dni! }).expect(201);
     expect(response.body).toMatchObject({
       assignmentId: String(seeded.assignmentId),
       accountAddress: walletA,
@@ -266,10 +303,11 @@ describe('Institutional wallet regularization (integration)', () => {
       walletVerificationSource: 'LEGACY_REGULARIZATION',
       updated: true,
     });
-    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
-      'https://identity.example.test/registry/has-dni',
+    expect(httpService.axiosRef.post).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/resolve-account-by-dni',
+      { dni: seeded.dni },
       expect.objectContaining({
-        params: { account: walletA, dnis: expect.any(String) },
+        headers: { 'x-api-key': 'identity-test-key' },
       }),
     );
 
@@ -282,23 +320,29 @@ describe('Institutional wallet regularization (integration)', () => {
       walletVerifiedAt: expect.any(Date),
       walletVerificationSource: 'LEGACY_REGULARIZATION',
     });
+    expect(await conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+    })).toBe(0);
   });
 
-  it('bloquea wallet de otro usuario, tenant ajeno, cuenta revocada y reemplazo de wallet', async () => {
+  it('D-REG-009/D-REG-010: bloquea persona sin permiso, wallet manipulada, cuenta revocada y reemplazo de wallet', async () => {
     const owner = await seedLegacyAssignment({
       accountAddress: walletA.toUpperCase().replace('0X', '0x'),
     });
     const target = await seedLegacyAssignment();
     currentUser = { sub: String(target.userId), role: 'USER', active: true };
 
-    await regularize(target.tenantId, walletA).expect(409);
+    await regularize(target.tenantId, { dni: target.dni! }).expect(409);
     let stored = await conn
       .collection('tenant_admin_assignments')
       .findOne({ _id: target.assignmentId });
     expect(stored?.accountAddress).toBeNull();
 
     currentUser = { sub: String(owner.userId), role: 'USER', active: true };
-    await regularize(target.tenantId, walletB).expect(409);
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: walletB },
+    });
+    await regularize(target.tenantId, { dni: owner.dni! }).expect(403);
     stored = await conn
       .collection('tenant_admin_assignments')
       .findOne({ _id: target.assignmentId });
@@ -306,38 +350,68 @@ describe('Institutional wallet regularization (integration)', () => {
 
     const revoked = await seedLegacyAssignment({ status: 'REVOKED', active: false });
     currentUser = { sub: String(revoked.userId), role: 'USER', active: true };
-    await regularize(revoked.tenantId, walletB).expect(403);
+    await regularize(revoked.tenantId, { dni: revoked.dni! }).expect(403);
 
     const withWallet = await seedLegacyAssignment({ accountAddress: walletB });
     currentUser = { sub: String(withWallet.userId), role: 'USER', active: true };
-    await regularize(withWallet.tenantId, walletA).expect(409);
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: walletB },
+    });
+    await regularize(withWallet.tenantId, {
+      dni: withWallet.dni!,
+      accountAddress: walletA,
+    }).expect(400);
 
-    httpService.axiosRef.get.mockClear();
-    const sameWallet = await regularize(withWallet.tenantId, walletB).expect(201);
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: walletB },
+    });
+    const sameWallet = await regularize(withWallet.tenantId, { dni: withWallet.dni! }).expect(201);
     expect(sameWallet.body.updated).toBe(false);
     expect(sameWallet.body).toMatchObject({
       hasWallet: true,
       requiresWalletUpdate: false,
       walletStatus: 'VERIFIED',
     });
-    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+    expect(httpService.axiosRef.post).toHaveBeenCalled();
   });
 
   it('bloquea formato invalido, relacion inexistente y usuario sin DNI interno', async () => {
     const invalidWallet = await seedLegacyAssignment();
     currentUser = { sub: String(invalidWallet.userId), role: 'USER', active: true };
-    await regularize(invalidWallet.tenantId, 'not-a-wallet').expect(400);
-    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+    await regularize(invalidWallet.tenantId, {
+      dni: invalidWallet.dni!,
+      accountAddress: 'not-a-wallet',
+    }).expect(400);
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
 
     const missingRelation = await seedLegacyAssignment();
     await conn
       .collection('tenant_admin_assignments')
       .deleteOne({ _id: missingRelation.assignmentId });
     currentUser = { sub: String(missingRelation.userId), role: 'USER', active: true };
-    await regularize(missingRelation.tenantId, walletA).expect(409);
+    await regularize(missingRelation.tenantId, { dni: missingRelation.dni! }).expect(403);
 
     const noDni = await seedLegacyAssignment({ dni: null });
     currentUser = { sub: String(noDni.userId), role: 'USER', active: true };
-    await regularize(noDni.tenantId, walletB).expect(409);
+    await regularize(noDni.tenantId, { dni: '12345678' }).expect(409);
+  });
+
+  it('D-REG-007/D-REG-008: repetir regularización conserva ID estable y no duplica operación pendiente', async () => {
+    const seeded = await seedLegacyAssignment({ role: 'PRIMARY' });
+    currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
+
+    await regularize(seeded.tenantId, { dni: seeded.dni! }).expect(201);
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: walletA },
+    });
+    await regularize(seeded.tenantId, { dni: seeded.dni! }).expect(201);
+
+    expect(await conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      stableInstitutionId: String(seeded.tenantId),
+      chainStatus: 'PENDING_SEND',
+    })).toBe(1);
+    const tenant = await conn.collection('institutional_tenants').findOne({ _id: seeded.tenantId });
+    expect(tenant?.stableInstitutionId).toBe(String(seeded.tenantId));
   });
 });

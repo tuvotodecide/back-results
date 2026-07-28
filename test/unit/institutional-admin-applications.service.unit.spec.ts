@@ -6,6 +6,10 @@ jest.mock('@/api/vote', () => ({
   VoteContractCalls: {
     createInstitution: jest.fn().mockReturnValue({ calldata: '0x' }),
   },
+  VoteContractReads: {
+    getInstitutionAdmin: jest.fn().mockResolvedValue('0x1234567890abcdef1234567890abcdef12345678'),
+    isAuthorizedAddress: jest.fn().mockResolvedValue(true),
+  },
 }));
 
 import {
@@ -29,6 +33,8 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
   let tenantModel: any;
   let assignmentModel: any;
   let votingEventModel: any;
+  let invitationModel: any;
+  let notificationLogModel: any;
   let mailService: any;
   let configService: any;
   let httpService: any;
@@ -83,6 +89,21 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     votingEventModel = {
       updateMany: jest.fn(),
     };
+    invitationModel = {
+      findOne: jest.fn(),
+      findById: jest.fn(),
+      create: jest.fn(),
+      db: { startSession: jest.fn().mockResolvedValue(session) },
+    };
+    notificationLogModel = {
+      create: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+      findById: jest.fn(),
+      findOne: jest.fn(),
+      findOneAndUpdate: jest.fn().mockReturnValue({
+        _id: new Types.ObjectId(),
+        session: jest.fn().mockReturnThis(),
+      }),
+    };
     mailService = {
       sendEmail: jest.fn().mockResolvedValue(undefined),
     };
@@ -99,7 +120,10 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     };
     httpService = {
       axiosRef: {
-        get: jest.fn().mockResolvedValue({ data: { ok: true } }),
+        post: jest.fn().mockResolvedValue({
+          data: { registered: true, accountAddress: validAccountAddress },
+        }),
+        get: jest.fn().mockResolvedValue({ data: { records: [{ dni: '123456' }] } }),
       },
     };
     auditService = {
@@ -116,6 +140,8 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       tenantModel,
       assignmentModel,
       votingEventModel,
+      invitationModel,
+      notificationLogModel,
       mailService,
       configService,
       httpService,
@@ -149,7 +175,6 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       name: 'Admin Tenant',
       password: 'secret123',
       institutionName: ' Mi Institucion ',
-      accountAddress: ` ${validAccountAddress} `,
     });
 
     expect(result).toEqual({
@@ -175,10 +200,10 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(roledUserModel.create.mock.calls[0][0].password).not.toBe('secret123');
     expect(result).not.toHaveProperty('password');
     expect(result).not.toHaveProperty('passwordHash');
-    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
-      'https://identity.example.com/registry/has-dni',
+    expect(httpService.axiosRef.post).toHaveBeenCalledWith(
+      'https://identity.example.com/registry/resolve-account-by-dni',
+      { dni: '123456' },
       expect.objectContaining({
-        params: { account: validAccountAddress, dnis: '123456' },
         headers: { 'x-api-key': 'identity-api-key' },
         timeout: 5000,
       }),
@@ -203,6 +228,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
         accountAddress: validAccountAddress,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
     expect(httpService.axiosRef.get).not.toHaveBeenCalled();
     expect(roledUserModel.create).not.toHaveBeenCalled();
     expect(applicationModel.create).not.toHaveBeenCalled();
@@ -266,7 +292,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
         status: 'PENDING_APPROVAL',
       }),
     );
-    expect(httpService.axiosRef.get).toHaveBeenCalled();
+    expect(httpService.axiosRef.post).toHaveBeenCalled();
   });
 
   it('createApplication rechaza institucion existente inactiva o inexistente', async () => {
@@ -327,6 +353,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
         $or: expect.arrayContaining([{ email: 'admin@example.com' }, { dni: '123456' }]),
       }),
     );
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
     expect(httpService.axiosRef.get).not.toHaveBeenCalled();
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
@@ -352,6 +379,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       message: 'Ya administras esta institución.',
     });
 
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
     expect(httpService.axiosRef.get).not.toHaveBeenCalled();
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
@@ -372,16 +400,20 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
     expect(httpService.axiosRef.get).not.toHaveBeenCalled();
     expect(roledUserModel.create).not.toHaveBeenCalled();
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-  it('createApplication rechaza Identity ok false sin crear usuario ni solicitud', async () => {
+  it('createApplication rechaza persona no registrada sin crear usuario ni solicitud', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
-    httpService.axiosRef.get.mockResolvedValueOnce({ data: { ok: false } });
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: false, accountAddress: null },
+    });
+    httpService.axiosRef.get.mockResolvedValueOnce({ data: { records: [] } });
 
     await expect(
       service.createApplication({
@@ -393,7 +425,39 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
         accountAddress: validAccountAddress,
       }),
     ).rejects.toMatchObject({
-      message: 'La wallet no esta registrada o no corresponde al usuario solicitante.',
+      response: expect.objectContaining({
+        code: 'IDENTITY_PERSON_NOT_REGISTERED',
+        message: 'La persona debe registrarse primero en Tu Voto Decide.',
+      }),
+    });
+
+    expect(roledUserModel.create).not.toHaveBeenCalled();
+    expect(applicationModel.create).not.toHaveBeenCalled();
+  });
+
+  it('createApplication rechaza persona registrada sin billetera sin guardar billetera vacia', async () => {
+    tenantModel.findOne.mockResolvedValue(null);
+    roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
+    applicationModel.findOne.mockReturnValue(sortResolved(null));
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: false, accountAddress: null },
+    });
+    httpService.axiosRef.get.mockResolvedValueOnce({ data: { records: [{ dni: '123456' }] } });
+
+    await expect(
+      service.createApplication({
+        dni: '123456',
+        email: 'admin@example.com',
+        name: 'Admin Tenant',
+        password: 'secret123',
+        institutionName: 'Mi Institucion',
+        accountAddress: validAccountAddress,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'IDENTITY_WALLET_NOT_FOUND',
+        message: 'La persona debe crear o registrar primero su billetera en Tu Voto Decide.',
+      }),
     });
 
     expect(roledUserModel.create).not.toHaveBeenCalled();
@@ -418,7 +482,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       tenantModel.findOne.mockResolvedValue(null);
       roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
       applicationModel.findOne.mockReturnValue(sortResolved(null));
-      httpService.axiosRef.get.mockImplementationOnce(() => identityResult);
+      httpService.axiosRef.post.mockImplementationOnce(() => identityResult);
 
       await expect(service.createApplication(payload)).rejects.toBeInstanceOf(
         ServiceUnavailableException,
@@ -448,6 +512,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
     expect(httpService.axiosRef.get).not.toHaveBeenCalled();
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
@@ -479,16 +544,16 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       accountAddress: validAccountAddress,
     });
 
-    expect(httpService.axiosRef.get.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(httpService.axiosRef.post.mock.invocationCallOrder[0]).toBeLessThan(
       roledUserModel.create.mock.invocationCallOrder[0],
     );
-    expect(httpService.axiosRef.get.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(httpService.axiosRef.post.mock.invocationCallOrder[0]).toBeLessThan(
       applicationModel.create.mock.invocationCallOrder[0],
     );
   });
 
   it('verifyEmail cambia a PENDING_APPROVAL sin crear assignment y rechaza token expirado', async () => {
-    const app = {
+    const app: any = {
       _id: appId,
       status: 'PENDING_EMAIL_VERIFICATION',
       verificationToken: 'token',
@@ -517,8 +582,8 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     );
   });
 
-  it('approveApplication crea tenant/asignacion y marca aprobada', async () => {
-    const app = {
+  it('D-NEW-006: approveApplication crea tenant/asignacion pendientes sin activar acceso', async () => {
+    const app: any = {
       _id: appId,
       status: 'PENDING_APPROVAL',
       dni: '123456',
@@ -543,34 +608,41 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     assignmentModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
     assignmentModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
     tenantModel.findOne.mockResolvedValueOnce(null);
-    tenantModel.create.mockResolvedValue({ _id: tenantId });
+    tenantModel.create.mockImplementation(async ([doc]) => doc);
     assignmentModel.findOneAndUpdate.mockResolvedValue({});
     roledUserModel.findById.mockResolvedValue(user);
-    assignmentModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
+    assignmentModel.exists.mockResolvedValue(null);
     roledUserModel.updateOne.mockResolvedValue({});
 
-    await expect(service.approveApplication(appId.toString(), requester)).resolves.toEqual({
+    const result = await service.approveApplication(appId.toString(), requester);
+    const createdTenant = tenantModel.create.mock.calls[0][0][0];
+    const createdTenantId = String(createdTenant._id);
+
+    expect(result).toEqual(expect.objectContaining({
       id: appId.toString(),
-      status: 'APPROVED',
-      tenantId: tenantId.toString(),
+      status: 'PENDING_CHAIN_CONFIRMATION',
+      tenantId: createdTenantId,
       userId: userId.toString(),
       institutionalRole: 'PRIMARY',
-    });
+      stableInstitutionId: createdTenantId,
+      chainStatus: 'PENDING_SEND',
+    }));
 
     expect(tenantModel.create).toHaveBeenCalledWith(
       [
         expect.objectContaining({
           name: 'Mi Institucion',
           nameNorm: 'mi institucion',
-          active: true,
+          stableInstitutionId: createdTenantId,
+          active: false,
         }),
       ],
       expect.objectContaining({ session }),
     );
     expect(assignmentModel.findOneAndUpdate).toHaveBeenCalledWith(
-      { tenantId, userId },
+      { tenantId: createdTenant._id, userId },
       expect.objectContaining({
-        $set: expect.objectContaining({ status: 'APPROVED', active: true }),
+        $set: expect.objectContaining({ status: 'PENDING', active: false }),
       }),
       expect.objectContaining({ upsert: true, returnDocument: 'after' }),
     );
@@ -586,6 +658,10 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       }),
     );
     expect(app.save).toHaveBeenCalled();
+    expect(app.status).toBe('PENDING_CHAIN_CONFIRMATION');
+    expect(app.chainStatus).toBe('PENDING_SEND');
+    expect(user.active).toBe(false);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
   it('approveApplication rechaza primera aprobacion por actor no global', async () => {
@@ -672,16 +748,21 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
         role: 'USER',
       }),
     ).resolves.toMatchObject({
-      status: 'APPROVED',
+      status: 'PENDING_MOBILE_AUTHORIZATION',
       institutionalRole: 'SECONDARY',
     });
 
     expect(assignmentModel.findOneAndUpdate.mock.calls[0][1].$set).toEqual(
-      expect.objectContaining({ institutionalRole: 'SECONDARY' }),
+      expect.objectContaining({
+        institutionalRole: 'SECONDARY',
+        status: 'PENDING',
+        active: false,
+      }),
     );
+    expect(notificationLogModel.findOneAndUpdate).toHaveBeenCalled();
   });
 
-  it('approveApplication permite a SUPERADMIN aprobar un administrador adicional como SECONDARY', async () => {
+  it('approveApplication bloquea a SUPERADMIN al aprobar un administrador adicional como SECONDARY', async () => {
     const primaryUserId = new Types.ObjectId('64e000000000000000000008');
     const app = {
       _id: appId,
@@ -727,9 +808,10 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     roledUserModel.findById.mockResolvedValue(user);
     assignmentModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
 
-    await expect(service.approveApplication(appId.toString(), requester)).resolves.toMatchObject({
-      institutionalRole: 'SECONDARY',
-    });
+    await expect(service.approveApplication(appId.toString(), requester)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
   it('approveApplication rechaza SECONDARY, PRIMARY ajeno o PRIMARY inactivo como aprobadores', async () => {
@@ -910,6 +992,23 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
   });
 
   it('approveApplication reutiliza una relacion compatible sin duplicar assignment', async () => {
+    const primaryUserId = new Types.ObjectId('64e000000000000000000018');
+    const primaryAssignment = {
+      tenantId,
+      userId: primaryUserId,
+      accountAddress: '0x00000000000000000000000000000000000000a1',
+      active: true,
+      status: 'APPROVED',
+      institutionalRole: 'PRIMARY',
+    };
+    const compatibleAssignment = {
+      tenantId,
+      userId,
+      accountAddress: validAccountAddress,
+      active: false,
+      status: 'PENDING',
+      institutionalRole: 'SECONDARY',
+    };
     const app = {
       _id: appId,
       status: 'PENDING_APPROVAL',
@@ -933,34 +1032,27 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     applicationModel.findById.mockResolvedValue(app);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([user]) });
     tenantModel.findOne.mockResolvedValue({ _id: tenantId });
-    assignmentModel.find.mockReturnValue({
-      lean: jest.fn().mockResolvedValue([
-        {
-          tenantId,
-          userId,
-          accountAddress: validAccountAddress,
-          active: true,
-          status: 'APPROVED',
-          institutionalRole: 'SECONDARY',
-        },
-      ]),
-    });
-    assignmentModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue({
-        tenantId,
-        userId,
-        accountAddress: validAccountAddress,
-        active: false,
-        status: 'PENDING',
-        institutionalRole: 'SECONDARY',
-      }),
-    });
+    assignmentModel.find.mockImplementation((query: any) =>
+      leanResolved(
+        query?.$or?.some((entry: any) => entry.accountAddressNormalized || entry.accountAddress)
+          ? []
+          : [primaryAssignment],
+      ),
+    );
+    assignmentModel.findOne.mockImplementation((query: any) =>
+      leanResolved(query?.institutionalRole === 'PRIMARY' ? primaryAssignment : compatibleAssignment),
+    );
     assignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() });
     roledUserModel.findById.mockResolvedValue(user);
     assignmentModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
 
-    await expect(service.approveApplication(appId.toString(), requester)).resolves.toMatchObject({
-      status: 'APPROVED',
+    await expect(
+      service.approveApplication(appId.toString(), {
+        sub: String(primaryUserId),
+        role: 'USER',
+      }),
+    ).resolves.toMatchObject({
+      status: 'PENDING_MOBILE_AUTHORIZATION',
       tenantId: tenantId.toString(),
       userId: userId.toString(),
     });
@@ -970,8 +1062,8 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
       { tenantId, userId },
       expect.objectContaining({
         $set: expect.objectContaining({
-          active: true,
-          status: 'APPROVED',
+          active: false,
+          status: 'PENDING',
           accountAddress: validAccountAddress,
           institutionalRole: 'SECONDARY',
         }),
@@ -982,6 +1074,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
 
   it('approveApplication rechaza la misma wallet asociada a otro usuario sin escribir', async () => {
     const otherUserId = new Types.ObjectId('64e000000000000000000005');
+    const primaryUserId = new Types.ObjectId('64e000000000000000000019');
     const app = {
       _id: appId,
       status: 'PENDING_APPROVAL',
@@ -999,14 +1092,32 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([user]) });
     tenantModel.findOne.mockResolvedValue({ _id: tenantId });
     assignmentModel.find
-      .mockReturnValueOnce(leanResolved([]))
+      .mockReturnValueOnce(leanResolved([
+        {
+          tenantId,
+          userId: primaryUserId,
+          active: true,
+          status: 'APPROVED',
+          institutionalRole: 'PRIMARY',
+        },
+      ]))
       .mockReturnValueOnce(leanResolved([
         { tenantId, userId: otherUserId, accountAddress: validAccountAddress },
       ]));
+    assignmentModel.findOne.mockReturnValue(leanResolved({
+      tenantId,
+      userId: primaryUserId,
+      active: true,
+      status: 'APPROVED',
+      institutionalRole: 'PRIMARY',
+    }));
 
-    await expect(service.approveApplication(appId.toString(), requester)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.approveApplication(appId.toString(), {
+        sub: String(primaryUserId),
+        role: 'USER',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
 
     expect(roledUserModel.create).not.toHaveBeenCalled();
     expect(tenantModel.create).not.toHaveBeenCalled();
@@ -1015,6 +1126,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
   });
 
   it('approveApplication rechaza mismo usuario y tenant con wallet distinta', async () => {
+    const primaryUserId = new Types.ObjectId('64e000000000000000000020');
     const app = {
       _id: appId,
       status: 'PENDING_APPROVAL',
@@ -1034,25 +1146,38 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     assignmentModel.find.mockReturnValue(leanResolved([
       {
         tenantId,
-        userId: new Types.ObjectId('64e000000000000000000007'),
+        userId: primaryUserId,
         active: true,
         status: 'APPROVED',
         institutionalRole: 'PRIMARY',
       },
     ]));
-    assignmentModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue({
-        tenantId,
-        userId,
-        accountAddress: '0x9999999999999999999999999999999999999999',
-        active: true,
-        status: 'APPROVED',
-      }),
-    });
-
-    await expect(service.approveApplication(appId.toString(), requester)).rejects.toBeInstanceOf(
-      ConflictException,
+    assignmentModel.findOne.mockImplementation((query: any) =>
+      leanResolved(
+        query?.institutionalRole === 'PRIMARY'
+          ? {
+              tenantId,
+              userId: primaryUserId,
+              active: true,
+              status: 'APPROVED',
+              institutionalRole: 'PRIMARY',
+            }
+          : {
+              tenantId,
+              userId,
+              accountAddress: '0x9999999999999999999999999999999999999999',
+              active: true,
+              status: 'APPROVED',
+            },
+      ),
     );
+
+    await expect(
+      service.approveApplication(appId.toString(), {
+        sub: String(primaryUserId),
+        role: 'USER',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
 
     expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
     expect(app.save).not.toHaveBeenCalled();
@@ -1060,6 +1185,15 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
 
   it('approveApplication no cruza relaciones de otro tenant para el mismo usuario y wallet', async () => {
     const otherTenantId = new Types.ObjectId('64e000000000000000000006');
+    const primaryUserId = new Types.ObjectId('64e000000000000000000021');
+    const primaryAssignment = {
+      tenantId,
+      userId: primaryUserId,
+      active: true,
+      status: 'APPROVED',
+      institutionalRole: 'PRIMARY',
+      accountAddress: '0x00000000000000000000000000000000000000a2',
+    };
     const app = {
       _id: appId,
       status: 'PENDING_APPROVAL',
@@ -1082,23 +1216,29 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     applicationModel.findById.mockResolvedValue(app);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([user]) });
     tenantModel.findOne.mockResolvedValue({ _id: tenantId });
-    assignmentModel.find
-      .mockReturnValueOnce(leanResolved([]))
-      .mockReturnValueOnce(leanResolved([
-        { tenantId: otherTenantId, userId, accountAddress: validAccountAddress },
-      ]))
-      .mockReturnValueOnce(leanResolved([]))
-      .mockReturnValueOnce(leanResolved([
-        { tenantId: otherTenantId, userId, accountAddress: validAccountAddress },
-      ]));
-    assignmentModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    assignmentModel.find.mockImplementation((query: any) =>
+      leanResolved(
+        query?.$or?.some((entry: any) => entry.accountAddressNormalized || entry.accountAddress)
+          ? [{ tenantId: otherTenantId, userId, accountAddress: validAccountAddress }]
+          : [primaryAssignment],
+      ),
+    );
+    assignmentModel.findOne.mockImplementation((query: any) =>
+      leanResolved(query?.institutionalRole === 'PRIMARY' ? primaryAssignment : null),
+    );
     assignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() });
     roledUserModel.findById.mockResolvedValue(user);
     assignmentModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
 
-    await expect(service.approveApplication(appId.toString(), requester)).resolves.toMatchObject({
+    await expect(
+      service.approveApplication(appId.toString(), {
+        sub: String(primaryUserId),
+        role: 'USER',
+      }),
+    ).resolves.toMatchObject({
       tenantId: tenantId.toString(),
       userId: userId.toString(),
+      status: 'PENDING_MOBILE_AUTHORIZATION',
     });
 
     expect(assignmentModel.findOneAndUpdate.mock.calls[0][0]).toEqual({ tenantId, userId });
@@ -1106,6 +1246,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
 
   it('approveApplication detecta conflicto de wallet sin depender de mayusculas', async () => {
     const otherUserId = new Types.ObjectId('64e000000000000000000005');
+    const primaryUserId = new Types.ObjectId('64e000000000000000000022');
     const app = {
       _id: appId,
       status: 'PENDING_APPROVAL',
@@ -1123,14 +1264,32 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([user]) });
     tenantModel.findOne.mockResolvedValue({ _id: tenantId });
     assignmentModel.find
-      .mockReturnValueOnce(leanResolved([]))
+      .mockReturnValueOnce(leanResolved([
+        {
+          tenantId,
+          userId: primaryUserId,
+          active: true,
+          status: 'APPROVED',
+          institutionalRole: 'PRIMARY',
+        },
+      ]))
       .mockReturnValueOnce(leanResolved([
         { tenantId, userId: otherUserId, accountAddress: validAccountAddress.toUpperCase() },
       ]));
+    assignmentModel.findOne.mockReturnValue(leanResolved({
+      tenantId,
+      userId: primaryUserId,
+      active: true,
+      status: 'APPROVED',
+      institutionalRole: 'PRIMARY',
+    }));
 
-    await expect(service.approveApplication(appId.toString(), requester)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.approveApplication(appId.toString(), {
+        sub: String(primaryUserId),
+        role: 'USER',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
     expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 

@@ -63,10 +63,14 @@ export class CreateInstitutionalAdminApplicationDto {
   @MaxLength(160)
   institutionName?: string;
 
-  @ApiProperty({ example: '0x1234567890abcdef1234567890abcdef12345678' })
+  @ApiPropertyOptional({
+    example: '0x1234567890abcdef1234567890abcdef12345678',
+    description:
+      'Dato de compatibilidad. La billetera autoritativa se resuelve por CI o DNI desde Identity.',
+  })
+  @IsOptional()
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
-  @IsNotEmpty()
   @IsEthereumAddress()
-  accountAddress: string;
+  accountAddress?: string;
 }

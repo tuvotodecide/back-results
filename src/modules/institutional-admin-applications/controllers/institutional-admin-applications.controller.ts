@@ -22,9 +22,13 @@ import {
 import { Public } from '@/core/decorators/public.decorator';
 import { AccessApproverGuard } from '@/core/guards/access-approver.guard';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { OfficialPublicationMobileRateLimitGuard } from '@/modules/institutional-voting/auth/official-publication-mobile-rate-limit.guard';
+import { AcceptInstitutionalAdminInvitationDto } from '../dto/accept-institutional-admin-invitation.dto';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
+import { CreateInstitutionalAdminInvitationDto } from '../dto/create-institutional-admin-invitation.dto';
 import { ReviewInstitutionalAdminApplicationDto } from '../dto/review-institutional-admin-application.dto';
 import { VerifyInstitutionalAdminApplicationDto } from '../dto/verify-institutional-admin-application.dto';
+import { InstitutionalMobileZkAuthGuard } from '../auth/institutional-mobile-zk-auth.guard';
 import { InstitutionalApplicationReviewGuard } from '../guards/institutional-application-review.guard';
 import { InstitutionalPublicRateLimitGuard } from '../guards/institutional-public-rate-limit.guard';
 import { InstitutionalAdminApplicationsService } from '../services/institutional-admin-applications.service';
@@ -90,6 +94,204 @@ export class InstitutionalAdminApplicationsController {
   @ApiResponse({ status: 200, description: 'Listado de solicitudes pendientes.' })
   listPendingApplications() {
     return this.institutionalAdminApplicationsService.listPendingApplications();
+  }
+
+  @Get('tenants/:tenantId/invitations')
+  @UseGuards(InstitutionalApplicationReviewGuard)
+  @ApiOperation({
+    summary: 'Listar invitaciones de administradores institucionales',
+    description:
+      'Lista invitaciones históricas y vigentes de un tenant para la vista Cuenta institucional.',
+  })
+  @ApiParam({ name: 'tenantId', description: 'ID del tenant/institución.' })
+  @ApiResponse({ status: 200, description: 'Listado de invitaciones institucionales.' })
+  listInvitations(
+    @Param('tenantId') tenantId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.listInvitations(
+      tenantId,
+      req.user,
+    );
+  }
+
+  @Post('tenants/:tenantId/invitations')
+  @UseGuards(InstitutionalApplicationReviewGuard)
+  @ApiOperation({
+    summary: 'Invitar administrador a una institución existente',
+    description:
+      'Crea una invitación pendiente para una persona registrada en Identity y vinculada con billetera.',
+  })
+  createInvitation(
+    @Param('tenantId') tenantId: string,
+    @Body() dto: CreateInstitutionalAdminInvitationDto,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.createInvitation(
+      tenantId,
+      dto,
+      req.user,
+    );
+  }
+
+  @Post('invitations/:invitationId/accept')
+  @Public()
+  @UseGuards(InstitutionalPublicRateLimitGuard)
+  @ApiOperation({
+    summary: 'Aceptar invitación institucional',
+    description:
+      'Valida token vigente, crea o reutiliza cuenta administrativa y genera solicitud pendiente de revisión.',
+  })
+  acceptInvitation(
+    @Param('invitationId') invitationId: string,
+    @Body() dto: AcceptInstitutionalAdminInvitationDto,
+  ) {
+    return this.institutionalAdminApplicationsService.acceptInvitation(
+      invitationId,
+      dto,
+    );
+  }
+
+  @Post('invitations/:invitationId/reject')
+  @Public()
+  @UseGuards(InstitutionalPublicRateLimitGuard)
+  @ApiOperation({
+    summary: 'Rechazar invitación institucional',
+    description: 'Cierra una invitación vigente sin crear solicitud ni acceso.',
+  })
+  rejectInvitation(
+    @Param('invitationId') invitationId: string,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto = {},
+  ) {
+    return this.institutionalAdminApplicationsService.rejectInvitation(
+      invitationId,
+      dto.reason,
+    );
+  }
+
+  @Post('invitations/:invitationId/cancel')
+  @UseGuards(InstitutionalApplicationReviewGuard)
+  @ApiOperation({
+    summary: 'Cancelar invitación institucional',
+    description: 'Permite al administrador principal cancelar una invitación pendiente.',
+  })
+  cancelInvitation(
+    @Param('invitationId') invitationId: string,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto = {},
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.cancelInvitation(
+      invitationId,
+      req.user,
+      dto.reason,
+    );
+  }
+
+  @Post('invitations/:invitationId/resend')
+  @UseGuards(InstitutionalApplicationReviewGuard)
+  @ApiOperation({
+    summary: 'Reenviar aviso de invitación institucional',
+    description:
+      'Registra un nuevo aviso sin crear otra invitación ni extender el vencimiento.',
+  })
+  resendInvitation(
+    @Param('invitationId') invitationId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.resendInvitation(
+      invitationId,
+      req.user,
+    );
+  }
+
+  @Post('tenants/:tenantId/admins/:assignmentId/removal-authorizations')
+  @UseGuards(InstitutionalApplicationReviewGuard)
+  @ApiOperation({
+    summary: 'Solicitar eliminación definitiva de wallet institucional',
+    description:
+      'Crea una autorización móvil para quitar la wallet de un administrador secundario después de confirmación de red.',
+  })
+  createRemovalAuthorization(
+    @Param('tenantId') tenantId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() dto: ReviewInstitutionalAdminApplicationDto = {},
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.createRemovalAuthorization(
+      tenantId,
+      assignmentId,
+      req.user,
+      dto.reason,
+    );
+  }
+
+  @Get('mobile/authorizations/:applicationId')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalMobileZkAuthGuard)
+  @ApiOperation({
+    summary: 'Consultar autorización móvil institucional',
+    description: 'Devuelve el detalle seguro de una autorización móvil vigente o su estado final.',
+  })
+  getMobileAuthorization(
+    @Param('applicationId') applicationId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.getMobileAuthorizationRequest(
+      applicationId,
+      req.user,
+    );
+  }
+
+  @Post('mobile/authorizations/:applicationId/claim')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalMobileZkAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Preparar paquete de autorización institucional para firma móvil' })
+  claimMobileAuthorization(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: any = {},
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.claimMobileAuthorization(applicationId, dto, req.user);
+  }
+
+  @Post('mobile/authorizations/:applicationId/signing')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalMobileZkAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Marcar inicio de firma móvil institucional' })
+  markMobileAuthorizationSigning(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: any = {},
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.markMobileAuthorizationSigning(applicationId, dto, req.user);
+  }
+
+  @Post('mobile/authorizations/:applicationId/reject')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalMobileZkAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Rechazar autorización móvil institucional' })
+  rejectMobileAuthorization(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: any = {},
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.rejectMobileAuthorization(applicationId, dto, req.user);
+  }
+
+  @Post('mobile/authorizations/:applicationId/submission')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalMobileZkAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Registrar operación firmada desde el teléfono' })
+  submitMobileAuthorization(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: any = {},
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.submitMobileAuthorization(applicationId, dto, req.user);
   }
 
   @Get(':applicationId')

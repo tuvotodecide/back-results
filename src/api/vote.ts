@@ -117,6 +117,38 @@ function createInstitution(
   }
 }
 
+function addAuthorizedAddress(
+  chainId: string,
+  institutionId: string,
+  address: Hex
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'addAuthorizedAddress',
+      args: [institutionId, address],
+    })
+  }
+}
+
+function removeAuthorizedAddress(
+  chainId: string,
+  institutionId: string,
+  address: Hex
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'removeAuthorizedAddress',
+      args: [institutionId, address],
+    })
+  }
+}
+
 function getVoteReadContract(chainId: string) {
   const { voteContract, bundler, chain } = availableNetworks[chainId];
 
@@ -149,15 +181,29 @@ async function rewardByVote(chainId: string) {
   }
 }
 
+async function getInstitutionAdmin(chainId: string, institutionId: string) {
+  const vote = getVoteReadContract(chainId);
+  return vote.read.getInstitutionAdmin([institutionId]);
+}
+
+async function isAuthorizedAddress(chainId: string, institutionId: string, address: Hex) {
+  const vote = getVoteReadContract(chainId);
+  return vote.read.isAuthorizedAddress([institutionId, address]);
+}
+
 export const VoteContractCalls = {
   createVote,
   updateVoteSchedule,
   castVote,
   addNewVoters,
   disableVote,
-  createInstitution
+  createInstitution,
+  addAuthorizedAddress,
+  removeAuthorizedAddress,
 }
 
 export const VoteContractReads = {
   rewardByVote,
+  getInstitutionAdmin,
+  isAuthorizedAddress,
 }

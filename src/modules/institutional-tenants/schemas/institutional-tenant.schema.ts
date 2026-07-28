@@ -14,6 +14,9 @@ export class InstitutionalTenant {
   @Prop({ required: false, trim: true })
   description?: string;
 
+  @Prop({ required: false, trim: true, unique: true, sparse: true, index: true })
+  stableInstitutionId?: string;
+
   @Prop({ required: true, default: true, index: true })
   active: boolean;
 }

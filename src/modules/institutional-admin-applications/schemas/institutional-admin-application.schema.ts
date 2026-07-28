@@ -7,9 +7,26 @@ export type InstitutionalAdminApplicationDocument =
 export type InstitutionalAdminApplicationStatus =
   | 'PENDING_EMAIL_VERIFICATION'
   | 'PENDING_APPROVAL'
+  | 'PENDING_MOBILE_AUTHORIZATION'
+  | 'MOBILE_AUTHORIZATION_EXPIRED'
+  | 'PENDING_CHAIN_CONFIRMATION'
+  | 'CHAIN_RETRY_PENDING'
+  | 'RECONCILIATION_PENDING'
+  | 'CHAIN_FAILED'
   | 'APPROVED'
   | 'REJECTED'
   | 'REVOKED';
+
+export type InstitutionalCreationChainStatus =
+  | 'PENDING_SEND'
+  | 'SENT'
+  | 'RETRY_PENDING'
+  | 'CONFIRMED'
+  | 'FAILED';
+
+export type InstitutionalMobileAuthorizationAction =
+  | 'ADD_AUTHORIZED_ADDRESS'
+  | 'REMOVE_AUTHORIZED_ADDRESS';
 
 @Schema({ timestamps: true, collection: 'institutional_admin_applications' })
 export class InstitutionalAdminApplication {
@@ -36,11 +53,54 @@ export class InstitutionalAdminApplication {
 
   @Prop({
     required: true,
-    enum: ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'REVOKED'],
+    enum: [
+      'PENDING_EMAIL_VERIFICATION',
+      'PENDING_APPROVAL',
+      'PENDING_MOBILE_AUTHORIZATION',
+      'MOBILE_AUTHORIZATION_EXPIRED',
+      'PENDING_CHAIN_CONFIRMATION',
+      'CHAIN_RETRY_PENDING',
+      'RECONCILIATION_PENDING',
+      'CHAIN_FAILED',
+      'APPROVED',
+      'REJECTED',
+      'REVOKED',
+    ],
     default: 'PENDING_EMAIL_VERIFICATION',
     index: true,
   })
   status: InstitutionalAdminApplicationStatus;
+
+  @Prop({ required: false, trim: true, index: true })
+  stableInstitutionId?: string;
+
+  @Prop({
+    required: false,
+    enum: ['PENDING_SEND', 'SENT', 'RETRY_PENDING', 'CONFIRMED', 'FAILED'],
+    index: true,
+  })
+  chainStatus?: InstitutionalCreationChainStatus;
+
+  @Prop({ required: false, default: 0 })
+  chainAttempts?: number;
+
+  @Prop({ type: Date, required: false })
+  chainNextRetryAt?: Date | null;
+
+  @Prop({ type: String, required: false, trim: true })
+  chainLastError?: string | null;
+
+  @Prop({ type: String, required: false, trim: true })
+  chainTxHash?: string | null;
+
+  @Prop({ type: Date, required: false })
+  chainLockedAt?: Date | null;
+
+  @Prop({ type: Date, required: false })
+  chainLockedUntil?: Date | null;
+
+  @Prop({ type: Date, required: false })
+  chainConfirmedAt?: Date | null;
 
   @Prop({ required: false, trim: true })
   verificationToken?: string;
@@ -56,6 +116,41 @@ export class InstitutionalAdminApplication {
 
   @Prop({ type: Date, required: false })
   approvedAt?: Date;
+
+  @Prop({ type: Date, required: false })
+  mobileAuthorizationRequestedAt?: Date | null;
+
+  @Prop({
+    required: false,
+    enum: ['ADD_AUTHORIZED_ADDRESS', 'REMOVE_AUTHORIZED_ADDRESS'],
+    default: 'ADD_AUTHORIZED_ADDRESS',
+    index: true,
+  })
+  mobileAuthorizationAction?: InstitutionalMobileAuthorizationAction;
+
+  @Prop({ type: Types.ObjectId, ref: 'TenantAdminAssignment', required: false })
+  targetAssignmentId?: Types.ObjectId | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'NotificationLog', required: false })
+  mobileAuthorizationNotificationId?: Types.ObjectId | null;
+
+  @Prop({ type: Date, required: false })
+  mobileAuthorizationExpiresAt?: Date | null;
+
+  @Prop({ type: String, required: false, trim: true })
+  mobileAuthorizationDeviceId?: string | null;
+
+  @Prop({ type: Date, required: false })
+  mobileAuthorizationClaimedAt?: Date | null;
+
+  @Prop({ type: Date, required: false })
+  mobileAuthorizationSignedAt?: Date | null;
+
+  @Prop({ type: String, required: false, trim: true, lowercase: true })
+  mobileAuthorizationUserOpHash?: string | null;
+
+  @Prop({ type: String, required: false, trim: true, lowercase: true })
+  mobileAuthorizationTxHash?: string | null;
 
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalTenant', required: false })
   tenantId?: Types.ObjectId;
@@ -82,3 +177,5 @@ InstitutionalAdminApplicationSchema.index({ dni: 1, status: 1 });
 InstitutionalAdminApplicationSchema.index({ accountAddress: 1, status: 1 });
 InstitutionalAdminApplicationSchema.index({ verificationToken: 1 });
 InstitutionalAdminApplicationSchema.index({ institutionNameNorm: 1 });
+InstitutionalAdminApplicationSchema.index({ chainStatus: 1, chainNextRetryAt: 1 });
+InstitutionalAdminApplicationSchema.index({ mobileAuthorizationUserOpHash: 1 });

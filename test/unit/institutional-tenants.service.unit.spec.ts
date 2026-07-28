@@ -7,10 +7,18 @@ import {
 import { Types } from 'mongoose';
 import { InstitutionalTenantsService } from '@/modules/institutional-tenants/services/institutional-tenants.service';
 
+jest.mock('@/api/vote', () => ({
+  VoteContractReads: {
+    getInstitutionAdmin: jest.fn().mockResolvedValue('0x0000000000000000000000000000000000000000'),
+    isAuthorizedAddress: jest.fn().mockResolvedValue(false),
+  },
+}));
+
 describe('InstitutionalTenantsService (unit)', () => {
   let tenantModel: any;
   let assignmentModel: any;
   let roledUserModel: any;
+  let applicationModel: any;
   let httpService: any;
   let configService: any;
   let auditService: any;
@@ -41,6 +49,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       findById: jest.fn(),
       find: jest.fn(),
       countDocuments: jest.fn(),
+      updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     };
     session = {
       withTransaction: jest.fn(async (fn) => fn()),
@@ -61,8 +70,13 @@ describe('InstitutionalTenantsService (unit)', () => {
       findById: jest.fn(),
       find: jest.fn(),
     };
+    applicationModel = {
+      findOne: jest.fn(() => query(null)),
+      create: jest.fn().mockResolvedValue([{}]),
+    };
     httpService = {
       axiosRef: {
+        post: jest.fn(),
         get: jest.fn().mockResolvedValue({ data: { ok: true } }),
       },
     };
@@ -82,6 +96,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       tenantModel,
       assignmentModel,
       roledUserModel,
+      applicationModel,
       httpService,
       configService,
       auditService,
@@ -702,8 +717,17 @@ describe('InstitutionalTenantsService (unit)', () => {
     const userId = new Types.ObjectId('64b0000000000000000000c1');
     const assignmentId = new Types.ObjectId('64b0000000000000000000c2');
     const wallet = '0x00000000000000000000000000000000000000c2';
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: wallet },
+    });
     tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    roledUserModel.findById.mockReturnValue(query({ _id: userId, active: true, dni: '12345678' }));
+    roledUserModel.findById.mockReturnValue(query({
+      _id: userId,
+      active: true,
+      dni: '12345678',
+      email: 'user@example.test',
+      name: 'User Test',
+    }));
     assignmentModel.find
       .mockReturnValueOnce(query([{
         _id: assignmentId,
@@ -747,10 +771,10 @@ describe('InstitutionalTenantsService (unit)', () => {
       walletStatus: 'VERIFIED',
       updated: true,
     });
-    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
-      'https://identity.example.test/registry/has-dni',
+    expect(httpService.axiosRef.post).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/resolve-account-by-dni',
+      { dni: '12345678' },
       expect.objectContaining({
-        params: { account: wallet, dnis: '12345678' },
         headers: { 'x-api-key': 'identity-key' },
       }),
     );
@@ -780,6 +804,9 @@ describe('InstitutionalTenantsService (unit)', () => {
     const userId = new Types.ObjectId('64b0000000000000000000c4');
     const assignmentId = new Types.ObjectId('64b0000000000000000000c5');
     const wallet = '0x00000000000000000000000000000000000000c5';
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: wallet },
+    });
     const assignment = {
       _id: assignmentId,
       tenantId,
@@ -793,7 +820,13 @@ describe('InstitutionalTenantsService (unit)', () => {
       walletVerificationSource: null,
     };
     tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    roledUserModel.findById.mockReturnValue(query({ _id: userId, active: true, dni: '12345678' }));
+    roledUserModel.findById.mockReturnValue(query({
+      _id: userId,
+      active: true,
+      dni: '12345678',
+      email: 'user@example.test',
+      name: 'User Test',
+    }));
     assignmentModel.find
       .mockReturnValueOnce(query([assignment]))
       .mockReturnValueOnce(query([assignment]));
@@ -817,10 +850,11 @@ describe('InstitutionalTenantsService (unit)', () => {
       walletStatus: 'VERIFIED',
       updated: true,
     });
-    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
-      'https://identity.example.test/registry/has-dni',
+    expect(httpService.axiosRef.post).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/resolve-account-by-dni',
+      { dni: '12345678' },
       expect.objectContaining({
-        params: { account: wallet, dnis: '12345678' },
+        headers: { 'x-api-key': 'identity-key' },
       }),
     );
     expect(assignmentModel.findOneAndUpdate).toHaveBeenCalledWith(
@@ -846,6 +880,9 @@ describe('InstitutionalTenantsService (unit)', () => {
     const userId = new Types.ObjectId('64b0000000000000000000c7');
     const assignmentId = new Types.ObjectId('64b0000000000000000000c8');
     const wallet = '0x00000000000000000000000000000000000000c8';
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: wallet },
+    });
     const assignment = {
       _id: assignmentId,
       tenantId,
@@ -859,7 +896,13 @@ describe('InstitutionalTenantsService (unit)', () => {
       walletVerificationSource: 'LEGACY_REGULARIZATION',
     };
     tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    roledUserModel.findById.mockReturnValue(query({ _id: userId, active: true, dni: '12345678' }));
+    roledUserModel.findById.mockReturnValue(query({
+      _id: userId,
+      active: true,
+      dni: '12345678',
+      email: 'user@example.test',
+      name: 'User Test',
+    }));
     assignmentModel.find.mockReturnValueOnce(query([assignment]));
 
     const result = await service.regularizeOwnWallet(
@@ -874,7 +917,13 @@ describe('InstitutionalTenantsService (unit)', () => {
       walletStatus: 'VERIFIED',
       updated: false,
     });
-    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+    expect(httpService.axiosRef.post).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/resolve-account-by-dni',
+      { dni: '12345678' },
+      expect.objectContaining({
+        headers: { 'x-api-key': 'identity-key' },
+      }),
+    );
     expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
@@ -900,9 +949,11 @@ describe('InstitutionalTenantsService (unit)', () => {
         status: 'APPROVED',
         active: true,
         accountAddress: null,
-      }]))
-      .mockReturnValueOnce(query([]));
-    httpService.axiosRef.get.mockResolvedValueOnce({ data: { ok: false } });
+      }]));
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: false, accountAddress: null },
+    });
+    httpService.axiosRef.get.mockResolvedValueOnce({ data: { records: [] } });
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
@@ -920,9 +971,8 @@ describe('InstitutionalTenantsService (unit)', () => {
         status: 'APPROVED',
         active: true,
         accountAddress: null,
-      }]))
-      .mockReturnValueOnce(query([]));
-    httpService.axiosRef.get.mockRejectedValueOnce(new Error('timeout'));
+      }]));
+    httpService.axiosRef.post.mockRejectedValueOnce(new Error('timeout'));
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
@@ -946,7 +996,7 @@ describe('InstitutionalTenantsService (unit)', () => {
         { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000e1' },
         { sub: String(userId), role: 'USER' },
       ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toBeInstanceOf(ForbiddenException);
 
     assignmentModel.find
       .mockReturnValueOnce(query([{
@@ -962,6 +1012,12 @@ describe('InstitutionalTenantsService (unit)', () => {
         userId: new Types.ObjectId(),
         accountAddress: '0x00000000000000000000000000000000000000e2',
       }]));
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: {
+        registered: true,
+        accountAddress: '0x00000000000000000000000000000000000000e2',
+      },
+    });
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
@@ -1045,6 +1101,12 @@ describe('InstitutionalTenantsService (unit)', () => {
     const assignmentId = new Types.ObjectId('64b0000000000000000000f4');
     tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
     roledUserModel.findById.mockReturnValue(query({ _id: userId, active: true, dni: '12345678' }));
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: {
+        registered: true,
+        accountAddress: '0x00000000000000000000000000000000000000f4',
+      },
+    });
     assignmentModel.find.mockReturnValueOnce(query([{
       _id: assignmentId,
       tenantId,
@@ -1065,7 +1127,13 @@ describe('InstitutionalTenantsService (unit)', () => {
         { sub: String(userId), role: 'USER' },
       ),
     ).resolves.toMatchObject({ updated: false });
-    expect(httpService.axiosRef.get).not.toHaveBeenCalled();
+    expect(httpService.axiosRef.post).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/resolve-account-by-dni',
+      { dni: '12345678' },
+      expect.objectContaining({
+        headers: { 'x-api-key': 'identity-key' },
+      }),
+    );
 
     assignmentModel.find.mockReturnValueOnce(query([{
       _id: assignmentId,
@@ -1075,12 +1143,18 @@ describe('InstitutionalTenantsService (unit)', () => {
       active: true,
       accountAddress: '0x00000000000000000000000000000000000000f4',
     }]));
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: {
+        registered: true,
+        accountAddress: '0x00000000000000000000000000000000000000f4',
+      },
+    });
     await expect(
       service.regularizeOwnWallet(
         String(tenantId),
         { dni: '12345678', accountAddress: '0x00000000000000000000000000000000000000f5' },
         { sub: String(userId), role: 'USER' },
       ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

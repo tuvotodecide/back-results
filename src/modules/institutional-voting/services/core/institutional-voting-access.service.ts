@@ -84,6 +84,7 @@ export class InstitutionalVotingAccessService {
     if (!accountAddress) {
       throw new ConflictException('La relacion institucional no tiene wallet operativa');
     }
+    await this.assertNoPendingInstitutionalRegularization(tenantId, new Types.ObjectId(requesterId));
   }
 
   assertGlobalAdminAccess(requester: any, action = 'realizar esta acción') {
@@ -229,6 +230,7 @@ export class InstitutionalVotingAccessService {
     if (uniqueRoles.size !== 1) {
       throw new ConflictException('Relaciones institucionales incompatibles para este tenant');
     }
+    await this.assertNoPendingInstitutionalRegularization(tenantObjectId, userObjectId);
 
     return {
       userId,
@@ -236,6 +238,30 @@ export class InstitutionalVotingAccessService {
       accountAddress: wallets[0],
       institutionalRole: roles[0],
     };
+  }
+
+  private async assertNoPendingInstitutionalRegularization(
+    tenantId: Types.ObjectId,
+    userId: Types.ObjectId,
+  ) {
+    const pendingOperation = await this.applicationModel
+      .findOne(
+        {
+          tenantId,
+          userId,
+          status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING', 'RECONCILIATION_PENDING'] },
+          chainStatus: { $in: ['PENDING_SEND', 'SENT', 'RETRY_PENDING'] },
+        },
+        { _id: 1 },
+      )
+      .lean();
+
+    if (pendingOperation) {
+      throw new ConflictException({
+        code: 'INSTITUTION_REGULARIZATION_PENDING_NETWORK_CONFIRMATION',
+        message: 'La regularizacion institucional sigue pendiente de confirmacion de la red',
+      });
+    }
   }
 
   async resolveOfficialPublicationInstitution(

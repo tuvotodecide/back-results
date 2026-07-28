@@ -34,3 +34,12 @@ export const NotificationLogSchema =
 NotificationLogSchema.index({ locationId: 1, createdAt: -1 });
 NotificationLogSchema.index({ topic: 1, createdAt: -1 });
 NotificationLogSchema.index({ topic: 1, createdAt: -1, _id: -1 });
+NotificationLogSchema.index(
+  { 'data.deduplicationKey': 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      'data.deduplicationKey': { $exists: true, $type: 'string' },
+    },
+  },
+);

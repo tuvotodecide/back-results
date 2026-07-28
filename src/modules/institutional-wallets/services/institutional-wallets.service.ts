@@ -14,16 +14,26 @@ type IdentityResolveAccountByDniResponse = {
   accountAddress: string | null;
 };
 
+type IdentityGetByDniResponse = {
+  records?: Array<{
+    did?: string;
+    dni?: string;
+  }>;
+};
+
 export type InstitutionalWalletResolutionResponse = {
   registered: boolean;
   accountAddress: string | null;
+  reason?: 'PERSON_NOT_REGISTERED' | 'WALLET_NOT_FOUND';
   message?: string;
 };
 
 @Injectable()
 export class InstitutionalWalletsService {
-  private static readonly NOT_FOUND_MESSAGE =
-    'No se encontró una billetera registrada para este carnet.';
+  private static readonly PERSON_NOT_REGISTERED_MESSAGE =
+    'La persona debe registrarse primero en Tu Voto Decide.';
+  private static readonly WALLET_NOT_FOUND_MESSAGE =
+    'La persona debe crear o registrar primero su billetera en Tu Voto Decide.';
 
   constructor(
     private readonly httpService: HttpService,
@@ -56,10 +66,19 @@ export class InstitutionalWalletsService {
       }
 
       if (!data.registered) {
+        const personExists = await this.identityPersonExistsByDni(
+          identityBaseUrl.replace(/\/$/, ''),
+          identityApiKey,
+          normalizedDni,
+          timeout,
+        );
         return {
           registered: false,
           accountAddress: null,
-          message: InstitutionalWalletsService.NOT_FOUND_MESSAGE,
+          reason: personExists ? 'WALLET_NOT_FOUND' : 'PERSON_NOT_REGISTERED',
+          message: personExists
+            ? InstitutionalWalletsService.WALLET_NOT_FOUND_MESSAGE
+            : InstitutionalWalletsService.PERSON_NOT_REGISTERED_MESSAGE,
         };
       }
 
@@ -106,6 +125,27 @@ export class InstitutionalWalletsService {
       throw new BadRequestException('dni debe ser alfanumerico');
     }
     return normalized;
+  }
+
+  private async identityPersonExistsByDni(
+    identityBaseUrl: string,
+    identityApiKey: string,
+    dni: string,
+    timeout: number,
+  ): Promise<boolean> {
+    const response = await this.httpService.axiosRef.get<IdentityGetByDniResponse>(
+      `${identityBaseUrl}/registry/get-by-dni`,
+      {
+        params: { dnis: dni },
+        headers: { 'x-api-key': identityApiKey },
+        timeout,
+      },
+    );
+    const records = response?.data?.records;
+    if (!Array.isArray(records)) {
+      throw new BadGatewayException('Identity devolvió una respuesta inválida');
+    }
+    return records.some((record) => String(record?.dni ?? '').trim() === dni);
   }
 
   private isAxiosTimeout(error: unknown): boolean {

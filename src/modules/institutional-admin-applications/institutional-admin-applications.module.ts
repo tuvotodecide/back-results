@@ -20,18 +20,32 @@ import {
   InstitutionalAdminApplicationSchema,
 } from './schemas/institutional-admin-application.schema';
 import {
+  InstitutionalAdminInvitation,
+  InstitutionalAdminInvitationSchema,
+} from './schemas/institutional-admin-invitation.schema';
+import {
+  NotificationLog,
+  NotificationLogSchema,
+} from '../notifications/schemas/notification-log.schema';
+import {
   VotingEvent,
   VotingEventSchema,
 } from '../institutional-voting/schemas/voting-event.schema';
 import { InstitutionalAdminApplicationsService } from './services/institutional-admin-applications.service';
 import { InstitutionalAdminApplicationsController } from './controllers/institutional-admin-applications.controller';
+import { InstitutionalMobileAuthController } from './controllers/institutional-mobile-auth.controller';
 import { InstitutionalApplicationReviewGuard } from './guards/institutional-application-review.guard';
 import { InstitutionalPublicRateLimitGuard } from './guards/institutional-public-rate-limit.guard';
+import { InstitutionalMobileZkAuthGuard } from './auth/institutional-mobile-zk-auth.guard';
+import { InstitutionalMobileZkAuthService } from './auth/institutional-mobile-zk-auth.service';
+import { OfficialPublicationMobileRateLimitGuard } from '../institutional-voting/auth/official-publication-mobile-rate-limit.guard';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: InstitutionalAdminApplication.name, schema: InstitutionalAdminApplicationSchema },
+      { name: InstitutionalAdminInvitation.name, schema: InstitutionalAdminInvitationSchema },
+      { name: NotificationLog.name, schema: NotificationLogSchema },
       { name: RoledUser.name, schema: RoledUserSchema },
       { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
@@ -49,11 +63,14 @@ import { InstitutionalPublicRateLimitGuard } from './guards/institutional-public
     InstitutionalAuditModule,
     HistoryModule,
   ],
-  controllers: [InstitutionalAdminApplicationsController],
+  controllers: [InstitutionalAdminApplicationsController, InstitutionalMobileAuthController],
   providers: [
     InstitutionalAdminApplicationsService,
     InstitutionalApplicationReviewGuard,
     InstitutionalPublicRateLimitGuard,
+    InstitutionalMobileZkAuthGuard,
+    InstitutionalMobileZkAuthService,
+    OfficialPublicationMobileRateLimitGuard,
   ],
   exports: [InstitutionalAdminApplicationsService],
 })

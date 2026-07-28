@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { InjectModel } from '@nestjs/mongoose';
@@ -34,12 +35,32 @@ import {
 } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { InstitutionalAdminApplication, InstitutionalAdminApplicationDocument } from '../schemas/institutional-admin-application.schema';
+import { InstitutionalMobileRequestUser } from '../auth/institutional-mobile-auth.types';
 import { executeCoinbaseOp } from '@/api/account';
-import { VoteContractCalls } from '@/api/vote';
+import { VoteContractCalls, VoteContractReads } from '@/api/vote';
 import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
+import { NotificationLog, NotificationLogDocument } from '@/modules/notifications/schemas/notification-log.schema';
+import { AcceptInstitutionalAdminInvitationDto } from '../dto/accept-institutional-admin-invitation.dto';
+import { CreateInstitutionalAdminInvitationDto } from '../dto/create-institutional-admin-invitation.dto';
+import {
+  InstitutionalAdminInvitation,
+  InstitutionalAdminInvitationDocument,
+} from '../schemas/institutional-admin-invitation.schema';
 
 type IdentityHasDniResponse = {
   ok: boolean;
+};
+
+type IdentityResolveAccountByDniResponse = {
+  registered: boolean;
+  accountAddress: string | null;
+};
+
+type IdentityGetByDniResponse = {
+  records?: Array<{
+    did?: string;
+    dni?: string;
+  }>;
 };
 
 @Injectable()
@@ -58,6 +79,10 @@ export class InstitutionalAdminApplicationsService {
     private readonly assignmentModel: Model<TenantAdminAssignmentDocument>,
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
+    @InjectModel(InstitutionalAdminInvitation.name)
+    private readonly invitationModel: Model<InstitutionalAdminInvitationDocument>,
+    @InjectModel(NotificationLog.name)
+    private readonly notificationLogModel: Model<NotificationLogDocument>,
     private readonly emailOutboxService: InstitutionalEmailOutboxService,
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
@@ -78,7 +103,9 @@ export class InstitutionalAdminApplicationsService {
     }
     const institutionName = this.formatDisplayName(rawInstitutionName);
     const institutionNameNorm = this.normalizeName(institutionName);
-    const accountAddress = this.normalizeAccountAddress(dto.accountAddress);
+    const clientAccountAddress = dto.accountAddress
+      ? this.normalizeAccountAddress(dto.accountAddress)
+      : undefined;
     const existingTenant =
       selectedTenant ?? (await this.tenantModel.findOne({ nameNorm: institutionNameNorm }));
     const existingUser = await this.resolveUserByEmailOrDni(email, dni);
@@ -118,14 +145,37 @@ export class InstitutionalAdminApplicationsService {
       }
     }
 
-    if (latestSameInstitutionApplication && ['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL', 'APPROVED'].includes(latestSameInstitutionApplication.status)) {
+    if (
+      latestSameInstitutionApplication &&
+      [
+        'PENDING_EMAIL_VERIFICATION',
+        'PENDING_APPROVAL',
+        'PENDING_MOBILE_AUTHORIZATION',
+        'PENDING_CHAIN_CONFIRMATION',
+        'CHAIN_RETRY_PENDING',
+        'RECONCILIATION_PENDING',
+        'CHAIN_FAILED',
+        'APPROVED',
+      ].includes(latestSameInstitutionApplication.status)
+    ) {
       if (latestSameInstitutionApplication.status === 'APPROVED') {
         throw new ConflictException('Ya administras esta institución.');
       }
       throw new ConflictException('Ya tienes una solicitud pendiente para esta institución.');
     }
 
-    await this.assertWalletBelongsToDni(accountAddress, dni);
+    const resolvedIdentityWallet = await this.resolveWalletFromIdentityByDni(dni);
+    const accountAddress = resolvedIdentityWallet.accountAddress;
+    if (
+      clientAccountAddress &&
+      this.normalizeAccountAddressForComparison(clientAccountAddress) !==
+        this.normalizeAccountAddressForComparison(accountAddress)
+    ) {
+      throw new BadRequestException({
+        code: 'IDENTITY_WALLET_MISMATCH',
+        message: 'La billetera enviada no corresponde al CI o DNI informado.',
+      });
+    }
 
     let user = existingUser;
     if (!user) {
@@ -163,49 +213,22 @@ export class InstitutionalAdminApplicationsService {
         )
       : undefined;
 
-    let created = latestSameInstitutionApplication;
-    if (created && ['REJECTED', 'REVOKED'].includes(created.status)) {
-      const passwordHash = this.resolveApplicationPasswordHash(
-        user,
-        dto.password,
-        created.passwordHash,
-      );
-      created.dni = dni;
-      created.email = email;
-      created.passwordHash = passwordHash;
-      created.name = dto.name.trim();
-      created.institutionName = institutionName;
-      created.institutionNameNorm = institutionNameNorm;
-      created.accountAddress = accountAddress;
-      created.status = nextStatus as any;
-      created.verificationToken = verificationToken;
-      created.verificationTokenExpiresAt = verificationTokenExpiresAt;
-      created.emailVerifiedAt = shouldRequireEmailVerification ? undefined : new Date();
-      created.approvedAt = undefined;
-      created.rejectedAt = undefined;
-      created.revokedAt = undefined;
-      created.reason = undefined;
-      created.tenantId = existingTenant?._id;
-      created.userId = user._id;
-      await created.save();
-    } else {
-      const passwordHash = this.resolveApplicationPasswordHash(user, dto.password);
-      created = await this.applicationModel.create({
-        dni,
-        email,
-        passwordHash,
-        name: dto.name.trim(),
-        institutionName,
-        institutionNameNorm,
-        accountAddress,
-        status: nextStatus,
-        verificationToken,
-        verificationTokenExpiresAt,
-        emailVerifiedAt: shouldRequireEmailVerification ? undefined : new Date(),
-        tenantId: existingTenant?._id,
-        userId: this.toObjectId(user._id),
-      });
-    }
+    const passwordHash = this.resolveApplicationPasswordHash(user, dto.password);
+    const created = await this.applicationModel.create({
+      dni,
+      email,
+      passwordHash,
+      name: dto.name.trim(),
+      institutionName,
+      institutionNameNorm,
+      accountAddress,
+      status: nextStatus,
+      verificationToken,
+      verificationTokenExpiresAt,
+      emailVerifiedAt: shouldRequireEmailVerification ? undefined : new Date(),
+      tenantId: existingTenant?._id,
+      userId: this.toObjectId(user._id),
+    });
 
     if (shouldRequireEmailVerification && verificationToken) {
       await this.sendVerificationEmail(created._id, created.email, created.name, verificationToken);
@@ -316,6 +339,20 @@ export class InstitutionalAdminApplicationsService {
           throw new NotFoundException('Solicitud no encontrada');
         }
 
+        if (app.status === 'PENDING_MOBILE_AUTHORIZATION') {
+          response = {
+            id: String(app._id),
+            status: app.status,
+            tenantId: app.tenantId ? String(app.tenantId) : null,
+            userId: app.userId ? String(app.userId) : null,
+            stableInstitutionId: app.stableInstitutionId ?? null,
+            mobileAuthorizationNotificationId: app.mobileAuthorizationNotificationId
+              ? String(app.mobileAuthorizationNotificationId)
+              : null,
+          };
+          return;
+        }
+
         if (app.status !== 'PENDING_APPROVAL') {
           throw new BadRequestException('La solicitud no está pendiente de aprobación');
         }
@@ -378,13 +415,16 @@ export class InstitutionalAdminApplicationsService {
         let tenantCreatedDuringApproval = false;
         if (!tenant) {
           try {
+            const tenantObjectId = new Types.ObjectId();
             const createdTenants = await this.tenantModel.create(
               [
                 {
+                  _id: tenantObjectId,
                   name: app.institutionName,
                   nameNorm: app.institutionNameNorm,
                   description: `Tenant creado desde solicitud ${String(app._id)}`,
-                  active: true,
+                  stableInstitutionId: String(tenantObjectId),
+                  active: false,
                 },
               ],
               { session },
@@ -401,6 +441,9 @@ export class InstitutionalAdminApplicationsService {
                 retryTenantQuerySession.call(retryTenantQuery, session);
               }
               tenant = await retryTenantQuery;
+              if (tenant) {
+                tenantCreatedDuringApproval = true;
+              }
             } else {
               throw error;
             }
@@ -429,6 +472,18 @@ export class InstitutionalAdminApplicationsService {
         }, session);
 
         const approvedAt = new Date();
+        const stableInstitutionId = this.resolveStableInstitutionId(tenant);
+        const shouldWaitForNetworkConfirmation = tenantCreatedDuringApproval;
+        const shouldWaitForMobileAuthorization = !tenantCreatedDuringApproval;
+        const assignmentStatus = shouldWaitForNetworkConfirmation || shouldWaitForMobileAuthorization
+          ? 'PENDING'
+          : 'APPROVED';
+        const assignmentActive = !(shouldWaitForNetworkConfirmation || shouldWaitForMobileAuthorization);
+        const applicationStatus = shouldWaitForNetworkConfirmation
+          ? 'PENDING_CHAIN_CONFIRMATION'
+          : shouldWaitForMobileAuthorization
+            ? 'PENDING_MOBILE_AUTHORIZATION'
+            : 'APPROVED';
         let assignment: any;
         try {
           assignment = await this.assignmentModel.findOneAndUpdate(
@@ -438,8 +493,8 @@ export class InstitutionalAdminApplicationsService {
             },
             {
               $set: {
-                status: 'APPROVED',
-                active: true,
+                status: assignmentStatus,
+                active: assignmentActive,
                 accountAddress,
                 accountAddressNormalized,
                 applicationId: app._id,
@@ -471,12 +526,12 @@ export class InstitutionalAdminApplicationsService {
           throw error;
         }
 
-        user.active = true;
+        user.active = assignmentActive;
         user.verificationToken = undefined;
         user.verificationTokenExpiresAt = undefined;
         await user.save({ session });
 
-        app.status = 'APPROVED';
+        app.status = applicationStatus as any;
         app.accountAddress = accountAddress;
         app.approvedAt = approvedAt;
         app.approvedBy = requester?.sub ? new Types.ObjectId(requester.sub) : undefined;
@@ -485,7 +540,31 @@ export class InstitutionalAdminApplicationsService {
         app.reason = undefined;
         app.tenantId = this.toObjectId(tenant._id);
         app.userId = this.toObjectId(user._id);
+        app.stableInstitutionId = stableInstitutionId;
+        if (shouldWaitForMobileAuthorization) {
+          app.mobileAuthorizationRequestedAt = approvedAt;
+        }
+        if (shouldWaitForNetworkConfirmation) {
+          app.chainStatus = 'PENDING_SEND';
+          app.chainAttempts = app.chainAttempts ?? 0;
+          app.chainNextRetryAt = undefined;
+          app.chainLastError = undefined;
+          app.chainTxHash = undefined;
+          app.chainConfirmedAt = undefined;
+          app.chainLockedAt = undefined;
+          app.chainLockedUntil = undefined;
+        }
         await app.save({ session });
+        if (shouldWaitForMobileAuthorization) {
+          const notification = await this.recordMobileAuthorizationNotice(
+            app,
+            tenant,
+            requester,
+            session,
+          );
+          app.mobileAuthorizationNotificationId = notification?._id ?? app.mobileAuthorizationNotificationId;
+          await app.save({ session });
+        }
         await this.syncUserActiveState(user._id, session);
         const actorInstitutionalRole = await this.auditService.resolveActorInstitutionalRole(
           tenant._id,
@@ -503,8 +582,8 @@ export class InstitutionalAdminApplicationsService {
           applicationId: app._id,
           assignmentId: assignment?._id ?? null,
           newState: {
-            status: assignment?.status ?? 'APPROVED',
-            active: assignment?.active ?? true,
+            status: assignment?.status ?? assignmentStatus,
+            active: assignment?.active ?? assignmentActive,
             institutionalRole,
             hasAccountAddress: true,
           },
@@ -524,7 +603,10 @@ export class InstitutionalAdminApplicationsService {
           newState: {
             status: app.status,
             institutionalRole,
-            userActive: true,
+            userActive: assignmentActive,
+            stableInstitutionId,
+            chainStatus: app.chainStatus ?? null,
+            mobileAuthorizationRequested: shouldWaitForMobileAuthorization,
           },
           session,
         });
@@ -535,9 +617,12 @@ export class InstitutionalAdminApplicationsService {
           tenantId: String(tenant._id),
           userId: String(user._id),
           institutionalRole,
+          stableInstitutionId,
+          chainStatus: app.chainStatus ?? null,
+          mobileAuthorizationNotificationId: app.mobileAuthorizationNotificationId
+            ? String(app.mobileAuthorizationNotificationId)
+            : null,
         };
-
-        await this.createInstitutionOnChain(applicationId, app.accountAddress, session)
       });
       return response;
     } finally {
@@ -545,27 +630,274 @@ export class InstitutionalAdminApplicationsService {
     }
   }
 
-  async createInstitutionOnChain(applicationId: string, adminAddr: string, session: ClientSession) {
+  async createInstitutionOnChain(
+    stableInstitutionId: string,
+    adminAddr: string,
+    session?: ClientSession,
+  ) {
     try {
-      // Create institution
       const response = await executeCoinbaseOp(
         this.pk as Hex,
         this.chain,
-        VoteContractCalls.createInstitution(this.chain, applicationId, adminAddr as Hex),
+        VoteContractCalls.createInstitution(this.chain, stableInstitutionId, adminAddr as Hex),
         undefined,
         undefined
       );
 
-      await this.historyService.createWithSession({
+      const historyPayload = {
         txHash: response.txHash,
         operationName: HistoryOperationKey.institutionCreated,
         type: HistoryType.AUTOMATED,
         registerDate: new Date().toISOString(),
-        institutionId: applicationId,
-      }, session);
+        institutionId: stableInstitutionId,
+      };
+      if (session) {
+        await this.historyService.createWithSession(historyPayload, session);
+      } else if (typeof this.historyService.create === 'function') {
+        await this.historyService.create(historyPayload);
+      }
+      return response;
     } catch (error) {
       throw new Error('Failed to create insitution on-chain', { cause: error });
     }
+  }
+
+  async processInstitutionCreationOperation(applicationId: string) {
+    const now = new Date();
+    const lockUntil = new Date(now.getTime() + 60_000);
+    const app = await this.applicationModel.findOneAndUpdate(
+      {
+        _id: this.toObjectId(applicationId),
+        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING'] },
+        chainStatus: { $in: ['PENDING_SEND', 'RETRY_PENDING', 'SENT'] },
+        $and: [
+          {
+            $or: [
+              { chainLockedUntil: { $exists: false } },
+              { chainLockedUntil: null },
+              { chainLockedUntil: { $lte: now } },
+            ],
+          },
+          {
+            $or: [
+              { chainStatus: { $in: ['PENDING_SEND', 'SENT'] } },
+              { chainNextRetryAt: { $exists: false } },
+              { chainNextRetryAt: null },
+              { chainNextRetryAt: { $lte: now } },
+            ],
+          },
+        ],
+      },
+      {
+        $set: {
+          chainLockedAt: now,
+          chainLockedUntil: lockUntil,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+
+    if (!app) {
+      return {
+        processed: false,
+        reason: 'NO_CLAIMABLE_OPERATION',
+      };
+    }
+
+    const stableInstitutionId = this.requireStableInstitutionId(app);
+    const accountAddress = this.normalizeAccountAddress(app.accountAddress);
+
+    try {
+      const alreadyConfirmed = await this.isInstitutionConfirmedOnChain(
+        stableInstitutionId,
+        accountAddress,
+      );
+      if (alreadyConfirmed) {
+        await this.completeInstitutionCreationFromNetwork(String(app._id));
+        return {
+          processed: true,
+          status: 'CONFIRMED',
+          stableInstitutionId,
+          reusedNetworkState: true,
+        };
+      }
+    } catch (error) {
+      if (!this.isRecoverableChainError(error)) {
+        throw error;
+      }
+    }
+
+    try {
+      const response = await this.createInstitutionOnChain(stableInstitutionId, accountAddress);
+      const attempts = (app.chainAttempts ?? 0) + 1;
+      await this.applicationModel.updateOne(
+        { _id: app._id },
+        {
+          $set: {
+            status: 'PENDING_CHAIN_CONFIRMATION',
+            chainStatus: 'SENT',
+            chainAttempts: attempts,
+            chainTxHash: response?.txHash ?? app.chainTxHash ?? null,
+            chainLastError: null,
+            chainNextRetryAt: null,
+            chainLockedAt: null,
+            chainLockedUntil: null,
+          },
+        },
+      );
+      return {
+        processed: true,
+        status: 'SENT',
+        stableInstitutionId,
+        txHash: response?.txHash ?? null,
+        attempts,
+      };
+    } catch (error) {
+      const attempts = (app.chainAttempts ?? 0) + 1;
+      const recoverable = this.isRecoverableChainError(error);
+      const nextRetryAt = recoverable ? this.calculateNextChainRetryAt(attempts) : null;
+      await this.applicationModel.updateOne(
+        { _id: app._id },
+        {
+          $set: {
+            status: recoverable ? 'CHAIN_RETRY_PENDING' : 'CHAIN_FAILED',
+            chainStatus: recoverable ? 'RETRY_PENDING' : 'FAILED',
+            chainAttempts: attempts,
+            chainNextRetryAt: nextRetryAt,
+            chainLastError: this.toSafeChainError(error),
+            chainLockedAt: null,
+            chainLockedUntil: null,
+          },
+        },
+      );
+      return {
+        processed: true,
+        status: recoverable ? 'RETRY_PENDING' : 'FAILED',
+        stableInstitutionId,
+        attempts,
+        nextRetryAt,
+      };
+    }
+  }
+
+  async reconcileInstitutionCreationOperation(applicationId: string) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    const stableInstitutionId = this.requireStableInstitutionId(app);
+    const accountAddress = this.normalizeAccountAddress(app.accountAddress);
+    const confirmed = await this.isInstitutionConfirmedOnChain(stableInstitutionId, accountAddress);
+    if (!confirmed) {
+      return {
+        reconciled: false,
+        status: app.status,
+        stableInstitutionId,
+      };
+    }
+
+    await this.completeInstitutionCreationFromNetwork(applicationId);
+    return {
+      reconciled: true,
+      status: 'APPROVED',
+      stableInstitutionId,
+    };
+  }
+
+  async backfillHistoricalInstitutionStableIds() {
+    const tenants = await this.tenantModel
+      .find({
+        $or: [
+          { stableInstitutionId: { $exists: false } },
+          { stableInstitutionId: null },
+          { stableInstitutionId: '' },
+        ],
+      })
+      .sort({ createdAt: 1, _id: 1 });
+
+    let updatedTenants = 0;
+    let createdOperations = 0;
+    let reconciled = 0;
+
+    for (const tenant of tenants) {
+      const stableInstitutionId = String(tenant._id);
+      const primary = await this.assignmentModel
+        .findOne({
+          tenantId: tenant._id,
+          institutionalRole: 'PRIMARY',
+          accountAddress: { $exists: true, $ne: null },
+        })
+        .sort({ active: -1, approvedAt: 1, createdAt: 1, _id: 1 });
+
+      if (!tenant.stableInstitutionId) {
+        tenant.stableInstitutionId = stableInstitutionId;
+        await tenant.save();
+        updatedTenants += 1;
+      }
+
+      if (!primary?.accountAddress) {
+        continue;
+      }
+
+      const confirmed = await this.isInstitutionConfirmedOnChain(
+        stableInstitutionId,
+        primary.accountAddress,
+      ).catch(() => false);
+      if (confirmed) {
+        await this.tenantModel.updateOne({ _id: tenant._id }, { $set: { active: true } });
+        await this.assignmentModel.updateOne(
+          { _id: primary._id },
+          {
+            $set: {
+              status: 'APPROVED',
+              active: true,
+            },
+          },
+        );
+        reconciled += 1;
+        continue;
+      }
+
+      const existingOperation = await this.applicationModel.findOne({
+        tenantId: tenant._id,
+        stableInstitutionId,
+        chainStatus: { $in: ['PENDING_SEND', 'SENT', 'RETRY_PENDING', 'CONFIRMED'] },
+      });
+      if (existingOperation) {
+        if (tenant.active !== false) {
+          tenant.active = false;
+          await tenant.save();
+        }
+        continue;
+      }
+
+      if (tenant.active !== false) {
+        tenant.active = false;
+        await tenant.save();
+      }
+
+      await this.applicationModel.create({
+        dni: `historico-${stableInstitutionId}`,
+        email: `historico-${stableInstitutionId}@institucional.local`,
+        passwordHash: 'historical-backfill',
+        name: 'Administrador histórico',
+        institutionName: tenant.name,
+        institutionNameNorm: tenant.nameNorm,
+        accountAddress: primary.accountAddress,
+        status: 'PENDING_CHAIN_CONFIRMATION',
+        emailVerifiedAt: new Date(),
+        approvedAt: primary.approvedAt ?? new Date(),
+        tenantId: tenant._id,
+        userId: primary.userId,
+        stableInstitutionId,
+        chainStatus: 'PENDING_SEND',
+        chainAttempts: 0,
+      });
+      createdOperations += 1;
+    }
+
+    return {
+      updatedTenants,
+      createdOperations,
+      reconciled,
+    };
   }
 
   async rejectApplication(applicationId: string, requester: any, reason?: string) {
@@ -790,6 +1122,247 @@ export class InstitutionalAdminApplicationsService {
     return this.listApplications('PENDING_APPROVAL');
   }
 
+  async listInvitations(tenantId: string, requester: any) {
+    if (!Types.ObjectId.isValid(tenantId)) {
+      throw new BadRequestException('tenantId inválido');
+    }
+    const tenant = await this.tenantModel.findById(tenantId);
+    if (!tenant || tenant.active !== true) {
+      throw new NotFoundException('Institución no encontrada');
+    }
+    await this.assertRequesterIsPrimaryForTenant(requester, tenant._id);
+
+    await this.invitationModel.updateMany(
+      {
+        tenantId: tenant._id,
+        status: 'PENDING',
+        expiresAt: { $lte: new Date() },
+      },
+      {
+        $set: {
+          status: 'EXPIRED',
+          reason: 'Invitación vencida automáticamente.',
+        },
+      },
+    );
+
+    const rows = await this.invitationModel
+      .find({ tenantId: tenant._id })
+      .sort({ createdAt: -1, _id: -1 })
+      .lean();
+
+    return {
+      tenantId: String(tenant._id),
+      data: rows.map((row) => this.toInvitationResponse(row)),
+      total: rows.length,
+    };
+  }
+
+  async createInvitation(
+    tenantId: string,
+    dto: CreateInstitutionalAdminInvitationDto,
+    requester: any,
+  ) {
+    if (!Types.ObjectId.isValid(tenantId)) {
+      throw new BadRequestException('tenantId inválido');
+    }
+    const tenant = await this.tenantModel.findById(tenantId);
+    if (!tenant || tenant.active !== true) {
+      throw new NotFoundException('Institución no encontrada');
+    }
+    await this.assertRequesterIsPrimaryForTenant(requester, tenant._id);
+
+    const dni = dto.dni.trim();
+    const resolvedIdentityWallet = await this.resolveWalletFromIdentityByDni(dni);
+    const accountAddress = this.normalizeAccountAddress(resolvedIdentityWallet.accountAddress);
+    const existingUser = await this.resolveUserByDniOnly(dni);
+
+    if (existingUser?._id) {
+      const existingMembership = await this.assignmentModel.findOne({
+        tenantId: tenant._id,
+        userId: this.toObjectId(existingUser._id),
+        $or: [
+          { status: { $in: ['PENDING', 'APPROVED'] } },
+          { status: { $exists: false }, active: true },
+        ],
+      }).lean();
+      if (existingMembership) {
+        throw new ConflictException('La persona ya administra esta institución o tiene una solicitud pendiente.');
+      }
+    }
+
+    const activeInvitation = await this.invitationModel.findOne({
+      tenantId: tenant._id,
+      dni,
+      status: 'PENDING',
+      expiresAt: { $gt: new Date() },
+    });
+    if (activeInvitation) {
+      throw new ConflictException('Ya existe una invitación vigente para esta persona.');
+    }
+
+    const invitation = await this.invitationModel.create({
+      tenantId: tenant._id,
+      invitedBy: new Types.ObjectId(requester.sub),
+      dni,
+      name: this.formatDisplayName(dto.name ?? `Persona ${dni}`),
+      accountAddress,
+      status: 'PENDING',
+      invitationToken: randomBytes(32).toString('hex'),
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
+      noticeCount: 1,
+      lastNoticeAt: new Date(),
+      reason: dto.reason?.trim() || null,
+    });
+
+    await this.recordInvitationNotice(invitation, tenant, 'INVITATION_CREATED');
+    return this.toInvitationResponse(invitation);
+  }
+
+  async acceptInvitation(
+    invitationId: string,
+    dto: AcceptInstitutionalAdminInvitationDto,
+  ) {
+    const session = await this.invitationModel.db.startSession();
+    try {
+      let response: any;
+      await session.withTransaction(async () => {
+        const invitation = await this.getInvitationOrThrow(invitationId, session);
+        await this.assertInvitationPendingAndCurrent(invitation, dto.token);
+        const email = dto.email.trim().toLowerCase();
+        let user = await this.resolveUserByEmailOrDni(email, invitation.dni, session);
+
+        if (!user) {
+          const password = this.requirePassword(
+            dto.password,
+            'password es requerido para aceptar una invitación institucional nueva',
+          );
+          try {
+            const createdUsers = await this.roledUserModel.create(
+              [
+                {
+                  dni: invitation.dni,
+                  email,
+                  name: this.formatDisplayName(dto.name ?? invitation.name),
+                  password: bcrypt.hashSync(password, 10),
+                  role: 'USER',
+                  active: false,
+                },
+              ],
+              { session },
+            );
+            user = Array.isArray(createdUsers) ? createdUsers[0] : createdUsers;
+          } catch (error) {
+            this.rethrowIdentityDuplicate(error);
+            throw error;
+          }
+        }
+
+        const existingApplication = await this.applicationModel
+          .findOne({
+            tenantId: invitation.tenantId,
+            userId: user._id,
+            status: {
+              $in: [
+                'PENDING_EMAIL_VERIFICATION',
+                'PENDING_APPROVAL',
+                'PENDING_MOBILE_AUTHORIZATION',
+                'PENDING_CHAIN_CONFIRMATION',
+                'CHAIN_RETRY_PENDING',
+                'RECONCILIATION_PENDING',
+                'APPROVED',
+              ],
+            },
+          })
+          .session(session);
+        if (existingApplication) {
+          throw new ConflictException('Ya existe una solicitud vigente para esta institución.');
+        }
+
+        const tenant = await this.tenantModel.findById(invitation.tenantId).session(session);
+        if (!tenant) {
+          throw new ConflictException('La institución de la invitación ya no está disponible.');
+        }
+
+        const now = new Date();
+        const app = await this.applicationModel.create(
+          [
+            {
+              dni: invitation.dni,
+              email,
+              passwordHash: this.resolveApplicationPasswordHash(user, dto.password),
+              name: this.formatDisplayName(dto.name ?? user.name ?? invitation.name),
+              institutionName: tenant.name,
+              institutionNameNorm: tenant.nameNorm,
+              accountAddress: invitation.accountAddress,
+              status: 'PENDING_APPROVAL',
+              emailVerifiedAt: now,
+              tenantId: tenant._id,
+              userId: user._id,
+            },
+          ],
+          { session },
+        );
+        const createdApplication = Array.isArray(app) ? app[0] : app;
+
+        invitation.status = 'ACCEPTED';
+        invitation.acceptedAt = now;
+        invitation.applicationId = createdApplication._id;
+        await invitation.save({ session });
+
+        response = {
+          id: String(invitation._id),
+          status: invitation.status,
+          applicationId: String(createdApplication._id),
+          applicationStatus: createdApplication.status,
+        };
+      });
+      return response;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async rejectInvitation(invitationId: string, reason?: string) {
+    const invitation = await this.getInvitationOrThrow(invitationId);
+    await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
+    invitation.status = 'REJECTED';
+    invitation.rejectedAt = new Date();
+    invitation.reason = reason?.trim() || null;
+    await invitation.save();
+    return this.toInvitationResponse(invitation);
+  }
+
+  async cancelInvitation(invitationId: string, requester: any, reason?: string) {
+    const invitation = await this.getInvitationOrThrow(invitationId);
+    const tenant = await this.tenantModel.findById(invitation.tenantId);
+    if (!tenant) {
+      throw new ConflictException('La institución de la invitación ya no está disponible.');
+    }
+    await this.assertRequesterIsPrimaryForTenant(requester, tenant._id);
+    await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
+    invitation.status = 'CANCELLED';
+    invitation.cancelledAt = new Date();
+    invitation.reason = reason?.trim() || null;
+    await invitation.save();
+    return this.toInvitationResponse(invitation);
+  }
+
+  async resendInvitation(invitationId: string, requester: any) {
+    const invitation = await this.getInvitationOrThrow(invitationId);
+    const tenant = await this.tenantModel.findById(invitation.tenantId);
+    if (!tenant) {
+      throw new ConflictException('La institución de la invitación ya no está disponible.');
+    }
+    await this.assertRequesterIsPrimaryForTenant(requester, tenant._id);
+    await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
+    invitation.noticeCount = (invitation.noticeCount ?? 0) + 1;
+    invitation.lastNoticeAt = new Date();
+    await invitation.save();
+    await this.recordInvitationNotice(invitation, tenant, 'INVITATION_RESENT');
+    return this.toInvitationResponse(invitation);
+  }
+
   async createApprovedTestAdmin(
     dto: CreateInstitutionalAdminApplicationDto,
     requester: any,
@@ -802,6 +1375,9 @@ export class InstitutionalAdminApplicationsService {
     const institutionName = this.formatDisplayName(dto.institutionName);
     const institutionNameNorm = this.normalizeName(institutionName);
     const name = dto.name.trim();
+    if (!dto.accountAddress) {
+      throw new BadRequestException('accountAddress es requerido para crear un admin institucional de prueba');
+    }
     const accountAddress = this.normalizeAccountAddress(dto.accountAddress);
 
     const existingUser = await this.roledUserModel
@@ -958,6 +1534,145 @@ export class InstitutionalAdminApplicationsService {
       deletedUser: Boolean(user),
       deletedTenants,
     };
+  }
+
+  private resolveStableInstitutionId(tenant: InstitutionalTenantDocument): string {
+    const current = tenant.stableInstitutionId?.trim();
+    if (current) {
+      return current;
+    }
+    const stableInstitutionId = String(tenant._id);
+    tenant.stableInstitutionId = stableInstitutionId;
+    return stableInstitutionId;
+  }
+
+  private requireStableInstitutionId(app: InstitutionalAdminApplicationDocument): string {
+    const stableInstitutionId = app.stableInstitutionId?.trim();
+    if (!stableInstitutionId) {
+      throw new ConflictException('La solicitud institucional no tiene identificador estable');
+    }
+    return stableInstitutionId;
+  }
+
+  private async isInstitutionConfirmedOnChain(
+    stableInstitutionId: string,
+    accountAddress: string,
+  ): Promise<boolean> {
+    const expectedAdmin = this.normalizeAccountAddressForComparison(accountAddress);
+    try {
+      const admin = await VoteContractReads.getInstitutionAdmin(this.chain, stableInstitutionId);
+      if (
+        typeof admin === 'string' &&
+        this.normalizeAccountAddressForComparison(admin) === expectedAdmin
+      ) {
+        return true;
+      }
+    } catch (error) {
+      if (!this.isRecoverableChainError(error)) {
+        throw error;
+      }
+    }
+
+    try {
+      return Boolean(
+        await VoteContractReads.isAuthorizedAddress(
+          this.chain,
+          stableInstitutionId,
+          accountAddress as Hex,
+        ),
+      );
+    } catch (error) {
+      if (this.isRecoverableChainError(error)) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private async completeInstitutionCreationFromNetwork(applicationId: string) {
+    const session = await this.applicationModel.db.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const app = await this.getApplicationOrThrow(applicationId, session);
+        if (app.status === 'APPROVED' && app.chainStatus === 'CONFIRMED') {
+          return;
+        }
+        if (!app.tenantId || !app.userId) {
+          throw new ConflictException('La solicitud institucional no tiene tenant o usuario asociado');
+        }
+
+        const tenant = await this.tenantModel.findById(app.tenantId).session(session);
+        if (!tenant) {
+          throw new ConflictException('No se pudo resolver la institución de la solicitud');
+        }
+        const stableInstitutionId = this.requireStableInstitutionId(app);
+        tenant.stableInstitutionId = tenant.stableInstitutionId ?? stableInstitutionId;
+        tenant.active = true;
+        await tenant.save({ session });
+
+        await this.assignmentModel.updateOne(
+          { tenantId: app.tenantId, userId: app.userId },
+          {
+            $set: {
+              status: 'APPROVED',
+              active: true,
+              accountAddress: app.accountAddress,
+              accountAddressNormalized: normalizeTenantWalletAddress(app.accountAddress)?.toLowerCase(),
+              applicationId: app._id,
+              institutionalRole: 'PRIMARY',
+              approvedAt: app.approvedAt ?? new Date(),
+              revokedAt: null,
+              rejectedAt: null,
+              reason: null,
+              walletVerifiedAt: app.approvedAt ?? new Date(),
+              walletVerificationSource: 'IDENTITY',
+            },
+          },
+          { upsert: true, session },
+        );
+
+        app.status = 'APPROVED';
+        app.chainStatus = 'CONFIRMED';
+        app.chainConfirmedAt = app.chainConfirmedAt ?? new Date();
+        app.chainNextRetryAt = undefined;
+        app.chainLastError = undefined;
+        app.chainLockedAt = undefined;
+        app.chainLockedUntil = undefined;
+        await app.save({ session });
+
+        await this.syncUserActiveState(app.userId, session);
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  private isRecoverableChainError(error: any): boolean {
+    const code = String(error?.code ?? error?.cause?.code ?? '').toUpperCase();
+    const status = Number(error?.status ?? error?.response?.status ?? error?.cause?.status ?? 0);
+    const message = String(error?.message ?? error?.cause?.message ?? '').toLowerCase();
+    return (
+      ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'TIMEOUT'].includes(code) ||
+      status === 408 ||
+      status === 429 ||
+      status >= 500 ||
+      message.includes('timeout') ||
+      message.includes('pending') ||
+      message.includes('temporarily') ||
+      message.includes('network')
+    );
+  }
+
+  private calculateNextChainRetryAt(attempts: number): Date {
+    const boundedAttempt = Math.min(Math.max(attempts, 1), 6);
+    return new Date(Date.now() + 1000 * 60 * boundedAttempt);
+  }
+
+  private toSafeChainError(error: any): string {
+    if (this.isRecoverableChainError(error)) {
+      return 'No pudimos completar la creación en la red. El sistema volverá a intentar.';
+    }
+    return 'No pudimos completar la creación en la red.';
   }
 
   private normalizeName(input: string) {
@@ -1155,6 +1870,11 @@ export class InstitutionalAdminApplicationsService {
     institutionalRole: TenantAdminRole,
   ) {
     if (this.isGlobalInstitutionalApprover(requester)) {
+      if (institutionalRole === 'SECONDARY') {
+        throw new ForbiddenException(
+          'Solo el administrador principal vigente puede aprobar solicitudes de acceso a esta institución',
+        );
+      }
       return;
     }
     if (institutionalRole === 'PRIMARY') {
@@ -1325,6 +2045,119 @@ export class InstitutionalAdminApplicationsService {
     }
   }
 
+  private async resolveWalletFromIdentityByDni(
+    dni: string,
+  ): Promise<{ accountAddress: string }> {
+    const identityBaseUrl = this.configService.get<string>('app.identity.baseUrl');
+    const identityApiKey = this.configService.get<string>('app.identity.apiKey');
+    const timeout = this.configService.get<number>('IDENTITY_HTTP_TIMEOUT_MS', 5000);
+
+    if (!identityBaseUrl || !identityApiKey) {
+      throw new ServiceUnavailableException({
+        code: 'IDENTITY_SERVICE_UNAVAILABLE',
+        message: 'No se pudo verificar la billetera en este momento',
+      });
+    }
+
+    const baseUrl = identityBaseUrl.replace(/\/$/, '');
+    try {
+      const response =
+        await this.httpService.axiosRef.post<IdentityResolveAccountByDniResponse>(
+          `${baseUrl}/registry/resolve-account-by-dni`,
+          { dni },
+          {
+            headers: { 'x-api-key': identityApiKey },
+            timeout,
+          },
+        );
+
+      const data = response?.data;
+      if (!data || typeof data.registered !== 'boolean') {
+        throw new ServiceUnavailableException({
+          code: 'IDENTITY_INVALID_RESPONSE',
+          message: 'No se pudo verificar la billetera en este momento',
+        });
+      }
+
+      if (data.registered) {
+        if (typeof data.accountAddress !== 'string' || !data.accountAddress.trim()) {
+          throw new ServiceUnavailableException({
+            code: 'IDENTITY_INVALID_RESPONSE',
+            message: 'No se pudo verificar la billetera en este momento',
+          });
+        }
+        const identityAccountAddress = data.accountAddress.trim();
+        if (!isAddress(identityAccountAddress)) {
+          throw new ServiceUnavailableException({
+            code: 'IDENTITY_INVALID_RESPONSE',
+            message: 'No se pudo verificar la billetera en este momento',
+          });
+        }
+        return {
+          accountAddress: identityAccountAddress,
+        };
+      }
+
+      const personExists = await this.identityPersonExistsByDni(baseUrl, identityApiKey, dni, timeout);
+      if (personExists) {
+        throw new BadRequestException({
+          code: 'IDENTITY_WALLET_NOT_FOUND',
+          message: 'La persona debe crear o registrar primero su billetera en Tu Voto Decide.',
+        });
+      }
+
+      throw new BadRequestException({
+        code: 'IDENTITY_PERSON_NOT_REGISTERED',
+        message: 'La persona debe registrarse primero en Tu Voto Decide.',
+      });
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ServiceUnavailableException
+      ) {
+        throw error;
+      }
+      throw new ServiceUnavailableException({
+        code: 'IDENTITY_SERVICE_UNAVAILABLE',
+        message: 'No se pudo verificar la billetera en este momento',
+      });
+    }
+  }
+
+  private async identityPersonExistsByDni(
+    baseUrl: string,
+    identityApiKey: string,
+    dni: string,
+    timeout: number,
+  ): Promise<boolean> {
+    try {
+      const response = await this.httpService.axiosRef.get<IdentityGetByDniResponse>(
+        `${baseUrl}/registry/get-by-dni`,
+        {
+          params: { dnis: dni },
+          headers: { 'x-api-key': identityApiKey },
+          timeout,
+        },
+      );
+      const records = response?.data?.records;
+      if (!Array.isArray(records)) {
+        throw new ServiceUnavailableException({
+          code: 'IDENTITY_INVALID_RESPONSE',
+          message: 'No se pudo verificar la billetera en este momento',
+        });
+      }
+      return records.some((record) => String(record?.dni ?? '').trim() === dni);
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      throw new ServiceUnavailableException({
+        code: 'IDENTITY_SERVICE_UNAVAILABLE',
+        message: 'No se pudo verificar la billetera en este momento',
+      });
+    }
+  }
+
   private async sendVerificationEmail(
     applicationId: Types.ObjectId | string,
     to: string,
@@ -1389,6 +2222,40 @@ export class InstitutionalAdminApplicationsService {
     return app;
   }
 
+  private async getInvitationOrThrow(invitationId: string, session?: ClientSession) {
+    if (!Types.ObjectId.isValid(invitationId)) {
+      throw new BadRequestException('invitationId inválido');
+    }
+    const query = this.invitationModel.findById(invitationId);
+    if (session && typeof query.session === 'function') {
+      query.session(session);
+    }
+    const invitation = await query;
+    if (!invitation) {
+      throw new NotFoundException('Invitación no encontrada');
+    }
+    return invitation;
+  }
+
+  private async assertInvitationPendingAndCurrent(
+    invitation: InstitutionalAdminInvitationDocument,
+    token: string,
+  ) {
+    if (invitation.status !== 'PENDING') {
+      throw new BadRequestException('La invitación ya no está vigente');
+    }
+    if (invitation.invitationToken !== token) {
+      throw new BadRequestException('Token de invitación inválido');
+    }
+    if (invitation.expiresAt.getTime() <= Date.now()) {
+      await this.invitationModel.updateOne(
+        { _id: invitation._id, status: 'PENDING' },
+        { $set: { status: 'EXPIRED' } },
+      );
+      throw new BadRequestException('La invitación ha vencido');
+    }
+  }
+
   private async resolveUserByEmailOrDni(email: string, dni: string, session?: ClientSession) {
     const query = this.roledUserModel
       .find({ $or: [{ email }, { dni }] })
@@ -1406,10 +2273,591 @@ export class InstitutionalAdminApplicationsService {
       (match) => match.email === email && match.dni === dni,
     );
     if (!sameIdentity) {
-      throw new ConflictException('El email o DNI ya está asociado a otro usuario');
+      throw new ConflictException({
+        code: 'ADMIN_EMAIL_OR_DNI_ALREADY_EXISTS',
+        message: 'El email o DNI ya está asociado a otro usuario',
+      });
     }
 
     return matches[0];
+  }
+
+  private async resolveUserByDniOnly(dni: string, session?: ClientSession) {
+    const query = this.roledUserModel.findOne({ dni });
+    if (session && typeof query.session === 'function') {
+      query.session(session);
+    }
+    return query;
+  }
+
+  private async recordInvitationNotice(
+    invitation: InstitutionalAdminInvitationDocument,
+    tenant: InstitutionalTenantDocument,
+    event: 'INVITATION_CREATED' | 'INVITATION_RESENT',
+  ) {
+    await this.notificationLogModel.create({
+      type: 'generic',
+      topic: `identity_${invitation.dni}`,
+      title: 'Invitación institucional',
+      body: `Tienes una invitación pendiente para administrar ${tenant.name}.`,
+      data: {
+        event,
+        invitationId: String(invitation._id),
+        tenantId: String(tenant._id),
+        dni: invitation.dni,
+        deduplicationKey: `${event}:${String(invitation._id)}:${invitation.noticeCount ?? 1}`,
+      },
+      status: 'SENT',
+    });
+  }
+
+  async createRemovalAuthorization(
+    tenantId: string,
+    assignmentId: string,
+    requester: any,
+    reason?: string,
+  ) {
+    if (!Types.ObjectId.isValid(tenantId) || !Types.ObjectId.isValid(assignmentId)) {
+      throw new BadRequestException({
+        code: 'INSTITUTIONAL_REMOVAL_TARGET_INVALID',
+        message: 'La institución o la persona indicada no es válida.',
+      });
+    }
+
+    const tenant = await this.tenantModel.findById(tenantId);
+    if (!tenant || tenant.active !== true) {
+      throw new NotFoundException({
+        code: 'INSTITUTIONAL_TENANT_NOT_FOUND',
+        message: 'Institución no encontrada.',
+      });
+    }
+    const stableInstitutionId = tenant.stableInstitutionId?.trim() || String(tenant._id);
+    if (!tenant.stableInstitutionId?.trim()) {
+      tenant.stableInstitutionId = stableInstitutionId;
+      await tenant.save();
+    }
+
+    const requesterId = requester?.sub ? String(requester.sub) : '';
+    if (!requesterId || !Types.ObjectId.isValid(requesterId)) {
+      throw new ForbiddenException({
+        code: 'INSTITUTIONAL_PRIMARY_REQUIRED',
+        message: 'Solo el administrador principal puede eliminar accesos.',
+      });
+    }
+    const primary = await this.assignmentModel.findOne({
+      tenantId: tenant._id,
+      userId: new Types.ObjectId(requesterId),
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    }).lean();
+    if (!primary?.accountAddress) {
+      throw new ForbiddenException({
+        code: 'INSTITUTIONAL_PRIMARY_REQUIRED',
+        message: 'Solo el administrador principal puede eliminar accesos.',
+      });
+    }
+
+    const target = await this.assignmentModel.findOne({
+      _id: new Types.ObjectId(assignmentId),
+      tenantId: tenant._id,
+    });
+    if (!target) {
+      throw new NotFoundException({
+        code: 'INSTITUTIONAL_ASSIGNMENT_NOT_FOUND',
+        message: 'La persona indicada no administra esta institución.',
+      });
+    }
+    if (target.institutionalRole === 'PRIMARY') {
+      throw new ConflictException({
+        code: 'INSTITUTIONAL_PRIMARY_CANNOT_BE_REMOVED',
+        message: 'Para eliminar al administrador principal primero debe transferirse el rol.',
+      });
+    }
+    if (target.active !== true || target.status !== 'APPROVED') {
+      throw new ConflictException({
+        code: 'INSTITUTIONAL_ASSIGNMENT_ALREADY_INACTIVE',
+        message: 'El acceso ya no está activo.',
+      });
+    }
+    const targetWallet = this.normalizeAccountAddress(String(target.accountAddress || ''));
+    const targetUser = await this.roledUserModel.findById(target.userId);
+    if (!targetUser) {
+      throw new ConflictException({
+        code: 'INSTITUTIONAL_TARGET_USER_NOT_FOUND',
+        message: 'No se encontró la cuenta de la persona seleccionada.',
+      });
+    }
+
+    const activeStatuses = [
+      'PENDING_MOBILE_AUTHORIZATION',
+      'PENDING_CHAIN_CONFIRMATION',
+      'CHAIN_RETRY_PENDING',
+      'RECONCILIATION_PENDING',
+      'CHAIN_FAILED',
+    ] as const;
+    const existing = await this.applicationModel.findOne({
+      tenantId: tenant._id,
+      userId: target.userId,
+      targetAssignmentId: target._id,
+      mobileAuthorizationAction: 'REMOVE_AUTHORIZED_ADDRESS',
+      status: { $in: activeStatuses },
+    } as any);
+    if (existing) {
+      return this.toMobileAuthorizationResponse(existing, tenant, primary, existing.status);
+    }
+
+    const now = new Date();
+    const created = new this.applicationModel({
+      dni: targetUser.dni,
+      email: targetUser.email,
+      passwordHash: targetUser.password || 'institutional-removal',
+      name: targetUser.name || 'Administrador de la institución',
+      institutionName: tenant.name,
+      institutionNameNorm: tenant.nameNorm,
+      accountAddress: targetWallet,
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      stableInstitutionId,
+      tenantId: tenant._id,
+      userId: target.userId,
+      targetAssignmentId: target._id,
+      mobileAuthorizationAction: 'REMOVE_AUTHORIZED_ADDRESS',
+      mobileAuthorizationRequestedAt: now,
+      approvedAt: now,
+      approvedBy: this.resolveRequesterObjectId(requester) ?? undefined,
+      reason: reason?.trim() || undefined,
+    });
+    await created.save();
+    const notification = await this.recordMobileAuthorizationNotice(created, tenant, requester);
+    created.mobileAuthorizationNotificationId = notification?._id ?? null;
+    await created.save();
+    return this.toMobileAuthorizationResponse(created, tenant, primary, created.status);
+  }
+
+  async getMobileAuthorizationRequest(applicationId: string, authUser?: InstitutionalMobileRequestUser) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    const status = await this.expireMobileAuthorizationIfNeeded(app);
+    this.assertMobileAuthUserMatches(primary, authUser);
+    return this.toMobileAuthorizationResponse(app, tenant, primary, status);
+  }
+
+  async claimMobileAuthorization(applicationId: string, dto: any = {}, authUser?: InstitutionalMobileRequestUser) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    const status = await this.expireMobileAuthorizationIfNeeded(app);
+    if (status === 'MOBILE_AUTHORIZATION_EXPIRED') {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_EXPIRED', message: 'La autorización móvil venció.' });
+    }
+    if (!String(dto?.deviceId || '').trim()) {
+      throw new BadRequestException({ code: 'INSTITUTIONAL_DEVICE_ID_REQUIRED', message: 'El dispositivo es requerido.' });
+    }
+    this.assertMobileAuthUserMatches(primary, authUser);
+    if (app.mobileAuthorizationDeviceId && app.mobileAuthorizationDeviceId !== String(dto.deviceId)) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_ALREADY_CLAIMED', message: 'Esta autorización ya está siendo procesada en otro dispositivo.' });
+    }
+    const stableInstitutionId = this.requireStableInstitutionId(app);
+    if (String(stableInstitutionId) === String(app._id)) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_STABLE_ID_REQUIRED', message: 'La autorización debe usar el identificador estable de institución.' });
+    }
+    const targetWallet = this.normalizeAccountAddress(app.accountAddress);
+    const action = this.resolveMobileAuthorizationAction(app);
+    const call = action === 'REMOVE_AUTHORIZED_ADDRESS'
+      ? VoteContractCalls.removeAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex)
+      : VoteContractCalls.addAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex);
+    app.mobileAuthorizationDeviceId = String(dto.deviceId).slice(0, 128);
+    app.mobileAuthorizationClaimedAt = app.mobileAuthorizationClaimedAt ?? new Date();
+    app.mobileAuthorizationExpiresAt = app.mobileAuthorizationExpiresAt ?? this.resolveMobileAuthorizationExpiresAt(app);
+    await app.save();
+    return {
+      request: this.toMobileAuthorizationResponse(app, tenant, primary, app.status),
+      execution: {
+        chainId: Number(this.chain),
+        stableInstitutionId,
+        action,
+        signerWallet: primary.accountAddress,
+        targetWallet,
+        calls: [{
+          target: call.to,
+          value: String(call.value ?? 0),
+          callData: call.data,
+          purpose: action,
+        }],
+      },
+    };
+  }
+
+  async markMobileAuthorizationSigning(applicationId: string, dto: any = {}, authUser?: InstitutionalMobileRequestUser) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    const status = await this.expireMobileAuthorizationIfNeeded(app);
+    if (status === 'MOBILE_AUTHORIZATION_EXPIRED') {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_EXPIRED', message: 'La autorización móvil venció.' });
+    }
+    this.assertMobileAuthUserMatches(primary, authUser);
+    this.assertSameMobileDevice(app, dto?.deviceId);
+    app.mobileAuthorizationSignedAt = app.mobileAuthorizationSignedAt ?? new Date();
+    await app.save();
+    return this.toMobileAuthorizationResponse(app, tenant, primary, app.status);
+  }
+
+  async rejectMobileAuthorization(applicationId: string, dto: any = {}, authUser?: InstitutionalMobileRequestUser) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    const status = await this.expireMobileAuthorizationIfNeeded(app);
+    if (!['PENDING_MOBILE_AUTHORIZATION', 'MOBILE_AUTHORIZATION_EXPIRED'].includes(String(status))) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_NOT_REJECTABLE', message: 'La autorización ya fue enviada y no puede rechazarse desde el teléfono.' });
+    }
+    this.assertMobileAuthUserMatches(primary, authUser);
+    app.status = 'REJECTED' as any;
+    app.rejectedAt = new Date();
+    app.reason = String(dto?.reasonCode || 'MOBILE_REJECTED').slice(0, 120);
+    await app.save();
+    if (this.resolveMobileAuthorizationAction(app) === 'ADD_AUTHORIZED_ADDRESS' && app.tenantId && app.userId) {
+      await this.assignmentModel.updateOne(
+        { tenantId: app.tenantId, userId: app.userId },
+        { $set: { status: 'REJECTED', active: false, rejectedAt: app.rejectedAt, reason: app.reason } },
+      );
+      await this.syncUserActiveState(app.userId);
+    }
+    return this.toMobileAuthorizationResponse(app, tenant, primary, app.status);
+  }
+
+  async submitMobileAuthorization(applicationId: string, dto: any = {}, authUser?: InstitutionalMobileRequestUser) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    const status = await this.expireMobileAuthorizationIfNeeded(app);
+    if (status === 'MOBILE_AUTHORIZATION_EXPIRED') {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_EXPIRED', message: 'La autorización móvil venció.' });
+    }
+    this.assertMobileAuthUserMatches(primary, authUser);
+    this.assertSameMobileDevice(app, dto?.deviceId);
+    const userOpHash = String(dto?.userOpHash || '').trim().toLowerCase();
+    if (!/^0x[a-f0-9]{64}$/i.test(userOpHash)) {
+      throw new BadRequestException({ code: 'INSTITUTIONAL_USER_OP_HASH_REQUIRED', message: 'La operación firmada es requerida.' });
+    }
+    if (app.mobileAuthorizationUserOpHash) {
+      if (app.mobileAuthorizationUserOpHash.toLowerCase() !== userOpHash) {
+        throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_SUBMISSION_CONFLICT', message: 'Ya existe una operación firmada distinta para esta autorización.' });
+      }
+      return this.toMobileAuthorizationResponse(app, tenant, primary, app.status);
+    }
+    app.mobileAuthorizationUserOpHash = userOpHash;
+    app.mobileAuthorizationTxHash = dto?.txHash ? String(dto.txHash).trim().toLowerCase() : null;
+    app.chainTxHash = app.mobileAuthorizationTxHash ?? app.chainTxHash ?? null;
+    app.chainStatus = 'SENT';
+    app.chainAttempts = (app.chainAttempts ?? 0) + 1;
+    app.chainLastError = undefined;
+    app.chainNextRetryAt = undefined;
+    app.status = 'PENDING_CHAIN_CONFIRMATION' as any;
+    await app.save();
+    return this.toMobileAuthorizationResponse(app, tenant, primary, app.status);
+  }
+
+  async reconcileMobileAuthorizationOperation(applicationId: string) {
+    const app = await this.getApplicationOrThrow(applicationId);
+    const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    const stableInstitutionId = this.requireStableInstitutionId(app);
+    const targetWallet = this.normalizeAccountAddress(app.accountAddress);
+    const currentAuthorization = await VoteContractReads.isAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex);
+    const expectedAuthorization = this.expectedNetworkAuthorizationState(app);
+    if (currentAuthorization !== expectedAuthorization) {
+      return { reconciled: false, request: this.toMobileAuthorizationResponse(app, tenant, primary, app.status) };
+    }
+    await this.completeMobileAuthorizationFromNetwork(app);
+    const refreshed = await this.getApplicationOrThrow(applicationId);
+    return { reconciled: true, request: this.toMobileAuthorizationResponse(refreshed, tenant, primary, refreshed.status) };
+  }
+
+  async processMobileAuthorizationRetry(applicationId: string) {
+    const now = new Date();
+    const lockUntil = new Date(now.getTime() + 60_000);
+    const app = await this.applicationModel.findOneAndUpdate(
+      {
+        _id: this.toObjectId(applicationId),
+        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING', 'RECONCILIATION_PENDING'] },
+        mobileAuthorizationUserOpHash: { $exists: true, $ne: null },
+        $and: [
+          { $or: [{ chainLockedUntil: { $exists: false } }, { chainLockedUntil: null }, { chainLockedUntil: { $lte: now } }] },
+          { $or: [{ chainNextRetryAt: { $exists: false } }, { chainNextRetryAt: null }, { chainNextRetryAt: { $lte: now } }] },
+        ],
+      },
+      { $set: { chainLockedAt: now, chainLockedUntil: lockUntil } },
+      { returnDocument: 'after' },
+    );
+    if (!app) return { processed: false, reason: 'NO_CLAIMABLE_OPERATION' };
+    try {
+      const currentAuthorization = await VoteContractReads.isAuthorizedAddress(
+        this.chain,
+        this.requireStableInstitutionId(app),
+        this.normalizeAccountAddress(app.accountAddress) as Hex,
+      );
+      if (currentAuthorization === this.expectedNetworkAuthorizationState(app)) {
+        await this.completeMobileAuthorizationFromNetwork(app);
+        return { processed: true, status: 'CONFIRMED', reusedNetworkState: true };
+      }
+      await this.applicationModel.updateOne({ _id: app._id }, { $set: { status: 'PENDING_CHAIN_CONFIRMATION', chainStatus: 'SENT', chainLockedAt: null, chainLockedUntil: null } });
+      return { processed: true, status: 'PENDING' };
+    } catch (error) {
+      const attempts = (app.chainAttempts ?? 0) + 1;
+      await this.applicationModel.updateOne(
+        { _id: app._id },
+        { $set: { status: 'CHAIN_RETRY_PENDING', chainStatus: 'RETRY_PENDING', chainAttempts: attempts, chainNextRetryAt: this.calculateNextChainRetryAt(attempts), chainLastError: this.toSafeChainError(error), chainLockedAt: null, chainLockedUntil: null } },
+      );
+      return { processed: true, status: 'RETRY_PENDING', attempts };
+    }
+  }
+
+  private async recordMobileAuthorizationNotice(
+    app: InstitutionalAdminApplicationDocument,
+    tenant: InstitutionalTenantDocument,
+    requester: any,
+    session?: ClientSession,
+  ) {
+    if (app.mobileAuthorizationNotificationId) {
+      const existingQuery = this.notificationLogModel.findById(app.mobileAuthorizationNotificationId);
+      if (session && typeof existingQuery.session === 'function') {
+        existingQuery.session(session);
+      }
+      const existing = await existingQuery;
+      if (existing) return existing;
+    }
+
+    const primaryQuery = this.assignmentModel
+      .findOne({
+        tenantId: tenant._id,
+        institutionalRole: 'PRIMARY',
+        active: true,
+        status: 'APPROVED',
+      });
+    if (session && typeof primaryQuery.session === 'function') {
+      primaryQuery.session(session);
+    }
+    const primary = await primaryQuery.lean();
+    if (!primary?.userId) {
+      throw new ConflictException('La institución no tiene administrador principal vigente para autorizar desde el teléfono');
+    }
+
+    const deduplicationKey = `institutional-mobile-authorization:${String(app._id)}`;
+    const action = this.resolveMobileAuthorizationAction(app);
+    const isRemoval = action === 'REMOVE_AUTHORIZED_ADDRESS';
+    const notificationQuery = this.notificationLogModel.findOneAndUpdate(
+      { 'data.deduplicationKey': deduplicationKey },
+      {
+        $setOnInsert: {
+          type: 'generic',
+          topic: `user_${String(primary.userId)}`,
+          title: 'Autorización institucional pendiente',
+          body: isRemoval
+            ? `Autoriza desde tu teléfono la eliminación del acceso de ${app.name} a ${tenant.name}.`
+            : `Autoriza desde tu teléfono el acceso de ${app.name} a ${tenant.name}.`,
+          data: {
+            event: 'MOBILE_AUTHORIZATION_REQUESTED',
+            applicationId: String(app._id),
+            tenantId: String(tenant._id),
+            targetUserId: app.userId ? String(app.userId) : null,
+            action,
+            requesterId: requester?.sub ? String(requester.sub) : null,
+            deduplicationKey,
+          },
+          status: 'SENT',
+        },
+      },
+      { upsert: true, returnDocument: 'after' },
+    );
+    if (session && typeof notificationQuery.session === 'function') {
+      notificationQuery.session(session);
+    }
+    try {
+      return await notificationQuery;
+    } catch (error: any) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+      const existingQuery = this.notificationLogModel.findOne({
+        'data.deduplicationKey': deduplicationKey,
+      });
+      if (session && typeof existingQuery.session === 'function') {
+        existingQuery.session(session);
+      }
+      return await existingQuery;
+    }
+  }
+
+  private async resolveMobileAuthorizationContext(app: InstitutionalAdminApplicationDocument) {
+    if (!app.tenantId || !app.userId) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_CONTEXT_INCOMPLETE', message: 'La solicitud no tiene institución o persona asociada.' });
+    }
+    const tenant = await this.tenantModel.findById(app.tenantId);
+    if (!tenant) {
+      throw new NotFoundException({ code: 'INSTITUTIONAL_TENANT_NOT_FOUND', message: 'Institución no encontrada.' });
+    }
+    const primary = await this.assignmentModel.findOne({
+      tenantId: tenant._id,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    }).lean();
+    if (!primary?.accountAddress) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_SIGNER_NOT_FOUND', message: 'La institución no tiene administrador principal vigente.' });
+    }
+    return { tenant, primary };
+  }
+
+  private resolveMobileAuthorizationExpiresAt(app: InstitutionalAdminApplicationDocument) {
+    const explicit = app.mobileAuthorizationExpiresAt;
+    if (explicit instanceof Date && Number.isFinite(explicit.getTime())) return explicit;
+    const base = app.mobileAuthorizationRequestedAt ?? app.approvedAt ?? (app as any).createdAt ?? new Date();
+    return new Date(new Date(base).getTime() + 7 * 24 * 60 * 60 * 1000);
+  }
+
+  private async expireMobileAuthorizationIfNeeded(app: InstitutionalAdminApplicationDocument) {
+    const expiresAt = this.resolveMobileAuthorizationExpiresAt(app);
+    app.mobileAuthorizationExpiresAt = expiresAt;
+    if (app.status === 'PENDING_MOBILE_AUTHORIZATION' && expiresAt.getTime() <= Date.now()) {
+      app.status = 'MOBILE_AUTHORIZATION_EXPIRED' as any;
+      app.reason = 'Autorización móvil vencida.';
+      await app.save();
+      return 'MOBILE_AUTHORIZATION_EXPIRED';
+    }
+    return app.status;
+  }
+
+  private assertMobileSignerWallet(expectedWallet: string, receivedWallet: string) {
+    const expected = this.normalizeAccountAddressForComparison(expectedWallet);
+    const received = this.normalizeAccountAddressForComparison(receivedWallet);
+    if (!expected || !received || expected !== received) {
+      throw new ForbiddenException({ code: 'INSTITUTIONAL_AUTHORIZATION_WALLET_MISMATCH', message: 'La billetera del teléfono no corresponde al administrador principal.' });
+    }
+  }
+
+  private assertMobileAuthUserMatches(primary: any, authUser?: InstitutionalMobileRequestUser) {
+    if (!authUser?.smartAccountAddress) {
+      throw new UnauthorizedException({
+        code: 'INSTITUTIONAL_MOBILE_AUTH_REQUIRED',
+        message: 'La autorización móvil requiere credencial vigente.',
+      });
+    }
+    if (primary?.userId && String(primary.userId) !== String(authUser.sub)) {
+      throw new ForbiddenException({
+        code: 'INSTITUTIONAL_AUTHORIZATION_SIGNER_MISMATCH',
+        message: 'La credencial móvil no corresponde al administrador principal.',
+      });
+    }
+    this.assertMobileSignerWallet(String(primary.accountAddress), authUser.smartAccountAddress);
+  }
+
+  private assertSameMobileDevice(app: InstitutionalAdminApplicationDocument, deviceId: string) {
+    const current = String(app.mobileAuthorizationDeviceId || '').trim();
+    const incoming = String(deviceId || '').trim();
+    if (!current || !incoming || current !== incoming) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_DEVICE_MISMATCH', message: 'La autorización pertenece a otro dispositivo.' });
+    }
+  }
+
+  private async completeMobileAuthorizationFromNetwork(app: InstitutionalAdminApplicationDocument) {
+    if (!app.tenantId || !app.userId) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_CONTEXT_INCOMPLETE', message: 'La solicitud no tiene institución o persona asociada.' });
+    }
+    const session = await this.applicationModel.db.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const fresh = await this.getApplicationOrThrow(String(app._id), session);
+        const action = this.resolveMobileAuthorizationAction(fresh);
+        if (fresh.chainStatus === 'CONFIRMED' && ['APPROVED', 'REVOKED'].includes(String(fresh.status))) return;
+        if (action === 'REMOVE_AUTHORIZED_ADDRESS') {
+          await this.assignmentModel.updateOne(
+            {
+              _id: fresh.targetAssignmentId ?? undefined,
+              tenantId: fresh.tenantId,
+              userId: fresh.userId,
+              institutionalRole: 'SECONDARY',
+            },
+            {
+              $set: {
+                status: 'REVOKED',
+                active: false,
+                revokedAt: new Date(),
+                reason: fresh.reason ?? 'Acceso eliminado después de confirmación de red.',
+              },
+            },
+            { session },
+          );
+          fresh.status = 'REVOKED' as any;
+        } else {
+          await this.assignmentModel.updateOne(
+            { tenantId: fresh.tenantId, userId: fresh.userId },
+            {
+              $set: {
+                status: 'APPROVED',
+                active: true,
+                institutionalRole: 'SECONDARY',
+                accountAddress: fresh.accountAddress,
+                accountAddressNormalized: normalizeTenantWalletAddress(fresh.accountAddress)?.toLowerCase(),
+                approvedAt: fresh.approvedAt ?? new Date(),
+                rejectedAt: null,
+                revokedAt: null,
+                reason: null,
+                walletVerifiedAt: fresh.approvedAt ?? new Date(),
+                walletVerificationSource: 'IDENTITY',
+              },
+            },
+            { upsert: true, session },
+          );
+          await this.roledUserModel.updateOne({ _id: fresh.userId }, { $set: { active: true } }, { session });
+          fresh.status = 'APPROVED' as any;
+        }
+        fresh.chainStatus = 'CONFIRMED';
+        fresh.chainConfirmedAt = fresh.chainConfirmedAt ?? new Date();
+        fresh.chainLastError = undefined;
+        fresh.chainNextRetryAt = undefined;
+        fresh.chainLockedAt = undefined;
+        fresh.chainLockedUntil = undefined;
+        await fresh.save({ session });
+        await this.syncUserActiveState(fresh.userId as Types.ObjectId, session);
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  private toMobileAuthorizationResponse(app: any, tenant: any, primary: any, status: string) {
+    const action = this.resolveMobileAuthorizationAction(app);
+    return {
+      requestId: String(app._id),
+      applicationId: String(app._id),
+      tenantId: app.tenantId ? String(app.tenantId) : null,
+      institutionName: tenant?.name ?? app.institutionName,
+      stableInstitutionId: app.stableInstitutionId ?? null,
+      requesterName: app.name,
+      requesterDni: app.dni,
+      targetWallet: app.accountAddress,
+      signerWallet: primary?.accountAddress ?? null,
+      action,
+      status,
+      expiresAt: this.resolveMobileAuthorizationExpiresAt(app).toISOString(),
+      userOpHash: app.mobileAuthorizationUserOpHash ?? null,
+      txHash: app.mobileAuthorizationTxHash ?? app.chainTxHash ?? null,
+      safeMessage: app.chainLastError ?? null,
+      canSign: status === 'PENDING_MOBILE_AUTHORIZATION',
+    };
+  }
+
+  private resolveMobileAuthorizationAction(app: any) {
+    return app?.mobileAuthorizationAction === 'REMOVE_AUTHORIZED_ADDRESS'
+      ? 'REMOVE_AUTHORIZED_ADDRESS'
+      : 'ADD_AUTHORIZED_ADDRESS';
+  }
+
+  private expectedNetworkAuthorizationState(app: any) {
+    return this.resolveMobileAuthorizationAction(app) === 'REMOVE_AUTHORIZED_ADDRESS'
+      ? false
+      : true;
+  }
+
+  private resolveRequesterObjectId(requester: any): Types.ObjectId | null {
+    const sub = requester?.sub ? String(requester.sub) : '';
+    return Types.ObjectId.isValid(sub) ? new Types.ObjectId(sub) : null;
   }
 
   private resolveApplicationPasswordHash(
@@ -1445,7 +2893,10 @@ export class InstitutionalAdminApplicationsService {
       'code' in error &&
       (error as any).code === 11000
     ) {
-      throw new ConflictException('Ya existe un usuario con ese email o DNI');
+      throw new ConflictException({
+        code: 'ADMIN_EMAIL_OR_DNI_ALREADY_EXISTS',
+        message: 'Ya existe un usuario con ese email o DNI',
+      });
     }
   }
 
@@ -1504,7 +2955,35 @@ export class InstitutionalAdminApplicationsService {
       reason: row.reason ?? null,
       tenantId: row.tenantId ? String(row.tenantId) : null,
       userId: row.userId ? String(row.userId) : null,
+      stableInstitutionId: row.stableInstitutionId ?? null,
+      chainStatus: row.chainStatus ?? null,
+      chainAttempts: row.chainAttempts ?? 0,
+      chainNextRetryAt: row.chainNextRetryAt ?? null,
+      chainTxHash: row.chainTxHash ?? null,
+      chainConfirmedAt: row.chainConfirmedAt ?? null,
+      mobileAuthorizationRequestedAt: row.mobileAuthorizationRequestedAt ?? null,
+      mobileAuthorizationNotificationId: row.mobileAuthorizationNotificationId
+        ? String(row.mobileAuthorizationNotificationId)
+        : null,
       createdAt: row.createdAt ?? null,
+    };
+  }
+
+  private toInvitationResponse(row: any) {
+    return {
+      id: String(row._id),
+      tenantId: row.tenantId ? String(row.tenantId) : null,
+      dni: row.dni,
+      name: row.name,
+      status: row.status,
+      expiresAt: row.expiresAt ?? null,
+      acceptedAt: row.acceptedAt ?? null,
+      rejectedAt: row.rejectedAt ?? null,
+      cancelledAt: row.cancelledAt ?? null,
+      applicationId: row.applicationId ? String(row.applicationId) : null,
+      noticeCount: row.noticeCount ?? 0,
+      lastNoticeAt: row.lastNoticeAt ?? null,
+      reason: row.reason ?? null,
     };
   }
 }

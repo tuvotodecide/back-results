@@ -16,6 +16,10 @@ import {
   TenantAdminAssignment,
   TenantAdminAssignmentSchema,
 } from './schemas/tenant-admin-assignment.schema';
+import {
+  InstitutionalAdminApplication,
+  InstitutionalAdminApplicationSchema,
+} from '../institutional-admin-applications/schemas/institutional-admin-application.schema';
 
 @Module({
   imports: [
@@ -24,6 +28,7 @@ import {
       { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
       { name: RoledUser.name, schema: RoledUserSchema },
+      { name: InstitutionalAdminApplication.name, schema: InstitutionalAdminApplicationSchema },
     ]),
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService) => ({

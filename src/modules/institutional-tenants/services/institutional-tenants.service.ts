@@ -10,9 +10,10 @@ import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
-import { isAddress } from 'viem';
+import { Hex, isAddress } from 'viem';
 import { InstitutionalAuditService } from '@/modules/institutional-audit/services/institutional-audit.service';
 import { RoledUser, RoledUserDocument } from '@/modules/auth/schemas/roledUser.schema';
+import { VoteContractReads } from '@/api/vote';
 import {
   AssignTenantAdminDto,
   CreateInstitutionalTenantDto,
@@ -30,6 +31,10 @@ import {
   TenantAdminAssignmentDocument,
 } from '../schemas/tenant-admin-assignment.schema';
 import {
+  InstitutionalAdminApplication,
+  InstitutionalAdminApplicationDocument,
+} from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
+import {
   getTenantWalletVerificationState,
   normalizeTenantWalletAddress,
 } from '../utils/tenant-wallet-verification.util';
@@ -43,6 +48,8 @@ export class InstitutionalTenantsService {
     private readonly assignmentModel: Model<TenantAdminAssignmentDocument>,
     @InjectModel(RoledUser.name)
     private readonly roledUserModel: Model<RoledUserDocument>,
+    @InjectModel(InstitutionalAdminApplication.name)
+    private readonly applicationModel: Model<InstitutionalAdminApplicationDocument>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly auditService: InstitutionalAuditService,
@@ -308,12 +315,16 @@ export class InstitutionalTenantsService {
     if (!requesterId || !Types.ObjectId.isValid(requesterId)) {
       throw new ForbiddenException('No autorizado para regularizar wallet institucional');
     }
-    const accountAddress = this.normalizeAccountAddress(dto.accountAddress);
     const providedDni = dto.dni.trim();
+    if (dto.accountAddress?.trim()) {
+      this.normalizeAccountAddress(dto.accountAddress);
+    }
 
     const [tenant, user, assignments] = await Promise.all([
-      this.tenantModel.findById(tenantObjectId, { active: 1 }).lean(),
-      this.roledUserModel.findById(new Types.ObjectId(requesterId), { active: 1, dni: 1 }).lean(),
+      this.tenantModel.findById(tenantObjectId).lean(),
+      this.roledUserModel
+        .findById(new Types.ObjectId(requesterId), { active: 1, dni: 1, email: 1, name: 1 })
+        .lean(),
       this.assignmentModel
         .find({
           tenantId: tenantObjectId,
@@ -334,7 +345,10 @@ export class InstitutionalTenantsService {
     if (user.dni.trim() !== providedDni) {
       throw new BadRequestException('El DNI no corresponde al usuario autenticado');
     }
-    if (assignments.length !== 1) {
+    if (assignments.length === 0) {
+      throw new ForbiddenException('No autorizado para regularizar esta institución');
+    }
+    if (assignments.length > 1) {
       throw new ConflictException('Relacion institucional ambigua o inexistente');
     }
 
@@ -344,15 +358,31 @@ export class InstitutionalTenantsService {
       throw new ForbiddenException('La relacion institucional no esta activa');
     }
 
+    const resolvedWallet = await this.resolveAuthoritativeWalletByDni(providedDni);
+    const accountAddress = this.normalizeAccountAddress(resolvedWallet);
+    if (dto.accountAddress?.trim()) {
+      const clientWallet = this.normalizeAccountAddress(dto.accountAddress);
+      if (clientWallet.toLowerCase() !== accountAddress.toLowerCase()) {
+        throw new BadRequestException(
+          'La wallet enviada no coincide con la billetera registrada para el DNI',
+        );
+      }
+    }
+
     const existingWallet = assignment.accountAddress?.trim();
     const existingWalletState = getTenantWalletVerificationState(assignment);
     if (existingWallet) {
       if (existingWallet.toLowerCase() === accountAddress.toLowerCase()) {
         if (existingWalletState.isWalletVerified) {
+          await this.ensureHistoricalRegularizationOperation(
+            tenant,
+            user,
+            assignment,
+            accountAddress,
+          );
           return this.toWalletRegularizationResponse(assignment, existingWallet, false);
         }
         await this.assertWalletCompatibleForAssignment(assignment);
-        await this.assertWalletBelongsToDni(accountAddress, providedDni);
       } else {
         throw new ConflictException('La relacion institucional ya tiene una wallet distinta');
       }
@@ -361,7 +391,6 @@ export class InstitutionalTenantsService {
         ...assignment,
         accountAddress,
       });
-      await this.assertWalletBelongsToDni(accountAddress, providedDni);
     }
 
     const session = await this.assignmentModel.db.startSession();
@@ -459,6 +488,14 @@ export class InstitutionalTenantsService {
           },
           session,
         });
+
+        await this.ensureHistoricalRegularizationOperation(
+          tenant,
+          user,
+          updated,
+          accountAddress,
+          session,
+        );
 
         response = this.toWalletRegularizationResponse(updated, accountAddress, true);
       });
@@ -645,6 +682,199 @@ export class InstitutionalTenantsService {
       }
       throw new ServiceUnavailableException('No se pudo verificar la wallet en este momento');
     }
+  }
+
+  private async ensureHistoricalRegularizationOperation(
+    tenant: any,
+    user: any,
+    assignment: any,
+    accountAddress: string,
+    session?: ClientSession,
+  ) {
+    const stableInstitutionId = tenant.stableInstitutionId?.trim() || String(tenant._id);
+    if (!tenant.stableInstitutionId?.trim()) {
+      await this.tenantModel.updateOne(
+        { _id: tenant._id },
+        { $set: { stableInstitutionId } },
+        session ? { session } : undefined,
+      );
+    }
+
+    const confirmed = await this.isTenantConfirmedOnChain(
+      stableInstitutionId,
+      accountAddress,
+    ).catch(() => false);
+    if (confirmed) {
+      await this.tenantModel.updateOne(
+        { _id: tenant._id },
+        { $set: { stableInstitutionId, active: true } },
+        session ? { session } : undefined,
+      );
+      await this.assignmentModel.updateOne(
+        { _id: assignment._id },
+        {
+          $set: {
+            status: 'APPROVED',
+            active: true,
+            walletVerifiedAt: assignment.walletVerifiedAt ?? new Date(),
+            walletVerificationSource:
+              assignment.walletVerificationSource ?? 'LEGACY_REGULARIZATION',
+          },
+        },
+        session ? { session } : undefined,
+      );
+      return {
+        chainStatus: 'CONFIRMED',
+        operationCreated: false,
+        stableInstitutionId,
+      };
+    }
+
+    const existingOperation = await this.applicationModel
+      .findOne({
+        tenantId: tenant._id,
+        stableInstitutionId,
+        chainStatus: { $in: ['PENDING_SEND', 'SENT', 'RETRY_PENDING', 'CONFIRMED'] },
+      })
+      .session(session ?? null)
+      .lean();
+    if (existingOperation) {
+      return {
+        chainStatus: existingOperation.chainStatus ?? null,
+        operationCreated: false,
+        stableInstitutionId,
+      };
+    }
+
+    await this.applicationModel.create(
+      [
+        {
+          dni: user.dni,
+          email: user.email ?? `historico-${stableInstitutionId}@institucional.local`,
+          passwordHash: 'historical-regularization',
+          name: user.name ?? 'Administrador institucional histórico',
+          institutionName: tenant.name,
+          institutionNameNorm: tenant.nameNorm,
+          accountAddress,
+          status: 'PENDING_CHAIN_CONFIRMATION',
+          emailVerifiedAt: new Date(),
+          approvedAt: new Date(),
+          tenantId: tenant._id,
+          userId: assignment.userId,
+          stableInstitutionId,
+          chainStatus: 'PENDING_SEND',
+          chainAttempts: 0,
+        },
+      ],
+      session ? { session } : undefined,
+    );
+
+    return {
+      chainStatus: 'PENDING_SEND',
+      operationCreated: true,
+      stableInstitutionId,
+    };
+  }
+
+  private async isTenantConfirmedOnChain(
+    stableInstitutionId: string,
+    accountAddress: string,
+  ): Promise<boolean> {
+    const chain = this.configService.get<string>('app.blockchain.chain')!;
+    const expectedAdmin = accountAddress.toLowerCase();
+    try {
+      const admin = await VoteContractReads.getInstitutionAdmin(chain, stableInstitutionId);
+      if (typeof admin === 'string' && admin.toLowerCase() === expectedAdmin) {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+
+    try {
+      return Boolean(
+        await VoteContractReads.isAuthorizedAddress(
+          chain,
+          stableInstitutionId,
+          accountAddress as Hex,
+        ),
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async resolveAuthoritativeWalletByDni(dni: string): Promise<string> {
+    const identityBaseUrl = this.configService.get<string>('app.identity.baseUrl');
+    const identityApiKey = this.configService.get<string>('app.identity.apiKey');
+    const timeout = this.configService.get<number>('IDENTITY_HTTP_TIMEOUT_MS', 5000);
+
+    if (!identityBaseUrl || !identityApiKey) {
+      throw new ServiceUnavailableException('No se pudo verificar la wallet en este momento');
+    }
+
+    const baseUrl = identityBaseUrl.replace(/\/$/, '');
+    try {
+      const response = await this.httpService.axiosRef.post(
+        `${baseUrl}/registry/resolve-account-by-dni`,
+        { dni },
+        {
+          headers: { 'x-api-key': identityApiKey },
+          timeout,
+        },
+      );
+      const data = response?.data;
+      if (!data || typeof data.registered !== 'boolean') {
+        throw new ServiceUnavailableException('Identity devolvio una respuesta invalida');
+      }
+
+      if (!data.registered) {
+        const personExists = await this.identityPersonExistsByDni(
+          baseUrl,
+          identityApiKey,
+          dni,
+          timeout,
+        );
+        throw new BadRequestException(
+          personExists
+            ? 'La persona debe crear o registrar primero su billetera en Tu Voto Decide'
+            : 'La persona debe registrarse primero en Tu Voto Decide',
+        );
+      }
+
+      if (typeof data.accountAddress !== 'string' || !data.accountAddress.trim()) {
+        throw new BadRequestException(
+          'La persona debe crear o registrar primero su billetera en Tu Voto Decide',
+        );
+      }
+      return data.accountAddress.trim();
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      throw new ServiceUnavailableException('No se pudo verificar la wallet en este momento');
+    }
+  }
+
+  private async identityPersonExistsByDni(
+    identityBaseUrl: string,
+    identityApiKey: string,
+    dni: string,
+    timeout: number,
+  ): Promise<boolean> {
+    const response = await this.httpService.axiosRef.get(
+      `${identityBaseUrl}/registry/get-by-dni`,
+      {
+        params: { dnis: dni },
+        headers: { 'x-api-key': identityApiKey },
+        timeout,
+      },
+    );
+    const records = response?.data?.records;
+    if (!Array.isArray(records)) {
+      throw new ServiceUnavailableException('Identity devolvio una respuesta invalida');
+    }
+    return records.some((record: any) => String(record?.dni ?? '').trim() === dni);
   }
 
   private toWalletRegularizationResponse(

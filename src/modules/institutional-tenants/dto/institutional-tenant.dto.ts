@@ -54,10 +54,13 @@ export class RegularizeTenantAdminWalletDto {
   @Matches(/^[A-Za-z0-9-]{5,20}$/)
   dni: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional({
+    description:
+      'Dato legado opcional. Backend Results resuelve la billetera autoritativa desde Identity.',
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  accountAddress: string;
+  accountAddress?: string;
 }
 
 export class InstitutionalTenantListQueryDto {

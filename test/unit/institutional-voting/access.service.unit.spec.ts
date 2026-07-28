@@ -45,7 +45,9 @@ describe('InstitutionalVotingAccessService (unit)', () => {
       find: jest.fn(),
     };
     applicationModel = {
-      findOne: jest.fn(),
+      findOne: jest.fn(() => ({
+        lean: jest.fn().mockResolvedValue(null),
+      })),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -113,6 +115,33 @@ describe('InstitutionalVotingAccessService (unit)', () => {
         role: 'TENANT_ADMIN',
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('bloquea escritura mientras la regularizacion institucional espera confirmacion de red', async () => {
+    tenantModel.findById.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), active: true }),
+    });
+    assignmentModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        status: 'APPROVED',
+        active: true,
+        accountAddress: '0x1234567890abcdef1234567890abcdef12345678',
+      }),
+    });
+    applicationModel.findOne.mockReturnValueOnce({
+      lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+    });
+
+    await expect(
+      service.assertTenantWriteAccess(new Types.ObjectId(), {
+        sub: String(new Types.ObjectId()),
+        role: 'TENANT_ADMIN',
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'INSTITUTION_REGULARIZATION_PENDING_NETWORK_CONFIRMATION',
+      }),
+    });
   });
 
   it('rechaza escritura cuando la asignación activa no tiene wallet operativa', async () => {
