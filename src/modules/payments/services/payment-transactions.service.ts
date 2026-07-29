@@ -44,6 +44,7 @@ import {
 } from '../utils/money.util';
 import {
   RED_ENLACE_ACTIVE_QR_STATUSES,
+  hasRedEnlaceSuccessEvidence,
   mapRedEnlaceStatus,
   normalizeRedEnlaceStatus,
 } from '../utils/payment-status.mapper';
@@ -122,10 +123,12 @@ export class PaymentTransactionsService {
       );
 
     const tvdQuote = this.tvdQuotes
-      ? await this.tvdQuotes.createPaymentQuoteSnapshot({
-          amountMinor,
-          currency: dto.currency,
-        })
+      ? this.withQuoteExpiration(
+          await this.tvdQuotes.createPaymentQuoteSnapshot({
+            amountMinor,
+            currency: dto.currency,
+          }),
+        )
       : null;
 
     const payment = await this.createPaymentWithUniqueReference({
@@ -243,8 +246,12 @@ export class PaymentTransactionsService {
                 error.code === 'RED_ENLACE_AMOUNT_MISMATCH' ||
                 error.code === 'RED_ENLACE_CURRENCY_MISMATCH'
                   ? 'MISMATCH'
-                  : 'FAILED',
-              providerResponseDetail: error.message.slice(0, 240),
+                  : this.mapProviderGenerationErrorToStatus(error.code),
+              providerResponseCode: error.code,
+              providerResponseDetail: this.mapProviderGenerationErrorDetail(
+                error.code,
+                error.message,
+              ),
             },
           },
         );
@@ -253,19 +260,242 @@ export class PaymentTransactionsService {
 
       await this.paymentModel.updateOne(
         { _id: payment._id, status: 'QR_REQUESTING' },
-        { $set: { status: 'FAILED' } },
+        {
+          $set: {
+            status: 'PROVIDER_ERROR',
+            providerResponseCode: 'PROVIDER_REQUEST_FAILED',
+          },
+        },
       );
       throw error;
     }
   }
 
   async getPayment(paymentId: string, requester: any) {
-    const payment = await this.getPaymentDocumentOrThrow(paymentId);
+    const payment = await this.refreshExpiredQrIfNeeded(
+      await this.getPaymentDocumentOrThrow(paymentId),
+    );
     await this.tenantAccess.assertTenantAccess(
       String(payment.tenantId),
       requester,
     );
     return toPublicPaymentDto(payment, { includeQr: true });
+  }
+
+  async regenerateQrPayment(
+    paymentId: string,
+    requester: any,
+    idempotencyKey?: string,
+  ) {
+    const normalizedIdempotencyKey =
+      this.normalizeRequiredIdempotencyKey(idempotencyKey);
+    const original = await this.refreshExpiredQrIfNeeded(
+      await this.getPaymentDocumentOrThrow(paymentId),
+    );
+    await this.tenantAccess.assertTenantAccess(
+      String(original.tenantId),
+      requester,
+    );
+
+    this.assertRegenerationAllowed(original);
+
+    const requestedByUserId = this.tenantAccess.getRequesterObjectId(requester);
+    if (String(original.requestedByUserId) !== String(requestedByUserId)) {
+      throw new BadRequestException({
+        code: 'PAYMENT_REGENERATION_NOT_AUTHORIZED',
+        message: 'No puedes regenerar este pago',
+      });
+    }
+
+    const quote = await this.resolveRegenerationQuote(original);
+    const requestHash = this.hashRequest({
+      tenantId: String(original.tenantId),
+      userId: String(original.requestedByUserId),
+      amountMinor: original.amountMinor,
+      currency: original.currency,
+      previousPaymentId: String(original._id),
+      quoteVersion: String(quote?.exchangeRateVersion ?? 'none'),
+      quoteExpiresAt: quote?.expiresAt?.toISOString?.() ?? '',
+    });
+
+    const existing = await this.paymentModel
+      .findOne({
+        tenantId: original.tenantId,
+        requestedByUserId: original.requestedByUserId,
+        idempotencyKey: normalizedIdempotencyKey,
+      })
+      .lean();
+    if (existing) {
+      this.assertSameIdempotencyPayload(
+        existing.idempotencyRequestHash,
+        requestHash,
+      );
+      return toPublicPaymentDto(existing, { includeQr: true });
+    }
+
+    const lockOwner = `regen-${new Types.ObjectId().toHexString()}`;
+    const now = new Date();
+    const lockExpiresAt = new Date(
+      now.getTime() + this.getRegenerationLockDurationMs(),
+    );
+    const lockedOriginal = await this.paymentModel.findOneAndUpdate(
+      {
+        _id: original._id,
+        status: { $in: ['EXPIRED', 'CANCELLED', 'FAILED'] },
+        regeneratedToPaymentId: null,
+        $or: [
+          { regenerationLockExpiresAt: null },
+          { regenerationLockExpiresAt: { $exists: false } },
+          { regenerationLockExpiresAt: { $lte: now } },
+        ],
+      } as any,
+      {
+        $set: {
+          regenerationLockOwner: lockOwner,
+          regenerationLockedAt: now,
+          regenerationLockExpiresAt: lockExpiresAt,
+        },
+      },
+      { new: true },
+    );
+
+    if (!lockedOriginal) {
+      throw new ConflictException({
+        code: 'PAYMENT_REGENERATION_RECONCILIATION_REQUIRED',
+        message:
+          'Estamos verificando el estado del QR anterior. No generaremos otro QR hasta resolverlo para evitar un doble pago.',
+      });
+    }
+
+    let nextPayment: PaymentTransactionDocument | null = null;
+    try {
+      nextPayment = await this.createPaymentWithUniqueReference({
+        tenantId: original.tenantId as Types.ObjectId,
+        requestedByUserId: original.requestedByUserId as Types.ObjectId,
+        amountMinor: original.amountMinor,
+        currency: original.currency,
+        idempotencyKey: normalizedIdempotencyKey,
+        idempotencyRequestHash: requestHash,
+        targetAssignmentId: original.targetAssignmentId as Types.ObjectId,
+        targetWallet: String(original.targetWallet ?? ''),
+        targetWalletNormalized: String(original.targetWalletNormalized ?? ''),
+        tvdQuote: quote,
+        previousPaymentId: original._id,
+        regenerationReason: this.getRegenerationReason(original, quote),
+      });
+
+      await this.paymentModel.updateOne(
+        { _id: original._id, regenerationLockOwner: lockOwner },
+        {
+          $set: {
+            regeneratedToPaymentId: nextPayment._id,
+          },
+        },
+      );
+
+      await this.transitionPayment(nextPayment._id, 'CREATED', 'QR_REQUESTING');
+      const expiresAt = this.calculateQrExpiresAt();
+      const glosa = buildRedEnlaceGlosa({
+        branchCode: RED_ENLACE_BRANCH_CODE,
+        branchName: RED_ENLACE_BRANCH_NAME,
+        businessCategory: RED_ENLACE_BUSINESS_CATEGORY,
+        customerGloss: this.buildCustomerGloss(nextPayment.merchantReference),
+      });
+
+      const result = await this.provider.generateQr({
+        merchantReference: nextPayment.merchantReference,
+        amountMinor: nextPayment.amountMinor,
+        currency: nextPayment.currency,
+        glosa,
+        description: 'Regeneracion QR TVD',
+        expiresAt,
+      });
+
+      this.assertProviderGenerateResult(
+        nextPayment,
+        nextPayment.amountMinor,
+        nextPayment.currency,
+        result,
+      );
+      const providerStatus = normalizeRedEnlaceStatus(result.providerStatus);
+      if (!RED_ENLACE_ACTIVE_QR_STATUSES.has(providerStatus)) {
+        throw new PaymentDomainError(
+          'RED_ENLACE_INVALID_RESPONSE',
+          'Red Enlace no devolvio un QR activo',
+          502,
+        );
+      }
+
+      const updated = await this.paymentModel.findOneAndUpdate(
+        { _id: nextPayment._id, status: 'QR_REQUESTING' },
+        {
+          $set: {
+            providerReference: result.providerReference,
+            providerStatus,
+            providerResponseCode: result.responseCode ?? null,
+            providerResponseDetail: sanitizeProviderDetail(
+              result.responseDetail,
+            ),
+            qrImage: result.qrImage,
+            qrExpiresAt: result.qrExpiresAt ?? expiresAt,
+            status: 'QR_ACTIVE',
+          },
+        },
+        { new: true },
+      );
+
+      await this.paymentModel.updateOne(
+        { _id: original._id, regenerationLockOwner: lockOwner },
+        {
+          $set: {
+            regenerationLockOwner: null,
+            regenerationLockedAt: null,
+            regenerationLockExpiresAt: null,
+          },
+        },
+      );
+
+      if (!updated) {
+        throw new PaymentDomainError(
+          'PAYMENT_MANUAL_REVIEW_REQUIRED',
+          'La regeneracion cambio de estado',
+          409,
+        );
+      }
+
+      return toPublicPaymentDto(updated, { includeQr: true });
+    } catch (error) {
+      await this.paymentModel.updateOne(
+        { _id: original._id, regenerationLockOwner: lockOwner },
+        {
+          $set: {
+            regenerationLockOwner: null,
+            regenerationLockedAt: null,
+            regenerationLockExpiresAt: null,
+          },
+        },
+      );
+      if (nextPayment) {
+        await this.paymentModel.updateOne(
+          { _id: nextPayment._id, status: 'QR_REQUESTING' },
+          {
+            $set: {
+              status: 'PROVIDER_STATUS_UNRESOLVED',
+              providerResponseCode:
+                error instanceof PaymentDomainError
+                  ? error.code
+                  : 'PAYMENT_REGENERATION_FAILED',
+              providerResponseDetail:
+                error instanceof PaymentDomainError
+                  ? sanitizeProviderDetail(error.message)
+                  : 'PAYMENT_REGENERATION_FAILED',
+            },
+          },
+        );
+      }
+      if (error instanceof PaymentDomainError) throw this.toHttpError(error);
+      throw error;
+    }
   }
 
   async listPayments(query: PaymentListQueryDto, requester: any) {
@@ -375,6 +605,20 @@ export class PaymentTransactionsService {
     );
   }
 
+  async applyReconciliationResult(
+    payment: PaymentTransactionDocument,
+    result: VerifyQrResult,
+  ) {
+    return this.applyProviderResult(payment, result, 'RECONCILIATION');
+  }
+
+  async ensureAccreditationForConfirmedPayment(
+    payment: PaymentTransactionDocument,
+    source: 'WEBHOOK' | 'RECONCILIATION',
+  ) {
+    return this.ensureQrAccreditationForConfirmedPayment(payment, source);
+  }
+
   private async applyProviderResult(
     payment: PaymentTransactionDocument,
     result: VerifyQrResult,
@@ -410,7 +654,9 @@ export class PaymentTransactionsService {
       providerStatus: result.providerStatus,
       responseCode: result.responseCode,
       source,
-      hasSuccessEvidence: payment.providerStatus === 'SUCCESS',
+      hasSuccessEvidence:
+        payment.providerStatus === 'SUCCESS' ||
+        hasRedEnlaceSuccessEvidence(result.providerStatus, result.statusHistory),
     });
 
     if (mapping.status === 'QR_ACTIVE') {
@@ -430,19 +676,32 @@ export class PaymentTransactionsService {
     }
 
     if (
-      this.shouldMoveLateWebhookApprovalToManualReview(
+      this.shouldMoveLateWebhookApprovalToReconciliationPending(
         payment,
         mapping.status,
         source,
       )
     ) {
-      return this.moveLateWebhookApprovalToManualReview(payment, result);
+      return this.moveLateWebhookApprovalToReconciliationPending(payment, result);
     }
 
     const allowedFrom =
       mapping.status === 'PAYMENT_CONFIRMED'
-        ? ['QR_ACTIVE']
-        : ['QR_ACTIVE', 'MISMATCH'];
+        ? source === 'RECONCILIATION'
+          ? [
+              'QR_ACTIVE',
+              'PROVIDER_STATUS_UNRESOLVED',
+              'PROVIDER_ERROR',
+              'RECONCILIATION_PENDING',
+            ]
+          : ['QR_ACTIVE']
+        : [
+            'QR_ACTIVE',
+            'MISMATCH',
+            'PROVIDER_STATUS_UNRESOLVED',
+            'PROVIDER_ERROR',
+            'RECONCILIATION_PENDING',
+          ];
 
     const updated = (await this.paymentModel
       .findOneAndUpdate(
@@ -498,7 +757,7 @@ export class PaymentTransactionsService {
     return updated;
   }
 
-  private shouldMoveLateWebhookApprovalToManualReview(
+  private shouldMoveLateWebhookApprovalToReconciliationPending(
     payment: PaymentTransactionDocument,
     mappedStatus: PaymentStatus,
     source: 'WEBHOOK' | 'RECONCILIATION',
@@ -506,11 +765,18 @@ export class PaymentTransactionsService {
     return (
       source === 'WEBHOOK' &&
       mappedStatus === 'PAYMENT_CONFIRMED' &&
-      ['EXPIRED', 'FAILED', 'CANCELLED'].includes(payment.status)
+      [
+        'EXPIRED',
+        'FAILED',
+        'CANCELLED',
+        'MISMATCH',
+        'PROVIDER_STATUS_UNRESOLVED',
+        'PROVIDER_ERROR',
+      ].includes(payment.status)
     );
   }
 
-  private async moveLateWebhookApprovalToManualReview(
+  private async moveLateWebhookApprovalToReconciliationPending(
     payment: PaymentTransactionDocument,
     result: VerifyQrResult,
   ) {
@@ -518,11 +784,20 @@ export class PaymentTransactionsService {
       .findOneAndUpdate(
         {
           _id: payment._id,
-          status: { $in: ['EXPIRED', 'FAILED', 'CANCELLED'] },
+          status: {
+            $in: [
+              'EXPIRED',
+              'FAILED',
+              'CANCELLED',
+              'MISMATCH',
+              'PROVIDER_STATUS_UNRESOLVED',
+              'PROVIDER_ERROR',
+            ],
+          },
         } as any,
         {
           $set: {
-            status: 'MANUAL_REVIEW',
+            status: 'RECONCILIATION_PENDING',
             providerStatus: result.providerStatus,
             providerResponseCode: result.responseCode ?? null,
             providerResponseDetail: sanitizeProviderDetail(
@@ -550,6 +825,8 @@ export class PaymentTransactionsService {
     idempotencyKey?: string | null;
     idempotencyRequestHash?: string | null;
     tvdQuote?: PaymentTvdQuoteSnapshot | null;
+    previousPaymentId?: Types.ObjectId | null;
+    regenerationReason?: string | null;
   }) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       try {
@@ -559,6 +836,8 @@ export class PaymentTransactionsService {
           merchantReference: this.generateMerchantReference(),
           status: 'CREATED',
           tvdQuote: input.tvdQuote ?? null,
+          previousPaymentId: input.previousPaymentId ?? null,
+          regenerationReason: input.regenerationReason ?? null,
         });
       } catch (error: unknown) {
         if (this.isDuplicateKeyError(error, 'merchantReference')) {
@@ -628,7 +907,7 @@ export class PaymentTransactionsService {
         { _id: payment._id },
         {
           $set: {
-            tokenAccreditationStatus: 'NEEDS_REVIEW',
+            tokenAccreditationStatus: 'BLOCKED_CONFIGURATION',
             tokenAccreditationErrorCode: 'TVD_ACCREDITATION_CREATION_PENDING',
           },
         },
@@ -710,7 +989,17 @@ export class PaymentTransactionsService {
     result: VerifyQrResult,
   ) {
     await this.paymentModel.updateOne(
-      { _id: payment._id, status: 'QR_ACTIVE' },
+      {
+        _id: payment._id,
+        status: {
+          $in: [
+            'QR_ACTIVE',
+            'PROVIDER_STATUS_UNRESOLVED',
+            'PROVIDER_ERROR',
+            'RECONCILIATION_PENDING',
+          ],
+        },
+      },
       {
         $set: {
           status: 'MISMATCH',
@@ -722,6 +1011,168 @@ export class PaymentTransactionsService {
         },
       },
     );
+  }
+
+  private assertRegenerationAllowed(payment: PaymentTransactionDocument) {
+    if (
+      payment.status === 'RECONCILIATION_PENDING' ||
+      payment.status === 'PROVIDER_STATUS_UNRESOLVED' ||
+      payment.status === 'PROVIDER_ERROR' ||
+      this.hasActiveDate(payment.reconciliationLockExpiresAt)
+    ) {
+      throw new ConflictException({
+        code: 'PAYMENT_REGENERATION_RECONCILIATION_REQUIRED',
+        message:
+          'Estamos verificando el estado del QR anterior. No generaremos otro QR hasta resolverlo para evitar un doble pago.',
+      });
+    }
+
+    if (
+      payment.status === 'PAYMENT_CONFIRMED' ||
+      payment.tokenAccreditationId ||
+      payment.tokenAccreditationStatus
+    ) {
+      throw new ConflictException({
+        code: 'PAYMENT_REGENERATION_NOT_ALLOWED',
+        message: 'El pago ya fue confirmado o tiene acreditacion asociada',
+      });
+    }
+
+    if (payment.regeneratedToPaymentId) {
+      throw new ConflictException({
+        code: 'PAYMENT_ALREADY_REGENERATED',
+        message: 'Este pago ya tiene un QR regenerado',
+      });
+    }
+
+    if (!['EXPIRED', 'CANCELLED', 'FAILED'].includes(payment.status)) {
+      throw new ConflictException({
+        code: 'PAYMENT_REGENERATION_NOT_ALLOWED',
+        message: 'El estado actual no permite regenerar QR',
+      });
+    }
+  }
+
+  private async refreshExpiredQrIfNeeded(payment: PaymentTransactionDocument) {
+    if (
+      payment.status !== 'QR_ACTIVE' ||
+      !payment.qrExpiresAt ||
+      payment.qrExpiresAt.getTime() > Date.now()
+    ) {
+      return payment;
+    }
+
+    const updated = await this.paymentModel.findOneAndUpdate(
+      { _id: payment._id, status: 'QR_ACTIVE' },
+      {
+        $set: {
+          status: 'EXPIRED',
+          providerResponseCode: 'LOCAL_QR_EXPIRED',
+          providerResponseDetail: 'QR_EXPIRED_BY_LOCAL_TTL',
+        },
+      },
+      { new: true },
+    );
+    return updated ?? payment;
+  }
+
+  private hasActiveDate(value?: Date | string | null) {
+    if (!value) return false;
+    const time = new Date(value).getTime();
+    return !Number.isNaN(time) && time > Date.now();
+  }
+
+  private async resolveRegenerationQuote(
+    payment: PaymentTransactionDocument,
+  ): Promise<PaymentTvdQuoteSnapshot | null> {
+    const existingQuote = payment.tvdQuote
+      ? this.withQuoteExpiration(payment.tvdQuote)
+      : null;
+    if (
+      existingQuote?.expiresAt &&
+      existingQuote.expiresAt.getTime() > Date.now()
+    ) {
+      return existingQuote;
+    }
+    if (!this.tvdQuotes) return existingQuote;
+    return this.withQuoteExpiration(
+      (await this.tvdQuotes.createPaymentQuoteSnapshot({
+        amountMinor: payment.amountMinor,
+        currency: payment.currency,
+      })) as PaymentTvdQuoteSnapshot,
+    );
+  }
+
+  private withQuoteExpiration<T extends PaymentTvdQuoteSnapshot | null>(
+    quote: T,
+  ): T {
+    if (!quote) return quote;
+    if (quote.expiresAt) return quote;
+    return {
+      ...quote,
+      expiresAt: new Date(
+        new Date(quote.quotedAt).getTime() + this.getRegenerationQuoteTtlMs(),
+      ),
+    };
+  }
+
+  private getRegenerationReason(
+    payment: PaymentTransactionDocument,
+    quote: PaymentTvdQuoteSnapshot | null,
+  ) {
+    if (payment.status === 'EXPIRED') {
+      const previousQuote = payment.tvdQuote
+        ? this.withQuoteExpiration(payment.tvdQuote)
+        : null;
+      if (
+        previousQuote?.expiresAt &&
+        previousQuote.expiresAt.getTime() > Date.now()
+      ) {
+        return 'QR_EXPIRED_QUOTE_VALID';
+      }
+      return 'QR_EXPIRED_QUOTE_EXPIRED';
+    }
+    if (payment.status === 'CANCELLED') return 'QR_CANCELLED';
+    if (payment.status === 'FAILED') return 'QR_FAILED';
+    return quote ? 'QR_REGENERATED' : 'QR_REGENERATED_WITHOUT_QUOTE';
+  }
+
+  private getRegenerationQuoteTtlMs() {
+    const value = Number(
+      this.configService.get<string>('app.redEnlace.regeneration.quoteTtlMs') ||
+        '900000',
+    );
+    return Number.isFinite(value) && value > 0 ? value : 900000;
+  }
+
+  private getRegenerationLockDurationMs() {
+    const value = Number(
+      this.configService.get<string>(
+        'app.redEnlace.regeneration.lockDurationMs',
+      ) || '60000',
+    );
+    return Number.isFinite(value) && value > 0 ? value : 60000;
+  }
+
+  private mapProviderGenerationErrorToStatus(code: string): PaymentStatus {
+    if (code === 'RED_ENLACE_TIMEOUT') return 'PROVIDER_STATUS_UNRESOLVED';
+    if (code === 'RED_ENLACE_INVALID_RESPONSE') {
+      return 'PROVIDER_STATUS_UNRESOLVED';
+    }
+    if (code === 'RED_ENLACE_UNAVAILABLE') return 'PROVIDER_ERROR';
+    if (code === 'RED_ENLACE_UNAUTHORIZED') return 'PROVIDER_ERROR';
+    if (code === 'RED_ENLACE_AMOUNT_INVALID') return 'PROVIDER_ERROR';
+    return 'PROVIDER_ERROR';
+  }
+
+  private mapProviderGenerationErrorDetail(code: string, message: string) {
+    if (code === 'RED_ENLACE_TIMEOUT') return 'QR_GENERATION_OUTCOME_UNKNOWN';
+    if (code === 'RED_ENLACE_INVALID_RESPONSE') {
+      return 'PROVIDER_RESPONSE_INVALID';
+    }
+    if (code === 'RED_ENLACE_UNAVAILABLE') return 'PROVIDER_REQUEST_FAILED';
+    if (code === 'RED_ENLACE_UNAUTHORIZED') return 'PROVIDER_REQUEST_FAILED';
+    return sanitizeProviderDetail(message);
   }
 
   private async getPaymentDocumentOrThrow(paymentId: string) {

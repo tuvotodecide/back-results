@@ -90,18 +90,8 @@ function createHarness() {
     })),
   };
   const blockchain = {
-    getTotalBalance: jest.fn(async () => ({
-      wallet: walletA,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '10000000000000000000',
-      totalBalanceSmallestUnit: '10000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '10',
-      totalBalanceFormatted: '10',
-      isUnlocked: false,
-      unlockTime: '0',
-    })),
+    getLiquidBalance: jest.fn(async () => '10000000000000000000'),
+    getTokenDecimals: jest.fn(async () => 18),
   };
 
   const service = new TvdCapacityService(
@@ -138,7 +128,8 @@ describe('TvdCapacityService', () => {
       active: true,
     });
 
-    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletA);
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletA);
+    expect(blockchain.getTokenDecimals).toHaveBeenCalled();
     expect(result).toMatchObject({
       estimatedParticipants: '10',
       tokensPerParticipant: '1',
@@ -151,25 +142,14 @@ describe('TvdCapacityService', () => {
       hasEstimatedCapacity: true,
       reasonCode: null,
       balanceSource: 'BLOCKCHAIN',
-      usableBalanceField: 'totalBalanceSmallestUnit',
+      usableBalanceField: 'liquidBalanceSmallestUnit',
       walletAddress: walletA,
     });
   });
 
   it('calcula faltante estimado con bigint sin usar saldos persistidos', async () => {
     const { service, blockchain } = createHarness();
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletA,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '80000000000000000000',
-      totalBalanceSmallestUnit: '80000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '80',
-      totalBalanceFormatted: '80',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('80000000000000000000');
 
     const result = await service.estimateCapacity('100', {
       sub: new Types.ObjectId().toHexString(),
@@ -198,7 +178,7 @@ describe('TvdCapacityService', () => {
           active: true,
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
-      expect(blockchain.getTotalBalance).not.toHaveBeenCalled();
+      expect(blockchain.getLiquidBalance).not.toHaveBeenCalled();
     },
   );
 
@@ -218,12 +198,12 @@ describe('TvdCapacityService', () => {
         active: true,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(blockchain.getTotalBalance).not.toHaveBeenCalled();
+    expect(blockchain.getLiquidBalance).not.toHaveBeenCalled();
   });
 
   it('normaliza errores RPC sin exponer detalles técnicos', async () => {
     const { service, blockchain } = createHarness();
-    blockchain.getTotalBalance.mockRejectedValueOnce(
+    blockchain.getLiquidBalance.mockRejectedValueOnce(
       Object.assign(new Error('rpc http://secret.local failed'), {
         code: 'TVD_RPC_UNAVAILABLE',
       }),
@@ -266,6 +246,7 @@ describe('TvdCapacityService', () => {
       missingTokens: '0',
       canPublish: true,
       reasonCode: null,
+      publicationReadiness: 'PUBLICATION_READY',
     });
   });
 
@@ -278,18 +259,7 @@ describe('TvdCapacityService', () => {
       wallet: walletB,
       walletNormalized: walletB.toLowerCase(),
     });
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletB,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '9000000000000000000',
-      totalBalanceSmallestUnit: '9000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '9',
-      totalBalanceFormatted: '9',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('9000000000000000000');
 
     const result = await service.getEventCapacity(String(eventId), {
       sub: new Types.ObjectId().toHexString(),
@@ -297,7 +267,7 @@ describe('TvdCapacityService', () => {
       active: true,
     });
 
-    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletB);
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletB);
     expect(result.walletAddress).toBe(walletB);
     expect(result.availableTokens).toBe('9');
   });
@@ -319,7 +289,7 @@ describe('TvdCapacityService', () => {
         active: true,
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
-    expect(blockchain.getTotalBalance).not.toHaveBeenCalled();
+    expect(blockchain.getLiquidBalance).not.toHaveBeenCalled();
   });
 
   it('devuelve canPublish=false para padrón inexistente o en procesamiento', async () => {
@@ -342,24 +312,14 @@ describe('TvdCapacityService', () => {
       requiredTokens: '0',
       canPublish: false,
       reasonCode: 'PADRON_PROCESSING',
+      publicationReadiness: 'PUBLICATION_PADRON_BLOCKED',
     });
   });
 
   it('devuelve canPublish=false para padrón vacío o saldo insuficiente sin publicar', async () => {
     const { service, eventId, padronEntryModel, blockchain } = createHarness();
     padronEntryModel.countDocuments.mockResolvedValueOnce(10);
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletA,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '5000000000000000000',
-      totalBalanceSmallestUnit: '5000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '5',
-      totalBalanceFormatted: '5',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('5000000000000000000');
 
     const result = await service.getEventCapacity(String(eventId), {
       sub: new Types.ObjectId().toHexString(),
@@ -374,6 +334,7 @@ describe('TvdCapacityService', () => {
       missingTokens: '5',
       canPublish: false,
       reasonCode: 'INSUFFICIENT_TVD_BALANCE',
+      publicationReadiness: 'PUBLICATION_BALANCE_INSUFFICIENT',
     });
   });
 
@@ -388,18 +349,7 @@ describe('TvdCapacityService', () => {
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletA,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '0',
-      totalBalanceSmallestUnit: 'not-a-number',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '0',
-      totalBalanceFormatted: '0',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('not-a-number');
 
     await expect(
       service.getEventCapacity(String(eventId), {

@@ -21,6 +21,8 @@ export enum TvdAdminOperationStatus {
   PROCESSING = 'PROCESSING',
   CONFIRMED = 'CONFIRMED',
   FAILED = 'FAILED',
+  FAILED_TERMINAL = 'FAILED_TERMINAL',
+  BLOCKED_CONFIGURATION = 'BLOCKED_CONFIGURATION',
   CANCELLED = 'CANCELLED',
   NEEDS_REVIEW = 'NEEDS_REVIEW',
 }
@@ -50,6 +52,8 @@ export const tvdAdminOperationStatusLabels: Record<
   [TvdAdminOperationStatus.PROCESSING]: 'En proceso',
   [TvdAdminOperationStatus.CONFIRMED]: 'Confirmada',
   [TvdAdminOperationStatus.FAILED]: 'Fallida',
+  [TvdAdminOperationStatus.FAILED_TERMINAL]: 'Fallida terminal',
+  [TvdAdminOperationStatus.BLOCKED_CONFIGURATION]: 'Bloqueada por configuración',
   [TvdAdminOperationStatus.CANCELLED]: 'Cancelada',
   [TvdAdminOperationStatus.NEEDS_REVIEW]: 'Requiere revisión',
 };
@@ -82,6 +86,8 @@ export const tokenAccreditationStatusToAdminStatus: Record<
   SUBMITTED: TvdAdminOperationStatus.PROCESSING,
   CONFIRMED: TvdAdminOperationStatus.CONFIRMED,
   FAILED: TvdAdminOperationStatus.FAILED,
+  FAILED_TERMINAL: TvdAdminOperationStatus.FAILED_TERMINAL,
+  BLOCKED_CONFIGURATION: TvdAdminOperationStatus.BLOCKED_CONFIGURATION,
   NEEDS_REVIEW: TvdAdminOperationStatus.NEEDS_REVIEW,
 };
 

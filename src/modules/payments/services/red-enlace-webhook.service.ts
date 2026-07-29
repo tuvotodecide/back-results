@@ -9,6 +9,7 @@ import {
   RedEnlaceWebhookResponseDto,
 } from '../dto/red-enlace-webhook.dto';
 import { PaymentDomainError } from '../errors/payment-domain.error';
+import type { PaymentDomainErrorCode } from '../errors/payment-domain.error';
 import { PAYMENT_PROVIDER_RED_ENLACE } from '../payments.constants';
 import {
   PaymentProviderEvent,
@@ -31,20 +32,24 @@ export class RedEnlaceWebhookService {
   ) {}
 
   async receiveWebhook(dto: RedEnlaceWebhookDto): Promise<RedEnlaceWebhookResponseDto> {
-    const providerReference = String(dto.numeroReferencia);
+    const providerReference = String(dto.numeroReferencia).trim();
     try {
       const amount = this.getWebhookAmount(dto);
-      const amountMinor = amount ? parseBobAmountToMinor(amount) : null;
+      const amountParse = this.parseWebhookAmount(amount);
+      const amountMinor = amountParse.amountMinor;
       const providerStatus = dto.estado;
       const responseCode = providerStatus;
-      const currency = dto.transacciones?.moneda ?? null;
+      const currency =
+        dto.transacciones?.moneda != null
+          ? String(dto.transacciones.moneda).trim().toUpperCase()
+          : null;
       const achReference = dto.transacciones?.numeroAch ?? null;
       const paymentDate = dto.transacciones?.fechaHoraTransaccion ?? null;
       const fingerprint = this.fingerprint({
         providerReference,
         providerStatus,
         responseCode: responseCode ?? null,
-        amountMinor,
+        amountMinor: amountMinor ?? amountParse.invalidFingerprintHint,
         currency,
         achReference,
         paymentDate,
@@ -59,6 +64,14 @@ export class RedEnlaceWebhookService {
         achReference,
         paymentDate: paymentDate ? new Date(paymentDate) : null,
       });
+
+      if (amountParse.errorCode) {
+        throw new PaymentDomainError(
+          amountParse.errorCode,
+          'Monto de callback Red Enlace invalido',
+          400,
+        );
+      }
 
       if (event.processingStatus === 'DUPLICATE') {
         if (event.lastErrorCode) {
@@ -204,6 +217,28 @@ export class RedEnlaceWebhookService {
       return String(dto.transacciones.monto);
     }
     return null;
+  }
+
+  private parseWebhookAmount(amount: string | null): {
+    amountMinor: string | null;
+    errorCode?: PaymentDomainErrorCode;
+    invalidFingerprintHint: string | null;
+  } {
+    if (amount == null) {
+      return { amountMinor: null, invalidFingerprintHint: null };
+    }
+    try {
+      return {
+        amountMinor: parseBobAmountToMinor(amount),
+        invalidFingerprintHint: null,
+      };
+    } catch {
+      return {
+        amountMinor: null,
+        errorCode: 'RED_ENLACE_AMOUNT_INVALID',
+        invalidFingerprintHint: this.fingerprint({ rawAmount: amount }),
+      };
+    }
   }
 
   private fingerprint(value: Record<string, string | null>) {

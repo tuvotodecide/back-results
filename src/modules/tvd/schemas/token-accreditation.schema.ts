@@ -112,7 +112,13 @@ export class TokenAccreditation {
   txHash?: string | null;
 
   @Prop({ type: String, trim: true, default: null })
+  userOpHash?: string | null;
+
+  @Prop({ type: String, trim: true, default: null })
   nonce?: string | null;
+
+  @Prop({ type: String, trim: true, default: null })
+  operatorAddress?: string | null;
 
   @Prop({ type: String, trim: true, default: null, select: false })
   serializedTransaction?: string | null;
@@ -164,3 +170,4 @@ TokenAccreditationSchema.index({ status: 1, createdAt: 1 });
 TokenAccreditationSchema.index({ status: 1, nextAttemptAt: 1, createdAt: 1 });
 TokenAccreditationSchema.index({ status: 1, processingLockExpiresAt: 1 });
 TokenAccreditationSchema.index({ txHash: 1 }, { sparse: true });
+TokenAccreditationSchema.index({ userOpHash: 1 }, { sparse: true });

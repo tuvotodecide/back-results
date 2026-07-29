@@ -38,7 +38,7 @@ function createProvider(
 function generateResponse(override: Record<string, any> = {}) {
   return {
     moneda: 'BOB',
-    monto: 20.0,
+    monto: '20.00',
     origenNumeroReferencia: '203414',
     numeroReferencia: '6780',
     codigoRespuesta: 'PENDING',
@@ -90,6 +90,23 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
         qrImage: dataUri,
       }),
     );
+  });
+
+  it('sends monto as an exact decimal string without converting it to Number', async () => {
+    const post = jest.fn().mockResolvedValue({
+      status: 200,
+      data: generateResponse(),
+    });
+
+    await createProvider({ post }).generateQr(input);
+
+    expect(post.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        numeroReferencia: 203414,
+        monto: '20.00',
+      }),
+    );
+    expect(typeof post.mock.calls[0][1].monto).toBe('string');
   });
 
   it.each(['ERROR', 'CANCELLED', 'EXPIRED'])(
@@ -219,6 +236,25 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
       code: 'RED_ENLACE_INVALID_RESPONSE',
     } satisfies Partial<PaymentDomainError>);
   });
+
+  it('rejects malformed image data URIs for active QR responses', async () => {
+    await expect(
+      generate(generateResponse({ imagen: 'data:text/plain;base64,UVI=' })),
+    ).rejects.toMatchObject({
+      code: 'RED_ENLACE_INVALID_RESPONSE',
+    } satisfies Partial<PaymentDomainError>);
+  });
+
+  it.each(['20.001', '1e3', ' 20.00', '20,00', '100000000.00'])(
+    'rejects provider amount %s without rounding or truncation',
+    async (monto) => {
+      await expect(generate(generateResponse({ monto }))).rejects.toMatchObject(
+        {
+          code: 'RED_ENLACE_INVALID_RESPONSE',
+        } satisfies Partial<PaymentDomainError>,
+      );
+    },
+  );
 });
 
 describe('RedEnlaceQrHttpProvider verify parsing', () => {
@@ -314,6 +350,24 @@ describe('RedEnlaceQrHttpProvider verify parsing', () => {
     expect(JSON.stringify(result)).not.toContain('CUENTA');
   });
 
+  it('uses the PDF example order when codigoRespuesta is absent from complete history', async () => {
+    await expect(
+      verify({
+        estados: [
+          { estado: 'CLOSED', fechaHora: '2024-11-29T17:04:41.032' },
+          { estado: 'SUCCESS', fechaHora: '2024-11-29T16:04:41.032' },
+          { estado: 'PENDING', fechaHora: '2024-11-29T16:01:06.296' },
+          { estado: 'INITIALIZE', fechaHora: '2024-11-29T16:01:06.207' },
+        ],
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        providerStatus: 'CLOSED',
+        responseCode: undefined,
+      }),
+    );
+  });
+
   it('does not classify malformed JSON as NOTFOUND', async () => {
     await expect(
       verify({ detalleRespuesta: 'sin estado' }),
@@ -322,7 +376,7 @@ describe('RedEnlaceQrHttpProvider verify parsing', () => {
     } satisfies Partial<PaymentDomainError>);
   });
 
-  it('maps unknown statuses to MANUAL_REVIEW, not confirmation', () => {
+  it('maps unknown statuses to PROVIDER_STATUS_UNRESOLVED, not confirmation', () => {
     expect(
       mapRedEnlaceStatus({
         providerStatus: 'UNEXPECTED',
@@ -330,7 +384,7 @@ describe('RedEnlaceQrHttpProvider verify parsing', () => {
       }),
     ).toEqual(
       expect.objectContaining({
-        status: 'MANUAL_REVIEW',
+        status: 'PROVIDER_STATUS_UNRESOLVED',
         ambiguous: true,
       }),
     );

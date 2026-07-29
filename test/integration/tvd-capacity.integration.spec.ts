@@ -98,6 +98,8 @@ describe('TVD capacity endpoints (integration)', () => {
       isUnlocked: false,
       unlockTime: '0',
     })),
+    getLiquidBalance: jest.fn(async () => '10000000000000000000'),
+    getTokenDecimals: jest.fn(async () => 18),
   };
 
   beforeAll(async () => {
@@ -212,6 +214,8 @@ describe('TVD capacity endpoints (integration)', () => {
       isUnlocked: false,
       unlockTime: '0',
     });
+    blockchain.getLiquidBalance.mockResolvedValue('10000000000000000000');
+    blockchain.getTokenDecimals.mockResolvedValue(18);
   });
 
   afterAll(async () => {
@@ -355,7 +359,7 @@ describe('TVD capacity endpoints (integration)', () => {
       .set('Authorization', 'Bearer institutional')
       .expect(200);
 
-    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletA);
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletA);
     expect(res.body).toMatchObject({
       eventId: String(seed.eventA._id),
       participantCount: 10,
@@ -369,7 +373,7 @@ describe('TVD capacity endpoints (integration)', () => {
       canPublish: true,
       reasonCode: null,
       balanceSource: 'BLOCKCHAIN',
-      usableBalanceField: 'totalBalanceSmallestUnit',
+      usableBalanceField: 'liquidBalanceSmallestUnit',
       walletAddress: walletA,
     });
     expect(await paymentModel.countDocuments({})).toBe(beforePayments);
@@ -405,18 +409,7 @@ describe('TVD capacity endpoints (integration)', () => {
   });
 
   it('devuelve canPublish=false con saldo insuficiente sin reservar ni consumir TVD', async () => {
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletA,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '5000000000000000000',
-      totalBalanceSmallestUnit: '5000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '5',
-      totalBalanceFormatted: '5',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('5000000000000000000');
 
     const res = await request(app.getHttpServer())
       .get(`/api/v1/voting/events/${seed.eventA._id}/tvd-capacity`)
@@ -450,7 +443,7 @@ describe('TVD capacity endpoints (integration)', () => {
       .get(`/api/v1/voting/events/${seed.eventA._id}/tvd-capacity`)
       .set('Authorization', 'Bearer tenant-b')
       .expect(404);
-    expect(blockchain.getTotalBalance).not.toHaveBeenCalled();
+    expect(blockchain.getLiquidBalance).not.toHaveBeenCalled();
 
     currentUser = {
       sub: String(seed.userA._id),
@@ -509,26 +502,15 @@ describe('TVD capacity endpoints (integration)', () => {
       active: true,
       tenantId: String(seed.tenantA._id),
     };
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletB,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '100000000000000000000',
-      totalBalanceSmallestUnit: '100000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '100',
-      totalBalanceFormatted: '100',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('100000000000000000000');
 
     const res = await request(app.getHttpServer())
       .get(`/api/v1/voting/events/${seed.eventA._id}/tvd-capacity`)
       .set('Authorization', 'Bearer institutional-c')
       .expect(200);
 
-    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletB);
-    expect(blockchain.getTotalBalance).not.toHaveBeenCalledWith(walletA);
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletB);
+    expect(blockchain.getLiquidBalance).not.toHaveBeenCalledWith(walletA);
     expect(res.body).toMatchObject({
       walletAddress: walletB,
       availableTokens: '100',
@@ -609,7 +591,7 @@ describe('TVD capacity endpoints (integration)', () => {
       totals: { validCount: 1, duplicateCount: 0, invalidCount: 0 },
       isCurrent: true,
     });
-    blockchain.getTotalBalance.mockRejectedValueOnce(
+    blockchain.getLiquidBalance.mockRejectedValueOnce(
       new Error('RPC http://private-rpc.local unavailable'),
     );
     const rpc = await request(app.getHttpServer())

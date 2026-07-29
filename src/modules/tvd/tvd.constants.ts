@@ -14,6 +14,10 @@ export const tokenAccreditationStatuses = [
   'SUBMITTED',
   'CONFIRMED',
   'FAILED',
+  'FAILED_TERMINAL',
+  'BLOCKED_CONFIGURATION',
+  // Legacy compatibility: existing rows may still contain this state, but new
+  // QR/payment accreditation paths use causal states instead.
   'NEEDS_REVIEW',
 ] as const;
 export type TokenAccreditationStatus =
@@ -23,6 +27,7 @@ export const tokenAccreditationFailureCategories = [
   'RETRYABLE',
   'FINAL',
   'AMBIGUOUS',
+  'CONFIGURATION',
 ] as const;
 export type TokenAccreditationFailureCategory =
   typeof tokenAccreditationFailureCategories[number];

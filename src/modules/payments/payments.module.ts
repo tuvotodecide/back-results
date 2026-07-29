@@ -16,6 +16,7 @@ import { RedEnlaceQrHttpProvider } from './providers/red-enlace-qr-http.provider
 import { PaymentProviderEvent, PaymentProviderEventSchema } from './schemas/payment-provider-event.schema';
 import { PaymentTransaction, PaymentTransactionSchema } from './schemas/payment-transaction.schema';
 import { PaymentTenantAccessService } from './services/payment-tenant-access.service';
+import { PaymentReconciliationService } from './services/payment-reconciliation.service';
 import { PaymentTransactionsService } from './services/payment-transactions.service';
 import { RedEnlaceWebhookService } from './services/red-enlace-webhook.service';
 
@@ -34,6 +35,7 @@ import { RedEnlaceWebhookService } from './services/red-enlace-webhook.service';
   controllers: [PaymentsController, RedEnlaceWebhookController],
   providers: [
     PaymentTenantAccessService,
+    PaymentReconciliationService,
     PaymentTransactionsService,
     RedEnlaceWebhookService,
     RedEnlaceWebhookGuard,
@@ -45,6 +47,6 @@ import { RedEnlaceWebhookService } from './services/red-enlace-webhook.service';
       useFactory: createQrPaymentProvider,
     },
   ],
-  exports: [PaymentTransactionsService],
+  exports: [PaymentTransactionsService, PaymentReconciliationService],
 })
 export class PaymentsModule {}

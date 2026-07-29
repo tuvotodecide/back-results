@@ -14,7 +14,7 @@ function redEnlacePayload(numeroReferencia: number | string = 1511556) {
     numeroReferencia,
     estado: '00',
     transacciones: {
-      monto: 10.0,
+      monto: '10.00',
       moneda: 'BOB',
       fechaHoraTransaccion: '2025-08-01T16:00:57.286',
       cliente: {
@@ -131,7 +131,7 @@ describe('Red Enlace webhook routes', () => {
         numeroReferencia: '1511556',
         estado: '00',
         transacciones: expect.objectContaining({
-          monto: 10,
+          monto: '10.00',
           moneda: 'BOB',
           numeroAch: '14262508014140754846',
         }),
@@ -166,6 +166,18 @@ describe('Red Enlace webhook routes', () => {
     const validationBody = JSON.stringify(response.body);
     expect(validationBody).toContain('estado');
     expect(validationBody).not.toContain('codigoRespuesta');
+    expect(receiveWebhook).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/v1/qr/confirmed rejects provider references outside 1 to 9 digits', async () => {
+    const response = await request(app.getHttpServer())
+      .post(CANONICAL_ROUTE)
+      .set('x-api-key', 'valid-callback-token')
+      .send(redEnlacePayload('1000000000'))
+      .expect(400);
+
+    const validationBody = JSON.stringify(response.body);
+    expect(validationBody).toContain('numeroReferencia');
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 

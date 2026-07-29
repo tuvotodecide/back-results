@@ -55,7 +55,10 @@ export class TvdAccreditationReconciliationService {
       .findOneAndUpdate(
         {
           status: 'SUBMITTED',
-          txHash: { $nin: [null, ''] },
+          $or: [
+            { txHash: { $nin: [null, ''] } },
+            { userOpHash: { $nin: [null, ''] } },
+          ],
           $and: [
             {
               $or: [
@@ -97,11 +100,20 @@ export class TvdAccreditationReconciliationService {
         {
           _id: this.toObjectId(accreditationId),
           status: 'SUBMITTED',
-          txHash: { $nin: [null, ''] },
-          $or: [
-            { processingLockExpiresAt: null },
-            { processingLockExpiresAt: { $exists: false } },
-            { processingLockExpiresAt: { $lte: now } },
+          $and: [
+            {
+              $or: [
+                { txHash: { $nin: [null, ''] } },
+                { userOpHash: { $nin: [null, ''] } },
+              ],
+            },
+            {
+              $or: [
+                { processingLockExpiresAt: null },
+                { processingLockExpiresAt: { $exists: false } },
+                { processingLockExpiresAt: { $lte: now } },
+              ],
+            },
           ],
         },
         {
@@ -122,18 +134,19 @@ export class TvdAccreditationReconciliationService {
     accreditation: TokenAccreditationDocument,
     ownerId: string,
   ) {
-    if (!accreditation.txHash) {
+    if (!accreditation.txHash && !accreditation.userOpHash) {
       return this.markTerminal(
         accreditation,
         ownerId,
-        'NEEDS_REVIEW',
+        'BLOCKED_CONFIGURATION',
         'TVD_RECEIPT_NOT_FOUND',
         'AMBIGUOUS',
       );
     }
 
     try {
-      const receipt = await this.blockchain.getTransactionReceipt(accreditation.txHash);
+      const txHash = await this.resolveTransactionHash(accreditation, ownerId);
+      const receipt = await this.blockchain.getTransactionReceipt(txHash);
       const validation = await this.blockchain.validateSubmittedAssignReceipt({
         receipt,
         expectedInstitutionWallet: accreditation.targetWallet,
@@ -165,17 +178,37 @@ export class TvdAccreditationReconciliationService {
       );
       await this.updateQrPaymentSummary(confirmed ?? accreditation);
       await this.recordAuditSafely('TVD_ACCREDITATION_CONFIRMED', confirmed ?? accreditation);
+      this.logMetric('tvd_accreditation_confirmed', confirmed ?? accreditation, ownerId);
       return confirmed;
     } catch (error) {
       const code = this.sanitizeErrorCode(error);
-      if (code === 'TVD_RECEIPT_NOT_FOUND') {
+      if (this.isRetryableReceiptError(code)) {
         await this.rebroadcastSameTransactionSafely(accreditation);
         return this.keepSubmitted(accreditation, ownerId, code);
       }
       const category = this.classifyReceiptError(code);
-      const status = category === 'FINAL' ? 'FAILED' : 'NEEDS_REVIEW';
+      const status = category === 'FINAL' ? 'FAILED_TERMINAL' : 'BLOCKED_CONFIGURATION';
       return this.markTerminal(accreditation, ownerId, status, code, category);
     }
+  }
+
+  private async resolveTransactionHash(
+    accreditation: TokenAccreditationDocument,
+    ownerId: string,
+  ) {
+    if (accreditation.txHash) return accreditation.txHash;
+    if (!accreditation.userOpHash) {
+      throw new TvdBlockchainError('TVD_RECEIPT_NOT_FOUND');
+    }
+    const txHash = await this.blockchain.resolveUserOperationTransactionHash(
+      accreditation.userOpHash,
+    );
+    await this.accreditationModel.updateOne(
+      { _id: accreditation._id, status: 'SUBMITTED', processingOwner: ownerId },
+      { $set: { txHash } },
+    );
+    accreditation.txHash = txHash;
+    return txHash;
   }
 
   private async rebroadcastSameTransactionSafely(accreditation: TokenAccreditationDocument) {
@@ -187,9 +220,15 @@ export class TvdAccreditationReconciliationService {
       if (broadcast.txHash && broadcast.txHash !== accreditation.txHash) {
         await this.accreditationModel.updateOne(
           { _id: accreditation._id },
-          { $set: { txHash: broadcast.txHash } },
+          {
+            $set: {
+              txHash: broadcast.txHash,
+              userOpHash: broadcast.userOpHash ?? accreditation.userOpHash ?? null,
+            },
+          },
         );
         accreditation.txHash = broadcast.txHash;
+        accreditation.userOpHash = broadcast.userOpHash ?? accreditation.userOpHash;
       }
       this.logger.log(
         JSON.stringify({
@@ -198,7 +237,7 @@ export class TvdAccreditationReconciliationService {
           sourceType: accreditation.sourceType,
           tenantId: String(accreditation.tenantId),
           txHash: accreditation.txHash,
-          userOpHash: broadcast.userOpHash,
+          userOpHash: broadcast.userOpHash ?? accreditation.userOpHash ?? null,
           nonce: accreditation.nonce,
         }),
       );
@@ -217,13 +256,13 @@ export class TvdAccreditationReconciliationService {
     }
   }
 
-  private keepSubmitted(
+  private async keepSubmitted(
     accreditation: TokenAccreditationDocument,
     ownerId: string,
     errorCode: string,
   ) {
     const now = new Date();
-    return this.accreditationModel.findOneAndUpdate(
+    const updated = await this.accreditationModel.findOneAndUpdate(
       {
         _id: accreditation._id,
         status: 'SUBMITTED',
@@ -246,12 +285,17 @@ export class TvdAccreditationReconciliationService {
       },
       { returnDocument: 'after' },
     );
+    this.logMetric('tvd_accreditation_retry', updated ?? accreditation, ownerId, {
+      errorCode,
+      nextAttemptAt: (updated as any)?.nextAttemptAt ?? null,
+    });
+    return updated;
   }
 
   private async markTerminal(
     accreditation: TokenAccreditationDocument,
     ownerId: string,
-    status: 'FAILED' | 'NEEDS_REVIEW',
+    status: 'FAILED' | 'FAILED_TERMINAL' | 'BLOCKED_CONFIGURATION' | 'NEEDS_REVIEW',
     errorCode: string,
     category: TokenAccreditationFailureCategory,
   ) {
@@ -279,11 +323,19 @@ export class TvdAccreditationReconciliationService {
     );
     await this.updateQrPaymentSummary(updated ?? accreditation);
     await this.recordAuditSafely(
-      status === 'NEEDS_REVIEW'
-        ? 'TVD_ACCREDITATION_NEEDS_REVIEW'
+      status === 'BLOCKED_CONFIGURATION'
+        ? 'TVD_ACCREDITATION_BLOCKED'
         : 'TVD_ACCREDITATION_FAILED',
       updated ?? accreditation,
       { errorCode },
+    );
+    this.logMetric(
+      status === 'BLOCKED_CONFIGURATION'
+        ? 'tvd_accreditation_blocked'
+        : 'tvd_accreditation_receipt_mismatch',
+      updated ?? accreditation,
+      ownerId,
+      { errorCode, failureCategory: category },
     );
     return updated;
   }
@@ -292,7 +344,8 @@ export class TvdAccreditationReconciliationService {
     action:
       | 'TVD_ACCREDITATION_CONFIRMED'
       | 'TVD_ACCREDITATION_FAILED'
-      | 'TVD_ACCREDITATION_NEEDS_REVIEW',
+      | 'TVD_ACCREDITATION_NEEDS_REVIEW'
+      | 'TVD_ACCREDITATION_BLOCKED',
     accreditation: any,
     extra: { errorCode?: string | null } = {},
   ) {
@@ -318,6 +371,7 @@ export class TvdAccreditationReconciliationService {
           targetWallet: accreditation.targetWallet,
           tokenAmount: accreditation.tokenAmount,
           txHash: accreditation.txHash ?? null,
+          userOpHash: accreditation.userOpHash ?? null,
           nonce: accreditation.nonce ?? null,
           attempts: accreditation.attempts,
           errorCode: extra.errorCode ?? accreditation.lastErrorCode ?? null,
@@ -348,10 +402,28 @@ export class TvdAccreditationReconciliationService {
   }
 
   private classifyReceiptError(errorCode: string): TokenAccreditationFailureCategory {
-    if (errorCode === 'TVD_RECEIPT_FAILED' || errorCode === 'TVD_ASSIGN_REVERTED') {
+    if (
+      [
+        'TVD_RECEIPT_FAILED',
+        'TVD_ASSIGN_REVERTED',
+        'TVD_EVENT_NOT_FOUND',
+        'TVD_EVENT_WALLET_MISMATCH',
+        'TVD_EVENT_AMOUNT_MISMATCH',
+        'TVD_RECEIPT_CONTRACT_MISMATCH',
+        'TVD_CHAIN_MISMATCH',
+      ].includes(errorCode)
+    ) {
       return 'FINAL';
     }
     return 'AMBIGUOUS';
+  }
+
+  private isRetryableReceiptError(errorCode: string) {
+    return [
+      'TVD_RECEIPT_NOT_FOUND',
+      'TVD_CONFIRMATIONS_INSUFFICIENT',
+      'TVD_RPC_UNAVAILABLE',
+    ].includes(errorCode);
   }
 
   private sanitizeErrorCode(error: unknown) {
@@ -371,6 +443,25 @@ export class TvdAccreditationReconciliationService {
 
   private getReconcileAfterMs() {
     return this.getPositiveConfigNumber('app.tvd.accreditationReconcileAfterMs', 15000);
+  }
+
+  private logMetric(
+    event: string,
+    accreditation: any,
+    workerId: string,
+    extra: Record<string, unknown> = {},
+  ) {
+    this.logger.log(
+      JSON.stringify({
+        event,
+        accreditationId: accreditation?._id ? String(accreditation._id) : null,
+        sourceType: accreditation?.sourceType ?? null,
+        tenantId: accreditation?.tenantId ? String(accreditation.tenantId) : null,
+        status: accreditation?.status ?? null,
+        workerId,
+        ...extra,
+      }),
+    );
   }
 
   private getPositiveConfigNumber(key: string, fallback: number) {

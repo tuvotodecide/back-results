@@ -111,7 +111,7 @@ export class TvdCapacityService {
       hasEstimatedCapacity: calculation.hasCapacity,
       reasonCode: calculation.hasCapacity ? null : 'INSUFFICIENT_TVD_BALANCE',
       balanceSource: 'BLOCKCHAIN',
-      usableBalanceField: 'totalBalanceSmallestUnit',
+      usableBalanceField: 'liquidBalanceSmallestUnit',
       walletAddress: balance.walletAddress,
     };
   }
@@ -153,8 +153,9 @@ export class TvdCapacityService {
       missingSmallestUnit: calculation.missingSmallestUnit.toString(),
       canPublish: reasonCode === null,
       reasonCode,
+      publicationReadiness: this.resolvePublicationReadiness(reasonCode),
       balanceSource: 'BLOCKCHAIN',
-      usableBalanceField: 'totalBalanceSmallestUnit',
+      usableBalanceField: 'liquidBalanceSmallestUnit',
       walletAddress: balance.walletAddress,
     };
   }
@@ -203,13 +204,14 @@ export class TvdCapacityService {
     walletContext: ResolvedTvdWalletContext,
   ): Promise<ResolvedTvdBalance> {
     try {
-      const balance = await this.blockchain.getTotalBalance(
-        walletContext.walletAddress,
-      );
-      const decimals = this.parseDecimals(balance.decimals);
+      const [rawBalance, rawDecimals] = await Promise.all([
+        this.blockchain.getLiquidBalance(walletContext.walletAddress),
+        this.blockchain.getTokenDecimals(),
+      ]);
+      const decimals = this.parseDecimals(rawDecimals);
       const availableSmallestUnit = this.parseNonNegativeInteger(
-        balance.totalBalanceSmallestUnit,
-        'totalBalanceSmallestUnit',
+        rawBalance,
+        'liquidBalanceSmallestUnit',
       );
 
       return {
@@ -304,6 +306,16 @@ export class TvdCapacityService {
   ): TvdCapacityReasonCode {
     if (padronReasonCode) return padronReasonCode;
     return calculation.hasCapacity ? null : 'INSUFFICIENT_TVD_BALANCE';
+  }
+
+  private resolvePublicationReadiness(
+    reasonCode: TvdCapacityReasonCode,
+  ) {
+    if (reasonCode === null) return 'PUBLICATION_READY' as const;
+    if (reasonCode === 'INSUFFICIENT_TVD_BALANCE') {
+      return 'PUBLICATION_BALANCE_INSUFFICIENT' as const;
+    }
+    return 'PUBLICATION_PADRON_BLOCKED' as const;
   }
 
   private parsePositiveInteger(value: string, fieldName: string) {

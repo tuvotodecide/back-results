@@ -30,7 +30,7 @@ function redEnlacePayload(numeroReferencia: number | string = 1511556): any {
     numeroReferencia,
     estado: '00',
     transacciones: {
-      monto: 10.0,
+      monto: '10.00',
       moneda: 'BOB',
       fechaHoraTransaccion: '2025-08-01T16:00:57.286',
       cliente: {
@@ -275,6 +275,40 @@ describe('RedEnlaceWebhookService', () => {
     expect(eventModel.updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it('persists callback evidence before ACK 05 when amount format is invalid', async () => {
+    const { service, eventModel, payments } = createService();
+    const payload = redEnlacePayload();
+    payload.transacciones.monto = '10.001';
+
+    await expect(service.receiveWebhook(payload)).resolves.toEqual({
+      numeroReferencia: '1511556',
+      codigoRespuesta: '05',
+      detalleRespuesta: 'RED_ENLACE_AMOUNT_INVALID',
+    });
+
+    expect(eventModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerReference: '1511556',
+        providerStatus: '00',
+        amountMinor: null,
+        currency: 'BOB',
+      }),
+    );
+    expect(eventModel.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerReference: '1511556',
+      }),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          processingStatus: 'FAILED',
+          lastErrorCode: 'RED_ENLACE_AMOUNT_INVALID',
+        }),
+      }),
+      { sort: { receivedAt: -1 } },
+    );
+    expect(payments.applyWebhookConfirmation).not.toHaveBeenCalled();
+  });
+
   it('does not confirm when Red Enlace reports a different currency', async () => {
     const { service, eventModel, payments } = createService({
       payments: {
@@ -371,7 +405,7 @@ describe('RedEnlaceQrHttpProvider', () => {
       status: 200,
       data: {
         moneda: 'BOB',
-        monto: 20.0,
+        monto: '20.00',
         origenNumeroReferencia: '203414',
         numeroReferencia: '6780',
         codigoRespuesta: 'PENDING',
@@ -420,7 +454,7 @@ describe('RedEnlaceQrHttpProvider', () => {
       {
         numeroReferencia: 203414,
         glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
-        monto: 20,
+        monto: '20.00',
         moneda: 'BOB',
         canal: 'WEB',
         tiempoQr: '00:30:00',

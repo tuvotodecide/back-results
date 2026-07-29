@@ -176,7 +176,7 @@ export class TvdBlockchainService {
 
   async getElectoralCreditsSummary() {
     const config = this.getElectoralCreditsConfigOrThrow();
-    const [chainId, tokenAddress, tvdPerCredit, proxyAuthorizedForCredits] =
+    const [chainId, tokenAddress, tvdPerCredit, maxTokenPerElection, operatorRole] =
       await Promise.all([
         this.callRpc(
           () => this.createClients(config).publicClient.getChainId(),
@@ -184,10 +184,14 @@ export class TvdBlockchainService {
         ),
         this.readElectoralCreditsContract(config, 'token'),
         this.readElectoralCreditsContract(config, 'tvdPerCredit'),
-        this.readElectoralCreditsContract(config, 'authorizedOperators', [
-          config.voteManagerAddress,
-        ]),
+        this.readElectoralCreditsContract(config, 'maxTokenPerElection'),
+        this.readElectoralCreditsContract(config, 'OPERATOR_ROLE'),
       ]);
+    const proxyAuthorizedForCredits = await this.readElectoralCreditsContract(
+      config,
+      'hasRole',
+      [operatorRole, config.voteManagerAddress],
+    );
 
     return {
       chainId,
@@ -198,6 +202,8 @@ export class TvdBlockchainService {
       tokenAddress: getAddress(tokenAddress),
       expectedTokenAddress: config.tokenContractAddress,
       tvdPerCredit: tvdPerCredit.toString(),
+      maxTokenPerElection: maxTokenPerElection.toString(),
+      operatorRole: String(operatorRole),
       spenderAddress: config.electoralCreditsAddress,
       proxyAuthorizedForCredits: Boolean(proxyAuthorizedForCredits),
     };
@@ -227,7 +233,7 @@ export class TvdBlockchainService {
       input.requiredCredits,
       'TVD_INVALID_AMOUNT',
     );
-    const [chainId, implementationAddress, tokenAddress, tvdPerCredit] =
+    const [chainId, implementationAddress, tokenAddress, tvdPerCredit, maxTokenPerElection] =
       await Promise.all([
         this.callRpc(
           () => clients.publicClient.getChainId(),
@@ -236,6 +242,7 @@ export class TvdBlockchainService {
         this.readProxyImplementation(config),
         this.readElectoralCreditsContract(config, 'token'),
         this.readElectoralCreditsContract(config, 'tvdPerCredit'),
+        this.readElectoralCreditsContract(config, 'maxTokenPerElection'),
       ]);
 
     if (chainId !== config.chainId) {
@@ -250,19 +257,29 @@ export class TvdBlockchainService {
     ) {
       throw new TvdBlockchainError(
         'TVD_VOTE_MANAGER_IMPLEMENTATION_MISMATCH',
+        undefined,
+        {
+          proxyAddress: config.voteManagerAddress,
+          expectedImplementationAddress: config.voteManagerImplementationAddress,
+          actualImplementationAddress: getAddress(implementationAddress),
+        },
       );
     }
     this.assertCreditsSpender(config, config.electoralCreditsAddress);
 
+    const operatorRole = await this.readElectoralCreditsContract(
+      config,
+      'OPERATOR_ROLE',
+    );
     const [
       proxyAuthorizedForCredits,
       institutionAdminAddress,
       institutionAuthorizedOnChain,
-      assignedBalance,
       liquidBalance,
-      assignmentCreditsContract,
+      allowance,
     ] = await Promise.all([
-      this.readElectoralCreditsContract(config, 'authorizedOperators', [
+      this.readElectoralCreditsContract(config, 'hasRole', [
+        operatorRole,
         config.voteManagerAddress,
       ]),
       this.readVoteManagerInstitutionContract(config, 'getInstitutionAdmin', [
@@ -272,15 +289,23 @@ export class TvdBlockchainService {
         input.institutionId,
         institutionWallet,
       ]),
-      this.readAssignmentContract(config, 'assignedBalance', [
-        institutionWallet,
-      ]),
       this.readTokenContract(config, 'balanceOf', [institutionWallet]),
-      this.readAssignmentContract(config, 'creditsContract'),
+      this.readTokenContract(config, 'allowance', [
+        institutionWallet,
+        config.electoralCreditsAddress,
+      ]),
     ]);
 
     if (!proxyAuthorizedForCredits) {
-      throw new TvdBlockchainError('TVD_CREDITS_OPERATOR_NOT_AUTHORIZED');
+      throw new TvdBlockchainError(
+        'TVD_CREDITS_OPERATOR_NOT_AUTHORIZED',
+        undefined,
+        {
+          creditsContractAddress: config.electoralCreditsAddress,
+          proxyAddress: config.voteManagerAddress,
+          operatorRole: String(operatorRole),
+        },
+      );
     }
     if (getAddress(institutionAdminAddress) === zeroAddress) {
       throw new TvdBlockchainError('TVD_INSTITUTION_NOT_REGISTERED');
@@ -292,26 +317,36 @@ export class TvdBlockchainService {
     }
 
     const requiredTvd = requiredCredits * BigInt(tvdPerCredit);
-    const vestingCovers = assignedBalance >= requiredTvd;
-    if (
-      vestingCovers &&
-      getAddress(assignmentCreditsContract) !== config.electoralCreditsAddress
-    ) {
-      throw new TvdBlockchainError('TVD_CREDITS_SOURCE_CONFIG_MISMATCH');
+    const maxTvd = BigInt(maxTokenPerElection);
+    if (maxTvd <= 0n) {
+      throw new TvdBlockchainError('TVD_CREDITS_MAX_TOKEN_INVALID', undefined, {
+        maxTokenPerElection: maxTvd.toString(),
+        requiredTvd: requiredTvd.toString(),
+        requiredCredits: requiredCredits.toString(),
+        tvdPerCredit: tvdPerCredit.toString(),
+      });
     }
-    const tvdSource = vestingCovers ? 'VESTING' as const : 'WALLET' as const;
-    const walletDebitRequired = tvdSource === 'WALLET' ? requiredTvd : 0n;
-    const hasCapacity = tvdSource === 'VESTING' || liquidBalance >= walletDebitRequired;
+    if (requiredTvd > maxTvd) {
+      throw new TvdBlockchainError('TVD_CREDITS_MAX_TOKEN_EXCEEDED', undefined, {
+        maxTokenPerElection: maxTvd.toString(),
+        requiredTvd: requiredTvd.toString(),
+        requiredCredits: requiredCredits.toString(),
+        tvdPerCredit: tvdPerCredit.toString(),
+      });
+    }
+    const tvdSource = 'WALLET' as const;
+    const walletDebitRequired = requiredTvd;
+    const hasCapacity = liquidBalance >= walletDebitRequired;
     if (!hasCapacity) {
-      throw new TvdBlockchainError('TVD_CREDITS_INSUFFICIENT_CAPACITY');
+      throw new TvdBlockchainError('TVD_CREDITS_BALANCE_INSUFFICIENT', undefined, {
+        availableTvd: liquidBalance.toString(),
+        requiredTvd: requiredTvd.toString(),
+        deficitTvd: (requiredTvd - liquidBalance).toString(),
+        requiredCredits: requiredCredits.toString(),
+        tvdPerCredit: tvdPerCredit.toString(),
+        maxTokenPerElection: maxTvd.toString(),
+      });
     }
-
-    const allowance = walletDebitRequired > 0n
-      ? await this.readTokenContract(config, 'allowance', [
-          institutionWallet,
-          config.electoralCreditsAddress,
-        ])
-      : 0n;
     const hasRequiredAllowance = allowance >= walletDebitRequired;
 
     const electionExistsOnChain = await this.voteExistsOnChain(
@@ -341,10 +376,11 @@ export class TvdBlockchainService {
       institutionWallet,
       institutionAdminAddress: getAddress(institutionAdminAddress),
       tvdPerCredit: tvdPerCredit.toString(),
+      maxTokenPerElection: maxTokenPerElection.toString(),
       requiredCredits: requiredCredits.toString(),
       requiredTvd: requiredTvd.toString(),
       tvdSource,
-      assignedBalanceSmallestUnit: assignedBalance.toString(),
+      assignedBalanceSmallestUnit: '0',
       liquidBalanceSmallestUnit: liquidBalance.toString(),
       allowanceSmallestUnit: allowance.toString(),
       walletDebitRequiredSmallestUnit: walletDebitRequired.toString(),
@@ -621,6 +657,12 @@ export class TvdBlockchainService {
       }
     }
     throw new TvdBlockchainError('TVD_RECEIPT_NOT_FOUND');
+  }
+
+  async resolveUserOperationTransactionHash(userOpHash: string) {
+    this.getConfigOrThrow();
+    const { smartAccountClient } = await this.getCoinbaseSmartAccountClients();
+    return this.resolveBundleTransactionHash(smartAccountClient, userOpHash as Hex);
   }
 
   private sleep(ms: number) {

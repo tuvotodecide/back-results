@@ -88,6 +88,51 @@ export class OfficialPublicationApiService {
           message: 'La publicacion oficial no esta disponible en este entorno.',
         });
       }
+      if (
+        error instanceof TvdBlockchainError &&
+        error.code === 'TVD_CREDITS_BALANCE_INSUFFICIENT'
+      ) {
+        throw new BadRequestException({
+          code: 'OFFICIAL_PUBLICATION_BALANCE_INSUFFICIENT',
+          message: 'Saldo TVD insuficiente para publicar.',
+          details: error.details ?? {},
+        });
+      }
+      if (
+        error instanceof TvdBlockchainError &&
+        (
+          error.code === 'TVD_CREDITS_MAX_TOKEN_EXCEEDED' ||
+          error.code === 'TVD_CREDITS_MAX_TOKEN_INVALID'
+        )
+      ) {
+        throw new BadRequestException({
+          code: error.code === 'TVD_CREDITS_MAX_TOKEN_INVALID'
+            ? 'OFFICIAL_PUBLICATION_CHAIN_READ_FAILED'
+            : 'OFFICIAL_PUBLICATION_MAX_TOKEN_EXCEEDED',
+          message: error.message,
+          details: error.details ?? {},
+        });
+      }
+      if (
+        error instanceof TvdBlockchainError &&
+        error.code === 'TVD_CREDITS_OPERATOR_NOT_AUTHORIZED'
+      ) {
+        throw new ServiceUnavailableException({
+          code: 'OFFICIAL_PUBLICATION_VOTE_MANAGER_NOT_OPERATOR',
+          message: 'El contrato de votacion no esta autorizado para usar creditos TVD.',
+          details: error.details ?? {},
+        });
+      }
+      if (
+        error instanceof TvdBlockchainError &&
+        error.code === 'TVD_VOTE_MANAGER_IMPLEMENTATION_MISMATCH'
+      ) {
+        throw new ServiceUnavailableException({
+          code: 'OFFICIAL_PUBLICATION_IMPLEMENTATION_MISMATCH',
+          message: 'La implementacion del contrato de votacion no coincide con la configuracion vigente.',
+          details: error.details ?? {},
+        });
+      }
       if (error instanceof TvdBlockchainError) {
         throw error.toHttpException();
       }

@@ -133,8 +133,6 @@ export class OfficialPublicationPreparationService {
     const allowanceBefore = preflight.allowanceSmallestUnit ?? '0';
     const walletDebitRequired =
       preflight.walletDebitRequiredSmallestUnit ?? preflight.requiredTvd;
-    const hasRequiredAllowance =
-      preflight.hasRequiredAllowance ?? BigInt(allowanceBefore) >= BigInt(walletDebitRequired);
 
     const executionPackage = this.buildExecutionPackage({
       chainId: preflight.chainId,
@@ -144,7 +142,7 @@ export class OfficialPublicationPreparationService {
       allowanceBefore,
       walletDebitRequired,
       createVoteCall: preparedVote.callData,
-      approveRequired: !hasRequiredAllowance,
+      approveRequired: true,
     });
     const callDataHash = executionPackage.callsHash;
     const optionsHash = this.hashJson(options);
@@ -357,9 +355,7 @@ export class OfficialPublicationPreparationService {
       purpose: 'TVD_APPROVAL' | 'CREATE_VOTE';
     }> = [];
     const walletDebitRequired = BigInt(input.walletDebitRequired);
-    const allowanceBefore = BigInt(input.allowanceBefore);
-    const approveRequired =
-      input.approveRequired && walletDebitRequired > 0n && allowanceBefore < walletDebitRequired;
+    const approveRequired = input.approveRequired && walletDebitRequired > 0n;
     if (approveRequired) {
       calls.push({
         target: getAddress(input.tokenAddress),

@@ -19,6 +19,7 @@ export type PaymentTvdQuoteSnapshot = {
   tokenAmount: string;
   tokenAmountSmallestUnit?: string | null;
   quotedAt: Date;
+  expiresAt?: Date | null;
 };
 
 @Schema({ timestamps: true, collection: 'payment_transactions' })
@@ -42,6 +43,24 @@ export class PaymentTransaction {
 
   @Prop({ type: String, trim: true, lowercase: true, default: null, index: true })
   targetWalletNormalized?: string | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'PaymentTransaction', default: null, index: true })
+  previousPaymentId?: Types.ObjectId | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'PaymentTransaction', default: null, index: true })
+  regeneratedToPaymentId?: Types.ObjectId | null;
+
+  @Prop({ type: String, trim: true, maxlength: 80, default: null })
+  regenerationReason?: string | null;
+
+  @Prop({ type: String, trim: true, maxlength: 80, default: null, index: true })
+  regenerationLockOwner?: string | null;
+
+  @Prop({ type: Date, default: null })
+  regenerationLockedAt?: Date | null;
+
+  @Prop({ type: Date, default: null, index: true })
+  regenerationLockExpiresAt?: Date | null;
 
   @Prop({
     type: String,
@@ -115,6 +134,7 @@ export class PaymentTransaction {
       tokenAmount: { type: String, required: true, trim: true },
       tokenAmountSmallestUnit: { type: String, trim: true, default: null },
       quotedAt: { type: Date, required: true },
+      expiresAt: { type: Date, default: null },
     },
     default: null,
     immutable: true,
@@ -127,7 +147,16 @@ export class PaymentTransaction {
 
   @Prop({
     type: String,
-    enum: ['PENDING', 'SUBMITTING', 'SUBMITTED', 'CONFIRMED', 'FAILED', 'NEEDS_REVIEW'],
+    enum: [
+      'PENDING',
+      'SUBMITTING',
+      'SUBMITTED',
+      'CONFIRMED',
+      'FAILED',
+      'FAILED_TERMINAL',
+      'BLOCKED_CONFIGURATION',
+      'NEEDS_REVIEW',
+    ],
     default: null,
     index: true,
   })
@@ -135,6 +164,33 @@ export class PaymentTransaction {
 
   @Prop({ type: String, trim: true, maxlength: 80, default: null })
   tokenAccreditationErrorCode?: string | null;
+
+  @Prop({ type: Number, required: true, min: 0, default: 0 })
+  reconciliationAttempts: number;
+
+  @Prop({ type: Date, default: null, index: true })
+  reconciliationLastAttemptAt?: Date | null;
+
+  @Prop({ type: Date, default: null, index: true })
+  reconciliationNextAttemptAt?: Date | null;
+
+  @Prop({ type: String, trim: true, maxlength: 80, default: null })
+  reconciliationLastProviderStatus?: string | null;
+
+  @Prop({ type: String, trim: true, maxlength: 80, default: null })
+  reconciliationLastErrorCode?: string | null;
+
+  @Prop({ type: String, trim: true, maxlength: 80, default: null, index: true })
+  reconciliationLockOwner?: string | null;
+
+  @Prop({ type: Date, default: null })
+  reconciliationLockedAt?: Date | null;
+
+  @Prop({ type: Date, default: null, index: true })
+  reconciliationLockExpiresAt?: Date | null;
+
+  @Prop({ type: Date, default: null })
+  reconciliationExhaustedAt?: Date | null;
 
   createdAt: Date;
   updatedAt: Date;
@@ -165,6 +221,11 @@ PaymentTransactionSchema.index(
 
 PaymentTransactionSchema.index({ tenantId: 1, createdAt: -1 });
 PaymentTransactionSchema.index({ status: 1, updatedAt: -1 });
+PaymentTransactionSchema.index({
+  status: 1,
+  reconciliationNextAttemptAt: 1,
+  reconciliationLockExpiresAt: 1,
+});
 
 PaymentTransactionSchema.pre('validate', function normalizeTargetWalletBeforeValidate() {
   const wallet = this.targetWallet?.trim();

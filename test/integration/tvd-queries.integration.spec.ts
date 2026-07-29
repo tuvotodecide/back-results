@@ -90,6 +90,8 @@ describe('TVD query endpoints (integration)', () => {
       isUnlocked: false,
       unlockTime: '0',
     })),
+    getLiquidBalance: jest.fn(async () => '11000000000000000000'),
+    getTokenDecimals: jest.fn(async () => 18),
     getTokenSymbol: jest.fn(async () => 'TVD'),
     getOperatorContext: jest.fn(() => ({
       chainId: 84532,
@@ -212,6 +214,8 @@ describe('TVD query endpoints (integration)', () => {
       isUnlocked: false,
       unlockTime: '0',
     });
+    blockchain.getLiquidBalance.mockResolvedValue('11000000000000000000');
+    blockchain.getTokenDecimals.mockResolvedValue(18);
     await Promise.all([
       conn.collection('institutional_tenants').deleteMany({}),
       conn.collection('tenant_admin_assignments').deleteMany({}),
@@ -554,18 +558,7 @@ describe('TVD query endpoints (integration)', () => {
   });
 
   it('TVD-CAPACITY-EST-POS-I-001 | POSITIVO | INTEGRACION | calcula capacidad estimada sin efectos economicos', async () => {
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletA,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '80000000000000000000',
-      totalBalanceSmallestUnit: '80000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '80',
-      totalBalanceFormatted: '80',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('80000000000000000000');
 
     const beforePayments = await paymentModel.countDocuments({});
     const beforeAccreditations = await accreditationModel.countDocuments({});
@@ -575,7 +568,7 @@ describe('TVD query endpoints (integration)', () => {
       .send({ estimatedParticipants: 100 })
       .expect(201);
 
-    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletA);
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletA);
     expect(res.body).toMatchObject({
       estimatedParticipants: '100',
       tokensPerParticipant: '1',
@@ -588,7 +581,7 @@ describe('TVD query endpoints (integration)', () => {
       hasEstimatedCapacity: false,
       reasonCode: 'INSUFFICIENT_TVD_BALANCE',
       balanceSource: 'BLOCKCHAIN',
-      usableBalanceField: 'totalBalanceSmallestUnit',
+      usableBalanceField: 'liquidBalanceSmallestUnit',
       walletAddress: walletA,
     });
     expect(await paymentModel.countDocuments({})).toBe(beforePayments);
@@ -625,7 +618,7 @@ describe('TVD query endpoints (integration)', () => {
       })
       .expect(400);
 
-    expect(blockchain.getTotalBalance).not.toHaveBeenCalled();
+    expect(blockchain.getLiquidBalance).not.toHaveBeenCalled();
   });
 
   it('TVD-CAPACITY-EST-POS-I-002 | POSITIVO | INTEGRACION | dos admins del mismo tenant conservan wallets independientes', async () => {
@@ -654,18 +647,7 @@ describe('TVD query endpoints (integration)', () => {
       active: true,
       tenantId: String(seed.tenantA._id),
     };
-    blockchain.getTotalBalance.mockResolvedValueOnce({
-      wallet: walletB,
-      decimals: 18,
-      liquidBalanceSmallestUnit: '0',
-      assignedBalanceSmallestUnit: '100000000000000000000',
-      totalBalanceSmallestUnit: '100000000000000000000',
-      liquidBalanceFormatted: '0',
-      assignedBalanceFormatted: '100',
-      totalBalanceFormatted: '100',
-      isUnlocked: false,
-      unlockTime: '0',
-    });
+    blockchain.getLiquidBalance.mockResolvedValueOnce('100000000000000000000');
 
     const res = await request(app.getHttpServer())
       .post('/api/v1/tvd/me/estimated-capacity')
@@ -673,8 +655,8 @@ describe('TVD query endpoints (integration)', () => {
       .send({ estimatedParticipants: 100 })
       .expect(201);
 
-    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletB);
-    expect(blockchain.getTotalBalance).not.toHaveBeenCalledWith(walletA);
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletB);
+    expect(blockchain.getLiquidBalance).not.toHaveBeenCalledWith(walletA);
     expect(res.body).toMatchObject({
       walletAddress: walletB,
       availableTokens: '100',

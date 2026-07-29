@@ -3,9 +3,9 @@ import {
   IsDateString,
   IsDefined,
   IsIn,
-  IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Validate,
   ValidateNested,
@@ -50,8 +50,10 @@ export class RedEnlaceWebhookBankDto {
 
 export class RedEnlaceWebhookTransactionsDto {
   @IsOptional()
-  @IsNumber()
-  monto?: number;
+  @Transform(({ value }) => (value == null ? value : String(value)))
+  @IsString()
+  @MaxLength(20)
+  monto?: string;
 
   @IsOptional()
   @IsString()
@@ -109,7 +111,8 @@ export class RedEnlaceWebhookDto {
   @IsDefined()
   @Transform(({ value }) => (value == null ? value : String(value)))
   @IsString()
-  @MaxLength(80)
+  @Matches(/^[1-9]\d{0,8}$/)
+  @MaxLength(9)
   numeroReferencia: string;
 
   @IsDefined()

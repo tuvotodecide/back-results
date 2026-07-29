@@ -162,13 +162,13 @@ describe('TVD QR accreditations service', () => {
           source: 'WEBHOOK',
         }),
       ).resolves.toMatchObject({
-        status: 'NEEDS_REVIEW',
+        status: 'BLOCKED_CONFIGURATION',
         reasonCode: 'TVD_PAYMENT_NOT_CONFIRMED',
       });
       expect(accreditationModel.create).not.toHaveBeenCalled();
     });
 
-    it('TVD-QR-NEG-U-002/003/004 | NEGATIVO | UNITARIO | campos congelados ausentes quedan en revision recuperable', async () => {
+    it('TVD-QR-NEG-U-002/003/004 | NEGATIVO | UNITARIO | campos congelados ausentes quedan bloqueados sin crear acreditacion utilizable', async () => {
       for (const [override, reasonCode] of [
         [{ tvdQuote: null }, 'TVD_QUOTE_MISSING'],
         [{ targetAssignmentId: null }, 'TVD_PAYMENT_TARGET_ASSIGNMENT_MISSING'],
@@ -179,11 +179,11 @@ describe('TVD QR accreditations service', () => {
           service.createOrReuseForConfirmedPayment(payment(override), {
             source: 'WEBHOOK',
           }),
-        ).resolves.toMatchObject({ status: 'NEEDS_REVIEW', reasonCode });
+        ).resolves.toMatchObject({ status: 'BLOCKED_CONFIGURATION', reasonCode });
       }
     });
 
-    it('TVD-QR-NEG-U-005/006/007/008/009 | NEGATIVO | UNITARIO | estado actual institucional inconsistente crea NEEDS_REVIEW', async () => {
+    it('TVD-QR-NEG-U-005/006/007/008/009 | NEGATIVO | UNITARIO | estado actual institucional inconsistente crea bloqueo causal', async () => {
       for (const [overrides, reasonCode] of [
         [{ tenant: { active: false } }, 'TVD_TENANT_INACTIVE'],
         [{ assignment: { active: false } }, 'TVD_ASSIGNMENT_NOT_APPROVED'],
@@ -196,7 +196,7 @@ describe('TVD QR accreditations service', () => {
         const { service } = createHarness(overrides);
         await expect(
           service.createOrReuseForConfirmedPayment(payment(), { source: 'WEBHOOK' }),
-        ).resolves.toMatchObject({ status: 'NEEDS_REVIEW', reasonCode });
+        ).resolves.toMatchObject({ status: 'BLOCKED_CONFIGURATION', reasonCode });
       }
     });
 
@@ -211,7 +211,7 @@ describe('TVD QR accreditations service', () => {
           service.createOrReuseForConfirmedPayment(payment(override), {
             source: 'WEBHOOK',
           }),
-        ).resolves.toMatchObject({ status: 'NEEDS_REVIEW', reasonCode });
+        ).resolves.toMatchObject({ status: 'BLOCKED_CONFIGURATION', reasonCode });
       }
     });
   });

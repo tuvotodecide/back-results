@@ -8,6 +8,7 @@ import {
 import { TvdAdminWalletLookupQueryDto } from '../dto/tvd-wallet-lookup.dto';
 import { TvdQueryService } from '../services/tvd-query.service';
 import { TvdWalletLookupService } from '../services/tvd-wallet-lookup.service';
+import { TvdAccreditationWorkerService } from '../services/tvd-accreditation-worker.service';
 
 @Controller('api/v1/tvd/admin')
 @UseGuards(AdminOnlyGuard)
@@ -15,6 +16,7 @@ export class TvdAdminController {
   constructor(
     private readonly tvdQueries: TvdQueryService,
     private readonly walletLookup: TvdWalletLookupService,
+    private readonly accreditationWorker: TvdAccreditationWorkerService,
   ) {}
 
   @Get('institutions')
@@ -49,6 +51,11 @@ export class TvdAdminController {
     @Req() req: any,
   ) {
     return this.tvdQueries.listAdminAccreditations(query, req.user);
+  }
+
+  @Get('accreditations/worker/status')
+  getAccreditationWorkerStatus() {
+    return this.accreditationWorker.getWorkerStatus();
   }
 
   @Get('accreditations/:accreditationId')

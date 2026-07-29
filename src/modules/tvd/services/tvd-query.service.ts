@@ -704,6 +704,10 @@ export class TvdQueryService {
         return ['CONFIRMED'];
       case TvdAdminOperationStatus.FAILED:
         return ['FAILED'];
+      case TvdAdminOperationStatus.FAILED_TERMINAL:
+        return ['FAILED_TERMINAL'];
+      case TvdAdminOperationStatus.BLOCKED_CONFIGURATION:
+        return ['BLOCKED_CONFIGURATION'];
       case TvdAdminOperationStatus.NEEDS_REVIEW:
         return ['NEEDS_REVIEW'];
       case TvdAdminOperationStatus.CANCELLED:
@@ -1018,7 +1022,7 @@ export class TvdQueryService {
     const payment = await this.paymentModel
       .findOne(
         { _id: id, ...filter },
-        { qrImage: 0, providerResponseDetail: 0, achReference: 0 },
+        { providerResponseDetail: 0, achReference: 0 },
       )
       .lean();
     if (!payment) {
@@ -1176,31 +1180,123 @@ export class TvdQueryService {
     payment: any,
     accreditation: any | null | undefined,
   ) {
-    const publicPayment = toPublicPaymentDto(payment, { includeQr: false });
+    const publicPayment = toPublicPaymentDto(payment, { includeQr: true });
+    const accreditationStatus =
+      accreditation?.status ??
+      publicPayment.tokenAccreditation?.status ??
+      null;
     return {
       paymentId: publicPayment.id,
       amount: publicPayment.amount,
       amountMinor: publicPayment.amountMinor,
       currency: publicPayment.currency,
       status: publicPayment.status,
+      paymentStatus: publicPayment.status,
       provider: publicPayment.provider,
       merchantReference: publicPayment.merchantReference,
       providerReference: publicPayment.providerReference,
+      qrImage: publicPayment.qrImage,
       qrExpiresAt: publicPayment.qrExpiresAt,
       confirmationSource: publicPayment.confirmationSource,
       createdAt: publicPayment.createdAt,
       updatedAt: publicPayment.updatedAt,
       confirmedAt: publicPayment.confirmedAt,
       tvdQuote: publicPayment.tvdQuote,
+      previousPaymentId: publicPayment.previousPaymentId,
+      regeneratedToPaymentId: publicPayment.regeneratedToPaymentId,
+      regenerationStatus: publicPayment.regenerationStatus,
+      regenerationReason: publicPayment.regenerationReason,
+      reconciliationStatus: this.resolvePaymentReconciliationStatus(payment),
       accreditationId: accreditation?._id
         ? String(accreditation._id)
         : (publicPayment.tokenAccreditation?.id ?? null),
-      accreditationStatus:
-        accreditation?.status ??
-        publicPayment.tokenAccreditation?.status ??
-        null,
+      accreditationStatus,
+      blockchainStatus: this.resolvePaymentBlockchainStatus(
+        publicPayment.status,
+        accreditationStatus,
+      ),
+      flowStatus: this.resolvePaymentFlowStatus(
+        publicPayment.status,
+        accreditationStatus,
+      ),
       txHash: accreditation?.txHash ?? null,
+      lastReconciliationErrorCode:
+        payment.reconciliationLastErrorCode ?? null,
+      lastAccreditationErrorCode:
+        accreditation?.lastErrorCode ??
+        payment.tokenAccreditationErrorCode ??
+        null,
     };
+  }
+
+  private resolvePaymentReconciliationStatus(payment: any) {
+    if (payment.status === 'PAYMENT_CONFIRMED') return 'PAYMENT_CONFIRMED';
+    if (payment.reconciliationExhaustedAt) return 'RECONCILIATION_BLOCKED';
+    if (
+      payment.status === 'RECONCILIATION_PENDING' ||
+      payment.status === 'PROVIDER_STATUS_UNRESOLVED' ||
+      payment.status === 'PROVIDER_ERROR'
+    ) {
+      return payment.status;
+    }
+    if (payment.reconciliationLockExpiresAt) return 'RECONCILIATION_CLAIMED';
+    if (payment.reconciliationNextAttemptAt) return 'RECONCILIATION_SCHEDULED';
+    return 'RECONCILIATION_NOT_REQUIRED';
+  }
+
+  private resolvePaymentBlockchainStatus(
+    paymentStatus: string,
+    accreditationStatus: string | null,
+  ) {
+    if (paymentStatus !== 'PAYMENT_CONFIRMED') return 'BLOCKCHAIN_NOT_STARTED';
+    switch (accreditationStatus) {
+      case 'PENDING':
+        return 'ACCREDITATION_PENDING';
+      case 'SUBMITTING':
+        return 'ACCREDITATION_PROCESSING';
+      case 'SUBMITTED':
+        return 'ACCREDITATION_SUBMITTED';
+      case 'CONFIRMED':
+        return 'ACCREDITATION_CONFIRMED';
+      case 'BLOCKED_CONFIGURATION':
+        return 'ACCREDITATION_BLOCKED_CONFIGURATION';
+      case 'FAILED':
+        return 'ACCREDITATION_RETRY_SCHEDULED';
+      case 'FAILED_TERMINAL':
+        return 'ACCREDITATION_FAILED_TERMINAL';
+      case 'NEEDS_REVIEW':
+        return 'ACCREDITATION_NEEDS_REVIEW';
+      default:
+        return 'ACCREDITATION_NOT_CREATED';
+    }
+  }
+
+  private resolvePaymentFlowStatus(
+    paymentStatus: string,
+    accreditationStatus: string | null,
+  ) {
+    if (paymentStatus === 'QR_ACTIVE') return 'QR_ACTIVE';
+    if (paymentStatus !== 'PAYMENT_CONFIRMED') return paymentStatus;
+    switch (accreditationStatus) {
+      case 'PENDING':
+        return 'ACCREDITATION_PENDING';
+      case 'SUBMITTING':
+        return 'ACCREDITATION_PENDING';
+      case 'SUBMITTED':
+        return 'ACCREDITATION_SUBMITTED';
+      case 'CONFIRMED':
+        return 'ACCREDITATION_CONFIRMED';
+      case 'BLOCKED_CONFIGURATION':
+        return 'ACCREDITATION_BLOCKED_CONFIGURATION';
+      case 'FAILED':
+        return 'ACCREDITATION_PENDING';
+      case 'FAILED_TERMINAL':
+        return 'ACCREDITATION_FAILED_TERMINAL';
+      case 'NEEDS_REVIEW':
+        return 'ACCREDITATION_NEEDS_REVIEW';
+      default:
+        return 'ACCREDITATION_PENDING';
+    }
   }
 
   private sanitizeTvdErrorCode(error: unknown) {

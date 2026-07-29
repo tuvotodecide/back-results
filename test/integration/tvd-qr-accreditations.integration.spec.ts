@@ -17,8 +17,10 @@ import { PaymentTransactionsService } from '@/modules/payments/services/payment-
 import { RedEnlaceWebhookService } from '@/modules/payments/services/red-enlace-webhook.service';
 import { TokenAccreditation } from '@/modules/tvd/schemas/token-accreditation.schema';
 import { TvdExchangeRatesService } from '@/modules/tvd/services/tvd-exchange-rates.service';
+import { TvdQueryService } from '@/modules/tvd/services/tvd-query.service';
 import { TvdModule } from '@/modules/tvd/tvd.module';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
@@ -32,7 +34,7 @@ function redEnlacePayload(providerReference: string) {
     numeroReferencia: providerReference,
     estado: '00',
     transacciones: {
-      monto: 10.5,
+      monto: '10.5',
       moneda: 'BOB',
       fechaHoraTransaccion: '2026-07-17T10:30:00.000',
       numeroAch: 'ACH-QR-001',
@@ -47,6 +49,7 @@ describe('TVD QR accreditations integration', () => {
   let payments: PaymentTransactionsService;
   let webhook: RedEnlaceWebhookService;
   let rates: TvdExchangeRatesService;
+  let queries: TvdQueryService;
   let tenantModel: Model<any>;
   let userModel: Model<any>;
   let assignmentModel: Model<any>;
@@ -90,6 +93,7 @@ describe('TVD QR accreditations integration', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([
@@ -116,6 +120,7 @@ describe('TVD QR accreditations integration', () => {
     payments = moduleRef.get(PaymentTransactionsService);
     webhook = moduleRef.get(RedEnlaceWebhookService);
     rates = moduleRef.get(TvdExchangeRatesService);
+    queries = moduleRef.get(TvdQueryService);
     tenantModel = moduleRef.get(getModelToken(InstitutionalTenant.name));
     userModel = moduleRef.get(getModelToken(RoledUser.name));
     assignmentModel = moduleRef.get(getModelToken(TenantAdminAssignment.name));
@@ -250,6 +255,18 @@ describe('TVD QR accreditations integration', () => {
       attempts: 0,
     });
 
+    const paymentState = await queries.getMyPayment(created.id, seed.requester);
+    expect(paymentState).toMatchObject({
+      paymentId: created.id,
+      paymentStatus: 'PAYMENT_CONFIRMED',
+      status: 'PAYMENT_CONFIRMED',
+      reconciliationStatus: 'PAYMENT_CONFIRMED',
+      accreditationStatus: 'PENDING',
+      blockchainStatus: 'ACCREDITATION_PENDING',
+      flowStatus: 'ACCREDITATION_PENDING',
+      lastAccreditationErrorCode: null,
+    });
+
     await webhook.receiveWebhook(redEnlacePayload(String(created.providerReference)));
     await payments.reconcilePayment(created.id, { role: 'ADMIN' }, {});
     await expect(accreditationModel.countDocuments({
@@ -259,7 +276,7 @@ describe('TVD QR accreditations integration', () => {
     await expect(accreditationModel.countDocuments({ sourceType: 'MANUAL_GRANT' })).resolves.toBe(0);
   });
 
-  it('N-INT-002/004/008/009 | NEGATIVO | INTEGRACION | snapshot inconsistente queda NEEDS_REVIEW y no crea MANUAL_GRANT', async () => {
+  it('N-INT-002/004/008/009 | NEGATIVO | INTEGRACION | snapshot inconsistente queda bloqueado y no crea MANUAL_GRANT', async () => {
     const seed = await seedInstitutionalRequester();
     const rawPayment = await paymentModel.create({
       tenantId: seed.tenant._id,
@@ -291,7 +308,7 @@ describe('TVD QR accreditations integration', () => {
       sourceId: String(rawPayment._id),
     }).lean();
     expect(accreditation).toMatchObject({
-      status: 'NEEDS_REVIEW',
+      status: 'BLOCKED_CONFIGURATION',
       lastErrorCode: 'TVD_QUOTE_FIAT_MISMATCH',
     });
     await expect(accreditationModel.countDocuments({ sourceType: 'MANUAL_GRANT' })).resolves.toBe(0);

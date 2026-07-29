@@ -11,6 +11,7 @@ import { TvdAccreditationWorkerService } from '@/modules/tvd/services/tvd-accred
 import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.service';
 import { TvdModule } from '@/modules/tvd/tvd.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
@@ -22,6 +23,8 @@ const assignmentContract = getAddress('0x222222222222222222222222222222222222222
 const operatorAddress = getAddress('0x3333333333333333333333333333333333333333');
 const txHashOne = `0x${'1'.repeat(64)}`;
 const txHashTwo = `0x${'2'.repeat(64)}`;
+const userOpHashOne = `0x${'e'.repeat(64)}`;
+const userOpHashTwo = `0x${'f'.repeat(64)}`;
 const serializedOne = `0x${'a'.repeat(64)}`;
 const serializedTwo = `0x${'b'.repeat(64)}`;
 
@@ -36,6 +39,7 @@ describe('TVD accreditation worker and processor integration', () => {
   let worker: TvdAccreditationWorkerService;
   let configService: ConfigService;
   let previousEnv: Record<string, string | undefined>;
+  let preparedNonce = 0;
 
   const blockchain = {
     validateBlockchainConfiguration: jest.fn(async () => ({
@@ -51,9 +55,11 @@ describe('TVD accreditation worker and processor integration', () => {
       contractAddress: assignmentContract,
       operatorAddress,
     })),
-    getPendingNonce: jest.fn(async () => '1'),
-    prepareSignedAssignTransaction: jest.fn(async ({ nonce }: any) => ({
-      txHash: nonce === '2' ? txHashTwo : txHashOne,
+    prepareSignedAssignTransaction: jest.fn(async () => {
+      preparedNonce += 1;
+      const nonce = String(preparedNonce);
+      return {
+      userOpHash: nonce === '2' ? userOpHashTwo : userOpHashOne,
       nonce,
       serializedTransaction: nonce === '2' ? serializedTwo : serializedOne,
       chainId: 84532,
@@ -61,11 +67,14 @@ describe('TVD accreditation worker and processor integration', () => {
       operatorAddress,
       institutionWallet: wallet,
       amountSmallestUnit: '100',
-    })),
-    broadcastSignedTransaction: jest.fn(async ({ serializedTransaction }: any) => ({
+    };
+    }),
+    broadcastSignedTransaction: jest.fn(async (serializedTransaction: string) => ({
       txHash: serializedTransaction === serializedTwo ? txHashTwo : txHashOne,
+      userOpHash: serializedTransaction === serializedTwo ? userOpHashTwo : userOpHashOne,
       alreadyKnown: false,
     })),
+    resolveUserOperationTransactionHash: jest.fn(async () => txHashOne),
     getTransactionReceipt: jest.fn(async () => ({ transactionHash: txHashOne })),
     validateSubmittedAssignReceipt: jest.fn(async () => ({
       blockNumber: '99',
@@ -99,6 +108,7 @@ describe('TVD accreditation worker and processor integration', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([
@@ -122,11 +132,14 @@ describe('TVD accreditation worker and processor integration', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    preparedNonce = 0;
     await conn.dropDatabase();
     blockchain.validateBlockchainConfiguration.mockResolvedValue({ configured: true });
-    blockchain.getPendingNonce.mockResolvedValue('1');
-    blockchain.prepareSignedAssignTransaction.mockImplementation(async ({ nonce }: any) => ({
-      txHash: nonce === '2' ? txHashTwo : txHashOne,
+    blockchain.prepareSignedAssignTransaction.mockImplementation(async () => {
+      preparedNonce += 1;
+      const nonce = String(preparedNonce);
+      return {
+      userOpHash: nonce === '2' ? userOpHashTwo : userOpHashOne,
       nonce,
       serializedTransaction: nonce === '2' ? serializedTwo : serializedOne,
       chainId: 84532,
@@ -134,11 +147,14 @@ describe('TVD accreditation worker and processor integration', () => {
       operatorAddress,
       institutionWallet: wallet,
       amountSmallestUnit: '100',
-    }));
+    };
+    });
     blockchain.broadcastSignedTransaction.mockResolvedValue({
       txHash: txHashOne,
+      userOpHash: userOpHashOne,
       alreadyKnown: false,
     });
+    blockchain.resolveUserOperationTransactionHash.mockResolvedValue(txHashOne);
     blockchain.getTransactionReceipt.mockResolvedValue({ transactionHash: txHashOne });
     blockchain.validateSubmittedAssignReceipt.mockResolvedValue({
       blockNumber: '99',
@@ -184,6 +200,7 @@ describe('TVD accreditation worker and processor integration', () => {
     expect(stored).toMatchObject({
       status: 'SUBMITTED',
       txHash: txHashOne,
+      userOpHash: userOpHashOne,
       nonce: '1',
     });
     expect(blockchain.prepareSignedAssignTransaction).toHaveBeenCalledTimes(1);
@@ -193,17 +210,13 @@ describe('TVD accreditation worker and processor integration', () => {
   it('TVD-PROC-POS-I-002/003 | POSITIVO | INTEGRACION | acreditaciones distintas usan nonces secuenciales bajo lock', async () => {
     await baseAccreditation({ sourceId: 'qr-1' });
     await baseAccreditation({ sourceId: 'qr-2' });
-    blockchain.getPendingNonce.mockResolvedValueOnce('1').mockResolvedValueOnce('2');
 
     await processor.processNextPending('worker-seq');
     await processor.processNextPending('worker-seq');
 
     const stored = await accreditationModel.find({}).sort({ nonce: 1 }).lean();
     expect(stored.map((row) => row.nonce)).toEqual(['1', '2']);
-    expect(blockchain.prepareSignedAssignTransaction).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ nonce: '2' }),
-    );
+    expect(blockchain.prepareSignedAssignTransaction).toHaveBeenCalledTimes(2);
   });
 
   it('TVD-PROC-POS-I-004/005/012 | POSITIVO | INTEGRACION | receipt pendiente retransmite la misma transaccion firmada', async () => {
@@ -276,18 +289,18 @@ describe('TVD accreditation worker and processor integration', () => {
     await baseAccreditation({
       status: 'SUBMITTING',
       processingLockExpiresAt: expired,
-      txHash: txHashOne,
+      userOpHash: userOpHashOne,
       nonce: '1',
       serializedTransaction: serializedOne,
     });
-    await baseAccreditation({ status: 'NEEDS_REVIEW', sourceId: 'review' });
+    await baseAccreditation({ status: 'BLOCKED_CONFIGURATION', sourceId: 'blocked' });
     await baseAccreditation({ status: 'CONFIRMED', sourceId: 'confirmed' });
 
     const recovered = await processor.recoverExpiredClaims();
     await processor.processNextPending('worker-recover');
 
     expect(recovered).toEqual({ recoveredPending: 1, recoveredSubmitted: 1 });
-    expect(await accreditationModel.countDocuments({ sourceId: 'review', status: 'NEEDS_REVIEW' })).toBe(1);
+    expect(await accreditationModel.countDocuments({ sourceId: 'blocked', status: 'BLOCKED_CONFIGURATION' })).toBe(1);
     expect(await accreditationModel.countDocuments({ sourceId: 'confirmed', status: 'CONFIRMED' })).toBe(1);
   });
 
@@ -316,5 +329,97 @@ describe('TVD accreditation worker and processor integration', () => {
     expect(result).toEqual([]);
     expect(blockchain.prepareSignedAssignTransaction).not.toHaveBeenCalled();
     expect(await accreditationModel.countDocuments({ status: 'PENDING' })).toBe(1);
+  });
+
+  it('TVD-PROC-POS-I-013 | POSITIVO | INTEGRACION | SUBMITTED con solo userOpHash resuelve txHash antes de validar receipt', async () => {
+    const accreditation = await baseAccreditation({
+      status: 'SUBMITTED',
+      userOpHash: userOpHashOne,
+      nonce: '1',
+      serializedTransaction: serializedOne,
+      submittedAt: new Date(),
+    });
+
+    await reconciliation.reconcileSubmittedAccreditation(accreditation._id, 'recon-userop');
+
+    const stored = await accreditationModel.findById(accreditation._id).lean();
+    expect(blockchain.resolveUserOperationTransactionHash).toHaveBeenCalledWith(userOpHashOne);
+    expect(blockchain.getTransactionReceipt).toHaveBeenCalledWith(txHashOne);
+    expect(stored).toMatchObject({ status: 'CONFIRMED', txHash: txHashOne });
+  });
+
+  it('TVD-PROC-NEG-I-014/015/016 | NEGATIVO | INTEGRACION | receipt incompatible queda FAILED_TERMINAL sin acreditar', async () => {
+    const accreditation = await baseAccreditation({
+      status: 'SUBMITTED',
+      txHash: txHashOne,
+      userOpHash: userOpHashOne,
+      nonce: '1',
+      serializedTransaction: serializedOne,
+    });
+    blockchain.validateSubmittedAssignReceipt.mockRejectedValueOnce(
+      new TvdBlockchainError('TVD_EVENT_AMOUNT_MISMATCH'),
+    );
+
+    await reconciliation.reconcileSubmittedAccreditation(accreditation._id, 'recon-mismatch');
+
+    const stored = await accreditationModel.findById(accreditation._id).lean();
+    expect(stored).toMatchObject({
+      status: 'FAILED_TERMINAL',
+      lastErrorCode: 'TVD_EVENT_AMOUNT_MISMATCH',
+      retryable: false,
+    });
+  });
+
+  it('TVD-PROC-POS-I-018 | POSITIVO | INTEGRACION | confirmaciones insuficientes conserva SUBMITTED con backoff', async () => {
+    const accreditation = await baseAccreditation({
+      status: 'SUBMITTED',
+      txHash: txHashOne,
+      userOpHash: userOpHashOne,
+      nonce: '1',
+      serializedTransaction: serializedOne,
+    });
+    blockchain.validateSubmittedAssignReceipt.mockRejectedValueOnce(
+      new TvdBlockchainError('TVD_CONFIRMATIONS_INSUFFICIENT'),
+    );
+
+    await reconciliation.reconcileSubmittedAccreditation(accreditation._id, 'recon-confirmations');
+
+    const stored = await accreditationModel.findById(accreditation._id).lean();
+    expect(stored.status).toBe('SUBMITTED');
+    expect(stored.lastErrorCode).toBe('TVD_CONFIRMATIONS_INSUFFICIENT');
+    expect(stored.nextAttemptAt).toBeInstanceOf(Date);
+  });
+
+  it('TVD-PROC-NEG-I-019 | NEGATIVO | INTEGRACION | validacion previa bloquea configuracion sin broadcast', async () => {
+    const accreditation = await baseAccreditation();
+    blockchain.validateAssignReadiness.mockRejectedValueOnce(
+      new TvdBlockchainError('TVD_OPERATOR_MISMATCH'),
+    );
+
+    await processor.processAccreditationById(accreditation._id, { ownerId: 'worker-config' });
+
+    const stored = await accreditationModel.findById(accreditation._id).lean();
+    expect(stored).toMatchObject({
+      status: 'BLOCKED_CONFIGURATION',
+      lastErrorCode: 'TVD_OPERATOR_MISMATCH',
+      retryable: false,
+    });
+    expect(blockchain.broadcastSignedTransaction).not.toHaveBeenCalled();
+  });
+
+  it('TVD-PROC-NEG-I-020 | NEGATIVO | INTEGRACION | worker deshabilitado en staging no queda ready', async () => {
+    const spy = jest.spyOn(configService, 'get').mockImplementation((key: string) => {
+      if (key === 'app.tvd.accreditationWorkerEnabled') return 'false';
+      if (key === 'app.nodeEnv') return 'staging';
+      return undefined;
+    });
+
+    await expect(worker.getWorkerStatus()).resolves.toMatchObject({
+      ready: false,
+      workerEnabled: false,
+      configurationValid: false,
+      reasonCode: 'TVD_ACCREDITATION_WORKER_DISABLED',
+    });
+    spy.mockRestore();
   });
 });

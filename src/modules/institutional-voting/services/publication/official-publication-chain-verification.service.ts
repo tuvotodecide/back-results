@@ -292,8 +292,13 @@ export class OfficialPublicationChainVerificationService {
       );
     }
 
-    if (expectedCalls.length === 2) {
-      if (expectedCalls[0].purpose !== 'TVD_APPROVAL' || expectedCalls[1].purpose !== 'CREATE_VOTE') {
+    const tvdRequired = BigInt(request.walletDebitRequired ?? request.tvdRequired ?? '0');
+    if (tvdRequired > 0n) {
+      if (
+        expectedCalls.length !== 2 ||
+        expectedCalls[0].purpose !== 'TVD_APPROVAL' ||
+        expectedCalls[1].purpose !== 'CREATE_VOTE'
+      ) {
         return this.mismatch(
           'OFFICIAL_PUBLICATION_BATCH_ORDER_MISMATCH',
           'El paquete no respeta el orden approve y createVote',
@@ -419,9 +424,13 @@ export class OfficialPublicationChainVerificationService {
       this.sameAddress(log.address, creditsAddress),
     );
     if (!knownCreditsLogs.length) {
-      return null;
+      return this.mismatch(
+        'OFFICIAL_PUBLICATION_TOP_UP_EVENT_MISSING',
+        'No se encontro el evento TopUp esperado',
+      );
     }
 
+    let decodedTopUp = false;
     for (const log of knownCreditsLogs) {
       try {
         const decoded = decodeEventLog({
@@ -429,7 +438,18 @@ export class OfficialPublicationChainVerificationService {
           data: log.data as `0x${string}`,
           topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
         });
+        if (decoded.eventName !== 'TopUp') continue;
+        decodedTopUp = true;
         const args = decoded.args as any;
+        if (
+          args.institution !== undefined &&
+          !this.sameAddress(String(args.institution), request.signerWallet || request.smartAccountAddress)
+        ) {
+          return this.mismatch(
+            'OFFICIAL_PUBLICATION_CREDITS_INSTITUTION_MISMATCH',
+            'La evidencia de creditos pertenece a otra wallet institucional',
+          );
+        }
         if (args.electionId !== undefined && String(args.electionId) !== request.onChainElectionId) {
           return this.mismatch(
             'OFFICIAL_PUBLICATION_CREDITS_ELECTION_MISMATCH',
@@ -454,6 +474,12 @@ export class OfficialPublicationChainVerificationService {
       } catch {
         continue;
       }
+    }
+    if (!decodedTopUp) {
+      return this.mismatch(
+        'OFFICIAL_PUBLICATION_TOP_UP_EVENT_MISSING',
+        'No se encontro el evento TopUp esperado',
+      );
     }
     return null;
   }

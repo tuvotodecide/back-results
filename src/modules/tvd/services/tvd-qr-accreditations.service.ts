@@ -55,7 +55,7 @@ export class TvdQrAccreditationsService {
   ): Promise<TvdQrAccreditationResult> {
     if (payment?.status !== 'PAYMENT_CONFIRMED') {
       return {
-        status: 'NEEDS_REVIEW',
+        status: 'BLOCKED_CONFIGURATION',
         reasonCode: 'TVD_PAYMENT_NOT_CONFIRMED',
         reused: false,
       };
@@ -83,20 +83,20 @@ export class TvdQrAccreditationsService {
 
     const validation = await this.validatePaymentForAccreditation(payment);
     if (!validation.canCreateAccreditation) {
-      await this.recordAuditSafely('TVD_QR_ACCREDITATION_NEEDS_REVIEW', {
+      await this.recordAuditSafely('TVD_QR_ACCREDITATION_BLOCKED', {
         payment,
         context,
         reasonCode: validation.reasonCode,
       });
       return {
-        status: 'NEEDS_REVIEW',
+        status: 'BLOCKED_CONFIGURATION',
         tokenAmount: payment.tvdQuote?.tokenAmount ?? null,
         reasonCode: validation.reasonCode,
         reused: false,
       };
     }
 
-    const status = validation.reasonCode ? 'NEEDS_REVIEW' : 'PENDING';
+    const status = validation.reasonCode ? 'BLOCKED_CONFIGURATION' : 'PENDING';
     try {
       const created = await this.accreditationModel.create({
         sourceType: 'QR_PAYMENT',
@@ -120,7 +120,7 @@ export class TvdQrAccreditationsService {
       await this.recordAuditSafely(
         status === 'PENDING'
           ? 'TVD_QR_ACCREDITATION_CREATED'
-          : 'TVD_QR_ACCREDITATION_NEEDS_REVIEW',
+          : 'TVD_QR_ACCREDITATION_BLOCKED',
         {
           payment,
           accreditation: created,
@@ -289,7 +289,8 @@ export class TvdQrAccreditationsService {
     action:
       | 'TVD_QR_ACCREDITATION_CREATED'
       | 'TVD_QR_ACCREDITATION_REUSED'
-      | 'TVD_QR_ACCREDITATION_NEEDS_REVIEW',
+      | 'TVD_QR_ACCREDITATION_NEEDS_REVIEW'
+      | 'TVD_QR_ACCREDITATION_BLOCKED',
     input: {
       payment: any;
       context: { source: 'WEBHOOK' | 'RECONCILIATION' | 'MOCK' };
@@ -325,7 +326,7 @@ export class TvdQrAccreditationsService {
             input.accreditation?.tokenAmountSmallestUnit ??
             input.payment.tvdQuote?.tokenAmountSmallestUnit ??
             null,
-          status: input.accreditation?.status ?? 'NEEDS_REVIEW',
+          status: input.accreditation?.status ?? 'BLOCKED_CONFIGURATION',
           targetWallet: input.payment.targetWallet ?? null,
           reasonCode: input.reasonCode ?? null,
         },

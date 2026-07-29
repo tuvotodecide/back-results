@@ -73,28 +73,10 @@ describe('OfficialPublicationChainVerificationService', () => {
     );
   });
 
-  it('confirma userOp con sender, EntryPoint, callData y VoteCreated correctos', async () => {
-    const request = makeRequest();
-    const callData = buildCreateVoteCallData();
-    const userOperationCallData = encodeFunctionData({
-      abi: COINBASE_SMART_ACCOUNT_ABI,
-      functionName: 'execute',
-      args: [voteProxyAddress, 0n, callData],
-    });
-    request.callData.data = callData;
-    request.callDataHash = service.buildCanonicalCallDataHash({
-      to: voteProxyAddress,
-      value: 0n,
-      data: callData,
-    });
+  it('confirma userOp con sender, EntryPoint, approve exacto, createVote y TopUp correctos', async () => {
+    const { request, lookup } = makeConfirmedSingleCallEvidence();
 
-    userOperationService.getUserOperationByHash.mockResolvedValue({
-      entryPoint: entryPoint06Address,
-      userOperation: {
-        sender: smartAccountAddress,
-        callData: userOperationCallData,
-      },
-    });
+    userOperationService.getUserOperationByHash.mockResolvedValue(lookup);
     userOperationService.getUserOperationReceipt.mockResolvedValue(
       makeReceipt({ success: true }),
     );
@@ -274,13 +256,20 @@ describe('OfficialPublicationChainVerificationService', () => {
 
   it('BR-N13 rechaza target distinto al contrato preparado', async () => {
     const { request } = makeConfirmedSingleCallEvidence();
+    const badCalls = request.executionCalls.map((call: any) =>
+      call.purpose === 'CREATE_VOTE'
+        ? { ...call, target: '0x2222222222222222222222222222222222222222' }
+        : call,
+    );
     const userOperationCallData = encodeFunctionData({
       abi: COINBASE_SMART_ACCOUNT_ABI,
-      functionName: 'execute',
+      functionName: 'executeBatch',
       args: [
-        '0x2222222222222222222222222222222222222222',
-        0n,
-        request.callData.data,
+        badCalls.map((call: any) => ({
+          target: call.target,
+          value: BigInt(call.value),
+          data: call.callData,
+        })),
       ],
     });
     userOperationService.getUserOperationByHash.mockResolvedValue({
@@ -369,6 +358,7 @@ describe('OfficialPublicationChainVerificationService', () => {
       txHash: null,
       chainId: 84532,
       smartAccountAddress,
+      signerWallet: smartAccountAddress,
       entryPointAddress: entryPoint06Address,
       callData: {
         to: voteProxyAddress,
@@ -386,23 +376,59 @@ describe('OfficialPublicationChainVerificationService', () => {
       },
       creditsRequired: '2',
       tvdRequired: '2000000000000000000',
+      walletDebitRequired: '2000000000000000000',
       ...overrides,
     };
   }
 
   function makeConfirmedSingleCallEvidence() {
-    const request = makeRequest();
+    const request: any = makeRequest({
+      executionMode: 'BATCH',
+      approveRequired: true,
+      allowanceBefore: '0',
+      executionPackageVersion: 2,
+    });
     const callData = buildCreateVoteCallData();
-    const userOperationCallData = encodeFunctionData({
-      abi: COINBASE_SMART_ACCOUNT_ABI,
-      functionName: 'execute',
-      args: [voteProxyAddress, 0n, callData],
+    const approveCallData = encodeFunctionData({
+      abi: TVD_TOKEN_ABI,
+      functionName: 'approve',
+      args: [creditsAddress, 2000000000000000000n],
     });
     request.callData.data = callData;
-    request.callDataHash = service.buildCanonicalCallDataHash({
-      to: voteProxyAddress,
-      value: 0n,
-      data: callData,
+    request.executionCalls = [
+      {
+        target: tokenAddress,
+        value: '0',
+        callData: approveCallData,
+        purpose: 'TVD_APPROVAL',
+      },
+      {
+        target: voteProxyAddress,
+        value: '0',
+        callData,
+        purpose: 'CREATE_VOTE',
+      },
+    ];
+    request.callsHash = service.buildCanonicalCallsHash(
+      request.chainId,
+      smartAccountAddress,
+      request.executionCalls.map((call: any) => ({
+        to: call.target,
+        value: call.value,
+        data: call.callData,
+      })),
+    );
+    request.callDataHash = request.callsHash;
+    const userOperationCallData = encodeFunctionData({
+      abi: COINBASE_SMART_ACCOUNT_ABI,
+      functionName: 'executeBatch',
+      args: [
+        request.executionCalls.map((call: any) => ({
+          target: call.target,
+          value: BigInt(call.value),
+          data: call.callData,
+        })),
+      ],
     });
     return {
       request,
@@ -479,6 +505,10 @@ describe('OfficialPublicationChainVerificationService', () => {
             }),
             data: encodeAbiParameters([{ type: 'string' }], ['Eleccion']),
           },
+          makeCreditsTopUpLog({
+            creditsPurchased: 2n,
+            tvdLocked: 2000000000000000000n,
+          }),
         ],
       },
     };

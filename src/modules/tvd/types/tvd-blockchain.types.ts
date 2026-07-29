@@ -97,6 +97,7 @@ export type TvdVotePublicationPreflightResult = {
   institutionWallet: Address;
   institutionAdminAddress: Address;
   tvdPerCredit: string;
+  maxTokenPerElection: string;
   requiredCredits: string;
   requiredTvd: string;
   tvdSource: 'VESTING' | 'INCENTIVES' | 'WALLET';

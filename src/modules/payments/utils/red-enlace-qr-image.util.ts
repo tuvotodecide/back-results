@@ -1,6 +1,7 @@
 export const RED_ENLACE_MAX_QR_IMAGE_BYTES_DEFAULT = 1024 * 1024;
 
-const DATA_URI_BASE64_PATTERN = /^data:[^;,]+\/?[^;,]*;base64,(?<data>.+)$/i;
+const DATA_URI_BASE64_PATTERN =
+  /^data:image\/(?:png|jpe?g);base64,(?<data>.+)$/i;
 
 export function validateRedEnlaceQrImage(
   value: unknown,
@@ -15,7 +16,12 @@ export function validateRedEnlaceQrImage(
     throw new Error('RED_ENLACE_QR_IMAGE_INVALID');
   }
 
-  const payload = DATA_URI_BASE64_PATTERN.exec(trimmed)?.groups?.data ?? trimmed;
+  const dataUriMatch = DATA_URI_BASE64_PATTERN.exec(trimmed);
+  if (trimmed.toLowerCase().startsWith('data:') && !dataUriMatch) {
+    throw new Error('RED_ENLACE_QR_IMAGE_INVALID');
+  }
+
+  const payload = dataUriMatch?.groups?.data ?? trimmed;
   const normalized = payload.replace(/\s/g, '');
   if (!normalized || normalized.length % 4 !== 0) {
     throw new Error('RED_ENLACE_QR_IMAGE_INVALID');

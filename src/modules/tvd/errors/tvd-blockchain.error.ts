@@ -21,6 +21,9 @@ export type TvdBlockchainErrorCode =
   | 'TVD_CREDITS_SPENDER_INVALID'
   | 'TVD_CREDITS_OPERATOR_NOT_AUTHORIZED'
   | 'TVD_CREDITS_INSUFFICIENT_CAPACITY'
+  | 'TVD_CREDITS_BALANCE_INSUFFICIENT'
+  | 'TVD_CREDITS_MAX_TOKEN_INVALID'
+  | 'TVD_CREDITS_MAX_TOKEN_EXCEEDED'
   | 'TVD_CREDITS_SOURCE_CONFIG_MISMATCH'
   | 'TVD_ALLOWANCE_INSUFFICIENT'
   | 'TVD_VOTE_MANAGER_CONFIG_INCOMPLETE'
@@ -56,6 +59,9 @@ const messages: Record<TvdBlockchainErrorCode, string> = {
   TVD_CREDITS_SPENDER_INVALID: 'Spender TVD configurado invalido',
   TVD_CREDITS_OPERATOR_NOT_AUTHORIZED: 'Contrato de votacion no autorizado para creditos TVD',
   TVD_CREDITS_INSUFFICIENT_CAPACITY: 'Capacidad TVD insuficiente para publicar',
+  TVD_CREDITS_BALANCE_INSUFFICIENT: 'Saldo TVD insuficiente para publicar',
+  TVD_CREDITS_MAX_TOKEN_INVALID: 'Limite TVD por eleccion invalido',
+  TVD_CREDITS_MAX_TOKEN_EXCEEDED: 'La votacion supera el maximo TVD permitido por eleccion',
   TVD_CREDITS_SOURCE_CONFIG_MISMATCH: 'Fuente TVD contractual mal configurada',
   TVD_ALLOWANCE_INSUFFICIENT: 'Allowance TVD insuficiente para publicar',
   TVD_VOTE_MANAGER_CONFIG_INCOMPLETE: 'Configuracion del contrato de votacion incompleta',
@@ -79,30 +85,27 @@ export class TvdBlockchainError extends Error {
   constructor(
     readonly code: TvdBlockchainErrorCode,
     _cause?: unknown,
+    readonly details?: Record<string, string>,
   ) {
     super(messages[code]);
   }
 
   toHttpException() {
+    const body = {
+      code: this.code,
+      message: this.message,
+      ...(this.details ? { details: this.details } : {}),
+    };
     if (
       this.code === 'TVD_RPC_UNAVAILABLE' ||
       this.code === 'TVD_ASSIGN_REVERTED'
     ) {
-      return new ServiceUnavailableException({
-        code: this.code,
-        message: this.message,
-      });
+      return new ServiceUnavailableException(body);
     }
     if (this.code === 'TVD_INSTITUTION_NOT_REGISTERED') {
-      return new ConflictException({
-        code: this.code,
-        message: this.message,
-      });
+      return new ConflictException(body);
     }
 
-    return new BadRequestException({
-      code: this.code,
-      message: this.message,
-    });
+    return new BadRequestException(body);
   }
 }

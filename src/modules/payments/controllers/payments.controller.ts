@@ -38,6 +38,19 @@ export class PaymentsController {
     return this.payments.getPayment(paymentId, req.user);
   }
 
+  @Post(':paymentId/regenerate')
+  regeneratePayment(
+    @Param('paymentId') paymentId: string,
+    @Req() req: any,
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ) {
+    return this.payments.regenerateQrPayment(
+      paymentId,
+      req.user,
+      idempotencyKey,
+    );
+  }
+
   @Post(':paymentId/reconcile')
   @UseGuards(AdminOnlyGuard)
   reconcilePayment(

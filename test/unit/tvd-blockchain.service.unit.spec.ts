@@ -31,6 +31,7 @@ jest.mock('permissionless', () => ({
 
 import {
   TVD_ASSIGNMENT_ABI,
+  TVD_ELECTORAL_CREDITS_ABI,
 } from '@/modules/tvd/contracts/tvd-abis';
 import { TvdBlockchainError } from '@/modules/tvd/errors/tvd-blockchain.error';
 import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.service';
@@ -48,7 +49,7 @@ const assignment = getAddress('0x2222222222222222222222222222222222222222');
 const operator = getAddress('0x3333333333333333333333333333333333333333');
 const voteManager = getAddress('0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523');
 const obsoleteVoteManager = getAddress('0x7B57eE9103fc46eD6794329C36D2919293F0Fabb');
-const implementation = getAddress('0xb9ebfaca95ca68f774084dde30c7e6eb8e7eeea9');
+const implementation = getAddress('0x24638b4A7fcbF4fC1B971F17Fcd2bae77777D3eF');
 const credits = getAddress('0xbb4ea03105e2d883ab234d95f10dc7cc5000bb40');
 const institution = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 const privateKey = `0x${'1'.repeat(64)}`;
@@ -86,7 +87,8 @@ function createHarness(overrides: Record<string, any> = {}) {
     chainId: 84532,
     operator,
     accountAddress: operator,
-    operatorRole: '0xoperatorrole0000000000000000000000000000000000000000000000000',
+    operatorRole: '0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929',
+    defaultAdminRole: `0x${'0'.repeat(64)}`,
     signerHasOperatorRole: true,
     assignmentToken: token,
     assignmentCreditsContract: credits,
@@ -98,7 +100,9 @@ function createHarness(overrides: Record<string, any> = {}) {
     totalAssigned: 1000n,
     creditsToken: token,
     tvdPerCredit: 1000000000000000000n,
+    maxTokenPerElection: 100000000000000000000000n,
     proxyAuthorizedForCredits: true,
+    proxyHasDefaultAdminRole: false,
     institutionAdminAddress: institution,
     institutionAuthorizedOnChain: true,
     allowance: 100000000000000000000n,
@@ -145,8 +149,23 @@ function createHarness(overrides: Record<string, any> = {}) {
     if (input.address === credits && input.functionName === 'tvdPerCredit') {
       return state.tvdPerCredit;
     }
-    if (input.address === credits && input.functionName === 'authorizedOperators') {
-      return state.proxyAuthorizedForCredits;
+    if (input.address === credits && input.functionName === 'maxTokenPerElection') {
+      return state.maxTokenPerElection;
+    }
+    if (input.address === credits && input.functionName === 'OPERATOR_ROLE') {
+      return state.operatorRole;
+    }
+    if (input.address === credits && input.functionName === 'DEFAULT_ADMIN_ROLE') {
+      return state.defaultAdminRole;
+    }
+    if (input.address === credits && input.functionName === 'hasRole') {
+      if (input.args?.[0] === state.operatorRole && getAddress(input.args?.[1]) === voteManager) {
+        return state.proxyAuthorizedForCredits;
+      }
+      if (input.args?.[0] === state.defaultAdminRole && getAddress(input.args?.[1]) === voteManager) {
+        return state.proxyHasDefaultAdminRole;
+      }
+      return false;
     }
     if (input.address === voteManager && input.functionName === 'getInstitutionAdmin') {
       return state.institutionAdminAddress;
@@ -227,6 +246,33 @@ describe('TVD blockchain service', () => {
       });
     });
 
+    it('P-UNIT-002B | POSITIVO | UNITARIO | ABI de ElectoralCredits usa AccessControl desplegado y getElection de 10 campos', () => {
+      const functionNames = TVD_ELECTORAL_CREDITS_ABI
+        .filter((entry: any) => entry.type === 'function')
+        .map((entry: any) => entry.name);
+      const getElection = TVD_ELECTORAL_CREDITS_ABI.find(
+        (entry: any) => entry.type === 'function' && entry.name === 'getElection',
+      ) as any;
+
+      expect(functionNames).toEqual(
+        expect.arrayContaining(['OPERATOR_ROLE', 'DEFAULT_ADMIN_ROLE', 'hasRole']),
+      );
+      expect(functionNames).not.toContain('authorizedOperators');
+      expect(getElection.outputs).toHaveLength(10);
+      expect(getElection.outputs.map((output: any) => output.name)).toEqual([
+        'institution',
+        'creditBalance',
+        'lockedTVD',
+        'pendingTVD',
+        'startCreditBalance',
+        'startLockedTVD',
+        'liquidated',
+        'burnedTVD',
+        'consumedTVD',
+        'refundedTVD',
+      ]);
+    });
+
     it('P-UNIT-003/P-UNIT-004/P-UNIT-005/P-UNIT-006/P-UNIT-007/P-UNIT-008 | POSITIVO | UNITARIO | valida configuracion y contratos', async () => {
       const { service } = createHarness();
 
@@ -257,6 +303,8 @@ describe('TVD blockchain service', () => {
         implementationAddress: implementation,
         tokenAddress: token,
         tvdPerCredit: '1000000000000000000',
+        maxTokenPerElection: '100000000000000000000000',
+        operatorRole: '0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929',
         spenderAddress: credits,
         proxyAuthorizedForCredits: true,
       });
@@ -319,6 +367,8 @@ describe('TVD blockchain service', () => {
       expect(result).toMatchObject({
         requiredCredits: '3',
         requiredTvd: '3000000000000000000',
+        maxTokenPerElection: '100000000000000000000000',
+        tvdSource: 'WALLET',
         walletDebitRequiredSmallestUnit: '3000000000000000000',
         spenderAddress: credits,
         simulated: true,
@@ -429,44 +479,12 @@ describe('TVD blockchain service', () => {
       });
     });
 
-    it('N-UNIT-024B | POSITIVO | UNITARIO | preflight usa vesting completo sin exigir allowance', async () => {
+    it('N-UNIT-024B | NEGATIVO | UNITARIO | preflight no usa assignedBalance para autorizar publicacion', async () => {
       const { service, publicClient } = createHarness({
         state: {
           assignedBalance: 3000000000000000000n,
           liquidBalance: 0n,
           allowance: 0n,
-        },
-      });
-
-      const result = await service.validateVotePublicationPreflight({
-        institutionWallet: institution,
-        institutionId: '6a5aff0b38579e74c35e0fe1',
-        onChainElectionId: 1n,
-        requiredCredits: 1n,
-        createVoteArgs: [],
-      });
-
-      expect(result).toMatchObject({
-        tvdSource: 'VESTING',
-        hasRequiredAllowance: true,
-        walletDebitRequiredSmallestUnit: '0',
-        simulated: true,
-      });
-      expect(publicClient.simulateContract).toHaveBeenCalledWith(
-        expect.objectContaining({
-          functionName: 'createVote',
-          account: institution,
-        }),
-      );
-    });
-
-    it('N-UNIT-024C | NEGATIVO | UNITARIO | preflight bloquea vesting conectado a otro TVDCredits', async () => {
-      const { service, publicClient } = createHarness({
-        state: {
-          assignedBalance: 3000000000000000000n,
-          liquidBalance: 0n,
-          allowance: 0n,
-          assignmentCreditsContract: getAddress('0x18AD6Ba62Bb1Fc912F1B7A75E48667cB9AE1A711'),
         },
       });
 
@@ -479,13 +497,63 @@ describe('TVD blockchain service', () => {
           createVoteArgs: [],
         }),
       ).rejects.toMatchObject({
-        code: 'TVD_CREDITS_SOURCE_CONFIG_MISMATCH',
+        code: 'TVD_CREDITS_BALANCE_INSUFFICIENT',
+        details: expect.objectContaining({
+          availableTvd: '0',
+          requiredTvd: '1000000000000000000',
+          deficitTvd: '1000000000000000000',
+        }),
       });
       expect(publicClient.simulateContract).not.toHaveBeenCalled();
     });
 
-    it('N-UNIT-025 | NEGATIVO | UNITARIO | preflight rechaza proxy no autorizado en creditos', async () => {
+    it('N-UNIT-024C | POSITIVO | UNITARIO | preflight permite igualdad con maxTokenPerElection desplegado', async () => {
       const { service } = createHarness({
+        state: {
+          liquidBalance: 3000000000000000000n,
+          maxTokenPerElection: 3000000000000000000n,
+        },
+      });
+
+      await expect(service.validateVotePublicationPreflight({
+        institutionWallet: institution,
+        institutionId: '6a5aff0b38579e74c35e0fe1',
+        onChainElectionId: 1n,
+        requiredCredits: 3n,
+        createVoteArgs: [],
+      })).resolves.toMatchObject({
+        requiredTvd: '3000000000000000000',
+        maxTokenPerElection: '3000000000000000000',
+      });
+    });
+
+    it('N-UNIT-024D | NEGATIVO | UNITARIO | preflight bloquea requiredTvd mayor al maxTokenPerElection', async () => {
+      const { service } = createHarness({
+        state: {
+          liquidBalance: 4000000000000000000n,
+          maxTokenPerElection: 3000000000000000000n,
+        },
+      });
+
+      await expect(
+        service.validateVotePublicationPreflight({
+          institutionWallet: institution,
+          institutionId: '6a5aff0b38579e74c35e0fe1',
+          onChainElectionId: 1n,
+          requiredCredits: 4n,
+          createVoteArgs: [],
+        }),
+      ).rejects.toMatchObject({
+        code: 'TVD_CREDITS_MAX_TOKEN_EXCEEDED',
+        details: expect.objectContaining({
+          maxTokenPerElection: '3000000000000000000',
+          requiredTvd: '4000000000000000000',
+        }),
+      });
+    });
+
+    it('N-UNIT-025 | NEGATIVO | UNITARIO | preflight rechaza proxy no autorizado en creditos', async () => {
+      const { service, publicClient } = createHarness({
         state: { proxyAuthorizedForCredits: false },
       });
 
@@ -498,6 +566,27 @@ describe('TVD blockchain service', () => {
           createVoteArgs: [],
         }),
       ).rejects.toMatchObject({ code: 'TVD_CREDITS_OPERATOR_NOT_AUTHORIZED' });
+      expect(publicClient.simulateContract).not.toHaveBeenCalled();
+    });
+
+    it('N-UNIT-025B | NEGATIVO | UNITARIO | DEFAULT_ADMIN_ROLE no sustituye OPERATOR_ROLE para publicar', async () => {
+      const { service, publicClient } = createHarness({
+        state: {
+          proxyAuthorizedForCredits: false,
+          proxyHasDefaultAdminRole: true,
+        },
+      });
+
+      await expect(
+        service.validateVotePublicationPreflight({
+          institutionWallet: institution,
+          institutionId: '64f000000000000000000010',
+          onChainElectionId: 1n,
+          requiredCredits: 1n,
+          createVoteArgs: [],
+        }),
+      ).rejects.toMatchObject({ code: 'TVD_CREDITS_OPERATOR_NOT_AUTHORIZED' });
+      expect(publicClient.simulateContract).not.toHaveBeenCalled();
     });
 
     it('N-UNIT-026 | NEGATIVO | UNITARIO | preflight rechaza wallet no autorizada', async () => {
@@ -539,7 +628,9 @@ describe('TVD blockchain service', () => {
         if (input.address === token && input.functionName === 'allowance') return 100000000000000000000n;
         if (input.address === credits && input.functionName === 'token') return token;
         if (input.address === credits && input.functionName === 'tvdPerCredit') return 1000000000000000000n;
-        if (input.address === credits && input.functionName === 'authorizedOperators') return true;
+        if (input.address === credits && input.functionName === 'maxTokenPerElection') return 100000000000000000000000n;
+        if (input.address === credits && input.functionName === 'OPERATOR_ROLE') return '0x97667070c54ef182b0f5858b034beac1b6f3089aa2d3188bb1e8929f4fa9b929';
+        if (input.address === credits && input.functionName === 'hasRole') return true;
         if (input.address === voteManager && input.functionName === 'isAuthorizedAddress') return true;
         if (input.address === assignment && input.functionName === 'assignedBalance') return 500n;
         if (input.address === voteManager && input.functionName === 'getVoteInfo') {

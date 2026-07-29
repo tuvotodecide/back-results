@@ -12,6 +12,7 @@ const userId = new Types.ObjectId();
 const paymentId = new Types.ObjectId();
 const assignmentId = new Types.ObjectId();
 const targetWallet = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const regeneratedPaymentId = new Types.ObjectId();
 
 const basePayment = (override: Record<string, any> = {}) => ({
   _id: paymentId,
@@ -235,7 +236,7 @@ describe('PaymentTransactionsService QR payments', () => {
         targetAssignmentId: assignmentId,
         targetWallet,
         targetWalletNormalized: targetWallet.toLowerCase(),
-        tvdQuote,
+        tvdQuote: expect.objectContaining(tvdQuote),
       }),
     );
   });
@@ -304,7 +305,7 @@ describe('PaymentTransactionsService QR payments', () => {
     expect(provider.generateQr).not.toHaveBeenCalled();
   });
 
-  it('marks the payment as failed when Red Enlace returns an incomplete QR response', async () => {
+  it('marks the payment as unresolved when Red Enlace returns an incomplete QR response', async () => {
     const { service, paymentModel } = createService({
       provider: {
         generateQr: jest.fn().mockResolvedValue({
@@ -333,8 +334,9 @@ describe('PaymentTransactionsService QR payments', () => {
       { _id: paymentId, status: 'QR_REQUESTING' },
       {
         $set: {
-          status: 'FAILED',
-          providerResponseDetail: 'Respuesta invalida de Red Enlace',
+          status: 'PROVIDER_STATUS_UNRESOLVED',
+          providerResponseCode: 'RED_ENLACE_INVALID_RESPONSE',
+          providerResponseDetail: 'PROVIDER_RESPONSE_INVALID',
         },
       },
     );
@@ -547,15 +549,22 @@ describe('PaymentTransactionsService QR payments', () => {
     );
   });
 
-  it.each(['EXPIRED', 'FAILED', 'CANCELLED'])(
-    'moves a late approved webhook over %s to manual review',
+  it.each([
+    'EXPIRED',
+    'FAILED',
+    'CANCELLED',
+    'MISMATCH',
+    'PROVIDER_STATUS_UNRESOLVED',
+    'PROVIDER_ERROR',
+  ])(
+    'moves a late approved webhook over %s to reconciliation pending',
     async (terminalStatus) => {
       const terminalPayment = basePayment({
         status: terminalStatus,
         providerReference: '1511556',
       });
-      const manualReviewPayment = basePayment({
-        status: 'MANUAL_REVIEW',
+      const reconciliationPendingPayment = basePayment({
+        status: 'RECONCILIATION_PENDING',
         providerReference: '1511556',
         providerStatus: '00',
         providerResponseCode: '00',
@@ -568,7 +577,7 @@ describe('PaymentTransactionsService QR payments', () => {
             exec: jest.fn().mockResolvedValue(terminalPayment),
           }),
           findOneAndUpdate: jest.fn().mockReturnValue({
-            exec: jest.fn().mockResolvedValue(manualReviewPayment),
+            exec: jest.fn().mockResolvedValue(reconciliationPendingPayment),
           }),
         },
       });
@@ -583,16 +592,27 @@ describe('PaymentTransactionsService QR payments', () => {
           achReference: '14262508014140754846',
           paymentDate: new Date('2026-07-13T11:00:00.000Z'),
         }),
-      ).resolves.toEqual(expect.objectContaining({ status: 'MANUAL_REVIEW' }));
+      ).resolves.toEqual(
+        expect.objectContaining({ status: 'RECONCILIATION_PENDING' }),
+      );
 
       expect(paymentModel.findOneAndUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           _id: paymentId,
-          status: { $in: ['EXPIRED', 'FAILED', 'CANCELLED'] },
+          status: {
+            $in: [
+              'EXPIRED',
+              'FAILED',
+              'CANCELLED',
+              'MISMATCH',
+              'PROVIDER_STATUS_UNRESOLVED',
+              'PROVIDER_ERROR',
+            ],
+          },
         }),
         expect.objectContaining({
           $set: expect.objectContaining({
-            status: 'MANUAL_REVIEW',
+            status: 'RECONCILIATION_PENDING',
             providerStatus: '00',
             achReference: '14262508014140754846',
           }),
@@ -604,7 +624,7 @@ describe('PaymentTransactionsService QR payments', () => {
 
   it.each([
     ['03', 'EXPIRED'],
-    ['05', 'FAILED'],
+    ['05', 'PROVIDER_ERROR'],
   ])(
     'maps webhook estado %s over an active QR to %s',
     async (estado, expectedStatus) => {
@@ -640,7 +660,15 @@ describe('PaymentTransactionsService QR payments', () => {
       expect(paymentModel.findOneAndUpdate).toHaveBeenCalledWith(
         expect.objectContaining({
           _id: paymentId,
-          status: { $in: ['QR_ACTIVE', 'MISMATCH'] },
+          status: {
+            $in: [
+              'QR_ACTIVE',
+              'MISMATCH',
+              'PROVIDER_STATUS_UNRESOLVED',
+              'PROVIDER_ERROR',
+              'RECONCILIATION_PENDING',
+            ],
+          },
         }),
         expect.objectContaining({
           $set: expect.objectContaining({
@@ -714,7 +742,17 @@ describe('PaymentTransactionsService QR payments', () => {
     ).rejects.toMatchObject({ code: 'RED_ENLACE_AMOUNT_MISMATCH' });
 
     expect(paymentModel.updateOne).toHaveBeenCalledWith(
-      { _id: paymentId, status: 'QR_ACTIVE' },
+      {
+        _id: paymentId,
+        status: {
+          $in: [
+            'QR_ACTIVE',
+            'PROVIDER_STATUS_UNRESOLVED',
+            'PROVIDER_ERROR',
+            'RECONCILIATION_PENDING',
+          ],
+        },
+      },
       expect.objectContaining({
         $set: expect.objectContaining({
           status: 'MISMATCH',
@@ -797,7 +835,17 @@ describe('PaymentTransactionsService QR payments', () => {
       code: 'RED_ENLACE_AMOUNT_MISMATCH',
     } satisfies Partial<PaymentDomainError>);
     expect(paymentModel.updateOne).toHaveBeenCalledWith(
-      { _id: paymentId, status: 'QR_ACTIVE' },
+      {
+        _id: paymentId,
+        status: {
+          $in: [
+            'QR_ACTIVE',
+            'PROVIDER_STATUS_UNRESOLVED',
+            'PROVIDER_ERROR',
+            'RECONCILIATION_PENDING',
+          ],
+        },
+      },
       expect.objectContaining({
         $set: expect.objectContaining({
           status: 'MISMATCH',
@@ -835,13 +883,13 @@ describe('PaymentTransactionsService QR payments', () => {
     } satisfies Partial<PaymentDomainError>);
   });
 
-  it('moves an unknown reconciliation status to manual review', async () => {
+  it('moves an unknown reconciliation status to provider status unresolved', async () => {
     const activePayment = basePayment({
       status: 'QR_ACTIVE',
       providerReference: '6780',
     });
-    const manualReviewPayment = basePayment({
-      status: 'MANUAL_REVIEW',
+    const unresolvedPayment = basePayment({
+      status: 'PROVIDER_STATUS_UNRESOLVED',
       providerReference: '6780',
       providerStatus: 'UNEXPECTED',
       providerResponseCode: 'UNEXPECTED',
@@ -850,7 +898,7 @@ describe('PaymentTransactionsService QR payments', () => {
       paymentModel: {
         findById: jest.fn().mockResolvedValue(activePayment),
         findOneAndUpdate: jest.fn().mockReturnValue({
-          exec: jest.fn().mockResolvedValue(manualReviewPayment),
+          exec: jest.fn().mockResolvedValue(unresolvedPayment),
         }),
       },
       provider: {
@@ -866,19 +914,383 @@ describe('PaymentTransactionsService QR payments', () => {
 
     await expect(
       service.reconcilePayment(String(paymentId), { role: 'ADMIN' }, {}),
-    ).resolves.toEqual(expect.objectContaining({ status: 'MANUAL_REVIEW' }));
+    ).resolves.toEqual(
+      expect.objectContaining({ status: 'PROVIDER_STATUS_UNRESOLVED' }),
+    );
     expect(paymentModel.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         _id: paymentId,
-        status: { $in: ['QR_ACTIVE', 'MISMATCH'] },
+        status: {
+          $in: [
+            'QR_ACTIVE',
+            'MISMATCH',
+            'PROVIDER_STATUS_UNRESOLVED',
+            'PROVIDER_ERROR',
+            'RECONCILIATION_PENDING',
+          ],
+        },
       }),
       expect.objectContaining({
         $set: expect.objectContaining({
-          status: 'MANUAL_REVIEW',
+          status: 'PROVIDER_STATUS_UNRESOLVED',
           providerStatus: 'UNEXPECTED',
         }),
       }),
       { new: true },
     );
+  });
+
+  it('regenerates an expired QR with a still valid frozen quote and new references', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-13T10:10:00.000Z'));
+    const oldQuote = {
+      fiatAmountMinor: '1050',
+      fiatCurrency: 'BOB',
+      bobPerToken: '2.10',
+      exchangeRateVersion: 3,
+      tokenAmount: '5',
+      tokenAmountSmallestUnit: '500',
+      quotedAt: new Date('2026-07-13T10:00:00.000Z'),
+      expiresAt: new Date('2026-07-13T10:20:00.000Z'),
+    };
+    const expiredPayment = basePayment({
+      status: 'EXPIRED',
+      providerReference: '1511556',
+      targetAssignmentId: assignmentId,
+      targetWallet,
+      targetWalletNormalized: targetWallet.toLowerCase(),
+      tvdQuote: oldQuote,
+      qrExpiresAt: new Date('2026-07-13T10:05:00.000Z'),
+    });
+    const createdRegeneration = basePayment({
+      _id: regeneratedPaymentId,
+      status: 'CREATED',
+      merchantReference: '303303',
+      amountMinor: '1050',
+      previousPaymentId: paymentId,
+      tvdQuote: oldQuote,
+    });
+    const activeRegeneration = basePayment({
+      ...createdRegeneration,
+      status: 'QR_ACTIVE',
+      providerReference: '909909',
+      providerStatus: 'PENDING',
+      qrImage: 'base64-qr',
+      qrExpiresAt: new Date('2026-07-13T10:40:00.000Z'),
+    });
+    const tvdQuotes = {
+      createPaymentQuoteSnapshot: jest.fn(),
+    };
+    const { service, paymentModel, provider } = createService({
+      tvdQuotes,
+      paymentModel: {
+        findById: jest.fn().mockResolvedValue(expiredPayment),
+        findOne: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(null),
+        }),
+        create: jest.fn().mockResolvedValue(createdRegeneration),
+        findOneAndUpdate: jest
+          .fn()
+          .mockResolvedValueOnce(expiredPayment)
+          .mockResolvedValueOnce({
+            ...createdRegeneration,
+            status: 'QR_REQUESTING',
+          })
+          .mockResolvedValueOnce(activeRegeneration),
+      },
+      provider: {
+        generateQr: jest.fn().mockResolvedValue({
+          providerReference: '909909',
+          originMerchantReference: '303303',
+          amountMinor: '1050',
+          currency: 'BOB',
+          providerStatus: 'PENDING',
+          responseCode: 'PENDING',
+          qrImage: 'base64-qr',
+        }),
+      },
+    });
+
+    try {
+      const result = await service.regenerateQrPayment(
+        String(paymentId),
+        { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+        'regen-key-1',
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          id: String(regeneratedPaymentId),
+          status: 'QR_ACTIVE',
+          merchantReference: '303303',
+          providerReference: '909909',
+          previousPaymentId: String(paymentId),
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(tvdQuotes.createPaymentQuoteSnapshot).not.toHaveBeenCalled();
+    expect(paymentModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousPaymentId: paymentId,
+        tvdQuote: oldQuote,
+        targetWallet,
+      }),
+    );
+    expect(provider.generateQr).toHaveBeenCalledWith(
+      expect.objectContaining({
+        merchantReference: '303303',
+        amountMinor: '1050',
+      }),
+    );
+  });
+
+  it('creates a fresh quote when the expired QR quote is no longer valid', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-13T10:30:00.000Z'));
+    const oldQuote = {
+      fiatAmountMinor: '1050',
+      fiatCurrency: 'BOB',
+      bobPerToken: '2.10',
+      exchangeRateVersion: 3,
+      tokenAmount: '5',
+      tokenAmountSmallestUnit: '500',
+      quotedAt: new Date('2026-07-13T10:00:00.000Z'),
+      expiresAt: new Date('2026-07-13T10:15:00.000Z'),
+    };
+    const newQuote = {
+      fiatAmountMinor: '1050',
+      fiatCurrency: 'BOB',
+      bobPerToken: '2.50',
+      exchangeRateVersion: 4,
+      tokenAmount: '4.2',
+      tokenAmountSmallestUnit: '420',
+      quotedAt: new Date('2026-07-13T10:30:00.000Z'),
+    };
+    const expiredPayment = basePayment({
+      status: 'EXPIRED',
+      targetAssignmentId: assignmentId,
+      targetWallet,
+      targetWalletNormalized: targetWallet.toLowerCase(),
+      tvdQuote: oldQuote,
+    });
+    const createdRegeneration = basePayment({
+      _id: regeneratedPaymentId,
+      status: 'CREATED',
+      merchantReference: '303303',
+      previousPaymentId: paymentId,
+      tvdQuote: {
+        ...newQuote,
+        expiresAt: new Date('2026-07-13T10:45:00.000Z'),
+      },
+    });
+    const { service, paymentModel } = createService({
+      tvdQuotes: {
+        createPaymentQuoteSnapshot: jest.fn().mockResolvedValue(newQuote),
+      },
+      paymentModel: {
+        findById: jest.fn().mockResolvedValue(expiredPayment),
+        findOne: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(null),
+        }),
+        create: jest.fn().mockResolvedValue(createdRegeneration),
+        findOneAndUpdate: jest
+          .fn()
+          .mockResolvedValueOnce(expiredPayment)
+          .mockResolvedValueOnce({
+            ...createdRegeneration,
+            status: 'QR_REQUESTING',
+          })
+          .mockResolvedValueOnce({
+            ...createdRegeneration,
+            status: 'QR_ACTIVE',
+            providerReference: '909909',
+            providerStatus: 'PENDING',
+            qrImage: 'base64-qr',
+          }),
+      },
+      provider: {
+        generateQr: jest.fn().mockResolvedValue({
+          providerReference: '909909',
+          originMerchantReference: '303303',
+          amountMinor: '1050',
+          currency: 'BOB',
+          providerStatus: 'PENDING',
+          responseCode: 'PENDING',
+          qrImage: 'base64-qr',
+        }),
+      },
+    });
+
+    try {
+      await expect(
+        service.regenerateQrPayment(
+          String(paymentId),
+          {
+            sub: String(userId),
+            role: 'TENANT_ADMIN',
+            tenantId: String(tenantId),
+          },
+          'regen-key-quote-expired',
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          status: 'QR_ACTIVE',
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+
+    expect(paymentModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tvdQuote: expect.objectContaining({
+          exchangeRateVersion: 4,
+          expiresAt: new Date('2026-07-13T10:45:00.000Z'),
+        }),
+      }),
+    );
+  });
+
+  it.each(['PROVIDER_STATUS_UNRESOLVED', 'PROVIDER_ERROR', 'RECONCILIATION_PENDING'])(
+    'blocks regeneration while %s requires reconciliation',
+    async (status) => {
+      const { service, paymentModel, provider } = createService({
+        paymentModel: {
+          findById: jest.fn().mockResolvedValue(
+            basePayment({
+              status,
+              targetAssignmentId: assignmentId,
+              targetWallet,
+              targetWalletNormalized: targetWallet.toLowerCase(),
+            }),
+          ),
+        },
+      });
+
+      await expect(
+        service.regenerateQrPayment(
+          String(paymentId),
+          { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+          'regen-key-blocked',
+        ),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'PAYMENT_REGENERATION_RECONCILIATION_REQUIRED',
+        }),
+      });
+      expect(paymentModel.create).not.toHaveBeenCalled();
+      expect(provider.generateQr).not.toHaveBeenCalled();
+    },
+  );
+
+  it('blocks regeneration after payment confirmation or accreditation creation', async () => {
+    const { service, paymentModel, provider } = createService({
+      paymentModel: {
+        findById: jest.fn().mockResolvedValue(
+          basePayment({
+            status: 'PAYMENT_CONFIRMED',
+            tokenAccreditationStatus: 'PENDING',
+          }),
+        ),
+      },
+    });
+
+    await expect(
+      service.regenerateQrPayment(
+        String(paymentId),
+        { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+        'regen-key-confirmed',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'PAYMENT_REGENERATION_NOT_ALLOWED',
+      }),
+    });
+    expect(paymentModel.create).not.toHaveBeenCalled();
+    expect(provider.generateQr).not.toHaveBeenCalled();
+  });
+
+  it('returns the same regenerated QR for repeated regeneration idempotency key', async () => {
+    const existing = basePayment({
+      _id: regeneratedPaymentId,
+      status: 'QR_ACTIVE',
+      idempotencyKey: 'regen-key-repeat',
+      idempotencyRequestHash: idempotencyHash({
+        tenantId: String(tenantId),
+        userId: String(userId),
+        amountMinor: '1050',
+        currency: 'BOB',
+        previousPaymentId: String(paymentId),
+        quoteVersion: 'none',
+        quoteExpiresAt: '',
+      }),
+      previousPaymentId: paymentId,
+      providerReference: '909909',
+      qrImage: 'base64-qr',
+    });
+    const { service, paymentModel, provider } = createService({
+      paymentModel: {
+        findById: jest.fn().mockResolvedValue(
+          basePayment({
+            status: 'EXPIRED',
+            targetAssignmentId: assignmentId,
+            targetWallet,
+            targetWalletNormalized: targetWallet.toLowerCase(),
+          }),
+        ),
+        findOne: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(existing),
+        }),
+      },
+    });
+
+    await expect(
+      service.regenerateQrPayment(
+        String(paymentId),
+        { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+        'regen-key-repeat',
+      ),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        id: String(regeneratedPaymentId),
+        status: 'QR_ACTIVE',
+      }),
+    );
+    expect(paymentModel.create).not.toHaveBeenCalled();
+    expect(provider.generateQr).not.toHaveBeenCalled();
+  });
+
+  it('blocks a second simultaneous regeneration when the original payment is locked', async () => {
+    const { service, paymentModel, provider } = createService({
+      paymentModel: {
+        findById: jest.fn().mockResolvedValue(
+          basePayment({
+            status: 'EXPIRED',
+            targetAssignmentId: assignmentId,
+            targetWallet,
+            targetWalletNormalized: targetWallet.toLowerCase(),
+          }),
+        ),
+        findOne: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue(null),
+        }),
+        findOneAndUpdate: jest.fn().mockResolvedValue(null),
+      },
+    });
+
+    await expect(
+      service.regenerateQrPayment(
+        String(paymentId),
+        { sub: String(userId), role: 'TENANT_ADMIN', tenantId: String(tenantId) },
+        'regen-key-race',
+      ),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'PAYMENT_REGENERATION_RECONCILIATION_REQUIRED',
+      }),
+    });
+    expect(paymentModel.create).not.toHaveBeenCalled();
+    expect(provider.generateQr).not.toHaveBeenCalled();
   });
 });

@@ -141,6 +141,52 @@ describe('OfficialPublicationApiService', () => {
     expect(notificationService.enqueueForRequest).not.toHaveBeenCalled();
   });
 
+  it('mapea VoteManager sin OPERATOR_ROLE a bloqueo contractual antes de firma', async () => {
+    preparationService.prepareOfficialPublication.mockRejectedValueOnce(
+      new TvdBlockchainError('TVD_CREDITS_OPERATOR_NOT_AUTHORIZED', undefined, {
+        proxyAddress: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
+      }),
+    );
+
+    let caughtError: unknown;
+    try {
+      await service.createAdminRequest(String(eventId), signer);
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toBeInstanceOf(ServiceUnavailableException);
+    expect((caughtError as ServiceUnavailableException).getResponse()).toEqual({
+      code: 'OFFICIAL_PUBLICATION_VOTE_MANAGER_NOT_OPERATOR',
+      message: 'El contrato de votacion no esta autorizado para usar creditos TVD.',
+      details: {
+        proxyAddress: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
+      },
+    });
+    expect(notificationService.enqueueForRequest).not.toHaveBeenCalled();
+  });
+
+  it('mapea implementation mismatch a bloqueo contractual antes de firma', async () => {
+    preparationService.prepareOfficialPublication.mockRejectedValueOnce(
+      new TvdBlockchainError('TVD_VOTE_MANAGER_IMPLEMENTATION_MISMATCH'),
+    );
+
+    let caughtError: unknown;
+    try {
+      await service.createAdminRequest(String(eventId), signer);
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toBeInstanceOf(ServiceUnavailableException);
+    expect((caughtError as ServiceUnavailableException).getResponse()).toEqual({
+      code: 'OFFICIAL_PUBLICATION_IMPLEMENTATION_MISMATCH',
+      message: 'La implementacion del contrato de votacion no coincide con la configuracion vigente.',
+      details: {},
+    });
+    expect(notificationService.enqueueForRequest).not.toHaveBeenCalled();
+  });
+
   it('mapea institucion inexistente on-chain y no encola notificacion', async () => {
     preparationService.prepareOfficialPublication.mockRejectedValueOnce(
       new TvdBlockchainError('TVD_INSTITUTION_NOT_REGISTERED'),

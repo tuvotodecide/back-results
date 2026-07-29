@@ -128,6 +128,8 @@ export default registerAs('app', () => ({
     operatorLockTtlMs: process.env.TVD_OPERATOR_LOCK_TTL_MS || '60000',
     accreditationMaxAttempts: process.env.TVD_ACCREDITATION_MAX_ATTEMPTS || '5',
     accreditationRetryBaseMs: process.env.TVD_ACCREDITATION_RETRY_BASE_MS || '5000',
+    accreditationRetryMaxMs:
+      process.env.TVD_ACCREDITATION_RETRY_MAX_MS || '900000',
     accreditationReconcileAfterMs:
       process.env.TVD_ACCREDITATION_RECONCILE_AFTER_MS || '15000',
   },
@@ -220,5 +222,22 @@ export default registerAs('app', () => ({
     minAmountMinor: process.env.RED_ENLACE_MIN_AMOUNT_MINOR || '1',
     maxAmountMinor: process.env.RED_ENLACE_MAX_AMOUNT_MINOR || '100000000',
     maxQrImageBytes: process.env.RED_ENLACE_MAX_QR_IMAGE_BYTES || '',
+    reconciliation: {
+      enabled: process.env.RED_ENLACE_RECONCILIATION_ENABLED || 'false',
+      intervalMs: process.env.RED_ENLACE_RECONCILIATION_INTERVAL_MS || '10000',
+      batchSize: process.env.RED_ENLACE_RECONCILIATION_BATCH_SIZE || '10',
+      leaseDurationMs:
+        process.env.RED_ENLACE_RECONCILIATION_LEASE_DURATION_MS || '60000',
+      maxAttempts: process.env.RED_ENLACE_RECONCILIATION_MAX_ATTEMPTS || '8',
+      baseBackoffMs:
+        process.env.RED_ENLACE_RECONCILIATION_BASE_BACKOFF_MS || '30000',
+      maxBackoffMs:
+        process.env.RED_ENLACE_RECONCILIATION_MAX_BACKOFF_MS || '900000',
+    },
+    regeneration: {
+      quoteTtlMs: process.env.RED_ENLACE_REGENERATION_QUOTE_TTL_MS || '900000',
+      lockDurationMs:
+        process.env.RED_ENLACE_REGENERATION_LOCK_DURATION_MS || '60000',
+    },
   },
 }));

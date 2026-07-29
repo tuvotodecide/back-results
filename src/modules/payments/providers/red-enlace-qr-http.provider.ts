@@ -13,6 +13,10 @@ import { sanitizeProviderDetail } from '../utils/red-enlace-glosa.util';
 import { validateRedEnlaceQrImage } from '../utils/red-enlace-qr-image.util';
 import { parseRedEnlaceQrTtl } from '../utils/red-enlace-ttl.util';
 import {
+  minorToRedEnlaceDecimal,
+  parseBobAmountToMinor,
+} from '../utils/money.util';
+import {
   RED_ENLACE_ACTIVE_QR_STATUSES,
   normalizeRedEnlaceStatus,
 } from '../utils/payment-status.mapper';
@@ -40,7 +44,9 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
       const response = await this.httpService.axiosRef.post(
         `${baseUrl}${RED_ENLACE_GENERATE_QR_PATH}`,
         {
-          numeroReferencia: Number(input.merchantReference),
+          numeroReferencia: Number(
+            this.normalizeRedEnlaceReference(input.merchantReference),
+          ),
           glosa: input.glosa,
           monto: this.minorToProviderAmount(input.amountMinor),
           moneda: input.currency,
@@ -87,11 +93,14 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     const baseUrl = this.getRequiredBaseUrl();
     const apiKey = this.getRequiredApiKey();
     const timeout = this.getTimeoutMs();
+    const providerReference = this.normalizeRedEnlaceReference(
+      input.providerReference,
+    );
 
     try {
       const response = await this.httpService.axiosRef.get(
         `${baseUrl}${RED_ENLACE_VERIFY_QR_PATH}/${encodeURIComponent(
-          input.providerReference,
+          providerReference,
         )}`,
         {
           timeout,
@@ -109,7 +118,7 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
       }
       if (response.status === 404) {
         return {
-          providerReference: input.providerReference,
+          providerReference,
           providerStatus: 'NOTFOUND',
           responseCode: '404',
           responseDetail: 'Referencia no encontrada en Red Enlace',
@@ -130,7 +139,7 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
         );
       }
 
-      return this.normalizeVerifyResponse(response.data, input.providerReference);
+      return this.normalizeVerifyResponse(response.data, providerReference);
     } catch (error) {
       this.rethrowProviderError(error);
     }
@@ -167,13 +176,13 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     }
 
     const result: GenerateQrResult = {
-      providerReference: String(providerReference),
+      providerReference: this.normalizeRedEnlaceReference(providerReference),
       originMerchantReference:
         data?.origenNumeroReferencia != null
-          ? String(data.origenNumeroReferencia).trim()
+          ? this.normalizeRedEnlaceReference(data.origenNumeroReferencia)
           : input.merchantReference,
       amountMinor:
-        data?.monto != null ? this.providerAmountToMinor(String(data.monto)) : undefined,
+        data?.monto != null ? this.providerAmountToMinor(data.monto) : undefined,
       currency:
         data?.moneda != null ? String(data.moneda).trim().toUpperCase() : undefined,
       providerStatus,
@@ -222,9 +231,9 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     return {
       providerReference:
         data?.numeroReferenciaAtc != null
-          ? String(data.numeroReferenciaAtc)
+          ? this.normalizeRedEnlaceReference(data.numeroReferenciaAtc)
           : data?.numeroReferencia != null
-            ? String(data.numeroReferencia)
+            ? this.normalizeRedEnlaceReference(data.numeroReferencia)
             : providerReference,
       originMerchantReference:
         data?.origenNumeroReferencia != null
@@ -232,9 +241,9 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
           : undefined,
       amountMinor:
         transaction?.monto != null
-          ? this.providerAmountToMinor(String(transaction.monto))
+          ? this.providerAmountToMinor(transaction.monto)
           : data?.monto != null
-            ? this.providerAmountToMinor(String(data.monto))
+            ? this.providerAmountToMinor(data.monto)
             : undefined,
       currency:
         transaction?.moneda != null
@@ -272,7 +281,7 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
       data?.codigoRespuesta,
       data?.status,
       data?.estado,
-      statusHistory?.[statusHistory.length - 1]?.status,
+      statusHistory?.[0]?.status,
     ];
 
     for (const candidate of candidates) {
@@ -359,17 +368,40 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
   }
 
-  private minorToProviderAmount(amountMinor: string) {
-    const padded = amountMinor.padStart(3, '0');
-    return Number(`${padded.slice(0, -2)}.${padded.slice(-2)}`);
+  private normalizeRedEnlaceReference(value: unknown) {
+    const reference = String(value ?? '').trim();
+    if (!/^[1-9]\d{0,8}$/.test(reference)) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_REFERENCE_INVALID',
+        'Referencia invalida de Red Enlace',
+        502,
+      );
+    }
+    return reference;
   }
 
-  private providerAmountToMinor(amount: string) {
-    const [whole, decimals = ''] = String(amount).trim().split('.');
-    return `${whole}${decimals.padEnd(2, '0').slice(0, 2)}`.replace(
-      /^0+(?=\d)/,
-      '',
-    );
+  private minorToProviderAmount(amountMinor: string) {
+    try {
+      return minorToRedEnlaceDecimal(amountMinor);
+    } catch {
+      throw new PaymentDomainError(
+        'RED_ENLACE_AMOUNT_INVALID',
+        'Monto invalido para Red Enlace',
+        400,
+      );
+    }
+  }
+
+  private providerAmountToMinor(amount: unknown) {
+    try {
+      return parseBobAmountToMinor(String(amount ?? ''));
+    } catch {
+      throw new PaymentDomainError(
+        'RED_ENLACE_INVALID_RESPONSE',
+        'Respuesta invalida de Red Enlace',
+        502,
+      );
+    }
   }
 
   private rethrowProviderError(error: any): never {

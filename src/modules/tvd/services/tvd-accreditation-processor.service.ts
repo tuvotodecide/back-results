@@ -9,7 +9,10 @@ import {
   TokenAccreditation,
   TokenAccreditationDocument,
 } from '../schemas/token-accreditation.schema';
-import { TokenAccreditationFailureCategory } from '../tvd.constants';
+import {
+  TokenAccreditationFailureCategory,
+  TokenAccreditationStatus,
+} from '../tvd.constants';
 import { TvdBlockchainService } from './tvd-blockchain.service';
 import { TvdOperatorTransactionLockService } from './tvd-operator-transaction-lock.service';
 
@@ -55,11 +58,15 @@ export class TvdAccreditationProcessorService {
       {
         status: 'SUBMITTING',
         processingLockExpiresAt: { $lte: now },
-        $or: [
-          { txHash: null },
-          { txHash: { $exists: false } },
-          { serializedTransaction: null },
-          { serializedTransaction: { $exists: false } },
+        $and: [
+          { $or: [{ txHash: null }, { txHash: { $exists: false } }] },
+          { $or: [{ userOpHash: null }, { userOpHash: { $exists: false } }] },
+          {
+            $or: [
+              { serializedTransaction: null },
+              { serializedTransaction: { $exists: false } },
+            ],
+          },
         ],
       },
       {
@@ -82,8 +89,11 @@ export class TvdAccreditationProcessorService {
       {
         status: 'SUBMITTING',
         processingLockExpiresAt: { $lte: now },
-        txHash: { $nin: [null, ''] },
         serializedTransaction: { $nin: [null, ''] },
+        $or: [
+          { txHash: { $nin: [null, ''] } },
+          { userOpHash: { $nin: [null, ''] } },
+        ],
       },
       {
         $set: {
@@ -181,10 +191,12 @@ export class TvdAccreditationProcessorService {
     accreditation: TokenAccreditationDocument,
     ownerId: string,
   ) {
+    const startedAt = Date.now();
     const validationError = this.validateAccreditation(accreditation);
     await this.recordAuditSafely('TVD_ACCREDITATION_CLAIMED', accreditation);
+    this.logMetric('tvd_accreditation_claimed', accreditation, ownerId);
     if (validationError) {
-      return this.markFailed(accreditation, validationError, 'FINAL', ownerId);
+      return this.markFailed(accreditation, validationError, 'CONFIGURATION', ownerId);
     }
 
     let lockKey: string | null = null;
@@ -200,21 +212,24 @@ export class TvdAccreditationProcessorService {
         ttlMs: this.getOperatorLockTtlMs(),
       });
       if (!lock) {
+        this.logMetric('tvd_accreditation_lock_conflict', accreditation, ownerId);
         return this.scheduleRetry(accreditation, 'TVD_OPERATOR_LOCK_BUSY', ownerId);
       }
 
-      Logger.debug('start assignment')
       const prepared = await this.prepareIfNeeded(accreditation, ownerId);
       let resolvedTxHash: string | null = null;
       try {
-        Logger.debug('start transaction')
         const broadcast = await this.blockchain.broadcastSignedTransaction(
           prepared.serializedTransaction as `0x${string}`,
         );
         resolvedTxHash = broadcast.txHash;
-        Logger.debug('success')
+        if (broadcast.userOpHash) {
+          await this.accreditationModel.updateOne(
+            { _id: accreditation._id, status: 'SUBMITTING', processingOwner: ownerId },
+            { $set: { userOpHash: broadcast.userOpHash } },
+          );
+        }
       } catch (error) {
-        Logger.error(error);
         const code = this.sanitizeErrorCode(error);
         this.logger.warn(
           JSON.stringify({
@@ -230,12 +245,16 @@ export class TvdAccreditationProcessorService {
         );
       }
 
-      return this.markSubmitted(accreditation._id, ownerId, resolvedTxHash);
+      const submitted = await this.markSubmitted(accreditation._id, ownerId, resolvedTxHash);
+      this.logMetric('tvd_accreditation_duration', accreditation, ownerId, {
+        durationMs: Date.now() - startedAt,
+      });
+      return submitted;
     } catch (error) {
       const code = this.sanitizeErrorCode(error);
       const classification = this.classifyPreBroadcastError(
         code,
-        Boolean(accreditation.txHash || accreditation.serializedTransaction),
+        Boolean(accreditation.txHash || accreditation.userOpHash || accreditation.serializedTransaction),
       );
       if (classification === 'RETRYABLE') {
         return this.scheduleRetry(accreditation, code, ownerId);
@@ -252,13 +271,14 @@ export class TvdAccreditationProcessorService {
     accreditation: TokenAccreditationDocument,
     ownerId: string,
   ) {
+    const existingUserOpHash = accreditation.userOpHash ?? accreditation.txHash;
     if (
-      accreditation.txHash &&
+      existingUserOpHash &&
       accreditation.nonce &&
       accreditation.serializedTransaction
     ) {
       return {
-        userOpHash: accreditation.txHash,
+        userOpHash: existingUserOpHash,
         nonce: accreditation.nonce,
         serializedTransaction: accreditation.serializedTransaction,
       };
@@ -281,24 +301,24 @@ export class TvdAccreditationProcessorService {
       {
         $set: {
           nonce: prepared.nonce,
-          // Pre-broadcast tracking hash (ERC-4337 UserOperation hash). Overwritten with
-          // the real bundle transaction hash once broadcastSignedTransaction resolves it.
-          txHash: prepared.userOpHash,
+          userOpHash: prepared.userOpHash,
           serializedTransaction: prepared.serializedTransaction,
           chainId: prepared.chainId,
           contractAddress: prepared.contractAddress,
+          operatorAddress: prepared.operatorAddress,
           preparedAt: new Date(),
           lastErrorCode: null,
         },
       },
     );
     accreditation.nonce = prepared.nonce;
-    accreditation.txHash = prepared.userOpHash;
+    accreditation.userOpHash = prepared.userOpHash;
     accreditation.serializedTransaction = prepared.serializedTransaction;
     accreditation.chainId = prepared.chainId;
     accreditation.contractAddress = prepared.contractAddress;
+    accreditation.operatorAddress = prepared.operatorAddress;
     await this.recordAuditSafely('TVD_ACCREDITATION_PREPARED', accreditation, {
-      txHash: prepared.userOpHash,
+      userOpHash: prepared.userOpHash,
       nonce: prepared.nonce,
     });
     return {
@@ -344,6 +364,7 @@ export class TvdAccreditationProcessorService {
       )
       .select('+serializedTransaction');
     await this.recordAuditSafely('TVD_ACCREDITATION_SUBMITTED', updated);
+    this.logMetric('tvd_accreditation_submitted', updated ?? { _id: accreditationId }, ownerId);
     return updated;
   }
 
@@ -381,6 +402,10 @@ export class TvdAccreditationProcessorService {
     await this.recordAuditSafely('TVD_ACCREDITATION_RETRY_SCHEDULED', updated, {
       errorCode,
     });
+    this.logMetric('tvd_accreditation_retry', updated ?? accreditation, ownerId, {
+      errorCode,
+      nextAttemptAt: (updated as any)?.nextAttemptAt ?? null,
+    });
     return updated;
   }
 
@@ -390,7 +415,7 @@ export class TvdAccreditationProcessorService {
     category: TokenAccreditationFailureCategory,
     ownerId: string,
   ) {
-    const status = category === 'AMBIGUOUS' ? 'NEEDS_REVIEW' : 'FAILED';
+    const status = this.statusForFailureCategory(category);
     const updated = await this.accreditationModel.findOneAndUpdate(
       {
         _id: accreditation._id,
@@ -413,13 +438,28 @@ export class TvdAccreditationProcessorService {
       { returnDocument: 'after' },
     );
     await this.recordAuditSafely(
-      status === 'NEEDS_REVIEW'
-        ? 'TVD_ACCREDITATION_NEEDS_REVIEW'
+      status === 'BLOCKED_CONFIGURATION'
+        ? 'TVD_ACCREDITATION_BLOCKED'
         : 'TVD_ACCREDITATION_FAILED',
       updated,
       { errorCode },
     );
+    this.logMetric(
+      status === 'BLOCKED_CONFIGURATION'
+        ? 'tvd_accreditation_blocked'
+        : 'tvd_accreditation_receipt_mismatch',
+      updated ?? accreditation,
+      ownerId,
+      { errorCode, failureCategory: category },
+    );
     return updated;
+  }
+
+  private statusForFailureCategory(
+    category: TokenAccreditationFailureCategory,
+  ): TokenAccreditationStatus {
+    if (category === 'FINAL') return 'FAILED_TERMINAL';
+    return 'BLOCKED_CONFIGURATION';
   }
 
   private async recordAuditSafely(
@@ -429,9 +469,15 @@ export class TvdAccreditationProcessorService {
       | 'TVD_ACCREDITATION_SUBMITTED'
       | 'TVD_ACCREDITATION_RETRY_SCHEDULED'
       | 'TVD_ACCREDITATION_FAILED'
-      | 'TVD_ACCREDITATION_NEEDS_REVIEW',
+      | 'TVD_ACCREDITATION_NEEDS_REVIEW'
+      | 'TVD_ACCREDITATION_BLOCKED',
     accreditation: any,
-    extra: { txHash?: string | null; nonce?: string | null; errorCode?: string | null } = {},
+    extra: {
+      txHash?: string | null;
+      userOpHash?: string | null;
+      nonce?: string | null;
+      errorCode?: string | null;
+    } = {},
   ) {
     if (!accreditation?._id) return;
     try {
@@ -455,6 +501,7 @@ export class TvdAccreditationProcessorService {
           targetWallet: accreditation.targetWallet,
           tokenAmount: accreditation.tokenAmount,
           txHash: extra.txHash ?? accreditation.txHash ?? null,
+          userOpHash: extra.userOpHash ?? accreditation.userOpHash ?? null,
           nonce: extra.nonce ?? accreditation.nonce ?? null,
           attempts: accreditation.attempts,
           errorCode: extra.errorCode ?? accreditation.lastErrorCode ?? null,
@@ -466,7 +513,8 @@ export class TvdAccreditationProcessorService {
   }
 
   private validateAccreditation(accreditation: TokenAccreditationDocument) {
-    if (accreditation.status === 'NEEDS_REVIEW') return 'TVD_ACCREDITATION_NEEDS_REVIEW';
+    if (accreditation.status === 'NEEDS_REVIEW') return 'TVD_ACCREDITATION_LEGACY_NEEDS_REVIEW';
+    if (accreditation.status === 'BLOCKED_CONFIGURATION') return 'TVD_ACCREDITATION_BLOCKED_CONFIGURATION';
     if (!accreditation.targetWallet) return 'TVD_WALLET_MISSING';
     if (!POSITIVE_INTEGER_REGEX.test(String(accreditation.tokenAmountSmallestUnit ?? ''))) {
       return 'TVD_INVALID_AMOUNT';
@@ -484,9 +532,27 @@ export class TvdAccreditationProcessorService {
     if (hasPreparedTransaction) return 'AMBIGUOUS';
     if (
       [
+        'TVD_CONFIG_INCOMPLETE',
+        'TVD_CHAIN_MISMATCH',
+        'TVD_OPERATOR_MISMATCH',
+        'TVD_TOKEN_ADDRESS_MISMATCH',
+        'TVD_DECIMALS_MISMATCH',
+        'TVD_INSUFFICIENT_CONTRACT_BALANCE',
+        'TVD_WALLET_MISSING',
+        'TVD_INVALID_AMOUNT',
+        'TVD_INVALID_SOURCE_TYPE',
+        'TVD_ACCREDITATION_LEGACY_NEEDS_REVIEW',
+        'TVD_ACCREDITATION_BLOCKED_CONFIGURATION',
+      ].includes(errorCode)
+    ) {
+      return 'CONFIGURATION';
+    }
+    if (
+      [
         'TVD_RPC_UNAVAILABLE',
         'TVD_RECEIPT_NOT_FOUND',
         'TVD_OPERATOR_LOCK_BUSY',
+        'TVD_ACCREDITATION_PROCESSING_FAILED',
       ].includes(errorCode)
     ) {
       return 'RETRYABLE';
@@ -503,7 +569,10 @@ export class TvdAccreditationProcessorService {
 
   private retryDelayMs(attempts: number) {
     const base = this.getPositiveConfigNumber('app.tvd.accreditationRetryBaseMs', 5000);
-    return Math.min(base * 2 ** Math.max(attempts - 1, 0), 15 * 60 * 1000);
+    return Math.min(
+      base * 2 ** Math.max(attempts - 1, 0),
+      this.getPositiveConfigNumber('app.tvd.accreditationRetryMaxMs', 15 * 60 * 1000),
+    );
   }
 
   private getAccreditationLockTtlMs() {
@@ -521,6 +590,25 @@ export class TvdAccreditationProcessorService {
   private getPositiveConfigNumber(key: string, fallback: number) {
     const value = Number(this.configService.get<string | number>(key) ?? fallback);
     return Number.isInteger(value) && value > 0 ? value : fallback;
+  }
+
+  private logMetric(
+    event: string,
+    accreditation: any,
+    workerId: string,
+    extra: Record<string, unknown> = {},
+  ) {
+    this.logger.log(
+      JSON.stringify({
+        event,
+        accreditationId: accreditation?._id ? String(accreditation._id) : null,
+        sourceType: accreditation?.sourceType ?? null,
+        tenantId: accreditation?.tenantId ? String(accreditation.tenantId) : null,
+        status: accreditation?.status ?? null,
+        workerId,
+        ...extra,
+      }),
+    );
   }
 
   private toObjectId(value: Types.ObjectId | string) {
