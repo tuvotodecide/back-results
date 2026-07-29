@@ -197,7 +197,11 @@ export default registerAs('app', () => ({
       txHash: process.env.TVD_ELECTORAL_CREDITS_TX_HASH || '',
     },
     voteManager: {
-      address: process.env.TVD_VOTE_MANAGER_ADDRESS || '',
+      address:
+        process.env.VOTE_MANAGER_PROXY_ADDRESS ||
+        process.env.VOTE_MANAGER_ADDRESS ||
+        process.env.TVD_VOTE_MANAGER_ADDRESS ||
+        '',
       txHash: process.env.TVD_VOTE_MANAGER_TX_HASH || '',
       implementationAddress: process.env.TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS || '',
     },

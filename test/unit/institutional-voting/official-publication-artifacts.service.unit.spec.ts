@@ -30,7 +30,7 @@ describe('OfficialPublicationArtifactsService', () => {
     ciMerkleTree: { root: 1n, layers: [[1n]] },
     voteMerkleTree: { root: 2n, layers: [[2n]] },
     optionsWithBlank: ['A', 'BLANK'],
-    callData: { to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x1234' },
+    callData: { to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x1234' },
     createVoteArgs: [1n, 'institution'],
     onChainElectionId: 123n,
   };

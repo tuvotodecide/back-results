@@ -46,7 +46,8 @@ const LEVEL_UNIT = 'UNITARIO';
 const token = getAddress('0x1111111111111111111111111111111111111111');
 const assignment = getAddress('0x2222222222222222222222222222222222222222');
 const operator = getAddress('0x3333333333333333333333333333333333333333');
-const voteManager = getAddress('0x7B57eE9103fc46eD6794329C36D2919293F0Fabb');
+const voteManager = getAddress('0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523');
+const obsoleteVoteManager = getAddress('0x7B57eE9103fc46eD6794329C36D2919293F0Fabb');
 const implementation = getAddress('0xb9ebfaca95ca68f774084dde30c7e6eb8e7eeea9');
 const credits = getAddress('0xbb4ea03105e2d883ab234d95f10dc7cc5000bb40');
 const institution = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
@@ -258,6 +259,18 @@ describe('TVD blockchain service', () => {
         tvdPerCredit: '1000000000000000000',
         spenderAddress: credits,
         proxyAuthorizedForCredits: true,
+      });
+    });
+
+    it('D-SEC-CONFIG | NEGATIVO | UNITARIO | rechaza el proxy anterior como Vote Manager runtime activo', async () => {
+      const { service } = createHarness({
+        config: {
+          'app.contracts.voteManager.address': obsoleteVoteManager,
+        },
+      });
+
+      await expect(service.getElectoralCreditsSummary()).rejects.toMatchObject({
+        code: 'TVD_CREDITS_CONFIG_INCOMPLETE',
       });
     });
 

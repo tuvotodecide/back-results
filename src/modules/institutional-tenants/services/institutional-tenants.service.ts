@@ -1477,6 +1477,7 @@ export class InstitutionalTenantsService {
 
   private toAdminAssignmentResponse(assignment: any, user?: any) {
     const walletState = getTenantWalletVerificationState(assignment);
+    const functionalStatus = this.resolveAssignmentFunctionalStatus(assignment);
     return {
       assignmentId: String(assignment._id),
       userId: String(assignment.userId),
@@ -1492,6 +1493,8 @@ export class InstitutionalTenantsService {
       institutionalRole: assignment.institutionalRole ?? null,
       status: assignment.status ?? null,
       active: assignment.active ?? false,
+      functionalStatus: functionalStatus.code,
+      functionalStatusLabel: functionalStatus.label,
       requestedAt: assignment.requestedAt ?? null,
       approvedAt: assignment.approvedAt ?? null,
       revokedAt: assignment.revokedAt ?? null,
@@ -1503,6 +1506,7 @@ export class InstitutionalTenantsService {
   private toGlobalTenantAdminResponse(assignment: any, user?: any) {
     const accountAddress = assignment.accountAddress?.trim() || null;
     const walletState = getTenantWalletVerificationState(assignment);
+    const functionalStatus = this.resolveAssignmentFunctionalStatus(assignment);
     return {
       assignmentId: String(assignment._id),
       userId: String(assignment.userId),
@@ -1510,12 +1514,36 @@ export class InstitutionalTenantsService {
       institutionalRole: assignment.institutionalRole ?? null,
       active: assignment.active ?? false,
       approvalStatus: assignment.status ?? null,
+      functionalStatus: functionalStatus.code,
+      functionalStatusLabel: functionalStatus.label,
       accountAddress,
       hasWallet: walletState.hasWallet,
       requiresWalletUpdate: walletState.requiresWalletUpdate,
       walletStatus: walletState.walletStatus,
       walletVerifiedAt: assignment.walletVerifiedAt ?? null,
       walletVerificationSource: assignment.walletVerificationSource ?? null,
+    };
+  }
+
+  private resolveAssignmentFunctionalStatus(assignment: any) {
+    if (assignment?.status === 'APPROVED' && assignment?.active === true) {
+      return { code: 'ACCESS_ENABLED', label: 'Acceso habilitado' };
+    }
+    if (assignment?.status === 'SUSPENDED') {
+      return { code: 'ACCESS_SUSPENDED', label: 'Acceso suspendido' };
+    }
+    if (assignment?.status === 'REVOKED') {
+      return { code: 'ACCESS_REMOVED', label: 'Acceso eliminado' };
+    }
+    if (assignment?.status === 'REJECTED') {
+      return { code: 'REJECTED', label: 'Rechazado' };
+    }
+    if (assignment?.status === 'PENDING') {
+      return { code: 'PENDING_REVIEW', label: 'Pendiente de revisión' };
+    }
+    return {
+      code: assignment?.status ?? 'UNKNOWN',
+      label: assignment?.status ?? 'UNKNOWN',
     };
   }
 

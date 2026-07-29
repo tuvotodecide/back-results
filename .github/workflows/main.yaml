@@ -148,6 +148,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:module:payments
 
+      - name: Run module tests - TVD blockchain, capacity and accreditations
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:tvd
+
       - name: Run module tests - Operations history log
         if: ${{ !cancelled() }}
         run: pnpm test:module:history

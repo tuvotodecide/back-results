@@ -55,6 +55,8 @@ const POSITIVE_INTEGER_REGEX = /^[1-9]\d*$/;
 const NON_NEGATIVE_INTEGER_REGEX = /^(?:0|[1-9]\d*)$/;
 const EIP1967_IMPLEMENTATION_SLOT =
   '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
+const OBSOLETE_BASE_SEPOLIA_VOTE_MANAGER_ADDRESS =
+  '0x7b57ee9103fc46ed6794329c36d2919293f0fabb';
 const ERC20_ERROR_ABI = [
   {
     type: 'error',
@@ -981,9 +983,8 @@ export class TvdBlockchainService {
         electoralCreditsAddress,
         'TVD_ELECTORAL_CREDITS_ADDRESS',
       ),
-      voteManagerAddress: this.parseAddress(
+      voteManagerAddress: this.parseVoteManagerProxyAddress(
         voteManagerAddress,
-        'TVD_VOTE_MANAGER_ADDRESS',
       ),
       voteManagerImplementationAddress: this.parseAddress(
         voteManagerImplementationAddress,
@@ -1004,12 +1005,21 @@ export class TvdBlockchainService {
           ? 'TVD_CONFIG_INCOMPLETE'
           : fieldName === 'TVD_ELECTORAL_CREDITS_ADDRESS' ||
               fieldName === 'TVD_VOTE_MANAGER_ADDRESS' ||
+              fieldName === 'VOTE_MANAGER_PROXY_ADDRESS' ||
               fieldName === 'TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS'
             ? 'TVD_CREDITS_CONFIG_INCOMPLETE'
           : 'TVD_INVALID_WALLET',
       );
     }
     return getAddress(value);
+  }
+
+  private parseVoteManagerProxyAddress(value: string) {
+    const address = this.parseAddress(value, 'VOTE_MANAGER_PROXY_ADDRESS');
+    if (address.toLowerCase() === OBSOLETE_BASE_SEPOLIA_VOTE_MANAGER_ADDRESS) {
+      throw new TvdBlockchainError('TVD_CREDITS_CONFIG_INCOMPLETE');
+    }
+    return address;
   }
 
   private assertCreditsSpender(

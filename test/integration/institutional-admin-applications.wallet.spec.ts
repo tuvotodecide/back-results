@@ -21,9 +21,9 @@ jest.mock('@iden3/js-iden3-auth', () => ({
 jest.mock('@/api/vote', () => ({
   VoteContractCalls: {
     createInstitution: jest.fn().mockReturnValue({ calldata: '0x' }),
-    addAuthorizedAddress: jest.fn().mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x1234' }),
-    removeAuthorizedAddress: jest.fn().mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x5678' }),
-    changeInstitutionAdmin: jest.fn().mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x9abc' }),
+    addAuthorizedAddress: jest.fn().mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x1234' }),
+    removeAuthorizedAddress: jest.fn().mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x5678' }),
+    changeInstitutionAdmin: jest.fn().mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x9abc' }),
   },
   VoteContractReads: {
     getInstitutionAdmin: jest.fn().mockResolvedValue('0x1234567890abcdef1234567890abcdef12345678'),
@@ -172,9 +172,9 @@ describe('Institutional admin application wallet validation (integration)', () =
     jest.clearAllMocks();
     (executeCoinbaseOp as jest.Mock).mockResolvedValue({ txHash: '0xabc123' });
     (VoteContractCalls.createInstitution as jest.Mock).mockReturnValue({ calldata: '0x' });
-    (VoteContractCalls.addAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x1234' });
-    (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x5678' });
-    (VoteContractCalls.changeInstitutionAdmin as jest.Mock).mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x9abc' });
+    (VoteContractCalls.addAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x1234' });
+    (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x5678' });
+    (VoteContractCalls.changeInstitutionAdmin as jest.Mock).mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x9abc' });
     (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(validAccountAddress);
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
     httpService.axiosRef.post.mockResolvedValue({
@@ -1293,6 +1293,8 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(approveRes.body).toMatchObject({
       status: 'PENDING_CHAIN_CONFIRMATION',
       chainStatus: 'PENDING_SEND',
+      functionalStatus: 'PROCESSING_AUTHORIZATION',
+      functionalStatusLabel: 'Procesando autorización',
     });
 
     const application = await conn.collection('institutional_admin_applications').findOne({
@@ -1319,6 +1321,57 @@ describe('Institutional admin application wallet validation (integration)', () =
       }),
     );
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+  it('D-STATE-001 a D-STATE-005: expone estados funcionales autoritativos para solicitudes institucionales', async () => {
+    const now = new Date();
+    const rows = [
+      ['state-review', 'PENDING_APPROVAL', null, 'PENDING_REVIEW', 'Pendiente de revisión'],
+      ['state-mobile', 'PENDING_MOBILE_AUTHORIZATION', null, 'PENDING_MOBILE_SIGNATURE', 'Pendiente de firma en tu teléfono'],
+      ['state-processing', 'PENDING_CHAIN_CONFIRMATION', 'SENT', 'PROCESSING_AUTHORIZATION', 'Procesando autorización'],
+      ['state-retry', 'CHAIN_RETRY_PENDING', 'RETRY_PENDING', 'RECOVERABLE_ERROR', 'Error recuperable'],
+      ['state-approved', 'APPROVED', 'CONFIRMED', 'ACCESS_ENABLED', 'Acceso habilitado'],
+      ['state-rejected', 'REJECTED', null, 'REJECTED', 'Rechazado'],
+      ['state-expired', 'MOBILE_AUTHORIZATION_EXPIRED', null, 'EXPIRED', 'Vencido'],
+      ['state-revoked', 'REVOKED', 'CONFIRMED', 'ACCESS_REMOVED', 'Acceso eliminado'],
+    ] as const;
+
+    await conn.collection('institutional_admin_applications').insertMany(
+      rows.map(([dni, status, chainStatus]) => ({
+        _id: new Types.ObjectId(),
+        dni,
+        email: `${dni}@example.com`,
+        passwordHash: 'hash',
+        name: `Solicitud ${dni}`,
+        institutionName: `Tenant ${dni}`,
+        institutionNameNorm: `tenant ${dni}`,
+        accountAddress: validAccountAddress,
+        status,
+        chainStatus,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/institutional-admin-applications')
+      .expect(200);
+
+    for (const [dni, , , functionalStatus, functionalStatusLabel] of rows) {
+      expect(response.body.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            dni,
+            functionalStatus,
+            functionalStatusLabel,
+          }),
+        ]),
+      );
+    }
+    expect(response.body.data.find((row: any) => row.dni === 'state-processing')).toMatchObject({
+      status: 'PENDING_CHAIN_CONFIRMATION',
+      functionalStatusLabel: 'Procesando autorización',
+    });
   });
 
   it('D-NEW-007: rechazar conserva historial y no crea institución, relación ni operación', async () => {
@@ -2092,6 +2145,8 @@ describe('Institutional admin application wallet validation (integration)', () =
       signerWallet: primaryWallet,
       action: 'ADD_AUTHORIZED_ADDRESS',
       status: 'PENDING_MOBILE_AUTHORIZATION',
+      functionalStatus: 'PENDING_MOBILE_SIGNATURE',
+      functionalStatusLabel: 'Pendiente de firma en tu teléfono',
       canSign: true,
     });
     expect(detail.body.stableInstitutionId).not.toBe(target.id);
@@ -2108,7 +2163,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     });
     expect(claim.body.execution.calls).toEqual([
       expect.objectContaining({
-        target: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb',
+        target: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
         value: '0',
         callData: '0x1234',
         purpose: 'ADD_AUTHORIZED_ADDRESS',
@@ -2138,6 +2193,8 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(submitted.body).toMatchObject({
       status: 'PENDING_CHAIN_CONFIRMATION',
       userOpHash,
+      functionalStatus: 'PROCESSING_AUTHORIZATION',
+      functionalStatusLabel: 'Procesando autorización',
       canSign: false,
     });
 
@@ -2205,7 +2262,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     });
     expect(claim.body.execution.calls).toEqual([
       expect.objectContaining({
-        target: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb',
+        target: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
         value: '0',
         callData: '0x9abc',
         purpose: 'CHANGE_INSTITUTION_ADMIN',
@@ -2723,7 +2780,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     });
     expect(claim.body.execution.calls).toEqual([
       expect.objectContaining({
-        target: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb',
+        target: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
         value: '0',
         callData: '0x5678',
         purpose: 'REMOVE_AUTHORIZED_ADDRESS',

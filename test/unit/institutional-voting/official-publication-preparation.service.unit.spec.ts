@@ -28,7 +28,7 @@ describe('OfficialPublicationPreparationService', () => {
     voteMerkleTree: { root: 222n, layers: [[2n], [222n]] },
     optionsWithBlank: ['A', 'B', 'BLANK'],
     callData: {
-      to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb',
+      to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
       value: 0n,
       data: '0x1234',
     },
@@ -89,7 +89,7 @@ describe('OfficialPublicationPreparationService', () => {
       tvdBlockchainService: {
         validateVotePublicationPreflight: jest.fn().mockResolvedValue({
           chainId: 84532,
-          proxyAddress: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb',
+          proxyAddress: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
           implementationAddress: '0xb9EBfAcA95Ca68F774084DDE30c7E6Eb8e7eEea9',
           creditsContractAddress: '0xbb4ea03105e2d883ab234d95f10dc7cc5000bb40',
           tokenAddress: '0x0156D96BAbC74139a5cdb2cf2C90FDA1F6B53562',
@@ -219,7 +219,7 @@ describe('OfficialPublicationPreparationService', () => {
   it('calcula callDataHash canonico y sensible a to, value y data', () => {
     const { service } = setup();
     const base = {
-      to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb',
+      to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
       value: 0n,
       data: '0x1234',
     };

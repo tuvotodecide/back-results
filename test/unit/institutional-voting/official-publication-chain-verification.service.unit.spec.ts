@@ -55,7 +55,7 @@ const TVD_TOKEN_ABI = [
 
 describe('OfficialPublicationChainVerificationService', () => {
   const smartAccountAddress = '0x1111111111111111111111111111111111111111';
-  const voteProxyAddress = '0x7b57ee9103fc46ed6794329c36d2919293f0fabb';
+  const voteProxyAddress = '0x36d4b585d0a05d12b7fa3a4cad7f7c28e920c523';
   const creditsAddress = '0xbb4ea03105e2d883ab234d95f10dc7cc5000bb40';
   const tokenAddress = '0x0156d96babc74139a5cdb2cf2c90fda1f6b53562';
   let userOperationService: any;

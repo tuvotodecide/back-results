@@ -324,18 +324,33 @@ describe('Institutional tenant admin management (integration)', () => {
     const seeded = await seedTenantWithAdmins('list');
     const pendingUserId = new Types.ObjectId();
     const pendingAssignmentId = new Types.ObjectId();
+    const revokedUserId = new Types.ObjectId();
+    const revokedAssignmentId = new Types.ObjectId();
     const otherTenantId = new Types.ObjectId();
-    await conn.collection('roled_users').insertOne({
-      _id: pendingUserId,
-      dni: 'pending-list',
-      email: 'pending-list@example.com',
-      name: 'Pendiente List',
-      password: 'hash',
-      role: 'USER',
-      active: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    await conn.collection('roled_users').insertMany([
+      {
+        _id: pendingUserId,
+        dni: 'pending-list',
+        email: 'pending-list@example.com',
+        name: 'Pendiente List',
+        password: 'hash',
+        role: 'USER',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        _id: revokedUserId,
+        dni: 'revoked-list',
+        email: 'revoked-list@example.com',
+        name: 'Revoked List',
+        password: 'hash',
+        role: 'USER',
+        active: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
     await conn.collection('tenant_admin_assignments').insertOne({
       _id: pendingAssignmentId,
       tenantId: seeded.tenantId,
@@ -344,6 +359,18 @@ describe('Institutional tenant admin management (integration)', () => {
       institutionalRole: 'SECONDARY',
       status: 'PENDING',
       active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').insertOne({
+      _id: revokedAssignmentId,
+      tenantId: seeded.tenantId,
+      userId: revokedUserId,
+      accountAddress: '0x0000000000000000000000000000000000000197',
+      institutionalRole: 'SECONDARY',
+      status: 'REVOKED',
+      active: false,
+      revokedAt: new Date(),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -375,13 +402,14 @@ describe('Institutional tenant admin management (integration)', () => {
       .get(`/api/v1/institutional-tenants/${seeded.tenantId}/admins`)
       .expect(200);
 
-    expect(response.body.total).toBe(4);
+    expect(response.body.total).toBe(5);
     expect(response.body.data.map((row: any) => row.assignmentId)).toEqual(
       expect.arrayContaining([
         String(seeded.primaryAssignmentId),
         String(seeded.secondaryAssignmentId),
         String(seeded.secondSecondaryAssignmentId),
         String(pendingAssignmentId),
+        String(revokedAssignmentId),
       ]),
     );
     expect(response.body.data).toEqual(
@@ -391,6 +419,8 @@ describe('Institutional tenant admin management (integration)', () => {
           institutionalRole: 'PRIMARY',
           status: 'APPROVED',
           active: true,
+          functionalStatus: 'ACCESS_ENABLED',
+          functionalStatusLabel: 'Acceso habilitado',
         }),
         expect.objectContaining({
           assignmentId: String(seeded.secondSecondaryAssignmentId),
@@ -398,12 +428,24 @@ describe('Institutional tenant admin management (integration)', () => {
           status: 'SUSPENDED',
           active: false,
           accountAddress: '0x0000000000000000000000000000000000000103',
+          functionalStatus: 'ACCESS_SUSPENDED',
+          functionalStatusLabel: 'Acceso suspendido',
         }),
         expect.objectContaining({
           assignmentId: String(pendingAssignmentId),
           institutionalRole: 'SECONDARY',
           status: 'PENDING',
           active: false,
+          functionalStatus: 'PENDING_REVIEW',
+          functionalStatusLabel: 'Pendiente de revisión',
+        }),
+        expect.objectContaining({
+          assignmentId: String(revokedAssignmentId),
+          institutionalRole: 'SECONDARY',
+          status: 'REVOKED',
+          active: false,
+          functionalStatus: 'ACCESS_REMOVED',
+          functionalStatusLabel: 'Acceso eliminado',
         }),
       ]),
     );

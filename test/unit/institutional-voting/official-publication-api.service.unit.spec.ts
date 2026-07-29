@@ -490,7 +490,7 @@ describe('OfficialPublicationApiService', () => {
       tvdPerCredit: '1000000000000000000',
       chainId: 84532,
       callData: {
-        to: '0x7b57ee9103fc46ed6794329c36d2919293f0fabb',
+        to: '0x36d4b585d0a05d12b7fa3a4cad7f7c28e920c523',
         value: '0',
         data: '0x1234',
       },

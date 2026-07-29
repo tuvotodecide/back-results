@@ -340,9 +340,12 @@ export class InstitutionalAdminApplicationsService {
         }
 
         if (app.status === 'PENDING_MOBILE_AUTHORIZATION') {
+          const functionalStatus = this.resolveApplicationFunctionalStatus(app);
           response = {
             id: String(app._id),
             status: app.status,
+            functionalStatus: functionalStatus.code,
+            functionalStatusLabel: functionalStatus.label,
             tenantId: app.tenantId ? String(app.tenantId) : null,
             userId: app.userId ? String(app.userId) : null,
             stableInstitutionId: app.stableInstitutionId ?? null,
@@ -611,9 +614,12 @@ export class InstitutionalAdminApplicationsService {
           session,
         });
 
+        const functionalStatus = this.resolveApplicationFunctionalStatus(app);
         response = {
           id: String(app._id),
           status: app.status,
+          functionalStatus: functionalStatus.code,
+          functionalStatusLabel: functionalStatus.label,
           tenantId: String(tenant._id),
           userId: String(user._id),
           institutionalRole,
@@ -2967,6 +2973,7 @@ export class InstitutionalAdminApplicationsService {
 
   private toMobileAuthorizationResponse(app: any, tenant: any, primary: any, status: string) {
     const action = this.resolveMobileAuthorizationAction(app);
+    const functionalStatus = this.resolveApplicationFunctionalStatus({ ...app, status });
     return {
       requestId: String(app._id),
       applicationId: String(app._id),
@@ -2983,6 +2990,8 @@ export class InstitutionalAdminApplicationsService {
       userOpHash: app.mobileAuthorizationUserOpHash ?? null,
       txHash: app.mobileAuthorizationTxHash ?? app.chainTxHash ?? null,
       safeMessage: app.chainLastError ?? null,
+      functionalStatus: functionalStatus.code,
+      functionalStatusLabel: functionalStatus.label,
       canSign: status === 'PENDING_MOBILE_AUTHORIZATION',
     };
   }
@@ -3088,6 +3097,7 @@ export class InstitutionalAdminApplicationsService {
   }
 
   private toApplicationResponse(row: any) {
+    const functionalStatus = this.resolveApplicationFunctionalStatus(row);
     return {
       id: String(row._id),
       dni: row.dni,
@@ -3096,6 +3106,8 @@ export class InstitutionalAdminApplicationsService {
       institutionName: row.institutionName,
       accountAddress: row.accountAddress,
       status: row.status,
+      functionalStatus: functionalStatus.code,
+      functionalStatusLabel: functionalStatus.label,
       emailVerifiedAt: row.emailVerifiedAt ?? null,
       approvedAt: row.approvedAt ?? null,
       rejectedAt: row.rejectedAt ?? null,
@@ -3115,6 +3127,30 @@ export class InstitutionalAdminApplicationsService {
         : null,
       createdAt: row.createdAt ?? null,
     };
+  }
+
+  private resolveApplicationFunctionalStatus(row: any) {
+    switch (row?.status) {
+      case 'PENDING_APPROVAL':
+        return { code: 'PENDING_REVIEW', label: 'Pendiente de revisión' };
+      case 'PENDING_MOBILE_AUTHORIZATION':
+        return { code: 'PENDING_MOBILE_SIGNATURE', label: 'Pendiente de firma en tu teléfono' };
+      case 'PENDING_CHAIN_CONFIRMATION':
+      case 'RECONCILIATION_PENDING':
+        return { code: 'PROCESSING_AUTHORIZATION', label: 'Procesando autorización' };
+      case 'CHAIN_RETRY_PENDING':
+        return { code: 'RECOVERABLE_ERROR', label: 'Error recuperable' };
+      case 'APPROVED':
+        return { code: 'ACCESS_ENABLED', label: 'Acceso habilitado' };
+      case 'REJECTED':
+        return { code: 'REJECTED', label: 'Rechazado' };
+      case 'MOBILE_AUTHORIZATION_EXPIRED':
+        return { code: 'EXPIRED', label: 'Vencido' };
+      case 'REVOKED':
+        return { code: 'ACCESS_REMOVED', label: 'Acceso eliminado' };
+      default:
+        return { code: row?.status ?? 'UNKNOWN', label: row?.status ?? 'UNKNOWN' };
+    }
   }
 
   private toInvitationResponse(row: any) {

@@ -147,6 +147,25 @@ describe('Institutional audit (integration)', () => {
   const walletSecondary = '0x2222222222222222222222222222222222222222';
   const walletLegacy = '0x3333333333333333333333333333333333333333';
 
+  const forbiddenAuditFragments = [
+    'Secret1234',
+    'verificationToken',
+    'identity-test-key',
+    'passwordHash',
+    'passwordResetToken',
+    'refreshToken',
+    'privateKey',
+    'credentialSubject',
+    'mock-proof',
+  ];
+
+  function expectNoAuditSecrets(payload: unknown) {
+    const serialized = JSON.stringify(payload);
+    for (const fragment of forbiddenAuditFragments) {
+      expect(serialized).not.toContain(fragment);
+    }
+  }
+
   function postApplication(suffix: string, institutionName = 'Audit Tenant') {
     return request(app.getHttpServer())
       .post('/api/v1/institutional-admin-applications')
@@ -161,20 +180,6 @@ describe('Institutional audit (integration)', () => {
   }
 
   async function createAndApprovePrimary() {
-    await conn.collection('institutional_tenants').updateOne(
-      { nameNorm: 'audit tenant' },
-      {
-        $setOnInsert: {
-          _id: new Types.ObjectId(),
-          name: 'Audit Tenant',
-          nameNorm: 'audit tenant',
-          active: true,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      },
-      { upsert: true },
-    );
     const created = await postApplication('primary').expect(201);
     const storedApplication = await conn
       .collection('institutional_admin_applications')
@@ -188,7 +193,24 @@ describe('Institutional audit (integration)', () => {
       .post(`/api/v1/institutional-admin-applications/${created.body.id}/approve`)
       .send({})
       .expect(201);
-    return approved.body;
+    const approvedBody = approved.body;
+    await conn.collection('institutional_tenants').updateOne(
+      { _id: new Types.ObjectId(approvedBody.tenantId) },
+      { $set: { active: true, updatedAt: new Date() } },
+    );
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { tenantId: new Types.ObjectId(approvedBody.tenantId), userId: new Types.ObjectId(approvedBody.userId) },
+      { $set: { status: 'APPROVED', active: true, updatedAt: new Date() } },
+    );
+    await conn.collection('institutional_admin_applications').updateOne(
+      { _id: new Types.ObjectId(approvedBody.id) },
+      { $set: { status: 'APPROVED', chainStatus: 'CONFIRMED', chainConfirmedAt: new Date(), updatedAt: new Date() } },
+    );
+    await conn.collection('roled_users').updateOne(
+      { _id: new Types.ObjectId(approvedBody.userId) },
+      { $set: { active: true, updatedAt: new Date() } },
+    );
+    return approvedBody;
   }
 
   async function seedSecondary(tenantId: string, suffix: string, accountAddress = walletSecondary) {
@@ -234,14 +256,32 @@ describe('Institutional audit (integration)', () => {
     const response = await audit(primary.tenantId);
     const actions = response.body.data.map((event: any) => event.action);
     expect(actions).toEqual(expect.arrayContaining([
-      'INSTITUTIONAL_APPLICATION_CREATED',
-      'INSTITUTIONAL_EMAIL_VERIFIED',
       'TENANT_ADMIN_ASSIGNMENT_CREATED',
       'INSTITUTIONAL_APPLICATION_APPROVED',
     ]));
-    expect(JSON.stringify(response.body)).not.toContain('Secret1234');
-    expect(JSON.stringify(response.body)).not.toContain('verificationToken');
-    expect(JSON.stringify(response.body)).not.toContain('identity-test-key');
+    const approval = response.body.data.find((event: any) => event.action === 'INSTITUTIONAL_APPLICATION_APPROVED');
+    expect(approval).toMatchObject({
+      actorGlobalRole: 'ACCESS_APPROVER',
+      tenantId: primary.tenantId,
+      applicationId: primary.id,
+      targetUserId: primary.userId,
+      previousState: { status: 'PENDING_APPROVAL' },
+      newState: expect.objectContaining({
+        status: 'PENDING_CHAIN_CONFIRMATION',
+        userActive: false,
+        chainStatus: 'PENDING_SEND',
+      }),
+    });
+    const earlyEvents = await conn.collection('institutional_audit_events').find({
+      applicationId: new Types.ObjectId(primary.id),
+      action: { $in: ['INSTITUTIONAL_APPLICATION_CREATED', 'INSTITUTIONAL_EMAIL_VERIFIED'] },
+    }).toArray();
+    expect(earlyEvents.map((event) => event.action)).toEqual(expect.arrayContaining([
+      'INSTITUTIONAL_APPLICATION_CREATED',
+      'INSTITUTIONAL_EMAIL_VERIFIED',
+    ]));
+    expectNoAuditSecrets(response.body);
+    expectNoAuditSecrets(earlyEvents);
     expect(JSON.stringify(response.body)).not.toContain('dni-primary');
   });
 
@@ -461,9 +501,12 @@ describe('Institutional audit (integration)', () => {
     });
 
     currentUser = { sub: String(legacyUserId), role: 'USER', active: true };
+    httpService.axiosRef.post.mockResolvedValueOnce({
+      data: { registered: true, accountAddress: walletLegacy },
+    });
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-tenants/${primary.tenantId}/admins/me/wallet-regularization`)
-      .send({ accountAddress: walletLegacy })
+      .send({ dni: 'legacy-wallet' })
       .expect(201);
 
     const falseUserId = new Types.ObjectId();
@@ -494,8 +537,8 @@ describe('Institutional audit (integration)', () => {
     currentUser = { sub: String(falseUserId), role: 'USER', active: true };
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-tenants/${primary.tenantId}/admins/me/wallet-regularization`)
-      .send({ accountAddress: '0x4444444444444444444444444444444444444444' })
-      .expect(400);
+      .send({ dni: 'legacy-false' })
+      .expect(409);
 
     const events = await conn
       .collection('institutional_audit_events')

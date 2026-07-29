@@ -9,6 +9,27 @@ const BUNDLER = process.env.BUNDLER;
 const BUNDLER_MAIN = process.env.BUNDLER_MAIN;
 const BUNDLER_ARBITRUM = process.env.BUNDLER_ARBITRUM;
 const BUNDLER_MAIN_ARBITRUM = process.env.BUNDLER_MAIN_ARBITRUM;
+const BASE_SEPOLIA_VOTE_MANAGER_PROXY_ADDRESS =
+  '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523';
+const OBSOLETE_BASE_SEPOLIA_VOTE_MANAGER_PROXY_ADDRESS =
+  '0x7b57ee9103fc46ed6794329c36d2919293f0fabb';
+
+function resolveBaseSepoliaVoteContract() {
+  const canonical =
+    process.env.VOTE_MANAGER_PROXY_ADDRESS?.trim() ||
+    process.env.VOTE_MANAGER_ADDRESS?.trim();
+  if (canonical) return canonical;
+
+  const legacy = process.env.TVD_VOTE_MANAGER_ADDRESS?.trim();
+  if (
+    legacy &&
+    legacy.toLowerCase() !== OBSOLETE_BASE_SEPOLIA_VOTE_MANAGER_PROXY_ADDRESS
+  ) {
+    return legacy;
+  }
+
+  return BASE_SEPOLIA_VOTE_MANAGER_PROXY_ADDRESS;
+}
 
 export const availableNetworks = {
   'arbitrum-sepolia': {
@@ -48,7 +69,7 @@ export const availableNetworks = {
       '0x9f70476b4563c57c3056cc4e8dffc8025828c99ea7a458e33c1502f84b53cc94',
     attestationNft: '0x5D4f9dBD942C8D37dA57F6Ffd64cC9bF45939b0e',
     participationNft: '',
-    voteContract: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523'
+    voteContract: resolveBaseSepoliaVoteContract()
   },
   base: {
     chain: base,
