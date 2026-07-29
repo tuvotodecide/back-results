@@ -93,6 +93,7 @@ export type TvdVotePublicationPreflightResult = {
   implementationAddress: Address;
   creditsContractAddress: Address;
   tokenAddress: Address;
+  tokenDecimals: number;
   spenderAddress: Address;
   institutionWallet: Address;
   institutionAdminAddress: Address;

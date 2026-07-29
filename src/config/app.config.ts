@@ -113,7 +113,10 @@ export default registerAs('app', () => ({
   tvd: {
     rpcUrl: process.env.TVD_RPC_URL || '',
     chainId: process.env.TVD_CHAIN_ID || '',
-    tokenContractAddress: process.env.TVD_TOKEN_CONTRACT_ADDRESS || '',
+    tokenContractAddress:
+      process.env.TVD_TOKEN_CONTRACT_ADDRESS ||
+      process.env.TVD_TOKEN_ADDRESS ||
+      '',
     assignmentContractAddress: process.env.TVD_ASSIGNMENT_CONTRACT_ADDRESS || '',
     operatorPrivateKey: process.env.TVD_OPERATOR_PRIVATE_KEY || '',
     confirmationsRequired: process.env.TVD_CONFIRMATIONS_REQUIRED || '',
@@ -195,8 +198,14 @@ export default registerAs('app', () => ({
       txHash: process.env.INCENTIVE_CAMPAIGNS_TX_HASH || '',
     },
     electoralCredits: {
-      address: process.env.TVD_ELECTORAL_CREDITS_ADDRESS || '',
-      txHash: process.env.TVD_ELECTORAL_CREDITS_TX_HASH || '',
+      address:
+        process.env.TVD_ELECTORAL_CREDITS_ADDRESS ||
+        process.env.ELECTORAL_CREDITS_ADDRESS ||
+        '',
+      txHash:
+        process.env.TVD_ELECTORAL_CREDITS_TX_HASH ||
+        process.env.ELECTORAL_CREDITS_TX_HASH ||
+        '',
     },
     voteManager: {
       address:
@@ -205,7 +214,10 @@ export default registerAs('app', () => ({
         process.env.TVD_VOTE_MANAGER_ADDRESS ||
         '',
       txHash: process.env.TVD_VOTE_MANAGER_TX_HASH || '',
-      implementationAddress: process.env.TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS || '',
+      implementationAddress:
+        process.env.TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS ||
+        process.env.VOTE_MANAGER_IMPLEMENTATION_ADDRESS ||
+        '',
     },
   },
 

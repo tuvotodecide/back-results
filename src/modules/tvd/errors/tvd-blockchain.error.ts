@@ -22,6 +22,7 @@ export type TvdBlockchainErrorCode =
   | 'TVD_CREDITS_OPERATOR_NOT_AUTHORIZED'
   | 'TVD_CREDITS_INSUFFICIENT_CAPACITY'
   | 'TVD_CREDITS_BALANCE_INSUFFICIENT'
+  | 'TVD_BALANCE_TEMPORARILY_UNAVAILABLE'
   | 'TVD_CREDITS_MAX_TOKEN_INVALID'
   | 'TVD_CREDITS_MAX_TOKEN_EXCEEDED'
   | 'TVD_CREDITS_SOURCE_CONFIG_MISMATCH'
@@ -60,6 +61,7 @@ const messages: Record<TvdBlockchainErrorCode, string> = {
   TVD_CREDITS_OPERATOR_NOT_AUTHORIZED: 'Contrato de votacion no autorizado para creditos TVD',
   TVD_CREDITS_INSUFFICIENT_CAPACITY: 'Capacidad TVD insuficiente para publicar',
   TVD_CREDITS_BALANCE_INSUFFICIENT: 'Saldo TVD insuficiente para publicar',
+  TVD_BALANCE_TEMPORARILY_UNAVAILABLE: 'No se pudo consultar el saldo TVD',
   TVD_CREDITS_MAX_TOKEN_INVALID: 'Limite TVD por eleccion invalido',
   TVD_CREDITS_MAX_TOKEN_EXCEEDED: 'La votacion supera el maximo TVD permitido por eleccion',
   TVD_CREDITS_SOURCE_CONFIG_MISMATCH: 'Fuente TVD contractual mal configurada',
@@ -98,6 +100,7 @@ export class TvdBlockchainError extends Error {
     };
     if (
       this.code === 'TVD_RPC_UNAVAILABLE' ||
+      this.code === 'TVD_BALANCE_TEMPORARILY_UNAVAILABLE' ||
       this.code === 'TVD_ASSIGN_REVERTED'
     ) {
       return new ServiceUnavailableException(body);

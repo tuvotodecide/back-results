@@ -174,6 +174,14 @@ export class TvdBlockchainService {
     };
   }
 
+  getTokenRuntimeContext() {
+    const config = this.getConfigOrThrow();
+    return {
+      chainId: config.chainId,
+      tokenContractAddress: config.tokenContractAddress,
+    };
+  }
+
   async getElectoralCreditsSummary() {
     const config = this.getElectoralCreditsConfigOrThrow();
     const [chainId, tokenAddress, tvdPerCredit, maxTokenPerElection, operatorRole] =
@@ -233,7 +241,14 @@ export class TvdBlockchainService {
       input.requiredCredits,
       'TVD_INVALID_AMOUNT',
     );
-    const [chainId, implementationAddress, tokenAddress, tvdPerCredit, maxTokenPerElection] =
+    const [
+      chainId,
+      implementationAddress,
+      tokenAddress,
+      tokenDecimals,
+      tvdPerCredit,
+      maxTokenPerElection,
+    ] =
       await Promise.all([
         this.callRpc(
           () => clients.publicClient.getChainId(),
@@ -241,6 +256,7 @@ export class TvdBlockchainService {
         ),
         this.readProxyImplementation(config),
         this.readElectoralCreditsContract(config, 'token'),
+        this.getTokenDecimals(),
         this.readElectoralCreditsContract(config, 'tvdPerCredit'),
         this.readElectoralCreditsContract(config, 'maxTokenPerElection'),
       ]);
@@ -289,7 +305,7 @@ export class TvdBlockchainService {
         input.institutionId,
         institutionWallet,
       ]),
-      this.readTokenContract(config, 'balanceOf', [institutionWallet]),
+      this.readPublicationWalletBalance(config, institutionWallet),
       this.readTokenContract(config, 'allowance', [
         institutionWallet,
         config.electoralCreditsAddress,
@@ -372,6 +388,7 @@ export class TvdBlockchainService {
       implementationAddress,
       creditsContractAddress: config.electoralCreditsAddress,
       tokenAddress: getAddress(tokenAddress),
+      tokenDecimals,
       spenderAddress: config.electoralCreditsAddress,
       institutionWallet,
       institutionAdminAddress: getAddress(institutionAdminAddress),
@@ -598,6 +615,36 @@ export class TvdBlockchainService {
     const address = this.parseWallet(wallet);
     const balance = await this.readTokenContract(config, 'balanceOf', [address]);
     return balance.toString();
+  }
+
+  private async readPublicationWalletBalance(
+    config: TvdElectoralCreditsConfig,
+    institutionWallet: Address,
+  ) {
+    try {
+      return BigInt(await this.getLiquidBalance(institutionWallet));
+    } catch (error) {
+      this.logger.warn({
+        event: 'tvd_publication_balance_unavailable',
+        tokenAddress: config.tokenContractAddress,
+        walletAddress: institutionWallet,
+        source: 'TVDToken.balanceOf',
+        errorCode:
+          error instanceof TvdBlockchainError ? error.code : undefined,
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+      throw new TvdBlockchainError(
+        'TVD_BALANCE_TEMPORARILY_UNAVAILABLE',
+        error,
+        {
+          tokenAddress: config.tokenContractAddress,
+          walletAddress: institutionWallet,
+          source: 'TVDToken.balanceOf',
+          causeCode:
+            error instanceof TvdBlockchainError ? error.code : 'UNKNOWN',
+        },
+      );
+    }
   }
 
   async getTotalBalance(wallet: string): Promise<TvdTotalBalanceResult> {
@@ -1011,12 +1058,37 @@ export class TvdBlockchainService {
       'app.contracts.voteManager.implementationAddress',
     );
 
+    const missingConfigKeys: string[] = [];
+    if (!electoralCreditsAddress) {
+      missingConfigKeys.push(
+        'TVD_ELECTORAL_CREDITS_ADDRESS|ELECTORAL_CREDITS_ADDRESS',
+      );
+    }
+    if (!voteManagerAddress) {
+      missingConfigKeys.push(
+        'VOTE_MANAGER_PROXY_ADDRESS|VOTE_MANAGER_ADDRESS|TVD_VOTE_MANAGER_ADDRESS',
+      );
+    }
+    if (!voteManagerImplementationAddress) {
+      missingConfigKeys.push(
+        'TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS|VOTE_MANAGER_IMPLEMENTATION_ADDRESS',
+      );
+    }
+
     if (
       !electoralCreditsAddress ||
       !voteManagerAddress ||
       !voteManagerImplementationAddress
     ) {
-      throw new TvdBlockchainError('TVD_CREDITS_CONFIG_INCOMPLETE');
+      throw new TvdBlockchainError(
+        'TVD_CREDITS_CONFIG_INCOMPLETE',
+        undefined,
+        {
+          missingConfigKeys: missingConfigKeys.join(','),
+          requiredConfigKeys:
+            'TVD_ELECTORAL_CREDITS_ADDRESS|ELECTORAL_CREDITS_ADDRESS,VOTE_MANAGER_PROXY_ADDRESS|VOTE_MANAGER_ADDRESS|TVD_VOTE_MANAGER_ADDRESS,TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS|VOTE_MANAGER_IMPLEMENTATION_ADDRESS',
+        },
+      );
     }
 
     return {
@@ -1041,16 +1113,20 @@ export class TvdBlockchainService {
 
   private parseAddress(value: string, fieldName: string) {
     if (!isAddress(value) || getAddress(value) === zeroAddress) {
-      throw new TvdBlockchainError(
+      const code =
         fieldName === 'TVD_TOKEN_CONTRACT_ADDRESS' ||
-          fieldName === 'TVD_ASSIGNMENT_CONTRACT_ADDRESS'
+        fieldName === 'TVD_ASSIGNMENT_CONTRACT_ADDRESS'
           ? 'TVD_CONFIG_INCOMPLETE'
           : fieldName === 'TVD_ELECTORAL_CREDITS_ADDRESS' ||
               fieldName === 'TVD_VOTE_MANAGER_ADDRESS' ||
               fieldName === 'VOTE_MANAGER_PROXY_ADDRESS' ||
               fieldName === 'TVD_VOTE_MANAGER_IMPLEMENTATION_ADDRESS'
             ? 'TVD_CREDITS_CONFIG_INCOMPLETE'
-          : 'TVD_INVALID_WALLET',
+            : 'TVD_INVALID_WALLET';
+      throw new TvdBlockchainError(
+        code,
+        undefined,
+        { fieldName },
       );
     }
     return getAddress(value);
@@ -1059,7 +1135,15 @@ export class TvdBlockchainService {
   private parseVoteManagerProxyAddress(value: string) {
     const address = this.parseAddress(value, 'VOTE_MANAGER_PROXY_ADDRESS');
     if (address.toLowerCase() === OBSOLETE_BASE_SEPOLIA_VOTE_MANAGER_ADDRESS) {
-      throw new TvdBlockchainError('TVD_CREDITS_CONFIG_INCOMPLETE');
+      throw new TvdBlockchainError(
+        'TVD_CREDITS_CONFIG_INCOMPLETE',
+        undefined,
+        {
+          fieldName: 'VOTE_MANAGER_PROXY_ADDRESS',
+          reason: 'OBSOLETE_BASE_SEPOLIA_VOTE_MANAGER_ADDRESS',
+          configuredAddress: address,
+        },
+      );
     }
     return address;
   }

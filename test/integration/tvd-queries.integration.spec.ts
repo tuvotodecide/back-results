@@ -52,6 +52,7 @@ const walletC = getAddress('0xcccccccccccccccccccccccccccccccccccccccc');
 const assignmentContract = getAddress(
   '0x2222222222222222222222222222222222222222',
 );
+const tokenContract = getAddress('0x4444444444444444444444444444444444444444');
 const txHash = `0x${'7'.repeat(64)}`;
 
 describe('TVD query endpoints (integration)', () => {
@@ -93,6 +94,7 @@ describe('TVD query endpoints (integration)', () => {
     getLiquidBalance: jest.fn(async () => '11000000000000000000'),
     getTokenDecimals: jest.fn(async () => 18),
     getTokenSymbol: jest.fn(async () => 'TVD'),
+    getTokenAddressFromAssignmentContract: jest.fn(async () => tokenContract),
     getOperatorContext: jest.fn(() => ({
       chainId: 84532,
       operatorAddress: getAddress('0x3333333333333333333333333333333333333333'),
@@ -412,7 +414,8 @@ describe('TVD query endpoints (integration)', () => {
       walletStatus: 'VERIFIED',
       tokenSymbol: 'TVD',
       chainId: 84532,
-      contractAddress: assignmentContract,
+      contractAddress: tokenContract,
+      assignmentContractAddress: assignmentContract,
       assignedBalance: {
         smallestUnit: '11000000000000000000',
         formatted: '11',
@@ -937,16 +940,27 @@ describe('TVD query endpoints (integration)', () => {
     );
   });
 
-  it('TVD-QUERY-NEG-I-007 | NEGATIVO | INTEGRACION | wallet sin metadata no es elegible ni consultable por me', async () => {
+  it('TVD-QUERY-POS-I-009 | POSITIVO | INTEGRACION | summary informa assignment sin wallet sin consultar balance', async () => {
     await assignmentModel.updateOne(
       { _id: seed.assignmentA._id },
       { $set: { walletVerifiedAt: null, walletVerificationSource: null } },
     );
 
-    await request(app.getHttpServer())
+    const balanceReadsBefore = blockchain.getTotalBalance.mock.calls.length;
+    const summary = await request(app.getHttpServer())
       .get('/api/v1/tvd/me/summary')
       .set('Authorization', 'Bearer institutional')
-      .expect(400);
+      .expect(200);
+    expect(blockchain.getTotalBalance.mock.calls.length).toBe(balanceReadsBefore);
+    expect(summary.body).toMatchObject({
+      tenantId: String(seed.tenantA._id),
+      assignmentId: String(seed.assignmentA._id),
+      wallet: null,
+      walletStatus: 'MISSING',
+      assignedBalance: null,
+      liquidBalance: null,
+      totalBalance: null,
+    });
 
     currentUser = {
       sub: new Types.ObjectId().toHexString(),

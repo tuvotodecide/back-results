@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   GoneException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -50,6 +51,8 @@ const PRE_SUBMISSION_RETRY_SOURCES: readonly OfficialPublicationRequestStatus[] 
 
 @Injectable()
 export class OfficialPublicationApiService {
+  private readonly logger = new Logger(OfficialPublicationApiService.name);
+
   constructor(
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
@@ -79,13 +82,46 @@ export class OfficialPublicationApiService {
         requester,
       );
     } catch (error) {
+      if (error instanceof TvdBlockchainError) {
+        this.logger.error(
+          JSON.stringify({
+            service: OfficialPublicationApiService.name,
+            method: 'prepareOfficialPublicationOrThrow',
+            eventId,
+            code: error.code,
+            details: error.details ?? {},
+          }),
+          error.stack,
+        );
+      }
       if (
         error instanceof TvdBlockchainError &&
         error.code === 'TVD_CREDITS_CONFIG_INCOMPLETE'
       ) {
         throw new ServiceUnavailableException({
-          code: 'ELECTORAL_CREDITS_CONFIGURATION_INCOMPLETE',
-          message: 'La publicacion oficial no esta disponible en este entorno.',
+          code: 'PUBLICATION_CONTRACT_NOT_CONFIGURED',
+          message: 'La publicacion oficial todavia no esta configurada.',
+          details: error.details ?? {},
+        });
+      }
+      if (
+        error instanceof TvdBlockchainError &&
+        error.code === 'TVD_BALANCE_TEMPORARILY_UNAVAILABLE'
+      ) {
+        throw new ServiceUnavailableException({
+          code: 'TVD_BALANCE_TEMPORARILY_UNAVAILABLE',
+          message: 'No pudimos consultar el saldo TVD en este momento.',
+          details: error.details ?? {},
+        });
+      }
+      if (
+        error instanceof TvdBlockchainError &&
+        error.code === 'TVD_RPC_UNAVAILABLE'
+      ) {
+        throw new ServiceUnavailableException({
+          code: 'PUBLICATION_RPC_UNAVAILABLE',
+          message: 'No pudimos consultar la red de publicacion oficial en este momento.',
+          details: error.details ?? {},
         });
       }
       if (

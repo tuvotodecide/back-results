@@ -10,6 +10,7 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Model, Types } from 'mongoose';
+import { formatUnits } from 'viem';
 import { availableNetworks } from '@/api/params';
 import {
   RoledUser,
@@ -99,6 +100,31 @@ type InstitutionalContext = {
   walletNormalized: string;
 };
 
+type InstitutionalSummaryContext = Omit<
+  InstitutionalContext,
+  'wallet' | 'walletNormalized'
+> & {
+  wallet: string | null;
+  walletNormalized: string | null;
+  walletStatus: 'MISSING' | 'VERIFIED';
+};
+
+type TvdSummaryBalance =
+  | {
+      status: 'AVAILABLE';
+      smallestUnit: string;
+      formatted: string;
+      decimals: number;
+      errorCode: null;
+    }
+  | {
+      status: 'UNAVAILABLE';
+      smallestUnit: null;
+      formatted: null;
+      decimals: null;
+      errorCode: string;
+    };
+
 @Injectable()
 export class TvdQueryService {
   private readonly logger = new Logger(TvdQueryService.name);
@@ -124,9 +150,9 @@ export class TvdQueryService {
   ) {}
 
   async getMySummary(requester: Requester) {
-    const context = await this.resolveInstitutionalContext(requester);
+    const context = await this.resolveInstitutionalSummaryContext(requester);
     const [balance, tokenSymbol] = await Promise.all([
-      this.readBalanceSafely(context.wallet),
+      context.wallet ? this.readWalletTokenBalanceForSummary(context.wallet) : null,
       this.readTokenSymbolSafely(),
     ]);
     const [lastAccreditation, pendingAccreditationsCount] = await Promise.all([
@@ -143,29 +169,36 @@ export class TvdQueryService {
         status: { $in: ['PENDING', 'SUBMITTING', 'SUBMITTED'] },
       }),
     ]);
-    const operatorContext = await this.getOperatorContextSafely();
+    const tokenContext = this.getTokenRuntimeContextSafely();
+    const balanceAmount =
+      balance?.status === 'AVAILABLE'
+        ? {
+            smallestUnit: balance.smallestUnit,
+            formatted: balance.formatted,
+            decimals: balance.decimals,
+          }
+        : null;
 
     return {
       tenantId: String(context.tenant._id),
       assignmentId: String(context.assignment._id),
       wallet: context.wallet,
-      walletStatus: 'VERIFIED',
-      assignedBalance: {
-        smallestUnit: balance.assignedBalanceSmallestUnit,
-        formatted: balance.assignedBalanceFormatted,
-        decimals: balance.decimals,
-      },
-      liquidBalance: {
-        smallestUnit: balance.liquidBalanceSmallestUnit,
-        formatted: balance.liquidBalanceFormatted,
-      },
-      totalBalance: {
-        smallestUnit: balance.totalBalanceSmallestUnit,
-        formatted: balance.totalBalanceFormatted,
-      },
+      walletStatus: context.walletStatus,
+      balanceStatus: context.wallet
+        ? balance?.status ?? 'UNAVAILABLE'
+        : 'NOT_APPLICABLE',
+      balance: balanceAmount?.smallestUnit ?? null,
+      formattedBalance: balanceAmount?.formatted ?? null,
+      decimals: balanceAmount?.decimals ?? null,
+      balanceErrorCode:
+        balance?.status === 'UNAVAILABLE' ? balance.errorCode : null,
+      assignedBalance: null,
+      liquidBalance: balanceAmount,
+      totalBalance: balanceAmount,
       tokenSymbol,
-      chainId: operatorContext.chainId,
-      contractAddress: operatorContext.assignmentContractAddress,
+      chainId: tokenContext.chainId,
+      contractAddress: tokenContext.tokenContractAddress,
+      assignmentContractAddress: null,
       lastAccreditation: lastAccreditation
         ? this.toAccreditationResponse(lastAccreditation)
         : null,
@@ -837,6 +870,24 @@ export class TvdQueryService {
   private async resolveInstitutionalContext(
     requester: Requester,
   ): Promise<InstitutionalContext> {
+    const context = await this.resolveInstitutionalSummaryContext(requester);
+    if (!context.wallet) {
+      throw new BadRequestException({
+        code: 'TVD_WALLET_NOT_VERIFIED',
+        message: 'Wallet no verificada',
+      });
+    }
+
+    return {
+      ...context,
+      wallet: context.wallet,
+      walletNormalized: context.walletNormalized ?? context.wallet.toLowerCase(),
+    };
+  }
+
+  private async resolveInstitutionalSummaryContext(
+    requester: Requester,
+  ): Promise<InstitutionalSummaryContext> {
     if (!requester?.sub || !Types.ObjectId.isValid(String(requester.sub))) {
       throw new UnauthorizedException({
         code: 'TVD_UNAUTHORIZED',
@@ -891,17 +942,25 @@ export class TvdQueryService {
     }
     const walletState = getTenantWalletVerificationState(assignment);
     if (!walletState.isWalletVerified || !walletState.accountAddress) {
-      throw new BadRequestException({
-        code: 'TVD_WALLET_NOT_VERIFIED',
-        message: 'Wallet institucional no verificada',
-      });
+      return {
+        tenant,
+        assignment,
+        user,
+        wallet: null,
+        walletNormalized: null,
+        walletStatus: 'MISSING',
+      };
     }
     const wallet = normalizeTenantWalletAddress(assignment.accountAddress);
     if (!wallet) {
-      throw new BadRequestException({
-        code: 'TVD_WALLET_NOT_VERIFIED',
-        message: 'Wallet institucional invalida',
-      });
+      return {
+        tenant,
+        assignment,
+        user,
+        wallet: null,
+        walletNormalized: null,
+        walletStatus: 'MISSING',
+      };
     }
 
     return {
@@ -910,6 +969,7 @@ export class TvdQueryService {
       user,
       wallet,
       walletNormalized: wallet.toLowerCase(),
+      walletStatus: 'VERIFIED',
     };
   }
 
@@ -1048,15 +1108,30 @@ export class TvdQueryService {
       .lean();
   }
 
-  private async readBalanceSafely(wallet: string) {
+  private async readWalletTokenBalanceForSummary(
+    wallet: string,
+  ): Promise<TvdSummaryBalance> {
     try {
-      return await this.blockchain.getTotalBalance(wallet);
+      const [smallestUnit, decimals] = await Promise.all([
+        this.blockchain.getLiquidBalance(wallet),
+        this.blockchain.getTokenDecimals(),
+      ]);
+      const rawBalance = BigInt(smallestUnit);
+      return {
+        status: 'AVAILABLE',
+        smallestUnit,
+        formatted: formatUnits(rawBalance, decimals),
+        decimals,
+        errorCode: null,
+      };
     } catch (error) {
-      throw new ServiceUnavailableException({
-        code: 'TVD_BALANCE_TEMPORARILY_UNAVAILABLE',
-        message: 'Saldo TVD temporalmente no disponible',
+      return {
+        status: 'UNAVAILABLE',
+        smallestUnit: null,
+        formatted: null,
+        decimals: null,
         errorCode: this.sanitizeTvdErrorCode(error),
-      });
+      };
     }
   }
 
@@ -1068,13 +1143,13 @@ export class TvdQueryService {
     }
   }
 
-  private async getOperatorContextSafely() {
+  private getTokenRuntimeContextSafely() {
     try {
-      return await this.blockchain.getOperatorContext();
+      return this.blockchain.getTokenRuntimeContext();
     } catch {
       return {
         chainId: null,
-        assignmentContractAddress: null,
+        tokenContractAddress: null,
       };
     }
   }
