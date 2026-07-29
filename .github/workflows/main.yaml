@@ -36,6 +36,7 @@ jobs:
       AWS_REGION: ${{ vars.AWS_REGION }}
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
       SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
+      SSM_ENV_PARAM_NAME_TRD: ${{ vars.SSM_ENV_PARAM_NAME_TRD }}
       SSM_ENV_PARAM_NAME_TEST: ${{ vars.SSM_ENV_PARAM_NAME_TEST }}
     steps:
       - name: Checkout
@@ -66,6 +67,7 @@ jobs:
         run: |
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
+          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TRD }}" --with-decryption --query Parameter.Value --output text >> .env
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TEST }}" --with-decryption --query Parameter.Value --output text >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
@@ -269,6 +271,7 @@ jobs:
       IMAGE_TAG: ${{ github.sha }}
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME }}
       SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_SEC }}
+      SSM_ENV_PARAM_NAME_TRD: ${{ vars.SSM_ENV_PARAM_NAME_TRD }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -289,6 +292,7 @@ jobs:
         run: |
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
+          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TRD }}" --with-decryption --query Parameter.Value --output text >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
 
@@ -405,6 +409,7 @@ jobs:
       IMAGE_TAG: ${{ github.ref_name }}
       SSM_ENV_PARAM_NAME: ${{ vars.SSM_ENV_PARAM_NAME_PROD }}
       SSM_ENV_PARAM_NAME_SEC: ${{ vars.SSM_ENV_PARAM_NAME_PROD_SEC }}
+      SSM_ENV_PARAM_NAME_TRD: ${{ vars.SSM_ENV_PARAM_NAME_PROD_TRD }}
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -425,6 +430,7 @@ jobs:
         run: |
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME }}" --with-decryption --query Parameter.Value --output text > .env
           aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_SEC }}" --with-decryption --query Parameter.Value --output text >> .env
+          aws ssm get-parameter --name "${{ env.SSM_ENV_PARAM_NAME_TRD }}" --with-decryption --query Parameter.Value --output text >> .env
           sed -i 's/\r$//' .env
           echo "ENV bytes=$(wc -c < .env) lines=$(wc -l < .env)"
 
