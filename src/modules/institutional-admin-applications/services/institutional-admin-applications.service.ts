@@ -727,6 +727,18 @@ export class InstitutionalAdminApplicationsService {
       }
     }
 
+    if (app.chainStatus === 'SENT') {
+      await this.applicationModel.updateOne(
+        { _id: app._id },
+        { $set: { chainLockedAt: null, chainLockedUntil: null } },
+      );
+      return {
+        processed: true,
+        status: 'PENDING_CHAIN_CONFIRMATION',
+        stableInstitutionId,
+      };
+    }
+
     try {
       const response = await this.createInstitutionOnChain(stableInstitutionId, accountAddress);
       const attempts = (app.chainAttempts ?? 0) + 1;
@@ -2464,7 +2476,9 @@ export class InstitutionalAdminApplicationsService {
     const action = this.resolveMobileAuthorizationAction(app);
     const call = action === 'REMOVE_AUTHORIZED_ADDRESS'
       ? VoteContractCalls.removeAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex)
-      : VoteContractCalls.addAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex);
+      : action === 'CHANGE_INSTITUTION_ADMIN'
+        ? VoteContractCalls.changeInstitutionAdmin(this.chain, stableInstitutionId, targetWallet as Hex)
+        : VoteContractCalls.addAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex);
     app.mobileAuthorizationDeviceId = String(dto.deviceId).slice(0, 128);
     app.mobileAuthorizationClaimedAt = app.mobileAuthorizationClaimedAt ?? new Date();
     app.mobileAuthorizationExpiresAt = app.mobileAuthorizationExpiresAt ?? this.resolveMobileAuthorizationExpiresAt(app);
@@ -2559,9 +2573,8 @@ export class InstitutionalAdminApplicationsService {
     const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
     const stableInstitutionId = this.requireStableInstitutionId(app);
     const targetWallet = this.normalizeAccountAddress(app.accountAddress);
-    const currentAuthorization = await VoteContractReads.isAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex);
-    const expectedAuthorization = this.expectedNetworkAuthorizationState(app);
-    if (currentAuthorization !== expectedAuthorization) {
+    const confirmed = await this.isMobileAuthorizationConfirmedOnNetwork(app, stableInstitutionId, targetWallet);
+    if (!confirmed) {
       return { reconciled: false, request: this.toMobileAuthorizationResponse(app, tenant, primary, app.status) };
     }
     await this.completeMobileAuthorizationFromNetwork(app);
@@ -2587,12 +2600,10 @@ export class InstitutionalAdminApplicationsService {
     );
     if (!app) return { processed: false, reason: 'NO_CLAIMABLE_OPERATION' };
     try {
-      const currentAuthorization = await VoteContractReads.isAuthorizedAddress(
-        this.chain,
-        this.requireStableInstitutionId(app),
-        this.normalizeAccountAddress(app.accountAddress) as Hex,
-      );
-      if (currentAuthorization === this.expectedNetworkAuthorizationState(app)) {
+      const stableInstitutionId = this.requireStableInstitutionId(app);
+      const targetWallet = this.normalizeAccountAddress(app.accountAddress);
+      const confirmed = await this.isMobileAuthorizationConfirmedOnNetwork(app, stableInstitutionId, targetWallet);
+      if (confirmed) {
         await this.completeMobileAuthorizationFromNetwork(app);
         return { processed: true, status: 'CONFIRMED', reusedNetworkState: true };
       }
@@ -2641,6 +2652,7 @@ export class InstitutionalAdminApplicationsService {
     const deduplicationKey = `institutional-mobile-authorization:${String(app._id)}`;
     const action = this.resolveMobileAuthorizationAction(app);
     const isRemoval = action === 'REMOVE_AUTHORIZED_ADDRESS';
+    const isTransfer = action === 'CHANGE_INSTITUTION_ADMIN';
     const notificationQuery = this.notificationLogModel.findOneAndUpdate(
       { 'data.deduplicationKey': deduplicationKey },
       {
@@ -2648,7 +2660,9 @@ export class InstitutionalAdminApplicationsService {
           type: 'generic',
           topic: `user_${String(primary.userId)}`,
           title: 'Autorización institucional pendiente',
-          body: isRemoval
+          body: isTransfer
+            ? `Autoriza desde tu teléfono la transferencia del rol principal de ${tenant.name} a ${app.name}.`
+            : isRemoval
             ? `Autoriza desde tu teléfono la eliminación del acceso de ${app.name} a ${tenant.name}.`
             : `Autoriza desde tu teléfono el acceso de ${app.name} a ${tenant.name}.`,
           data: {
@@ -2692,16 +2706,65 @@ export class InstitutionalAdminApplicationsService {
     if (!tenant) {
       throw new NotFoundException({ code: 'INSTITUTIONAL_TENANT_NOT_FOUND', message: 'Institución no encontrada.' });
     }
-    const primary = await this.assignmentModel.findOne({
+    const primaryFilter: Record<string, any> = {
       tenantId: tenant._id,
       institutionalRole: 'PRIMARY',
       active: true,
       status: 'APPROVED',
-    }).lean();
+    };
+    const action = this.resolveMobileAuthorizationAction(app);
+    const isPendingPrimaryTransfer =
+      action === 'CHANGE_INSTITUTION_ADMIN' &&
+      !['APPROVED', 'REJECTED', 'REVOKED'].includes(String(app.status));
+    if (isPendingPrimaryTransfer) {
+      if (!app.approvedBy) {
+        throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_SIGNER_NOT_FOUND', message: 'La transferencia no tiene administrador principal firmante.' });
+      }
+      if (!app.initiatedByAssignmentId || !app.initiatedByWallet) {
+        throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_INITIATOR_NOT_BOUND', message: 'La transferencia no conserva el administrador principal que la inició.' });
+      }
+      primaryFilter._id = app.initiatedByAssignmentId;
+      primaryFilter.userId = app.approvedBy;
+    }
+    const primary = await this.assignmentModel.findOne(primaryFilter).lean();
     if (!primary?.accountAddress) {
       throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_SIGNER_NOT_FOUND', message: 'La institución no tiene administrador principal vigente.' });
     }
+    if (isPendingPrimaryTransfer) {
+      if (
+        this.normalizeAccountAddressForComparison(String(primary.accountAddress)) !==
+        this.normalizeAccountAddressForComparison(String(app.initiatedByWallet))
+      ) {
+        throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_INITIATOR_WALLET_CHANGED', message: 'La billetera del administrador principal cambió durante la transferencia.' });
+      }
+      await this.assertPendingPrimaryTransferTargetStillEligible(app);
+    }
     return { tenant, primary };
+  }
+
+  private async assertPendingPrimaryTransferTargetStillEligible(
+    app: InstitutionalAdminApplicationDocument,
+  ) {
+    if (!app.targetAssignmentId || !app.userId) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_TARGET_NOT_FOUND', message: 'La transferencia no tiene persona destino válida.' });
+    }
+    const target = await this.assignmentModel.findOne({
+      _id: app.targetAssignmentId,
+      tenantId: app.tenantId,
+      userId: app.userId,
+      institutionalRole: 'SECONDARY',
+      status: 'APPROVED',
+      active: true,
+    }).lean();
+    if (!target?.accountAddress) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_TARGET_NOT_ELIGIBLE', message: 'La persona destino ya no puede recibir el rol principal.' });
+    }
+    if (
+      this.normalizeAccountAddressForComparison(String(target.accountAddress)) !==
+      this.normalizeAccountAddressForComparison(String(app.accountAddress))
+    ) {
+      throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_TARGET_WALLET_CHANGED', message: 'La billetera destino cambió durante la transferencia.' });
+    }
   }
 
   private resolveMobileAuthorizationExpiresAt(app: InstitutionalAdminApplicationDocument) {
@@ -2765,7 +2828,67 @@ export class InstitutionalAdminApplicationsService {
         const fresh = await this.getApplicationOrThrow(String(app._id), session);
         const action = this.resolveMobileAuthorizationAction(fresh);
         if (fresh.chainStatus === 'CONFIRMED' && ['APPROVED', 'REVOKED'].includes(String(fresh.status))) return;
-        if (action === 'REMOVE_AUTHORIZED_ADDRESS') {
+        if (action === 'CHANGE_INSTITUTION_ADMIN') {
+          if (!fresh.targetAssignmentId || !fresh.approvedBy) {
+            throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_CONTEXT_INCOMPLETE', message: 'La transferencia no tiene relaciones completas.' });
+          }
+          const now = new Date();
+          const previousPrimary = await this.assignmentModel.updateOne(
+            {
+              tenantId: fresh.tenantId,
+              userId: fresh.approvedBy,
+              institutionalRole: 'PRIMARY',
+              status: 'APPROVED',
+              active: true,
+            },
+            {
+              $set: {
+                institutionalRole: 'SECONDARY',
+                approvedAt: now,
+                reason: fresh.reason ?? null,
+              },
+            },
+            { session },
+          );
+          if (previousPrimary.modifiedCount !== 1) {
+            throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_STALE', message: 'El administrador principal cambió durante la transferencia.' });
+          }
+          const promoted = await this.assignmentModel.updateOne(
+            {
+              _id: fresh.targetAssignmentId,
+              tenantId: fresh.tenantId,
+              userId: fresh.userId,
+              institutionalRole: 'SECONDARY',
+              status: 'APPROVED',
+              active: true,
+              accountAddress: { $nin: [null, ''] },
+            },
+            {
+              $set: {
+                institutionalRole: 'PRIMARY',
+                approvedAt: now,
+                approvedBy: fresh.approvedBy,
+                rejectedAt: null,
+                revokedAt: null,
+                reason: fresh.reason ?? null,
+              },
+            },
+            { session },
+          );
+          if (promoted.modifiedCount !== 1) {
+            throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_TARGET_NOT_ELIGIBLE', message: 'La persona destino ya no puede recibir el rol principal.' });
+          }
+          const primaryCount = await this.assignmentModel.countDocuments({
+            tenantId: fresh.tenantId,
+            institutionalRole: 'PRIMARY',
+            status: 'APPROVED',
+            active: true,
+          }).session(session);
+          if (primaryCount !== 1) {
+            throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_INCONSISTENT', message: 'La transferencia no dejó exactamente un administrador principal.' });
+          }
+          fresh.status = 'APPROVED' as any;
+        } else if (action === 'REMOVE_AUTHORIZED_ADDRESS') {
           await this.assignmentModel.updateOne(
             {
               _id: fresh.targetAssignmentId ?? undefined,
@@ -2815,10 +2938,31 @@ export class InstitutionalAdminApplicationsService {
         fresh.chainLockedUntil = undefined;
         await fresh.save({ session });
         await this.syncUserActiveState(fresh.userId as Types.ObjectId, session);
+        if (action === 'CHANGE_INSTITUTION_ADMIN' && fresh.approvedBy) {
+          await this.syncUserActiveState(fresh.approvedBy as Types.ObjectId, session);
+        }
       });
     } finally {
       await session.endSession();
     }
+  }
+
+  private async isMobileAuthorizationConfirmedOnNetwork(
+    app: InstitutionalAdminApplicationDocument,
+    stableInstitutionId: string,
+    targetWallet: string,
+  ) {
+    if (this.resolveMobileAuthorizationAction(app) === 'CHANGE_INSTITUTION_ADMIN') {
+      const admin = await VoteContractReads.getInstitutionAdmin(this.chain, stableInstitutionId);
+      return this.normalizeAccountAddressForComparison(String(admin || '')) ===
+        this.normalizeAccountAddressForComparison(targetWallet);
+    }
+    const currentAuthorization = await VoteContractReads.isAuthorizedAddress(
+      this.chain,
+      stableInstitutionId,
+      targetWallet as Hex,
+    );
+    return currentAuthorization === this.expectedNetworkAuthorizationState(app);
   }
 
   private toMobileAuthorizationResponse(app: any, tenant: any, primary: any, status: string) {
@@ -2844,9 +2988,13 @@ export class InstitutionalAdminApplicationsService {
   }
 
   private resolveMobileAuthorizationAction(app: any) {
-    return app?.mobileAuthorizationAction === 'REMOVE_AUTHORIZED_ADDRESS'
-      ? 'REMOVE_AUTHORIZED_ADDRESS'
-      : 'ADD_AUTHORIZED_ADDRESS';
+    if (app?.mobileAuthorizationAction === 'REMOVE_AUTHORIZED_ADDRESS') {
+      return 'REMOVE_AUTHORIZED_ADDRESS';
+    }
+    if (app?.mobileAuthorizationAction === 'CHANGE_INSTITUTION_ADMIN') {
+      return 'CHANGE_INSTITUTION_ADMIN';
+    }
+    return 'ADD_AUTHORIZED_ADDRESS';
   }
 
   private expectedNetworkAuthorizationState(app: any) {

@@ -117,11 +117,11 @@ export class InstitutionalTenantsController {
   @ApiOperation({
     summary: 'Transferir administrador principal institucional',
     description:
-      'Transfiere PRIMARY a un SECONDARY elegible del mismo tenant mediante transacción.',
+      'Crea una autorización móvil para transferir PRIMARY a un SECONDARY elegible del mismo tenant.',
   })
   @ApiParam({ name: 'tenantId', description: 'ID del tenant/institución.' })
   @ApiBody({ type: TransferTenantPrimaryDto })
-  @ApiResponse({ status: 201, description: 'Principal transferido correctamente.' })
+  @ApiResponse({ status: 201, description: 'Autorización móvil de transferencia creada correctamente.' })
   transferPrimary(
     @Param('tenantId') tenantId: string,
     @Body() dto: TransferTenantPrimaryDto,

@@ -6,7 +6,7 @@ import {
   userRoles,
 } from "../schemas/roledUser.schema";
 
-export const tenantAccessStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'REVOKED'] as const;
+export const tenantAccessStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED', 'REVOKED'] as const;
 export type TenantAccessStatus = typeof tenantAccessStatuses[number];
 export const tenantWalletStatuses = ['MISSING', 'VERIFIED'] as const;
 export type TenantWalletStatus = typeof tenantWalletStatuses[number];

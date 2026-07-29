@@ -521,9 +521,12 @@ export class AuthService {
 
     const tenantItems: AccessStatusDto['tenant']['items'] = memberships.map((membership) => {
       const tenant = tenantById.get(String(membership.tenantId));
-      const effectiveStatus = membership.active === false || tenant?.active === false
+      const membershipStatus = membership.status ?? (membership.active ? 'APPROVED' : 'REVOKED');
+      const effectiveStatus = tenant?.active === false
         ? 'REVOKED'
-        : membership.status ?? (membership.active ? 'APPROVED' : 'REVOKED');
+        : membership.active === false && !membership.status
+          ? 'REVOKED'
+          : membershipStatus;
 
       return {
         applicationId:
@@ -629,6 +632,14 @@ export class AuthService {
       });
     }
 
+    if (accessStatus.tenant.latestStatus === 'SUSPENDED') {
+      throw new UnauthorizedException({
+        message: 'El acceso institucional está suspendido',
+        code: 'TENANT_ACCESS_SUSPENDED',
+        accessStatus,
+      });
+    }
+
     if (accessStatus.territorial.status === 'REJECTED') {
       throw new UnauthorizedException({
         message: 'La solicitud territorial fue rechazada',
@@ -660,7 +671,7 @@ export class AuthService {
         'REJECTED',
         'REVOKED',
       ].includes(accessStatus.territorial.status) ||
-      ['PENDING', 'REJECTED', 'REVOKED'].includes(
+      ['PENDING', 'REJECTED', 'SUSPENDED', 'REVOKED'].includes(
         accessStatus.tenant.latestStatus ?? '',
       )
     );
@@ -717,6 +728,9 @@ export class AuthService {
     if (items.some((item) => item.status === 'REJECTED')) {
       return 'La última solicitud institucional fue rechazada';
     }
+    if (items.some((item) => item.status === 'SUSPENDED')) {
+      return 'El acceso institucional está suspendido';
+    }
     if (items.some((item) => item.status === 'REVOKED')) {
       return 'El acceso institucional fue revocado';
     }
@@ -726,6 +740,7 @@ export class AuthService {
   private normalizeTenantAccessStatus(status: string | null | undefined): TenantAccessStatus {
     if (status === 'APPROVED') return 'APPROVED';
     if (status === 'REJECTED') return 'REJECTED';
+    if (status === 'SUSPENDED') return 'SUSPENDED';
     if (status === 'REVOKED') return 'REVOKED';
     return 'PENDING';
   }

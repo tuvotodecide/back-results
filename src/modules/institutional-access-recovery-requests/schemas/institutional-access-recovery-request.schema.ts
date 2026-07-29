@@ -12,8 +12,18 @@ export const institutionalAccessRecoveryStatuses = [
 export type InstitutionalAccessRecoveryStatus =
   typeof institutionalAccessRecoveryStatuses[number];
 
+export const institutionalAccessRecoveryTypes = [
+  'ACCESS_RECOVERY',
+  'ADMIN_EMAIL_CHANGE',
+] as const;
+export type InstitutionalAccessRecoveryType =
+  typeof institutionalAccessRecoveryTypes[number];
+
 @Schema({ timestamps: true, collection: 'institutional_access_recovery_requests' })
 export class InstitutionalAccessRecoveryRequest {
+  @Prop({ enum: institutionalAccessRecoveryTypes, default: 'ACCESS_RECOVERY', index: true })
+  requestType?: InstitutionalAccessRecoveryType;
+
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalTenant', required: true, index: true })
   tenantId!: Types.ObjectId;
 
@@ -74,5 +84,15 @@ InstitutionalAccessRecoveryRequestSchema.index(
   {
     unique: true,
     partialFilterExpression: { status: 'PENDING' },
+  },
+);
+InstitutionalAccessRecoveryRequestSchema.index(
+  { candidateUserId: 1, requestType: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      requestType: 'ADMIN_EMAIL_CHANGE',
+      status: 'PENDING',
+    },
   },
 );

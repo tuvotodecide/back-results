@@ -19,6 +19,7 @@ describe('InstitutionalTenantsService (unit)', () => {
   let assignmentModel: any;
   let roledUserModel: any;
   let applicationModel: any;
+  let notificationLogModel: any;
   let httpService: any;
   let configService: any;
   let auditService: any;
@@ -74,6 +75,9 @@ describe('InstitutionalTenantsService (unit)', () => {
       findOne: jest.fn(() => query(null)),
       create: jest.fn().mockResolvedValue([{}]),
     };
+    notificationLogModel = {
+      findOneAndUpdate: jest.fn(() => query({ _id: new Types.ObjectId() })),
+    };
     httpService = {
       axiosRef: {
         post: jest.fn(),
@@ -97,6 +101,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       assignmentModel,
       roledUserModel,
       applicationModel,
+      notificationLogModel,
       httpService,
       configService,
       auditService,
@@ -344,7 +349,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     expect(result.data[0].institutionalRole).toBeNull();
   });
 
-  it('PRIMARY deshabilita SECONDARY del mismo tenant sin borrar wallet ni historial', async () => {
+  it('D-DIS-001/D-DIS-004 PRIMARY suspende SECONDARY del mismo tenant sin borrar wallet ni historial', async () => {
     const tenantId = new Types.ObjectId('64b000000000000000000040');
     const primaryUserId = new Types.ObjectId('64b000000000000000000041');
     const secondaryId = new Types.ObjectId('64b000000000000000000042');
@@ -371,9 +376,10 @@ describe('InstitutionalTenantsService (unit)', () => {
       .mockReturnValueOnce(query(secondary));
     assignmentModel.findOneAndUpdate.mockResolvedValue({
       ...secondary,
-      status: 'REVOKED',
+      status: 'SUSPENDED',
       active: false,
-      revokedAt: new Date(),
+      suspendedAt: new Date(),
+      revokedAt: null,
     });
 
     const result = await service.updateAdminStatus(
@@ -387,15 +393,16 @@ describe('InstitutionalTenantsService (unit)', () => {
       assignmentId: String(secondaryId),
       accountAddress: secondary.accountAddress,
       institutionalRole: 'SECONDARY',
-      status: 'REVOKED',
+      status: 'SUSPENDED',
       active: false,
     });
     expect(assignmentModel.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ _id: secondaryId, tenantId, institutionalRole: 'SECONDARY' }),
       expect.objectContaining({
         $set: expect.objectContaining({
-          status: 'REVOKED',
+          status: 'SUSPENDED',
           active: false,
+          revokedAt: null,
           reason: 'pausa',
         }),
       }),
@@ -403,7 +410,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     );
   });
 
-  it('ADMIN rehabilita SECONDARY con wallet y usuario activo sin cambiarlo a PRIMARY', async () => {
+  it('D-DIS-005/D-DIS-006 ADMIN reactiva SECONDARY suspendido con wallet y usuario activo sin cambiarlo a PRIMARY', async () => {
     const tenantId = new Types.ObjectId('64b000000000000000000050');
     const secondaryId = new Types.ObjectId('64b000000000000000000051');
     const secondary = {
@@ -411,7 +418,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       tenantId,
       userId: new Types.ObjectId('64b000000000000000000052'),
       institutionalRole: 'SECONDARY',
-      status: 'REVOKED',
+      status: 'SUSPENDED',
       active: false,
       accountAddress: '0x0000000000000000000000000000000000000052',
     };
@@ -443,7 +450,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     });
   });
 
-  it('bloquea rehabilitacion si falta wallet, usuario activo o tenant activo', async () => {
+  it('bloquea reactivacion si falta wallet, usuario activo o tenant activo', async () => {
     const tenantId = new Types.ObjectId('64b000000000000000000060');
     const secondaryId = new Types.ObjectId('64b000000000000000000061');
     tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
@@ -452,7 +459,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       tenantId,
       userId: new Types.ObjectId(),
       institutionalRole: 'SECONDARY',
-      status: 'REVOKED',
+      status: 'SUSPENDED',
       active: false,
       accountAddress: null,
     }));

@@ -7,6 +7,7 @@ export type InstitutionalEmailOutboxDocument =
 export const institutionalEmailOutboxTypes = [
   'INSTITUTIONAL_VERIFY_EMAIL',
   'INSTITUTIONAL_PASSWORD_RESET',
+  'INSTITUTIONAL_EMAIL_CHANGE_NOTICE',
 ] as const;
 export type InstitutionalEmailOutboxType = typeof institutionalEmailOutboxTypes[number];
 

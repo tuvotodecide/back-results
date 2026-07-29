@@ -7,6 +7,7 @@ export const tenantMembershipStatuses = [
   'PENDING',
   'APPROVED',
   'REJECTED',
+  'SUSPENDED',
   'REVOKED',
 ] as const;
 export type TenantMembershipStatus = typeof tenantMembershipStatuses[number];
@@ -62,6 +63,12 @@ export class TenantAdminAssignment {
 
   @Prop({ type: Date, default: null })
   revokedAt?: Date | null;
+
+  @Prop({ type: Date, default: null })
+  suspendedAt?: Date | null;
+
+  @Prop({ type: Date, default: null })
+  reactivatedAt?: Date | null;
 
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', default: null })
   approvedBy?: Types.ObjectId | null;

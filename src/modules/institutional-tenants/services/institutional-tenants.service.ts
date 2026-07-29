@@ -35,6 +35,10 @@ import {
   InstitutionalAdminApplicationDocument,
 } from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
 import {
+  NotificationLog,
+  NotificationLogDocument,
+} from '@/modules/notifications/schemas/notification-log.schema';
+import {
   getTenantWalletVerificationState,
   normalizeTenantWalletAddress,
 } from '../utils/tenant-wallet-verification.util';
@@ -50,6 +54,8 @@ export class InstitutionalTenantsService {
     private readonly roledUserModel: Model<RoledUserDocument>,
     @InjectModel(InstitutionalAdminApplication.name)
     private readonly applicationModel: Model<InstitutionalAdminApplicationDocument>,
+    @InjectModel(NotificationLog.name)
+    private readonly notificationLogModel: Model<NotificationLogDocument>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly auditService: InstitutionalAuditService,
@@ -284,7 +290,7 @@ export class InstitutionalTenantsService {
     try {
       let result: any;
       await session.withTransaction(async () => {
-        result = await this.transferPrimaryInTransaction(
+        result = await this.createPrimaryTransferAuthorizationInTransaction(
           new Types.ObjectId(tenantId),
           new Types.ObjectId(dto.assignmentId),
           requester,
@@ -296,7 +302,7 @@ export class InstitutionalTenantsService {
     } catch (error) {
       if (this.isPrimaryDuplicateError(error) || this.isTransactionConflict(error)) {
         throw new ConflictException(
-          'No se pudo completar la transferencia del administrador principal',
+          'Ya existe una transferencia de administrador principal pendiente',
         );
       }
       throw error;
@@ -578,8 +584,11 @@ export class InstitutionalTenantsService {
     reason?: string,
     session?: ClientSession,
   ) {
-    if (assignment.active === false && assignment.status === 'REVOKED') {
+    if (assignment.active === false && assignment.status === 'SUSPENDED') {
       return this.toAdminAssignmentResponse(assignment);
+    }
+    if (assignment.status === 'REVOKED') {
+      throw new ConflictException('El acceso eliminado no puede suspenderse');
     }
 
     const updated = await this.assignmentModel.findOneAndUpdate(
@@ -590,9 +599,11 @@ export class InstitutionalTenantsService {
       },
       {
         $set: {
-          status: 'REVOKED',
+          status: 'SUSPENDED',
           active: false,
-          revokedAt: new Date(),
+          suspendedAt: new Date(),
+          reactivatedAt: null,
+          revokedAt: null,
           approvedBy: this.resolveRequesterObjectId(requester),
           reason: reason?.trim() || null,
         },
@@ -926,6 +937,9 @@ export class InstitutionalTenantsService {
     if (assignment.active === true && assignment.status === 'APPROVED') {
       return this.toAdminAssignmentResponse(assignment);
     }
+    if (assignment.status === 'REVOKED') {
+      throw new ConflictException('El acceso eliminado no puede reactivarse');
+    }
 
     if (!assignment.accountAddress?.trim()) {
       throw new ConflictException('El administrador secundario no tiene wallet operativa');
@@ -960,6 +974,8 @@ export class InstitutionalTenantsService {
           approvedAt: new Date(),
           approvedBy: this.resolveRequesterObjectId(requester),
           revokedAt: null,
+          suspendedAt: null,
+          reactivatedAt: new Date(),
           rejectedAt: null,
           reason: reason?.trim() || null,
         },
@@ -1165,6 +1181,189 @@ export class InstitutionalTenantsService {
     };
   }
 
+  private async createPrimaryTransferAuthorizationInTransaction(
+    tenantId: Types.ObjectId,
+    targetAssignmentId: Types.ObjectId,
+    requester: any,
+    reason: string | undefined,
+    session: ClientSession,
+  ) {
+    const tenant = await this.tenantModel.findById(tenantId).session(session);
+    if (!tenant || tenant.active !== true) {
+      throw new NotFoundException('Tenant no encontrado o inactivo');
+    }
+    const stableInstitutionId = tenant.stableInstitutionId?.trim() || String(tenant._id);
+    if (!tenant.stableInstitutionId?.trim()) {
+      tenant.stableInstitutionId = stableInstitutionId;
+      await tenant.save({ session });
+    }
+
+    const requesterId = requester?.sub ? String(requester.sub) : '';
+    if (!requesterId || !Types.ObjectId.isValid(requesterId) || this.isGlobalAdmin(requester)) {
+      throw new ForbiddenException('Solo el administrador principal vigente puede transferir el rol');
+    }
+    const primary = await this.assignmentModel.findOne({
+      tenantId,
+      userId: new Types.ObjectId(requesterId),
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+    }).session(session).lean();
+    if (!primary?.accountAddress) {
+      throw new ForbiddenException('Solo el administrador principal vigente puede transferir el rol');
+    }
+
+    const target = await this.assignmentModel.findOne({
+      _id: targetAssignmentId,
+      tenantId,
+    }).session(session).lean();
+    if (!target) {
+      throw new NotFoundException('Administrador institucional no encontrado');
+    }
+    if (String(target._id) === String(primary._id)) {
+      throw new ConflictException('La persona seleccionada ya es administradora principal');
+    }
+    this.assertEligibleSecondaryTarget(target);
+
+    const targetUser = await this.roledUserModel
+      .findById(target.userId, { active: 1, dni: 1, email: 1, name: 1, password: 1 })
+      .session(session)
+      .lean();
+    if (!targetUser || targetUser.active !== true) {
+      throw new ConflictException('El usuario destino esta inactivo');
+    }
+    await this.assertWalletCompatibleForAssignment(target, session);
+
+    const activeStatuses = [
+      'PENDING_MOBILE_AUTHORIZATION',
+      'PENDING_CHAIN_CONFIRMATION',
+      'CHAIN_RETRY_PENDING',
+      'RECONCILIATION_PENDING',
+      'CHAIN_FAILED',
+    ];
+    const existing = await this.applicationModel.findOne({
+      tenantId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      status: { $in: activeStatuses },
+    } as any).session(session);
+    if (existing) {
+      if (String(existing.targetAssignmentId || '') !== String(target._id)) {
+        throw new ConflictException('Ya existe una transferencia de administrador principal pendiente');
+      }
+      return this.toPrimaryTransferAuthorizationResponse(existing, tenant, primary);
+    }
+
+    const now = new Date();
+    const app = new this.applicationModel({
+      dni: targetUser.dni,
+      email: targetUser.email,
+      passwordHash: targetUser.password || 'institutional-primary-transfer',
+      name: targetUser.name || 'Administrador de la institución',
+      institutionName: tenant.name,
+      institutionNameNorm: tenant.nameNorm,
+      accountAddress: target.accountAddress,
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      stableInstitutionId,
+      chainStatus: undefined,
+      tenantId,
+      userId: target.userId,
+      targetAssignmentId: target._id,
+      approvedBy: primary.userId,
+      initiatedByAssignmentId: primary._id,
+      initiatedByWallet: primary.accountAddress,
+      approvedAt: now,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      mobileAuthorizationRequestedAt: now,
+      mobileAuthorizationExpiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+      reason: reason?.trim() || undefined,
+    });
+    await app.save({ session });
+    const notification = await this.recordPrimaryTransferNotice(app, tenant, primary, requester, session);
+    app.mobileAuthorizationNotificationId = notification?._id ?? null;
+    await app.save({ session });
+    const actorInstitutionalRole = await this.auditService.resolveActorInstitutionalRole(
+      tenantId,
+      requester,
+      session,
+    );
+    await this.auditService.record({
+      tenantId,
+      actor: requester,
+      actorInstitutionalRole,
+      action: 'TENANT_PRIMARY_TRANSFER_REQUESTED',
+      targetType: 'TenantAdminAssignment',
+      targetId: target._id,
+      targetUserId: target.userId,
+      assignmentId: target._id,
+      applicationId: app._id,
+      previousState: {
+        primaryAssignmentId: String(primary._id),
+        targetRole: 'SECONDARY',
+      },
+      newState: {
+        status: 'PENDING_MOBILE_AUTHORIZATION',
+        primaryRoleChanged: false,
+      },
+      reason: reason?.trim() || null,
+      session,
+    } as any);
+    return this.toPrimaryTransferAuthorizationResponse(app, tenant, primary);
+  }
+
+  private async recordPrimaryTransferNotice(
+    app: InstitutionalAdminApplicationDocument,
+    tenant: InstitutionalTenantDocument,
+    primary: any,
+    requester: any,
+    session: ClientSession,
+  ) {
+    const deduplicationKey = `institutional-primary-transfer:${String(app._id)}`;
+    return this.notificationLogModel.findOneAndUpdate(
+      { 'data.deduplicationKey': deduplicationKey },
+      {
+        $setOnInsert: {
+          type: 'generic',
+          topic: `user_${String(primary.userId)}`,
+          title: 'Transferencia de rol principal pendiente',
+          body: `Autoriza desde tu teléfono la transferencia del rol principal de ${tenant.name} a ${app.name}.`,
+          data: {
+            event: 'MOBILE_AUTHORIZATION_REQUESTED',
+            applicationId: String(app._id),
+            tenantId: String(tenant._id),
+            targetUserId: app.userId ? String(app.userId) : null,
+            action: 'CHANGE_INSTITUTION_ADMIN',
+            requesterId: requester?.sub ? String(requester.sub) : null,
+            deduplicationKey,
+          },
+          status: 'SENT',
+        },
+      },
+      { upsert: true, returnDocument: 'after', session },
+    );
+  }
+
+  private toPrimaryTransferAuthorizationResponse(
+    app: any,
+    tenant: any,
+    primary: any,
+  ) {
+    return {
+      tenantId: String(tenant._id),
+      transferId: String(app._id),
+      applicationId: String(app._id),
+      targetAssignmentId: app.targetAssignmentId ? String(app.targetAssignmentId) : null,
+      previousPrimaryUserId: primary?.userId ? String(primary.userId) : null,
+      targetUserId: app.userId ? String(app.userId) : null,
+      status: app.status,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      mobileAuthorizationStatus: app.status,
+      stableInstitutionId: app.stableInstitutionId ?? null,
+      targetWallet: app.accountAddress ?? null,
+      signerWallet: primary?.accountAddress ?? null,
+      expiresAt: app.mobileAuthorizationExpiresAt ?? null,
+    };
+  }
+
   private async getActiveTenantOrThrow(tenantId: string, session?: ClientSession) {
     if (!Types.ObjectId.isValid(tenantId)) {
       throw new BadRequestException('tenantId invalido');
@@ -1296,6 +1495,8 @@ export class InstitutionalTenantsService {
       requestedAt: assignment.requestedAt ?? null,
       approvedAt: assignment.approvedAt ?? null,
       revokedAt: assignment.revokedAt ?? null,
+      suspendedAt: assignment.suspendedAt ?? null,
+      reactivatedAt: assignment.reactivatedAt ?? null,
     };
   }
 

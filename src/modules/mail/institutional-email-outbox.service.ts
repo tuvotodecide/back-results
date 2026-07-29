@@ -75,6 +75,34 @@ export class InstitutionalEmailOutboxService {
     return this.upsertPending(document, params.session);
   }
 
+  async enqueueInstitutionalEmailChangeNotice(params: EnqueueEmailParams & {
+    previousEmail?: string | null;
+  }) {
+    const document = {
+      type: 'INSTITUTIONAL_EMAIL_CHANGE_NOTICE' as const,
+      recipient: params.recipient.trim().toLowerCase(),
+      subject: 'Correo administrativo actualizado',
+      template: 'email-change-notice',
+      safePayload: {
+        name: this.safeFirstName(params.name),
+        previousEmail: params.previousEmail?.trim().toLowerCase() ?? null,
+      },
+      idempotencyKey: params.correlationId?.trim()
+        ? this.buildIdempotencyKey(
+            'INSTITUTIONAL_EMAIL_CHANGE_NOTICE',
+            `${params.targetId}:${params.correlationId.trim()}`,
+          )
+        : this.buildIdempotencyKey('INSTITUTIONAL_EMAIL_CHANGE_NOTICE', params.targetId),
+      status: 'PENDING' as const,
+      attempts: 0,
+      nextAttemptAt: new Date(),
+      createdAt: new Date(),
+      correlationId: params.correlationId?.trim() || null,
+      targetId: this.toObjectId(params.targetId),
+    };
+    return this.upsertPending(document, params.session);
+  }
+
   @Interval(30_000)
   async processScheduledBatch() {
     if (process.env.NODE_ENV === 'test') {
@@ -264,6 +292,13 @@ export class InstitutionalEmailOutboxService {
           application.verificationToken,
           '/votacion/verificar-correo',
         ),
+      };
+    }
+
+    if (row.type === 'INSTITUTIONAL_EMAIL_CHANGE_NOTICE') {
+      return {
+        name: row.safePayload?.name,
+        previousEmail: row.safePayload?.previousEmail ?? null,
       };
     }
 

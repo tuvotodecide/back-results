@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="es">
+  <body>
+    <p>Hola <%= name %>,</p>
+    <p>Tu correo de acceso administrativo fue actualizado correctamente.</p>
+    <% if (previousEmail) { %>
+      <p>El correo anterior ya no permite iniciar sesión.</p>
+    <% } %>
+    <p>Si no solicitaste este cambio, comunícate con soporte.</p>
+  </body>
+</html>

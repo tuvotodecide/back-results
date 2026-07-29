@@ -2,8 +2,11 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Public } from '@/core/decorators/public.decorator';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { InstitutionalPublicRateLimitGuard } from '@/modules/institutional-admin-applications/guards/institutional-public-rate-limit.guard';
 import {
+  ApproveAdminEmailChangeRequestDto,
+  CreateAdminEmailChangeRequestDto,
   CreateInstitutionalAccessRecoveryRequestDto,
   RejectInstitutionalAccessRecoveryRequestDto,
   ResolveInstitutionalAccessRecoveryRequestDto,
@@ -25,6 +28,15 @@ export class InstitutionalAccessRecoveryRequestsController {
   @ApiResponse({ status: 201, description: 'Solicitud registrada.' })
   create(@Body() dto: CreateInstitutionalAccessRecoveryRequestDto) {
     return this.recoveryRequestsService.createRequest(dto);
+  }
+
+  @Post('me/email-change')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Solicitar cambio de correo administrativo autenticado' })
+  @ApiBody({ type: CreateAdminEmailChangeRequestDto })
+  @ApiResponse({ status: 201, description: 'Solicitud de cambio de correo registrada.' })
+  createEmailChange(@Body() dto: CreateAdminEmailChangeRequestDto, @Req() req: any) {
+    return this.recoveryRequestsService.createEmailChangeRequest(dto, req.user);
   }
 
   @Get()
@@ -54,6 +66,19 @@ export class InstitutionalAccessRecoveryRequestsController {
     @Req() req: any,
   ) {
     return this.recoveryRequestsService.approveRequest(requestId, dto, req.user);
+  }
+
+  @Post(':requestId/email-change/approve')
+  @UseGuards(AdminOnlyGuard)
+  @ApiOperation({ summary: 'Aprobar cambio de correo administrativo' })
+  @ApiParam({ name: 'requestId' })
+  @ApiBody({ type: ApproveAdminEmailChangeRequestDto })
+  approveEmailChange(
+    @Param('requestId') requestId: string,
+    @Body() dto: ApproveAdminEmailChangeRequestDto,
+    @Req() req: any,
+  ) {
+    return this.recoveryRequestsService.approveEmailChangeRequest(requestId, dto, req.user);
   }
 
   @Post(':requestId/reject')

@@ -162,6 +162,22 @@ function removeAuthorizedAddress(
   }
 }
 
+function changeInstitutionAdmin(
+  chainId: string,
+  institutionId: string,
+  newAdmin: Hex
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'changeInstitutionAdmin',
+      args: [institutionId, newAdmin],
+    })
+  }
+}
+
 function getVoteReadContract(chainId: string) {
   const { voteContract, bundler, chain } = availableNetworks[chainId];
 
@@ -226,6 +242,7 @@ export const VoteContractCalls = {
   addAuthorizedAddress,
   removeAuthorizedAddress,
   claimVoteReward,
+  changeInstitutionAdmin,
 }
 
 export const VoteContractReads = {

@@ -26,7 +26,8 @@ export type InstitutionalCreationChainStatus =
 
 export type InstitutionalMobileAuthorizationAction =
   | 'ADD_AUTHORIZED_ADDRESS'
-  | 'REMOVE_AUTHORIZED_ADDRESS';
+  | 'REMOVE_AUTHORIZED_ADDRESS'
+  | 'CHANGE_INSTITUTION_ADMIN';
 
 @Schema({ timestamps: true, collection: 'institutional_admin_applications' })
 export class InstitutionalAdminApplication {
@@ -114,6 +115,12 @@ export class InstitutionalAdminApplication {
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: false })
   approvedBy?: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'TenantAdminAssignment', required: false })
+  initiatedByAssignmentId?: Types.ObjectId | null;
+
+  @Prop({ type: String, required: false, trim: true })
+  initiatedByWallet?: string | null;
+
   @Prop({ type: Date, required: false })
   approvedAt?: Date;
 
@@ -122,7 +129,7 @@ export class InstitutionalAdminApplication {
 
   @Prop({
     required: false,
-    enum: ['ADD_AUTHORIZED_ADDRESS', 'REMOVE_AUTHORIZED_ADDRESS'],
+    enum: ['ADD_AUTHORIZED_ADDRESS', 'REMOVE_AUTHORIZED_ADDRESS', 'CHANGE_INSTITUTION_ADMIN'],
     default: 'ADD_AUTHORIZED_ADDRESS',
     index: true,
   })
@@ -179,3 +186,21 @@ InstitutionalAdminApplicationSchema.index({ verificationToken: 1 });
 InstitutionalAdminApplicationSchema.index({ institutionNameNorm: 1 });
 InstitutionalAdminApplicationSchema.index({ chainStatus: 1, chainNextRetryAt: 1 });
 InstitutionalAdminApplicationSchema.index({ mobileAuthorizationUserOpHash: 1 });
+InstitutionalAdminApplicationSchema.index(
+  { tenantId: 1, mobileAuthorizationAction: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      status: {
+        $in: [
+          'PENDING_MOBILE_AUTHORIZATION',
+          'PENDING_CHAIN_CONFIRMATION',
+          'CHAIN_RETRY_PENDING',
+          'RECONCILIATION_PENDING',
+          'CHAIN_FAILED',
+        ],
+      },
+    },
+  },
+);

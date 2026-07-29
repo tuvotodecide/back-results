@@ -22,6 +22,8 @@ import {
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import {
   CreateInstitutionalAccessRecoveryRequestDto,
+  CreateAdminEmailChangeRequestDto,
+  ApproveAdminEmailChangeRequestDto,
   RejectInstitutionalAccessRecoveryRequestDto,
   ResolveInstitutionalAccessRecoveryRequestDto,
 } from '../dto/institutional-access-recovery-request.dto';
@@ -57,6 +59,7 @@ type RecoveryApprovalResponse = {
 
 type RecoveryListItem = {
   requestId: string;
+  requestType: string;
   tenantId: string;
   institutionName: string;
   fullName: string;
@@ -143,6 +146,83 @@ export class InstitutionalAccessRecoveryRequestsService {
     };
   }
 
+  async createEmailChangeRequest(dto: CreateAdminEmailChangeRequestDto, requester: any) {
+    const requesterId = this.resolveRequesterObjectId(requester);
+    if (!requesterId) {
+      throw new ForbiddenException('La solicitud requiere una cuenta autenticada');
+    }
+    const user = await this.roledUserModel.findById(requesterId).lean();
+    if (!user || user.active !== true) {
+      throw new ForbiddenException('La cuenta administrativa no está activa');
+    }
+    const newEmail = this.normalizeEmail(dto.newEmail);
+    const currentEmail = String(user.email || '').trim().toLowerCase();
+    if (newEmail === currentEmail) {
+      throw new ConflictException('El nuevo correo debe ser distinto del correo actual');
+    }
+    await this.assertEmailAvailableForRequest(
+      newEmail,
+      'El correo indicado ya pertenece a otra cuenta',
+    );
+    await this.assertNoPendingEmailChangeForUser(requesterId);
+
+    const assignment = await this.assignmentModel
+      .findOne({
+        userId: requesterId,
+        status: 'APPROVED',
+        active: true,
+      })
+      .sort({ institutionalRole: 1, approvedAt: -1, _id: 1 })
+      .lean();
+    if (!assignment?.tenantId) {
+      throw new ForbiddenException('La cuenta no tiene una relación institucional activa');
+    }
+    const tenant = await this.tenantModel.findById(assignment.tenantId).lean();
+    if (!tenant || tenant.active !== true) {
+      throw new ForbiddenException('La institución asociada no está activa');
+    }
+
+    const request = await this.recoveryRequestModel.create({
+      requestType: 'ADMIN_EMAIL_CHANGE',
+      tenantId: tenant._id,
+      institutionName: tenant.name,
+      fullName: user.name,
+      phoneNumber: 'NO_APLICA',
+      newEmail,
+      supervisorPhoneNumber: 'NO_APLICA',
+      status: 'PENDING',
+      requestedAt: new Date(),
+      candidateUserId: user._id,
+      candidateAssignmentId: assignment._id,
+      currentEmail,
+      accountAddress: assignment.accountAddress ?? null,
+      institutionalRole: assignment.institutionalRole ?? null,
+      resolutionReason: dto.reason?.trim() || null,
+      warnings: [],
+    });
+    await this.auditService.record({
+      tenantId: tenant._id,
+      actor: requester,
+      action: 'ADMIN_EMAIL_CHANGE_REQUESTED',
+      targetType: 'InstitutionalAccessRecoveryRequest',
+      targetId: request._id,
+      targetUserId: user._id,
+      assignmentId: assignment._id,
+      recoveryRequestId: request._id,
+      previousState: { email: currentEmail },
+      newState: { status: request.status, newEmail },
+      reason: request.resolutionReason ?? null,
+    });
+
+    return {
+      requestId: String(request._id),
+      status: request.status,
+      currentEmail,
+      newEmail,
+      requestedAt: request.requestedAt,
+    };
+  }
+
   async listRequests(requester: any, status?: string) {
     this.assertAdmin(requester);
     const query: Record<string, unknown> = {};
@@ -202,6 +282,35 @@ export class InstitutionalAccessRecoveryRequestsService {
     }
   }
 
+  async approveEmailChangeRequest(
+    requestId: string,
+    dto: ApproveAdminEmailChangeRequestDto,
+    requester: any,
+  ) {
+    this.assertAdmin(requester);
+    const requestObjectId = this.toObjectIdOrBadRequest(requestId, 'requestId invalido');
+    const actorId = this.resolveRequesterObjectId(requester);
+    const session = await this.recoveryRequestModel.db.startSession();
+    try {
+      let response: RecoveryApprovalResponse | undefined;
+      await session.withTransaction(async () => {
+        response = await this.approveEmailChangeRequestInTransaction(
+          requestObjectId,
+          actorId,
+          dto.reason,
+          session,
+        );
+      });
+      await this.emailOutboxService.processPendingBatch?.(1);
+      if (!response) {
+        throw new Error('La aprobacion no produjo respuesta');
+      }
+      return response;
+    } finally {
+      await session.endSession();
+    }
+  }
+
   async rejectRequest(
     requestId: string,
     dto: RejectInstitutionalAccessRecoveryRequestDto,
@@ -229,7 +338,9 @@ export class InstitutionalAccessRecoveryRequestsService {
         await this.auditService.record({
           tenantId: request.tenantId,
           actor: requester,
-          action: 'INSTITUTIONAL_RECOVERY_REJECTED',
+          action: request.requestType === 'ADMIN_EMAIL_CHANGE'
+            ? 'ADMIN_EMAIL_CHANGE_REJECTED'
+            : 'INSTITUTIONAL_RECOVERY_REJECTED',
           targetType: 'InstitutionalAccessRecoveryRequest',
           targetId: request._id,
           targetUserId: request.candidateUserId ?? null,
@@ -364,6 +475,107 @@ export class InstitutionalAccessRecoveryRequestsService {
     };
   }
 
+  private async approveEmailChangeRequestInTransaction(
+    requestId: Types.ObjectId,
+    actorId: Types.ObjectId | null,
+    reason: string | undefined,
+    session: ClientSession,
+  ): Promise<RecoveryApprovalResponse> {
+    const request = await this.recoveryRequestModel.findById(requestId).session(session);
+    if (!request) {
+      throw new NotFoundException('Solicitud de cambio de correo no encontrada');
+    }
+    if (request.requestType !== 'ADMIN_EMAIL_CHANGE') {
+      throw new ConflictException('La solicitud no corresponde a cambio de correo administrativo');
+    }
+    if (request.status !== 'PENDING') {
+      throw new ConflictException('La solicitud de cambio de correo ya fue resuelta');
+    }
+    if (!request.candidateUserId || !request.candidateAssignmentId) {
+      throw new ConflictException('La solicitud no tiene cuenta administrativa asociada');
+    }
+
+    const [tenant, user, assignment, emailOwner] = await Promise.all([
+      this.tenantModel.findById(request.tenantId).session(session).lean(),
+      this.roledUserModel.findById(request.candidateUserId).session(session),
+      this.assignmentModel.findOne({
+        _id: request.candidateAssignmentId,
+        tenantId: request.tenantId,
+        userId: request.candidateUserId,
+      }).session(session).lean(),
+      this.roledUserModel.findOne({ email: request.newEmail }).session(session).lean(),
+    ]);
+
+    if (!tenant) {
+      throw new NotFoundException('Institucion no encontrada');
+    }
+    if (!user) {
+      throw new NotFoundException('Usuario objetivo no encontrado');
+    }
+    if (!assignment) {
+      throw new ConflictException('La relación institucional objetivo no es coherente');
+    }
+    if ((request.accountAddress ?? null) !== (assignment.accountAddress ?? null)) {
+      throw new ConflictException('La wallet institucional cambió durante el cambio de correo');
+    }
+    if ((request.institutionalRole ?? null) !== (assignment.institutionalRole ?? null)) {
+      throw new ConflictException('El rol institucional cambió durante el cambio de correo');
+    }
+    if (emailOwner && String(emailOwner._id) !== String(user._id)) {
+      throw new ConflictException('El correo indicado ya pertenece a otra cuenta');
+    }
+    const previousEmail = String(user.email || '').trim().toLowerCase();
+    if (previousEmail === request.newEmail) {
+      throw new ConflictException('El nuevo correo debe ser distinto del correo actual');
+    }
+
+    const previousAuthVersion = user.authVersion ?? 0;
+    user.email = request.newEmail;
+    user.authVersion = previousAuthVersion + 1;
+    await user.save({ session });
+
+    request.status = 'APPROVED';
+    request.resolvedAt = new Date();
+    request.resolvedBy = actorId;
+    request.resolutionReason = reason?.trim() || request.resolutionReason || null;
+    request.currentEmail = previousEmail;
+    request.accountAddress = assignment.accountAddress ?? null;
+    request.institutionalRole = assignment.institutionalRole ?? null;
+    await request.save({ session });
+    await this.auditService.record({
+      tenantId: request.tenantId,
+      actor: { sub: actorId ? String(actorId) : undefined, role: 'ADMIN' },
+      action: 'ADMIN_EMAIL_CHANGE_APPROVED',
+      targetType: 'InstitutionalAccessRecoveryRequest',
+      targetId: request._id,
+      targetUserId: user._id,
+      assignmentId: assignment._id,
+      recoveryRequestId: request._id,
+      previousState: { status: 'PENDING', email: previousEmail, authVersion: previousAuthVersion },
+      newState: { status: request.status, email: request.newEmail, authVersion: user.authVersion },
+      reason: request.resolutionReason ?? null,
+      session,
+    });
+
+    await this.emailOutboxService.enqueueInstitutionalEmailChangeNotice({
+      recipient: user.email,
+      name: user.name,
+      targetId: user._id,
+      correlationId: String(request._id),
+      previousEmail,
+      session,
+    });
+
+    return {
+      requestId: String(request._id),
+      status: request.status,
+      tenantId: String(request.tenantId),
+      userId: String(user._id),
+      assignmentId: String(assignment._id),
+      resolvedAt: request.resolvedAt,
+    };
+  }
+
   private async resolveCandidate(
     tenantId: Types.ObjectId,
     fullName: string,
@@ -399,10 +611,13 @@ export class InstitutionalAccessRecoveryRequestsService {
     };
   }
 
-  private async assertEmailAvailableForRequest(newEmail: string) {
+  private async assertEmailAvailableForRequest(
+    newEmail: string,
+    message = 'No se pudo registrar la solicitud con esos datos',
+  ) {
     const existing = await this.roledUserModel.findOne({ email: newEmail }).lean();
     if (existing) {
-      throw new ConflictException('No se pudo registrar la solicitud con esos datos');
+      throw new ConflictException(message);
     }
   }
 
@@ -412,6 +627,19 @@ export class InstitutionalAccessRecoveryRequestsService {
       .lean();
     if (existing) {
       throw new ConflictException('Ya existe una solicitud de recuperacion pendiente');
+    }
+  }
+
+  private async assertNoPendingEmailChangeForUser(userId: Types.ObjectId) {
+    const existing = await this.recoveryRequestModel
+      .findOne({
+        candidateUserId: userId,
+        requestType: 'ADMIN_EMAIL_CHANGE',
+        status: 'PENDING',
+      })
+      .lean();
+    if (existing) {
+      throw new ConflictException('Ya existe una solicitud de cambio de correo pendiente');
     }
   }
 
@@ -447,6 +675,7 @@ export class InstitutionalAccessRecoveryRequestsService {
   private toListResponse(request: any): RecoveryListItem {
     return {
       requestId: String(request._id),
+      requestType: request.requestType ?? 'ACCESS_RECOVERY',
       tenantId: String(request.tenantId),
       institutionName: request.institutionName,
       fullName: request.fullName,
@@ -478,6 +707,14 @@ export class InstitutionalAccessRecoveryRequestsService {
     const value = input.trim().replace(/\s+/g, ' ');
     if (!value) {
       throw new BadRequestException('Valor invalido');
+    }
+    return value;
+  }
+
+  private normalizeEmail(input: string): string {
+    const value = String(input || '').trim().toLowerCase();
+    if (!value || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      throw new BadRequestException('Correo invalido');
     }
     return value;
   }

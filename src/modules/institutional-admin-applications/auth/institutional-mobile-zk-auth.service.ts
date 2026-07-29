@@ -220,16 +220,53 @@ export class InstitutionalMobileZkAuthService {
     if (!application?.tenantId) {
       throw new BadRequestException('Institutional authorization request not found');
     }
+    const primaryFilter: Record<string, any> = {
+      tenantId: application.tenantId,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    };
+    const isPendingPrimaryTransfer =
+      application.mobileAuthorizationAction === 'CHANGE_INSTITUTION_ADMIN' &&
+      !['APPROVED', 'REJECTED', 'REVOKED'].includes(String(application.status));
+    if (isPendingPrimaryTransfer) {
+      if (!application.approvedBy) {
+        throw new ForbiddenException('Institutional primary signer not found');
+      }
+      if (!application.initiatedByAssignmentId || !application.initiatedByWallet) {
+        throw new ForbiddenException('Institutional primary signer is not bound to this request');
+      }
+      primaryFilter._id = application.initiatedByAssignmentId;
+      primaryFilter.userId = application.approvedBy;
+    }
     const primary = await this.assignmentModel
-      .findOne({
-        tenantId: application.tenantId,
-        institutionalRole: 'PRIMARY',
-        active: true,
-        status: 'APPROVED',
-      })
+      .findOne(primaryFilter)
       .lean();
     if (!primary?.userId || !primary.accountAddress) {
       throw new ForbiddenException('Institutional primary signer not found');
+    }
+    if (isPendingPrimaryTransfer) {
+      if (
+        String(primary.accountAddress).toLowerCase() !==
+        String(application.initiatedByWallet).toLowerCase()
+      ) {
+        throw new ForbiddenException('Institutional primary signer wallet changed');
+      }
+      const target = await this.assignmentModel.findOne({
+        _id: application.targetAssignmentId,
+        tenantId: application.tenantId,
+        userId: application.userId,
+        institutionalRole: 'SECONDARY',
+        active: true,
+        status: 'APPROVED',
+      }).lean();
+      if (
+        !target?.accountAddress ||
+        String(target.accountAddress).toLowerCase() !==
+          String(application.accountAddress).toLowerCase()
+      ) {
+        throw new ForbiddenException('Institutional primary transfer target is not eligible');
+      }
     }
     return { application, primary };
   }

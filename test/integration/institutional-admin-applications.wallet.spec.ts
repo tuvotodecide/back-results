@@ -23,6 +23,7 @@ jest.mock('@/api/vote', () => ({
     createInstitution: jest.fn().mockReturnValue({ calldata: '0x' }),
     addAuthorizedAddress: jest.fn().mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x1234' }),
     removeAuthorizedAddress: jest.fn().mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x5678' }),
+    changeInstitutionAdmin: jest.fn().mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x9abc' }),
   },
   VoteContractReads: {
     getInstitutionAdmin: jest.fn().mockResolvedValue('0x1234567890abcdef1234567890abcdef12345678'),
@@ -173,6 +174,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     (VoteContractCalls.createInstitution as jest.Mock).mockReturnValue({ calldata: '0x' });
     (VoteContractCalls.addAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x1234' });
     (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x5678' });
+    (VoteContractCalls.changeInstitutionAdmin as jest.Mock).mockReturnValue({ to: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb', value: 0n, data: '0x9abc' });
     (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(validAccountAddress);
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
     httpService.axiosRef.post.mockResolvedValue({
@@ -326,6 +328,116 @@ describe('Institutional admin application wallet validation (integration)', () =
     });
     currentReviewer = { sub: String(primaryUserId), role: 'USER', smartAccountAddress: primaryWallet };
     return { tenantId, primaryUserId };
+  }
+
+  async function createPendingPrimaryTransferAuthorization(
+    suffix = 'transfer',
+    primaryWallet = '0x0000000000000000000000000000000000000201',
+    targetWallet = '0x0000000000000000000000000000000000000202',
+  ) {
+    const tenantId = new Types.ObjectId();
+    const primaryUserId = new Types.ObjectId();
+    const targetUserId = new Types.ObjectId();
+    const primaryAssignmentId = new Types.ObjectId();
+    const targetAssignmentId = new Types.ObjectId();
+    const applicationId = new Types.ObjectId();
+    await conn.collection('institutional_tenants').insertOne({
+      _id: tenantId,
+      name: `Institucion Transfer ${suffix}`,
+      nameNorm: `institucion transfer ${suffix}`,
+      stableInstitutionId: `stable-transfer-${String(tenantId)}`,
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('roled_users').insertMany([
+      {
+        _id: primaryUserId,
+        dni: `primary-${suffix}`,
+        email: `primary-${suffix}@example.test`,
+        name: 'Principal Actual',
+        password: 'hashed-primary',
+        role: 'USER',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        _id: targetUserId,
+        dni: `target-${suffix}`,
+        email: `target-${suffix}@example.test`,
+        name: 'Destino Transferencia',
+        password: 'hashed-target',
+        role: 'USER',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    await conn.collection('tenant_admin_assignments').insertMany([
+      {
+        _id: primaryAssignmentId,
+        tenantId,
+        userId: primaryUserId,
+        accountAddress: primaryWallet,
+        institutionalRole: 'PRIMARY',
+        status: 'APPROVED',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        _id: targetAssignmentId,
+        tenantId,
+        userId: targetUserId,
+        accountAddress: targetWallet,
+        institutionalRole: 'SECONDARY',
+        status: 'APPROVED',
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+    await conn.collection('institutional_admin_applications').insertOne({
+      _id: applicationId,
+      dni: `target-${suffix}`,
+      email: `target-${suffix}@example.test`,
+      passwordHash: 'institutional-primary-transfer',
+      name: 'Destino Transferencia',
+      institutionName: `Institucion Transfer ${suffix}`,
+      institutionNameNorm: `institucion transfer ${suffix}`,
+      accountAddress: targetWallet,
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      stableInstitutionId: `stable-transfer-${String(tenantId)}`,
+      tenantId,
+      userId: targetUserId,
+      targetAssignmentId,
+      approvedBy: primaryUserId,
+      initiatedByAssignmentId: primaryAssignmentId,
+      initiatedByWallet: primaryWallet,
+      approvedAt: new Date(),
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      mobileAuthorizationRequestedAt: new Date(),
+      mobileAuthorizationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    currentReviewer = {
+      sub: String(primaryUserId),
+      role: 'USER',
+      smartAccountAddress: primaryWallet,
+    };
+    return {
+      tenantId,
+      primaryUserId,
+      targetUserId,
+      primaryAssignmentId,
+      targetAssignmentId,
+      applicationId,
+      primaryWallet,
+      targetWallet,
+      stableInstitutionId: `stable-transfer-${String(tenantId)}`,
+    };
   }
 
   async function createPendingMobileAuthorization(
@@ -2075,6 +2187,315 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(stored?.mobileAuthorizationDeviceId).toBeUndefined();
     expect(stored?.mobileAuthorizationUserOpHash).toBeUndefined();
     expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
+  });
+
+  it('D-TRF-005/D-TRF-006: prepara changeInstitutionAdmin con ID estable y conserva roles originales', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('claim');
+
+    const claim = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer' })
+      .expect(200);
+
+    expect(claim.body.execution).toMatchObject({
+      stableInstitutionId: transfer.stableInstitutionId,
+      action: 'CHANGE_INSTITUTION_ADMIN',
+      signerWallet: transfer.primaryWallet,
+      targetWallet: transfer.targetWallet,
+    });
+    expect(claim.body.execution.calls).toEqual([
+      expect.objectContaining({
+        target: '0x7B57eE9103fc46eD6794329C36D2919293F0Fabb',
+        value: '0',
+        callData: '0x9abc',
+        purpose: 'CHANGE_INSTITUTION_ADMIN',
+      }),
+    ]);
+    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledWith(
+      expect.any(String),
+      transfer.stableInstitutionId,
+      transfer.targetWallet,
+    );
+    expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalledWith(
+      expect.any(String),
+      String(transfer.applicationId),
+      transfer.targetWallet,
+    );
+    await expect(conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: transfer.tenantId,
+      institutionalRole: 'PRIMARY',
+      userId: transfer.primaryUserId,
+      active: true,
+      status: 'APPROVED',
+    })).resolves.toBe(1);
+    await expect(conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: transfer.tenantId,
+      institutionalRole: 'SECONDARY',
+      userId: transfer.targetUserId,
+      active: true,
+      status: 'APPROVED',
+    })).resolves.toBe(1);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+  it('D-TRF-ZK-A/F: usa metadata persistida del iniciador y omite payload manipulado del cliente', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('binding-valid');
+
+    const claim = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({
+        deviceId: 'qa-phone-transfer-binding',
+        initiatedByUserId: String(new Types.ObjectId()),
+        initiatedByWallet: '0x0000000000000000000000000000000000000bad',
+        tenantId: String(new Types.ObjectId()),
+        stableInstitutionId: 'client-stable-id',
+        targetWallet: '0x0000000000000000000000000000000000000bad',
+      })
+      .expect(200);
+
+    expect(claim.body.execution).toMatchObject({
+      stableInstitutionId: transfer.stableInstitutionId,
+      signerWallet: transfer.primaryWallet,
+      targetWallet: transfer.targetWallet,
+      action: 'CHANGE_INSTITUTION_ADMIN',
+    });
+    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledWith(
+      expect.any(String),
+      transfer.stableInstitutionId,
+      transfer.targetWallet,
+    );
+    expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalledWith(
+      expect.any(String),
+      'client-stable-id',
+      '0x0000000000000000000000000000000000000bad',
+    );
+  });
+
+  it('D-TRF-ZK-B: bloquea a otro administrador que intenta reclamar la solicitud iniciada por el principal', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('binding-other');
+    currentReviewer = {
+      sub: String(new Types.ObjectId()),
+      role: 'USER',
+      smartAccountAddress: '0x0000000000000000000000000000000000000b02',
+    };
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-other' })
+      .expect(403);
+
+    expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalled();
+    await expect(conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: transfer.tenantId,
+      institutionalRole: 'PRIMARY',
+      userId: transfer.primaryUserId,
+      active: true,
+    })).resolves.toBe(1);
+  });
+
+  it('D-TRF-ZK-C/D: invalida la solicitud antigua si el iniciador dejó de ser principal', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('binding-stale');
+    const newPrimaryUserId = new Types.ObjectId();
+    const newPrimaryWallet = '0x0000000000000000000000000000000000000b03';
+    await conn.collection('roled_users').insertOne({
+      _id: newPrimaryUserId,
+      dni: 'new-primary-binding',
+      email: 'new-primary-binding@example.test',
+      name: 'Nuevo Principal',
+      password: 'hashed-new-primary',
+      role: 'USER',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: transfer.primaryAssignmentId },
+      { $set: { institutionalRole: 'SECONDARY' } },
+    );
+    await conn.collection('tenant_admin_assignments').insertOne({
+      _id: new Types.ObjectId(),
+      tenantId: transfer.tenantId,
+      userId: newPrimaryUserId,
+      accountAddress: newPrimaryWallet,
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    currentReviewer = {
+      sub: String(transfer.primaryUserId),
+      role: 'USER',
+      smartAccountAddress: transfer.primaryWallet,
+    };
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-old-primary' })
+      .expect(409);
+
+    currentReviewer = {
+      sub: String(newPrimaryUserId),
+      role: 'USER',
+      smartAccountAddress: newPrimaryWallet,
+    };
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-new-primary' })
+      .expect(409);
+
+    expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalled();
+    await expect(conn.collection('institutional_admin_applications').findOne({
+      _id: transfer.applicationId,
+    })).resolves.toMatchObject({ status: 'PENDING_MOBILE_AUTHORIZATION' });
+  });
+
+  it('D-TRF-ZK-E: bloquea sujeto o billetera distinta aunque la credencial sea válida', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('binding-wallet');
+
+    currentReviewer = {
+      sub: String(transfer.primaryUserId),
+      role: 'USER',
+      smartAccountAddress: '0x0000000000000000000000000000000000000b04',
+    };
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-wallet' })
+      .expect(403);
+
+    currentReviewer = {
+      sub: String(new Types.ObjectId()),
+      role: 'USER',
+      smartAccountAddress: transfer.primaryWallet,
+    };
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-subject' })
+      .expect(403);
+
+    expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['suspendido', { status: 'APPROVED', active: false, institutionalRole: 'SECONDARY' }],
+    ['revocado', { status: 'REVOKED', active: false, institutionalRole: 'SECONDARY' }],
+    ['principal', { status: 'APPROVED', active: true, institutionalRole: 'PRIMARY' }],
+    ['pendiente', { status: 'PENDING_MOBILE_AUTHORIZATION', active: false, institutionalRole: 'SECONDARY' }],
+  ])('D-TRF-ZK-G: bloquea solicitud antigua si el destino queda %s', async (_label, targetPatch) => {
+    const transfer = await createPendingPrimaryTransferAuthorization(`binding-target-${_label}`);
+    if (_label === 'principal') {
+      await conn.collection('tenant_admin_assignments').updateOne(
+        { _id: transfer.primaryAssignmentId },
+        { $set: { institutionalRole: 'SECONDARY' } },
+      );
+    }
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: transfer.targetAssignmentId },
+      { $set: targetPatch },
+    );
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: `qa-phone-transfer-${_label}` })
+      .expect(409);
+
+    expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalled();
+  });
+
+  it('D-TRF-008/D-TRF-009/D-TRF-010/D-TRF-011: confirma por getInstitutionAdmin y deja exactamente un principal', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('confirm');
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-confirm' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
+      .send({ deviceId: 'qa-phone-transfer-confirm', userOpHash: `0x${'8'.repeat(64)}` })
+      .expect(200);
+
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(transfer.primaryWallet);
+    const pending = await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
+    expect(pending.reconciled).toBe(false);
+    await expect(conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: transfer.tenantId,
+      institutionalRole: 'PRIMARY',
+      userId: transfer.primaryUserId,
+    })).resolves.toBe(1);
+
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(transfer.targetWallet);
+    const confirmed = await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
+    const confirmedAgain = await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
+    expect(confirmed.reconciled).toBe(true);
+    expect(confirmedAgain.reconciled).toBe(true);
+    expect(VoteContractReads.getInstitutionAdmin).toHaveBeenCalledWith(
+      expect.any(String),
+      transfer.stableInstitutionId,
+    );
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: transfer.tenantId,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    })).toBe(1);
+    expect(await conn.collection('tenant_admin_assignments').findOne({
+      _id: transfer.targetAssignmentId,
+    })).toMatchObject({ institutionalRole: 'PRIMARY', accountAddress: transfer.targetWallet });
+    expect(await conn.collection('tenant_admin_assignments').findOne({
+      _id: transfer.primaryAssignmentId,
+    })).toMatchObject({ institutionalRole: 'SECONDARY', accountAddress: transfer.primaryWallet });
+    expect(await conn.collection('institutional_admin_applications').findOne({
+      _id: transfer.applicationId,
+    })).toMatchObject({ status: 'APPROVED', chainStatus: 'CONFIRMED' });
+    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledTimes(1);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+  it('D-TRF-007/D-TRF-011: error recuperable conserva firma y dos workers no duplican transferencia', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('retry');
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-retry' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
+      .send({ deviceId: 'qa-phone-transfer-retry', userOpHash: `0x${'9'.repeat(64)}` })
+      .expect(200);
+
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValueOnce(new Error('rpc timeout'));
+    const retry = await applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId));
+    expect(retry).toMatchObject({ processed: true, status: 'RETRY_PENDING' });
+    let stored = await conn.collection('institutional_admin_applications').findOne({
+      _id: transfer.applicationId,
+    });
+    expect(stored).toMatchObject({
+      status: 'CHAIN_RETRY_PENDING',
+      chainStatus: 'RETRY_PENDING',
+      mobileAuthorizationUserOpHash: `0x${'9'.repeat(64)}`,
+    });
+
+    await conn.collection('institutional_admin_applications').updateOne(
+      { _id: transfer.applicationId },
+      { $set: { chainNextRetryAt: new Date(Date.now() - 1000), chainLockedUntil: null } },
+    );
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(transfer.targetWallet);
+    await Promise.allSettled([
+      applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId)),
+      applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId)),
+    ]);
+    stored = await conn.collection('institutional_admin_applications').findOne({
+      _id: transfer.applicationId,
+    });
+    expect(stored).toMatchObject({ status: 'APPROVED', chainStatus: 'CONFIRMED' });
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: transfer.tenantId,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    })).toBe(1);
+    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledTimes(1);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
   it('D-SIGN-003: rechazo móvil cierra la autorización sin firma ni acceso', async () => {

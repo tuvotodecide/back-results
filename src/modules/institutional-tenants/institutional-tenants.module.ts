@@ -20,6 +20,10 @@ import {
   InstitutionalAdminApplication,
   InstitutionalAdminApplicationSchema,
 } from '../institutional-admin-applications/schemas/institutional-admin-application.schema';
+import {
+  NotificationLog,
+  NotificationLogSchema,
+} from '../notifications/schemas/notification-log.schema';
 
 @Module({
   imports: [
@@ -29,6 +33,7 @@ import {
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
       { name: RoledUser.name, schema: RoledUserSchema },
       { name: InstitutionalAdminApplication.name, schema: InstitutionalAdminApplicationSchema },
+      { name: NotificationLog.name, schema: NotificationLogSchema },
     ]),
     JwtModule.registerAsync({
       useFactory: (configService: ConfigService) => ({

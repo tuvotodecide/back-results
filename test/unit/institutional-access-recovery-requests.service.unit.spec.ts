@@ -53,6 +53,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     };
     mailService = {
       enqueueInstitutionalPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+      enqueueInstitutionalEmailChangeNotice: jest.fn().mockResolvedValue(undefined),
       processPendingBatch: jest.fn().mockResolvedValue(undefined),
     };
     configService = {
@@ -204,6 +205,158 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
         warnings: ['AMBIGUOUS_CANDIDATE'],
       }),
     );
+  });
+
+  it('D-MAIL-001 normaliza y crea solicitud autenticada sin aceptar identidad ni wallet del cliente', async () => {
+    const tenantId = new Types.ObjectId('64c000000000000000000080');
+    const userId = new Types.ObjectId('64c000000000000000000081');
+    const assignmentId = new Types.ObjectId('64c000000000000000000082');
+    const createdAt = new Date('2026-07-28T12:00:00.000Z');
+    const user = {
+      _id: userId,
+      dni: '1234567',
+      email: 'actual@example.com',
+      name: 'Admin Mail',
+      active: true,
+      password: 'hash-preservado',
+    };
+    const assignment = {
+      _id: assignmentId,
+      tenantId,
+      userId,
+      accountAddress: '0x0000000000000000000000000000000000000082',
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+    };
+    roledUserModel.findById.mockReturnValue(query(user));
+    roledUserModel.findOne.mockReturnValue(query(null));
+    recoveryRequestModel.findOne.mockReturnValue(query(null));
+    assignmentModel.findOne.mockReturnValue(query(assignment));
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, name: 'Tenant Mail', active: true }));
+    recoveryRequestModel.create.mockResolvedValue({
+      _id: new Types.ObjectId('64c000000000000000000083'),
+      status: 'PENDING',
+      requestedAt: createdAt,
+    });
+
+    const result = await service.createEmailChangeRequest(
+      {
+        newEmail: '  Nuevo.Mail@Example.COM  ',
+        reason: '  Cambio   solicitado  ',
+      },
+      {
+        sub: String(userId),
+        role: 'TENANT_ADMIN',
+        userId: 'cliente-manipulado',
+        dni: 'dni-cliente',
+        accountAddress: '0x0000000000000000000000000000000000000999',
+      },
+    );
+
+    expect(result).toEqual({
+      requestId: '64c000000000000000000083',
+      status: 'PENDING',
+      currentEmail: 'actual@example.com',
+      newEmail: 'nuevo.mail@example.com',
+      requestedAt: createdAt,
+    });
+    expect(recoveryRequestModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestType: 'ADMIN_EMAIL_CHANGE',
+        tenantId,
+        institutionName: 'Tenant Mail',
+        fullName: 'Admin Mail',
+        newEmail: 'nuevo.mail@example.com',
+        status: 'PENDING',
+        candidateUserId: userId,
+        candidateAssignmentId: assignmentId,
+        currentEmail: 'actual@example.com',
+        accountAddress: assignment.accountAddress,
+        institutionalRole: 'PRIMARY',
+      }),
+    );
+    expect(recoveryRequestModel.create.mock.calls[0][0]).not.toHaveProperty('dni');
+    expect(recoveryRequestModel.create.mock.calls[0][0]).not.toHaveProperty('password');
+    expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
+    expect(mailService.enqueueInstitutionalEmailChangeNotice).not.toHaveBeenCalled();
+  });
+
+  it('D-MAIL-003 aprueba conservando password wallet rol y usando aviso informativo', async () => {
+    const requestId = new Types.ObjectId('64c000000000000000000084');
+    const tenantId = new Types.ObjectId('64c000000000000000000085');
+    const userId = new Types.ObjectId('64c000000000000000000086');
+    const assignmentId = new Types.ObjectId('64c000000000000000000087');
+    const requestDoc: any = {
+      _id: requestId,
+      requestType: 'ADMIN_EMAIL_CHANGE',
+      tenantId,
+      institutionName: 'Tenant Mail',
+      fullName: 'Admin Mail',
+      newEmail: 'nuevo@example.com',
+      status: 'PENDING',
+      candidateUserId: userId,
+      candidateAssignmentId: assignmentId,
+      currentEmail: 'actual@example.com',
+      accountAddress: '0x0000000000000000000000000000000000000087',
+      institutionalRole: 'PRIMARY',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const userDoc: any = {
+      _id: userId,
+      dni: '1234567',
+      email: 'actual@example.com',
+      name: 'Admin Mail',
+      password: 'hash-preservado',
+      authVersion: 3,
+      active: true,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    recoveryRequestModel.findById.mockReturnValue(sessionDocQuery(requestDoc));
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
+    roledUserModel.findById.mockReturnValue(sessionDocQuery(userDoc));
+    assignmentModel.findOne.mockReturnValue(query({
+      _id: assignmentId,
+      tenantId,
+      userId,
+      accountAddress: '0x0000000000000000000000000000000000000087',
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+    }));
+    roledUserModel.findOne.mockReturnValue(query(null));
+
+    const result = await service.approveEmailChangeRequest(
+      String(requestId),
+      { reason: 'Aprobado' },
+      { role: 'ADMIN', sub: String(new Types.ObjectId()) },
+    );
+
+    expect(result).toMatchObject({
+      requestId: String(requestId),
+      tenantId: String(tenantId),
+      userId: String(userId),
+      assignmentId: String(assignmentId),
+      status: 'APPROVED',
+    });
+    expect(userDoc).toMatchObject({
+      email: 'nuevo@example.com',
+      password: 'hash-preservado',
+      authVersion: 4,
+    });
+    expect(userDoc.passwordResetToken).toBeUndefined();
+    expect(requestDoc.accountAddress).toBe('0x0000000000000000000000000000000000000087');
+    expect(requestDoc.institutionalRole).toBe('PRIMARY');
+    expect(mailService.enqueueInstitutionalEmailChangeNotice).toHaveBeenCalledWith({
+      recipient: 'nuevo@example.com',
+      name: 'Admin Mail',
+      targetId: userId,
+      correlationId: String(requestId),
+      previousEmail: 'actual@example.com',
+      session,
+    });
+    expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
+    expect(mailService.processPendingBatch).toHaveBeenCalledWith(1);
   });
 
   it('lista y detalla solo para ADMIN con campos administrativos seguros', async () => {

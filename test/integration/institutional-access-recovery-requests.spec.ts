@@ -1,10 +1,13 @@
 import appConfig from '@/config/app.config';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
+import { AuthModule } from '@/modules/auth/auth.module';
 import { InstitutionalAccessRecoveryRequestsModule } from '@/modules/institutional-access-recovery-requests/institutional-access-recovery-requests.module';
+import { InstitutionalEmailOutboxService } from '@/modules/mail/institutional-email-outbox.service';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
+import bcrypt from 'bcrypt';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Connection, Types } from 'mongoose';
 import request from 'supertest';
@@ -17,6 +20,7 @@ describe('Institutional access recovery requests (integration)', () => {
   let mongod: MongoMemoryReplSet;
   let conn: Connection;
   let currentAdmin: any;
+  let emailOutboxService: InstitutionalEmailOutboxService;
 
   const mailService = {
     sendEmail: jest.fn().mockResolvedValue(undefined),
@@ -37,6 +41,7 @@ describe('Institutional access recovery requests (integration)', () => {
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
         MongooseModule.forRoot(mongod.getUri()),
         TestLoggerModule,
+        AuthModule,
         InstitutionalAccessRecoveryRequestsModule,
       ],
     })
@@ -65,6 +70,7 @@ describe('Institutional access recovery requests (integration)', () => {
     );
     await app.init();
     conn = moduleRef.get<Connection>(getConnectionToken());
+    emailOutboxService = moduleRef.get(InstitutionalEmailOutboxService);
   });
 
   beforeEach(async () => {
@@ -74,6 +80,8 @@ describe('Institutional access recovery requests (integration)', () => {
     await conn.collection('tenant_admin_assignments').deleteMany({});
     await conn.collection('institutional_tenants').deleteMany({});
     await conn.collection('roled_users').deleteMany({});
+    await conn.collection('institutional_email_outbox').deleteMany({});
+    await conn.collection('institutional_audit_events').deleteMany({});
   });
 
   afterAll(async () => {
@@ -82,15 +90,19 @@ describe('Institutional access recovery requests (integration)', () => {
     await mongod?.stop();
   });
 
-  async function seedAdminAssignment(role: 'PRIMARY' | 'SECONDARY' = 'PRIMARY', active = true) {
+  async function seedAdminAssignment(
+    role: 'PRIMARY' | 'SECONDARY' = 'PRIMARY',
+    active = true,
+    tenantName = 'Universidad Demo',
+  ) {
     const tenantId = new Types.ObjectId();
     const userId = new Types.ObjectId();
     const assignmentId = new Types.ObjectId();
     const now = new Date();
     await conn.collection('institutional_tenants').insertOne({
       _id: tenantId,
-      name: 'Universidad Demo',
-      nameNorm: 'universidad demo',
+      name: tenantName,
+      nameNorm: tenantName.trim().toLowerCase(),
       active: true,
       createdAt: now,
       updatedAt: now,
@@ -120,6 +132,45 @@ describe('Institutional access recovery requests (integration)', () => {
       updatedAt: now,
     });
     return { tenantId, userId, assignmentId };
+  }
+
+  async function seedLoginReadyAdminAssignment(
+    role: 'PRIMARY' | 'SECONDARY' = 'PRIMARY',
+    password = 'secret123',
+    tenantName = 'Universidad Demo',
+  ) {
+    const seeded = await seedAdminAssignment(role, true, tenantName);
+    const email = `mail-${String(seeded.userId)}@example.com`;
+    const passwordHash = bcrypt.hashSync(password, 10);
+    await conn.collection('roled_users').updateOne(
+      { _id: seeded.userId },
+      {
+        $set: {
+          email,
+          password: passwordHash,
+          authVersion: 0,
+          active: true,
+        },
+        $unset: {
+          passwordResetToken: '',
+          passwordResetTokenExpiresAt: '',
+        },
+      },
+    );
+    return { ...seeded, email, password, passwordHash };
+  }
+
+  function login(email: string, password: string) {
+    return request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password });
+  }
+
+  function createEmailChange(token: string, newEmail: string, extra: Record<string, unknown> = {}) {
+    return request(app.getHttpServer())
+      .post('/api/v1/institutional-access-recovery-requests/me/email-change')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ newEmail, ...extra });
   }
 
   function createRecovery(tenantId: Types.ObjectId, newEmail = 'new@example.com') {
@@ -444,5 +495,316 @@ describe('Institutional access recovery requests (integration)', () => {
       attempts: 1,
     });
     expect(JSON.stringify(outbox)).not.toContain(user?.passwordResetToken);
+  });
+
+  it('D-MAIL-001 crea una sola solicitud autenticada sin aceptar datos arbitrarios ni cambiar correo', async () => {
+    const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
+    const signedIn = await login(seeded.email, seeded.password).expect(200);
+
+    const created = await createEmailChange(
+      signedIn.body.accessToken,
+      '  Nuevo.Admin@Example.COM  ',
+      {
+        userId: String(new Types.ObjectId()),
+        dni: 'dni-manipulado',
+        wallet: '0x0000000000000000000000000000000000000999',
+        role: 'ADMIN',
+        status: 'APPROVED',
+      },
+    ).expect(201);
+
+    expect(created.body).toMatchObject({
+      status: 'PENDING',
+      currentEmail: seeded.email,
+      newEmail: 'nuevo.admin@example.com',
+    });
+
+    const user = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+    const stored = await conn.collection('institutional_access_recovery_requests').findOne({
+      _id: new Types.ObjectId(created.body.requestId),
+    });
+    expect(user).toMatchObject({ email: seeded.email, password: seeded.passwordHash });
+    expect(stored).toMatchObject({
+      requestType: 'ADMIN_EMAIL_CHANGE',
+      candidateUserId: seeded.userId,
+      candidateAssignmentId: seeded.assignmentId,
+      currentEmail: seeded.email,
+      newEmail: 'nuevo.admin@example.com',
+      accountAddress: '0x0000000000000000000000000000000000000801',
+      institutionalRole: 'PRIMARY',
+      status: 'PENDING',
+    });
+
+    await createEmailChange(signedIn.body.accessToken, 'otro@example.com').expect(409);
+    expect(
+      await conn.collection('institutional_access_recovery_requests').countDocuments({
+        candidateUserId: seeded.userId,
+        requestType: 'ADMIN_EMAIL_CHANGE',
+        status: 'PENDING',
+      }),
+    ).toBe(1);
+  });
+
+  it('D-MAIL-002 rechaza correo ocupado, formato invalido y mismo correo sin persistencia ni avisos', async () => {
+    const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
+    await conn.collection('roled_users').insertOne({
+      _id: new Types.ObjectId(),
+      dni: 'dni-correo-ocupado',
+      email: 'ocupado@example.com',
+      name: 'Cuenta Existente',
+      password: bcrypt.hashSync('secret123', 10),
+      role: 'USER',
+      active: true,
+      authVersion: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const signedIn = await login(seeded.email, seeded.password).expect(200);
+
+    await createEmailChange(signedIn.body.accessToken, 'ocupado@example.com').expect(409);
+    await createEmailChange(signedIn.body.accessToken, 'correo-invalido').expect(400);
+    await createEmailChange(signedIn.body.accessToken, `  ${seeded.email.toUpperCase()}  `).expect(409);
+
+    expect(
+      await conn.collection('institutional_access_recovery_requests').countDocuments({
+        requestType: 'ADMIN_EMAIL_CHANGE',
+      }),
+    ).toBe(0);
+    expect(await conn.collection('institutional_email_outbox').countDocuments({})).toBe(0);
+    expect(await conn.collection('roled_users').findOne({ _id: seeded.userId })).toMatchObject({
+      email: seeded.email,
+      password: seeded.passwordHash,
+    });
+  });
+
+  it('D-MAIL-003 y D-MAIL-005 a D-MAIL-012 aprueba cambiando solo correo, invalida token viejo y conserva invariantes', async () => {
+    const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
+    const beforeUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+    const beforeAssignments = await conn.collection('tenant_admin_assignments').find({ userId: seeded.userId }).toArray();
+    const oldLogin = await login(seeded.email, seeded.password).expect(200);
+    const created = await createEmailChange(oldLogin.body.accessToken, 'correo-nuevo@example.com').expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/email-change/approve`)
+      .send({ reason: 'Aprobado por superadministrador' })
+      .expect(201);
+
+    const afterUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+    const afterAssignments = await conn.collection('tenant_admin_assignments').find({ userId: seeded.userId }).toArray();
+    expect(String(afterUser?._id)).toBe(String(beforeUser?._id));
+    expect(afterUser?.dni).toBe(beforeUser?.dni);
+    expect(afterUser?.password).toBe(beforeUser?.password);
+    expect(afterUser?.passwordResetToken).toBeUndefined();
+    expect(afterUser?.role).toBe(beforeUser?.role);
+    expect(afterUser?.email).toBe('correo-nuevo@example.com');
+    expect(afterUser?.authVersion).toBe((beforeUser?.authVersion ?? 0) + 1);
+    expect(afterAssignments).toHaveLength(beforeAssignments.length);
+    expect(afterAssignments[0]).toMatchObject({
+      _id: beforeAssignments[0]._id,
+      tenantId: beforeAssignments[0].tenantId,
+      userId: beforeAssignments[0].userId,
+      accountAddress: beforeAssignments[0].accountAddress,
+      institutionalRole: beforeAssignments[0].institutionalRole,
+      status: beforeAssignments[0].status,
+      active: beforeAssignments[0].active,
+    });
+
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/access-status')
+      .set('Authorization', `Bearer ${oldLogin.body.accessToken}`)
+      .expect(401);
+    await login(seeded.email, seeded.password).expect(403);
+    const newLogin = await login('correo-nuevo@example.com', seeded.password).expect(200);
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/access-status')
+      .set('Authorization', `Bearer ${newLogin.body.accessToken}`)
+      .expect(200);
+
+    expect(
+      await conn.collection('institutional_email_outbox').findOne({
+        targetId: seeded.userId,
+        type: 'INSTITUTIONAL_EMAIL_CHANGE_NOTICE',
+      }),
+    ).toMatchObject({
+      recipient: 'correo-nuevo@example.com',
+      status: 'SENT',
+      attempts: 0,
+      safePayload: expect.objectContaining({ previousEmail: seeded.email }),
+    });
+    expect(
+      await conn.collection('institutional_email_outbox').countDocuments({
+        targetId: seeded.userId,
+        type: 'INSTITUTIONAL_PASSWORD_RESET',
+      }),
+    ).toBe(0);
+    expect(
+      await conn.collection('institutional_audit_events').findOne({
+        action: 'ADMIN_EMAIL_CHANGE_APPROVED',
+        targetUserId: seeded.userId,
+      }),
+    ).toBeTruthy();
+  });
+
+  it('D-MAIL-004 rechaza sin modificar cuenta, sesiones, password, wallet ni relaciones', async () => {
+    const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
+    const oldLogin = await login(seeded.email, seeded.password).expect(200);
+    const created = await createEmailChange(oldLogin.body.accessToken, 'rechazado@example.com').expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/reject`)
+      .send({ reason: 'No corresponde' })
+      .expect(201);
+
+    expect(await conn.collection('roled_users').findOne({ _id: seeded.userId })).toMatchObject({
+      email: seeded.email,
+      password: seeded.passwordHash,
+      authVersion: 0,
+    });
+    expect(await conn.collection('tenant_admin_assignments').findOne({ _id: seeded.assignmentId })).toMatchObject({
+      accountAddress: '0x0000000000000000000000000000000000000801',
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+    });
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/access-status')
+      .set('Authorization', `Bearer ${oldLogin.body.accessToken}`)
+      .expect(200);
+    await login(seeded.email, seeded.password).expect(200);
+    expect(
+      await conn.collection('institutional_access_recovery_requests').findOne({
+        _id: new Types.ObjectId(created.body.requestId),
+      }),
+    ).toMatchObject({ status: 'REJECTED', resolutionReason: 'No corresponde' });
+    expect(await conn.collection('institutional_email_outbox').countDocuments({})).toBe(0);
+  });
+
+  it('D-MAIL-013 y D-MAIL-014 conserva cambio aprobado si falla aviso y reintenta solo el aviso', async () => {
+    const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
+    const oldLogin = await login(seeded.email, seeded.password).expect(200);
+    const created = await createEmailChange(oldLogin.body.accessToken, 'aviso-fallido@example.com').expect(201);
+    mailService.sendEmail.mockRejectedValueOnce(new Error('SES_SECRET_ACCESS_KEY leaked? no'));
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/email-change/approve`)
+      .send({ reason: 'Aprobado aunque falle el aviso' })
+      .expect(201);
+
+    const approvedUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+    const approvedRequest = await conn.collection('institutional_access_recovery_requests').findOne({
+      _id: new Types.ObjectId(created.body.requestId),
+    });
+    const failedOutbox = await conn.collection('institutional_email_outbox').findOne({
+      targetId: seeded.userId,
+      type: 'INSTITUTIONAL_EMAIL_CHANGE_NOTICE',
+    });
+    expect(approvedUser).toMatchObject({
+      email: 'aviso-fallido@example.com',
+      password: seeded.passwordHash,
+      authVersion: 1,
+    });
+    expect(approvedUser?.passwordResetToken).toBeUndefined();
+    expect(approvedRequest).toMatchObject({ status: 'APPROVED' });
+    expect(failedOutbox).toMatchObject({
+      status: 'FAILED',
+      attempts: 1,
+      lastErrorSanitized: expect.any(String),
+    });
+    expect(failedOutbox?.lastErrorSanitized).not.toContain(seeded.passwordHash);
+    expect(JSON.stringify(failedOutbox)).not.toContain(seeded.passwordHash);
+
+    mailService.sendEmail.mockResolvedValue(undefined);
+    await conn.collection('institutional_email_outbox').updateOne(
+      { _id: failedOutbox?._id },
+      { $set: { nextAttemptAt: new Date(Date.now() - 1000) } },
+    );
+    await emailOutboxService.processPendingBatch(1);
+
+    const retriedUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+    const retriedOutbox = await conn.collection('institutional_email_outbox').findOne({
+      _id: failedOutbox?._id,
+    });
+    expect(retriedUser).toMatchObject({
+      email: 'aviso-fallido@example.com',
+      password: seeded.passwordHash,
+      authVersion: 1,
+    });
+    expect(retriedOutbox).toMatchObject({ status: 'SENT', attempts: 1 });
+    expect(
+      await conn.collection('institutional_audit_events').countDocuments({
+        action: 'ADMIN_EMAIL_CHANGE_APPROVED',
+        targetUserId: seeded.userId,
+      }),
+    ).toBe(1);
+    expect(
+      await conn.collection('institutional_access_recovery_requests').countDocuments({
+        requestType: 'ADMIN_EMAIL_CHANGE',
+        candidateUserId: seeded.userId,
+      }),
+    ).toBe(1);
+  });
+
+  it('D-MAIL bloquea actor no superadmin, resoluciones repetidas y correo ocupado al aprobar', async () => {
+    const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
+    const oldLogin = await login(seeded.email, seeded.password).expect(200);
+    const created = await createEmailChange(oldLogin.body.accessToken, 'decision@example.com').expect(201);
+
+    currentAdmin = { sub: String(new Types.ObjectId()), role: 'USER', active: true };
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/email-change/approve`)
+      .send({ reason: 'No autorizado' })
+      .expect(403);
+    currentAdmin = { sub: String(new Types.ObjectId()), role: 'ADMIN', active: true };
+
+    await conn.collection('roled_users').insertOne({
+      _id: new Types.ObjectId(),
+      dni: 'dni-ocupado-approval',
+      email: 'decision@example.com',
+      name: 'Usuario que ocupo',
+      password: bcrypt.hashSync('secret123', 10),
+      role: 'USER',
+      active: true,
+      authVersion: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/email-change/approve`)
+      .send({ reason: 'Correo se ocupo' })
+      .expect(409);
+    expect(await conn.collection('roled_users').findOne({ _id: seeded.userId })).toMatchObject({
+      email: seeded.email,
+      password: seeded.passwordHash,
+      authVersion: 0,
+    });
+
+    const secondSeeded = await seedLoginReadyAdminAssignment(
+      'PRIMARY',
+      'secret123',
+      'Universidad Demo Alterna',
+    );
+    const secondLogin = await login(secondSeeded.email, secondSeeded.password).expect(200);
+    const second = await createEmailChange(
+      secondLogin.body.accessToken,
+      'decision-libre@example.com',
+    ).expect(201);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${second.body.requestId}/email-change/approve`)
+      .send({ reason: 'Ok' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${second.body.requestId}/email-change/approve`)
+      .send({ reason: 'Doble click' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${second.body.requestId}/reject`)
+      .send({ reason: 'Tarde' })
+      .expect(409);
+    expect(await conn.collection('roled_users').findOne({ _id: secondSeeded.userId })).toMatchObject({
+      email: 'decision-libre@example.com',
+      password: secondSeeded.passwordHash,
+      authVersion: 1,
+    });
   });
 });

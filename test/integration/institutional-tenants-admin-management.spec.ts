@@ -322,7 +322,35 @@ describe('Institutional tenant admin management (integration)', () => {
 
   it('lista administradores del tenant con roles, wallets y sin secretos ni mezcla cross-tenant', async () => {
     const seeded = await seedTenantWithAdmins('list');
+    const pendingUserId = new Types.ObjectId();
+    const pendingAssignmentId = new Types.ObjectId();
     const otherTenantId = new Types.ObjectId();
+    await conn.collection('roled_users').insertOne({
+      _id: pendingUserId,
+      dni: 'pending-list',
+      email: 'pending-list@example.com',
+      name: 'Pendiente List',
+      password: 'hash',
+      role: 'USER',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').insertOne({
+      _id: pendingAssignmentId,
+      tenantId: seeded.tenantId,
+      userId: pendingUserId,
+      accountAddress: '0x0000000000000000000000000000000000000198',
+      institutionalRole: 'SECONDARY',
+      status: 'PENDING',
+      active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.secondSecondaryAssignmentId },
+      { $set: { status: 'SUSPENDED', active: false, suspendedAt: new Date() } },
+    );
     await conn.collection('institutional_tenants').insertOne({
       _id: otherTenantId,
       name: 'Other',
@@ -347,12 +375,36 @@ describe('Institutional tenant admin management (integration)', () => {
       .get(`/api/v1/institutional-tenants/${seeded.tenantId}/admins`)
       .expect(200);
 
-    expect(response.body.total).toBe(3);
+    expect(response.body.total).toBe(4);
     expect(response.body.data.map((row: any) => row.assignmentId)).toEqual(
       expect.arrayContaining([
         String(seeded.primaryAssignmentId),
         String(seeded.secondaryAssignmentId),
         String(seeded.secondSecondaryAssignmentId),
+        String(pendingAssignmentId),
+      ]),
+    );
+    expect(response.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          assignmentId: String(seeded.primaryAssignmentId),
+          institutionalRole: 'PRIMARY',
+          status: 'APPROVED',
+          active: true,
+        }),
+        expect.objectContaining({
+          assignmentId: String(seeded.secondSecondaryAssignmentId),
+          institutionalRole: 'SECONDARY',
+          status: 'SUSPENDED',
+          active: false,
+          accountAddress: '0x0000000000000000000000000000000000000103',
+        }),
+        expect.objectContaining({
+          assignmentId: String(pendingAssignmentId),
+          institutionalRole: 'SECONDARY',
+          status: 'PENDING',
+          active: false,
+        }),
       ]),
     );
     expect(JSON.stringify(response.body)).not.toContain('hash');
@@ -360,8 +412,52 @@ describe('Institutional tenant admin management (integration)', () => {
     expect(JSON.stringify(response.body)).not.toContain(String(otherTenantId));
   });
 
-  it('PRIMARY deshabilita y rehabilita SECONDARY, bloqueando acceso operativo mientras esta inactivo', async () => {
+  it('D-DIS-001 a D-DIS-006 PRIMARY suspende y reactiva SECONDARY sin tocar wallet ni otras instituciones', async () => {
     const seeded = await seedTenantWithAdmins('status');
+    const other = await seedTenantWithAdmins('status-other');
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: other.primaryAssignmentId },
+      {
+        $set: {
+          accountAddress: '0x0000000000000000000000000000000000000201',
+          accountAddressNormalized: '0x0000000000000000000000000000000000000201',
+        },
+      },
+    );
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: other.secondaryAssignmentId },
+      {
+        $set: {
+          accountAddress: '0x0000000000000000000000000000000000000204',
+          accountAddressNormalized: '0x0000000000000000000000000000000000000204',
+        },
+      },
+    );
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: other.secondSecondaryAssignmentId },
+      {
+        $set: {
+          accountAddress: '0x0000000000000000000000000000000000000203',
+          accountAddressNormalized: '0x0000000000000000000000000000000000000203',
+        },
+      },
+    );
+    await conn.collection('tenant_admin_assignments').insertOne({
+      _id: new Types.ObjectId(),
+      tenantId: other.tenantId,
+      userId: seeded.secondaryUserId,
+      accountAddress: '0x0000000000000000000000000000000000000202',
+      accountAddressNormalized: '0x0000000000000000000000000000000000000202',
+      walletVerifiedAt: new Date(),
+      walletVerificationSource: 'TEST',
+      institutionalRole: 'SECONDARY',
+      status: 'APPROVED',
+      active: true,
+      requestedAt: new Date(),
+      approvedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
     await request(app.getHttpServer())
@@ -377,17 +473,33 @@ describe('Institutional tenant admin management (integration)', () => {
     expect(disabled).toEqual(
       expect.objectContaining({
         institutionalRole: 'SECONDARY',
-        status: 'REVOKED',
+        status: 'SUSPENDED',
         active: false,
         accountAddress: '0x0000000000000000000000000000000000000102',
+        revokedAt: null,
       }),
     );
+    expect(disabled?.suspendedAt).toBeInstanceOf(Date);
+    expect(
+      await conn.collection('institutional_admin_applications').countDocuments({
+        tenantId: seeded.tenantId,
+      }),
+    ).toBe(0);
     await expect(
       accessService.resolveAdminWalletForTenant(
         String(seeded.secondaryUserId),
         String(seeded.tenantId),
       ),
     ).rejects.toThrow();
+    await expect(
+      accessService.resolveAdminWalletForTenant(
+        String(seeded.secondaryUserId),
+        String(other.tenantId),
+      ),
+    ).resolves.toMatchObject({
+      accountAddress: '0x0000000000000000000000000000000000000202',
+      institutionalRole: 'SECONDARY',
+    });
 
     await request(app.getHttpServer())
       .patch(
@@ -428,30 +540,55 @@ describe('Institutional tenant admin management (integration)', () => {
       .expect(403);
   });
 
-  it('transfiere PRIMARY a un SECONDARY del mismo tenant y conserva wallets', async () => {
+  it('D-TRF-001/D-TRF-006: inicia transferencia PRIMARY con autorizacion movil y conserva roles hasta confirmar red', async () => {
     const seeded = await seedTenantWithAdmins('transfer');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
-    await request(app.getHttpServer())
+    const response = await request(app.getHttpServer())
       .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
       .send({ assignmentId: String(seeded.secondaryAssignmentId), reason: 'Rotacion' })
       .expect(201);
+    expect(response.body).toMatchObject({
+      tenantId: String(seeded.tenantId),
+      targetAssignmentId: String(seeded.secondaryAssignmentId),
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+    });
 
     const assignments = await conn.collection('tenant_admin_assignments')
       .find({ tenantId: seeded.tenantId, active: true, status: 'APPROVED' })
       .toArray();
     expect(assignments.filter((row) => row.institutionalRole === 'PRIMARY')).toHaveLength(1);
     expect(assignments.find((row) => row._id.equals(seeded.secondaryAssignmentId))).toMatchObject({
-      institutionalRole: 'PRIMARY',
+      institutionalRole: 'SECONDARY',
       accountAddress: '0x0000000000000000000000000000000000000102',
     });
     expect(assignments.find((row) => row._id.equals(seeded.primaryAssignmentId))).toMatchObject({
-      institutionalRole: 'SECONDARY',
+      institutionalRole: 'PRIMARY',
       accountAddress: '0x0000000000000000000000000000000000000101',
     });
+    await expect(conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      targetAssignmentId: seeded.secondaryAssignmentId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+    })).resolves.toBe(1);
+    await expect(conn.collection('institutional_admin_applications').findOne({
+      tenantId: seeded.tenantId,
+      targetAssignmentId: seeded.secondaryAssignmentId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+    })).resolves.toMatchObject({
+      approvedBy: seeded.primaryUserId,
+      initiatedByAssignmentId: seeded.primaryAssignmentId,
+      initiatedByWallet: '0x0000000000000000000000000000000000000101',
+    });
+    await expect(conn.collection('notification_logs').countDocuments({
+      'data.action': 'CHANGE_INSTITUTION_ADMIN',
+      'data.event': 'MOBILE_AUTHORIZATION_REQUESTED',
+    })).resolves.toBe(1);
   });
 
-  it('transferencias concurrentes producen un unico PRIMARY y un unico ganador', async () => {
+  it('D-TRF-011: transferencias concurrentes dejan una sola solicitud pendiente y roles intactos', async () => {
     const seeded = await seedTenantWithAdmins('race');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
@@ -467,6 +604,10 @@ describe('Institutional tenant admin management (integration)', () => {
     const statuses = results.map((result: any) => result.value?.status);
     expect(statuses.filter((status) => status === 201)).toHaveLength(1);
     expect(statuses.some((status) => [403, 409].includes(status))).toBe(true);
+    await expect(conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+    })).resolves.toBe(1);
     const primaryCount = await conn.collection('tenant_admin_assignments').countDocuments({
       tenantId: seeded.tenantId,
       institutionalRole: 'PRIMARY',
@@ -476,7 +617,53 @@ describe('Institutional tenant admin management (integration)', () => {
     expect(primaryCount).toBe(1);
   });
 
-  it('ADMIN designa PRIMARY cuando el tenant no tiene principal y ACCESS_APPROVER no administra', async () => {
+  it('D-TRF-002/D-TRF-003/D-TRF-004: bloquea destino pendiente, suspendido o eliminado sin solicitud movil', async () => {
+    const seeded = await seedTenantWithAdmins('blocked-targets');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.secondaryAssignmentId },
+      { $set: { status: 'PENDING', active: false } },
+    );
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
+      .send({ assignmentId: String(seeded.secondaryAssignmentId) })
+      .expect(409);
+    await expect(conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+    })).resolves.toBe(0);
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.secondaryAssignmentId },
+      { $set: { status: 'SUSPENDED', active: false } },
+    );
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
+      .send({ assignmentId: String(seeded.secondaryAssignmentId) })
+      .expect(409);
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      { _id: seeded.secondaryAssignmentId },
+      { $set: { status: 'REVOKED', active: false } },
+    );
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
+      .send({ assignmentId: String(seeded.secondaryAssignmentId) })
+      .expect(409);
+    await expect(conn.collection('notification_logs').countDocuments({
+      'data.action': 'CHANGE_INSTITUTION_ADMIN',
+      'data.tenantId': String(seeded.tenantId),
+    })).resolves.toBe(0);
+    await expect(conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: seeded.tenantId,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    })).resolves.toBe(1);
+  });
+
+  it('D-TRF-001: bloquea transferencia si no existe principal vigente de la institucion', async () => {
     const seeded = await seedTenantWithAdmins('designate');
     await conn.collection('tenant_admin_assignments').updateOne(
       { _id: seeded.primaryAssignmentId },
@@ -493,7 +680,7 @@ describe('Institutional tenant admin management (integration)', () => {
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
       .send({ assignmentId: String(seeded.secondaryAssignmentId) })
-      .expect(201);
+      .expect(403);
 
     expect(
       await conn.collection('tenant_admin_assignments').countDocuments({
@@ -502,6 +689,6 @@ describe('Institutional tenant admin management (integration)', () => {
         status: 'APPROVED',
         active: true,
       }),
-    ).toBe(1);
+    ).toBe(0);
   });
 });

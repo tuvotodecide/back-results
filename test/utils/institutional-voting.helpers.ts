@@ -47,6 +47,44 @@ jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
   })),
 }));
 
+jest.mock('@/modules/institutional-admin-applications/auth/institutional-mobile-zk-auth.guard', () => ({
+  InstitutionalMobileZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/modules/institutional-admin-applications/auth/institutional-mobile-zk-auth.service', () => ({
+  InstitutionalMobileZkAuthService: jest.fn().mockImplementation(() => ({
+    createAuthRequest: jest.fn().mockResolvedValue({
+      apiKey: 'mock-institutional-mobile-api-key',
+      request: {},
+      expiresAt: '2026-07-28T00:00:00.000Z',
+    }),
+    callback: jest.fn().mockResolvedValue({}),
+    getContextByApiKey: jest.fn().mockResolvedValue(null),
+    hashApiKey: jest.fn((apiKey: string) => `mock-hash-${apiKey}`),
+  })),
+}));
+
+jest.mock('@/modules/institutional-voting/auth/official-publication-mobile-zk-auth.guard', () => ({
+  OfficialPublicationMobileZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/modules/institutional-voting/auth/official-publication-mobile-zk-auth.service', () => ({
+  OfficialPublicationMobileZkAuthService: jest.fn().mockImplementation(() => ({
+    createAuthRequest: jest.fn().mockResolvedValue({
+      apiKey: 'mock-official-publication-mobile-api-key',
+      request: {},
+      expiresAt: '2026-07-28T00:00:00.000Z',
+    }),
+    callback: jest.fn().mockResolvedValue({}),
+    getContextByApiKey: jest.fn().mockResolvedValue(null),
+    hashApiKey: jest.fn((apiKey: string) => `mock-hash-${apiKey}`),
+  })),
+}));
+
 export type InstitutionalVotingContext = {
   app: INestApplication;
   moduleRef: TestingModule;
@@ -56,6 +94,8 @@ export type InstitutionalVotingContext = {
   adminToken: string;
   tenantAdminToken: string;
   createdTenantId: string;
+  tenantAdminUserId: string;
+  tenantAdminEmail: string;
 };
 
 export async function bootstrapInstitutionalVotingContext(): Promise<InstitutionalVotingContext> {
@@ -216,6 +256,8 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       adminToken,
       tenantAdminToken: tenantAdminLoginRes.body?.accessToken as string,
       createdTenantId: tenantRes.body?.id,
+      tenantAdminUserId: governorUserId,
+      tenantAdminEmail: governorEmail,
     };
   } catch (error) {
     await mongod?.stop();

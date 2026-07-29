@@ -1,3 +1,17 @@
+jest.mock('@iden3/js-iden3-auth', () => ({
+  auth: {
+    createAuthorizationRequest: jest.fn(() => ({ id: 'institutional-auth-request' })),
+    Verifier: {
+      newVerifier: jest.fn(async () => ({
+        fullVerify: jest.fn(async () => ({ from: 'did:iden3:test' })),
+      })),
+    },
+  },
+  resolver: {
+    EthStateResolver: jest.fn(),
+  },
+}));
+
 import appConfig from '@/config/app.config';
 import { AccessApproverGuard } from '@/core/guards/access-approver.guard';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
@@ -12,8 +26,10 @@ import { InstitutionalTenant } from '@/modules/institutional-tenants/schemas/ins
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { MailService } from '@/modules/mail/mail.service';
 import { HttpService } from '@nestjs/axios';
+import { CacheModule } from '@nestjs/cache-manager';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
@@ -33,6 +49,7 @@ describe('Institutional audit (integration)', () => {
   const httpService = {
     axiosRef: {
       get: jest.fn(),
+      post: jest.fn(),
     },
   };
   const mailService = {
@@ -54,6 +71,8 @@ describe('Institutional audit (integration)', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        CacheModule.register({ isGlobal: true }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TestLoggerModule,
         InstitutionalAuditModule,
@@ -95,6 +114,9 @@ describe('Institutional audit (integration)', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     httpService.axiosRef.get.mockResolvedValue({ data: { ok: true } });
+    httpService.axiosRef.post.mockResolvedValue({
+      data: { registered: true, accountAddress: walletPrimary },
+    });
     mailService.sendEmail.mockResolvedValue(undefined);
     currentUser = { sub: String(new Types.ObjectId()), role: 'ADMIN', active: true };
     await conn.collection('institutional_audit_events').deleteMany({});
@@ -262,8 +284,46 @@ describe('Institutional audit (integration)', () => {
     );
   });
 
-  it('deshabilitacion, rehabilitacion y transferencia auditan cambios administrativos atomicos', async () => {
-    const primary = await createAndApprovePrimary();
+  it('deshabilitacion, rehabilitacion y solicitud de transferencia auditan cambios administrativos', async () => {
+    const tenantObjectId = new Types.ObjectId();
+    const primaryUserId = new Types.ObjectId();
+    const primaryAssignmentId = new Types.ObjectId();
+    await conn.collection('institutional_tenants').insertOne({
+      _id: tenantObjectId,
+      name: 'Audit Tenant Transfer',
+      nameNorm: 'audit tenant transfer',
+      stableInstitutionId: String(tenantObjectId),
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('roled_users').insertOne({
+      _id: primaryUserId,
+      dni: 'primary-transfer',
+      email: 'primary-transfer@example.test',
+      name: 'Primary Transfer',
+      password: 'hash',
+      role: 'USER',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').insertOne({
+      _id: primaryAssignmentId,
+      tenantId: tenantObjectId,
+      userId: primaryUserId,
+      accountAddress: walletPrimary,
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const primary = {
+      tenantId: String(tenantObjectId),
+      userId: String(primaryUserId),
+      assignmentId: String(primaryAssignmentId),
+    };
     const secondary = await seedSecondary(primary.tenantId, 'audit-1');
     currentUser = { sub: primary.userId, role: 'USER', active: true };
 
@@ -282,17 +342,25 @@ describe('Institutional audit (integration)', () => {
 
     const assignments = await conn
       .collection('tenant_admin_assignments')
-      .find({ tenantId: new Types.ObjectId(primary.tenantId), institutionalRole: 'PRIMARY', active: true })
+      .find({ tenantId: new Types.ObjectId(primary.tenantId), active: true })
       .toArray();
-    expect(assignments).toHaveLength(1);
-    expect(String(assignments[0]._id)).toBe(String(secondary.assignmentId));
+    expect(assignments.filter((assignment) => assignment.institutionalRole === 'PRIMARY')).toHaveLength(1);
+    expect(assignments.find((assignment) => String(assignment._id) === String(secondary.assignmentId))).toMatchObject({
+      institutionalRole: 'SECONDARY',
+    });
+    await expect(conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: new Types.ObjectId(primary.tenantId),
+      targetAssignmentId: new Types.ObjectId(secondary.assignmentId),
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+    })).resolves.toBe(1);
 
-    const response = await audit(primary.tenantId, { sub: String(secondary.userId), role: 'USER', active: true });
+    const response = await audit(primary.tenantId, { sub: String(primary.userId), role: 'USER', active: true });
     expect(response.body.data.map((event: any) => event.action)).toEqual(
       expect.arrayContaining([
         'TENANT_ADMIN_SECONDARY_DISABLED',
         'TENANT_ADMIN_SECONDARY_REHABILITATED',
-        'TENANT_PRIMARY_TRANSFERRED',
+        'TENANT_PRIMARY_TRANSFER_REQUESTED',
       ]),
     );
   });
