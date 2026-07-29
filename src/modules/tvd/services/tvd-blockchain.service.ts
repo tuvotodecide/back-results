@@ -277,7 +277,7 @@ export class TvdBlockchainService {
       this.readAssignmentContract(config, 'creditsContract'),
     ]);
 
-    if (!Boolean(proxyAuthorizedForCredits)) {
+    if (!proxyAuthorizedForCredits) {
       throw new TvdBlockchainError('TVD_CREDITS_OPERATOR_NOT_AUTHORIZED');
     }
     if (getAddress(institutionAdminAddress) === zeroAddress) {
@@ -285,7 +285,7 @@ export class TvdBlockchainService {
     }
     const adminMatchesWallet =
       getAddress(institutionAdminAddress) === institutionWallet;
-    if (!Boolean(institutionAuthorizedOnChain) && !adminMatchesWallet) {
+    if (!institutionAuthorizedOnChain && !adminMatchesWallet) {
       throw new TvdBlockchainError('TVD_WALLET_NOT_AUTHORIZED');
     }
 
@@ -354,16 +354,6 @@ export class TvdBlockchainService {
       electionExistsOnChain,
       simulated: hasRequiredAllowance,
     };
-  }
-
-  async getOperatorAddress() {
-    const config = this.getConfigOrThrow();
-    return getAddress(await this.readAssignmentContract(config, 'operator'));
-  }
-
-  async getAssignmentOwnerAddress() {
-    const config = this.getConfigOrThrow();
-    return getAddress(await this.readAssignmentContract(config, 'owner'));
   }
 
   async getTokenAddressFromAssignmentContract() {
@@ -570,21 +560,6 @@ export class TvdBlockchainService {
     const address = this.parseWallet(wallet);
     const balance = await this.readTokenContract(config, 'balanceOf', [address]);
     return balance.toString();
-  }
-
-  async getAssignedBalance(wallet: string) {
-    const config = this.getConfigOrThrow();
-    const address = this.parseWallet(wallet);
-    const balance = await this.readAssignmentContract(config, 'assignedBalance', [
-      address,
-    ]);
-    return balance.toString();
-  }
-
-  async getTotalAssigned() {
-    const config = this.getConfigOrThrow();
-    const totalAssigned = await this.readAssignmentContract(config, 'totalAssigned');
-    return totalAssigned.toString();
   }
 
   async getTotalBalance(wallet: string): Promise<TvdTotalBalanceResult> {

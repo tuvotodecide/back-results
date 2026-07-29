@@ -10,6 +10,7 @@ describe('InstitutionalWalletsService', () => {
   const httpService = {
     axiosRef: {
       post: jest.fn(),
+      get: jest.fn(),
     },
   };
   const configService = {
@@ -56,12 +57,24 @@ describe('InstitutionalWalletsService', () => {
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: { registered: false, accountAddress: null },
     });
+    httpService.axiosRef.get.mockResolvedValueOnce({
+      data: { records: [{ dni: '12345678', did: 'did:example:123' }] },
+    });
 
     await expect(service.resolveByDni('12345678')).resolves.toEqual({
       registered: false,
       accountAddress: null,
-      message: 'No se encontró una billetera registrada para este carnet.',
+      reason: 'WALLET_NOT_FOUND',
+      message: 'La persona debe crear o registrar primero su billetera en Tu Voto Decide.',
     });
+    expect(httpService.axiosRef.get).toHaveBeenCalledWith(
+      'https://identity.example.test/registry/get-by-dni',
+      {
+        params: { dnis: '12345678' },
+        headers: { 'x-api-key': 'identity-secret-key' },
+        timeout: 2500,
+      },
+    );
   });
 
   it('rejects CSV values before calling Identity', async () => {

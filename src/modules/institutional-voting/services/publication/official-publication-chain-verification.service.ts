@@ -338,12 +338,6 @@ export class OfficialPublicationChainVerificationService {
         'La raiz de votantes habilitados no coincide',
       );
     }
-    if (String(args[8]) !== request.merkleRoots.voteMerkleRoot) {
-      return this.mismatch(
-        'OFFICIAL_PUBLICATION_REGISTERED_ROOT_MISMATCH',
-        'La raiz de votantes registrados no coincide',
-      );
-    }
     return null;
   }
 

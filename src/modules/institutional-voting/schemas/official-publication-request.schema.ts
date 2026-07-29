@@ -106,9 +106,6 @@ export class OfficialPublicationExecutionCall {
 export class OfficialPublicationMerkleRoots {
   @Prop({ required: true, trim: true })
   ciMerkleRoot!: string;
-
-  @Prop({ required: true, trim: true })
-  voteMerkleRoot!: string;
 }
 
 @Schema({ _id: false })

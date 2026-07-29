@@ -189,13 +189,11 @@ export class InstitutionalVotingAdminController {
       'Confirma la publicación oficial luego del paso externo de MetaMask y cambia el estado a OFFICIALLY_PUBLISHED, bloqueando edición estructural.',
   })
   @ApiParam({ name: 'eventId', description: 'ID del evento.' })
-  @ApiQuery({ name: 'institutionId', description: 'ID de la institución.' })
   @ApiBody({ type: ConfirmOfficialPublicationDto })
   @ApiResponse({ status: 200, description: 'Publicación oficial confirmada.' })
   @ApiResponse({ status: 400, description: 'No cumple condiciones para publicación oficial.' })
   confirmOfficialPublication(
     @Param('eventId') eventId: string,
-    @Query('institutionId') institutionId: string,
     @Body() dto: ConfirmOfficialPublicationDto,
     @Req() req: any,
   ) {

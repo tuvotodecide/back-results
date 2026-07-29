@@ -4,6 +4,7 @@ const mockGetTransactionReceipt = jest.fn();
 const mockGetBlock = jest.fn();
 const mockCreateVoteCall = jest.fn();
 const mockCastVoteCall = jest.fn();
+const mockGetVoteHash = jest.fn();
 
 jest.mock('@/api/params', () => ({
   availableNetworks: {
@@ -21,6 +22,9 @@ jest.mock('@/api/vote', () => ({
     castVote: (...args: any[]) => mockCastVoteCall(...args),
     updateVoteSchedule: jest.fn(),
     addNewVoters: jest.fn(),
+  },
+  VoteContractUtils: {
+    getVoteHash: (...args: any[]) => mockGetVoteHash(...args),
   },
 }));
 
@@ -69,6 +73,7 @@ describe('VoteWritterService (unit)', () => {
     mockSendTransaction.mockResolvedValue('0xtx');
     mockWaitForTransactionReceipt.mockResolvedValue({ blockNumber: 123n });
     mockGetBlock.mockResolvedValue({ timestamp: 1_700_000_000n });
+    mockGetVoteHash.mockResolvedValue(999n);
 
     merkletreeService = {
       stringToFieldElement: jest.fn((value: string) =>
@@ -76,8 +81,7 @@ describe('VoteWritterService (unit)', () => {
       ),
       buildMerkleTree: jest
         .fn()
-        .mockResolvedValueOnce({ root: 111n, layers: [['ci']] })
-        .mockResolvedValueOnce({ root: 222n, layers: [['vote']] }),
+        .mockResolvedValueOnce({ root: 111n, layers: [['ci']] }),
       create: jest.fn().mockResolvedValue(undefined),
       createIfMissing: jest.fn().mockResolvedValue({ created: true }),
     };
@@ -129,37 +133,24 @@ describe('VoteWritterService (unit)', () => {
       Math.floor(publishAt.getTime() / 1000),
       2,
       111n,
-      222n,
       ['Frente Azul', 'BLANK'],
     );
     expect(mockSendTransaction).toHaveBeenCalledWith({
       to: '0xVoteContract',
       data: '0xcreate',
     });
-    expect(merkletreeService.createIfMissing).toHaveBeenCalledWith(eventId, 'ci', [['ci']]);
-    expect(merkletreeService.createIfMissing).toHaveBeenCalledWith(eventId, 'vote', [['vote']]);
+    expect(merkletreeService.createIfMissing).toHaveBeenCalledWith(eventId, [['ci']]);
   });
 
   it('castVote construye la llamada con eventId, opción y nullifier', async () => {
-    await service.castVote(
-      'event-1',
-      'Frente Azul',
-      'nullifier-1',
-      'reward-1',
-      ['1'],
-      [['2']],
-      ['3'],
-    );
+    await service.castVote('event-1', 'Frente Azul', 'secret-1');
 
+    expect(mockGetVoteHash).toHaveBeenCalledWith('event-1', 'secret-1');
     expect(mockCastVoteCall).toHaveBeenCalledWith(
       'base-sepolia',
       'event-1',
       'Frente Azul',
-      'nullifier-1',
-      'reward-1',
-      ['1'],
-      [['2']],
-      ['3'],
+      999n,
     );
     expect(mockSendTransaction).toHaveBeenCalledWith({
       to: '0xVoteContract',
@@ -171,15 +162,7 @@ describe('VoteWritterService (unit)', () => {
     mockSendTransaction.mockRejectedValueOnce(new Error('bundler failed'));
 
     await expect(
-      service.castVote(
-        'event-1',
-        'Frente Azul',
-        'nullifier-1',
-        'reward-1',
-        ['1'],
-        [['2']],
-        ['3'],
-      ),
+      service.castVote('event-1', 'Frente Azul', 'secret-1'),
     ).rejects.toThrow('bundler failed');
   });
 
@@ -189,15 +172,7 @@ describe('VoteWritterService (unit)', () => {
     mockWaitForTransactionReceipt.mockRejectedValueOnce(timeout);
     mockGetTransactionReceipt.mockResolvedValueOnce({ blockNumber: 456n });
 
-    await service.castVote(
-      'event-2',
-      'BLANK',
-      'nullifier-2',
-      'reward-2',
-      ['1'],
-      [['2']],
-      ['3'],
-    );
+    await service.castVote('event-2', 'BLANK', 'secret-2');
 
     expect(mockGetTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtx' });
     expect(mockGetBlock).toHaveBeenCalledWith({ blockNumber: 456n });

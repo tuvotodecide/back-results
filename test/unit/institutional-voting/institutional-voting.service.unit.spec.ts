@@ -1,3 +1,7 @@
+jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
+  ZkAuthService: class ZkAuthService {},
+}));
+
 import { InstitutionalVotingService } from '@/modules/institutional-voting/services/institutional-voting.service';
 
 describe('InstitutionalVotingService reward notification after participation', () => {

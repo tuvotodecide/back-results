@@ -44,13 +44,16 @@ describe('VoteReaderService (unit)', () => {
     } as unknown as ConfigService);
   });
 
+  const eventId = '507f1f77bcf86cd799439011';
+  const emptyEventId = '507f1f77bcf86cd799439012';
+
   it('getResults delega al contrato mockeado y normaliza votos a string', async () => {
     mockGetVoteResults.mockResolvedValue([
       ['Frente Azul', 'BLANK'],
       [10n, { toString: () => '2' }],
     ]);
 
-    await expect(service.getResults('event-1')).resolves.toEqual([
+    await expect(service.getResults(eventId)).resolves.toEqual([
       { option: 'Frente Azul', votes: '10' },
       { option: 'BLANK', votes: '2' },
     ]);
@@ -60,18 +63,18 @@ describe('VoteReaderService (unit)', () => {
       [{ type: 'function', name: 'getVoteResults' }],
       { url: 'https://mock-rpc.local' },
     );
-    expect(mockGetVoteResults).toHaveBeenCalledWith('event-1');
+    expect(mockGetVoteResults).toHaveBeenCalledWith(BigInt('0x' + eventId));
   });
 
   it('getResults devuelve lista vacía cuando el contrato no retorna opciones', async () => {
     mockGetVoteResults.mockResolvedValue([[], []]);
 
-    await expect(service.getResults('event-empty')).resolves.toEqual([]);
+    await expect(service.getResults(emptyEventId)).resolves.toEqual([]);
   });
 
   it('propaga errores RPC mockeados', async () => {
     mockGetVoteResults.mockRejectedValue(new Error('rpc failed'));
 
-    await expect(service.getResults('event-1')).rejects.toThrow('rpc failed');
+    await expect(service.getResults(eventId)).rejects.toThrow('rpc failed');
   });
 });

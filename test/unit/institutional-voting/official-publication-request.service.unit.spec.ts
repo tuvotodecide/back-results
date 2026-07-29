@@ -147,7 +147,7 @@ describe('OfficialPublicationRequestService', () => {
       abiVersion: 'voteContract.createVote.v1',
       enabledVotersCount: 2,
       optionsHash: 'options-hash',
-      merkleRoots: { ciMerkleRoot: '1', voteMerkleRoot: '2' },
+      merkleRoots: { ciMerkleRoot: '1' },
       nullifiersRef: { storage: 'official_publication_artifacts', ref: 'snapshot', digest: 'n', count: 2 },
       creditsRequired: '2',
       tvdRequired: '2000000000000000000',

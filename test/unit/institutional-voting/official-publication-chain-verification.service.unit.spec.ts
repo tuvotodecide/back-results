@@ -383,7 +383,6 @@ describe('OfficialPublicationChainVerificationService', () => {
       enabledVotersCount: 2,
       merkleRoots: {
         ciMerkleRoot: '111',
-        voteMerkleRoot: '222',
       },
       creditsRequired: '2',
       tvdRequired: '2000000000000000000',
@@ -453,7 +452,6 @@ describe('OfficialPublicationChainVerificationService', () => {
         3,
         2,
         111n,
-        222n,
         ['A', 'B', 'BLANK'],
       ],
     });

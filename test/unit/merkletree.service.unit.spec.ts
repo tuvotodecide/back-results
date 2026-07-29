@@ -28,19 +28,14 @@ describe('MerkletreeService createIfMissing', () => {
   beforeEach(() => {
     ciLeaf = new MemoryMerkleModel();
     ciNode = new MemoryMerkleModel();
-    service = new MerkletreeService(
-      ciLeaf as any,
-      ciNode as any,
-      new MemoryMerkleModel() as any,
-      new MemoryMerkleModel() as any,
-    );
+    service = new MerkletreeService(ciLeaf as any, ciNode as any);
   });
 
   it('no reinserta un arbol completo ya persistido', async () => {
     ciLeaf.docs = [{ electionId }, { electionId }];
     ciNode.docs = [{ electionId }];
 
-    await expect(service.createIfMissing(electionId, 'ci', layers)).resolves.toEqual({
+    await expect(service.createIfMissing(electionId, layers)).resolves.toEqual({
       created: false,
     });
     expect(ciLeaf.docs).toHaveLength(2);
@@ -52,7 +47,7 @@ describe('MerkletreeService createIfMissing', () => {
     ciLeaf.docs = [{ electionId }, { electionId }];
     ciNode.docs = [{ electionId }];
 
-    await expect(service.createIfMissing(electionId, 'ci', layers)).resolves.toEqual({
+    await expect(service.createIfMissing(electionId, layers)).resolves.toEqual({
       created: false,
     });
   });

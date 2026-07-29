@@ -34,6 +34,7 @@ describe('ZkAuthService (unit)', () => {
     'app.zkAuth.zkAuthTtl': 60,
     'app.zkAuth.callbackUrl': 'https://api.example.com/zk-auth/callback',
     'app.zkAuth.voteCallbackUrl': 'https://api.example.com/vote/callback',
+    'app.zkAuth.rewardCallbackUrl': 'https://api.example.com/reward/callback',
     'app.zkAuth.audience': 'did:example:audience',
     'app.zkAuth.rpcUrl': 'https://mock-rpc.local',
     'app.zkAuth.network': 'polygon:amoy',

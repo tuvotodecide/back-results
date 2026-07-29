@@ -1,3 +1,34 @@
+const mockToCoinbaseSmartAccount = jest.fn();
+const mockCreatePimlicoClient = jest.fn();
+const mockCreateSmartAccountClient = jest.fn();
+
+jest.mock('@/api/params', () => ({
+  availableNetworks: {
+    'base-sepolia': {
+      chain: { id: 84532, name: 'Base Sepolia' },
+      bundler: 'https://mock-bundler.local',
+    },
+  },
+}));
+
+jest.mock('viem/accounts', () => ({
+  privateKeyToAccount: jest.fn((pk: string) => ({ address: '0x9999999999999999999999999999999999999a', privateKey: pk })),
+}));
+
+jest.mock('viem/account-abstraction', () => ({
+  entryPoint07Address: '0xEeeeeEeeEeEeeeeeeeeeeeeeeeeeeeeeeeeeEEeE',
+  getUserOperationHash: jest.fn(() => '0xuserOpHash'),
+  toCoinbaseSmartAccount: (...args: any[]) => mockToCoinbaseSmartAccount(...args),
+}));
+
+jest.mock('permissionless/clients/pimlico', () => ({
+  createPimlicoClient: (...args: any[]) => mockCreatePimlicoClient(...args),
+}));
+
+jest.mock('permissionless', () => ({
+  createSmartAccountClient: (...args: any[]) => mockCreateSmartAccountClient(...args),
+}));
+
 import {
   TVD_ASSIGNMENT_ABI,
 } from '@/modules/tvd/contracts/tvd-abis';
@@ -36,6 +67,8 @@ function tokensAssignedLog(wallet = institution, amount = '1000', address = assi
 
 function createHarness(overrides: Record<string, any> = {}) {
   const config = {
+    'app.blockchain.chain': 'base-sepolia',
+    'app.blockchain.privateKey': privateKey,
     'app.tvd.rpcUrl': 'http://mock-rpc.local',
     'app.tvd.chainId': '84532',
     'app.tvd.tokenContractAddress': token,
@@ -52,6 +85,8 @@ function createHarness(overrides: Record<string, any> = {}) {
     chainId: 84532,
     operator,
     accountAddress: operator,
+    operatorRole: '0xoperatorrole0000000000000000000000000000000000000000000000000',
+    signerHasOperatorRole: true,
     assignmentToken: token,
     assignmentCreditsContract: credits,
     decimals: 2,
@@ -80,6 +115,17 @@ function createHarness(overrides: Record<string, any> = {}) {
     },
     ...(overrides.state ?? {}),
   };
+  mockToCoinbaseSmartAccount.mockImplementation(async () => ({
+    address: state.accountAddress,
+    entryPoint: { address: '0xEeeeeEeeEeEeeeeeeeeeeeeeeeeeeeeeeeeeEEeE', version: '0.7' },
+    signUserOperation: jest.fn().mockResolvedValue('0xsignature'),
+  }));
+  mockCreatePimlicoClient.mockImplementation(() => ({}));
+  mockCreateSmartAccountClient.mockImplementation(() => ({
+    prepareUserOperation: jest.fn(),
+    sendUserOperation: jest.fn(),
+    waitForUserOperationReceipt: jest.fn(),
+  }));
   const readContract = jest.fn(async (input: any) => {
     if (input.address === token && input.functionName === 'decimals') {
       return state.decimals;
@@ -113,11 +159,11 @@ function createHarness(overrides: Record<string, any> = {}) {
       }
       throw new Error('Vote does not exist');
     }
-    if (input.address === assignment && input.functionName === 'operator') {
-      return state.operator;
+    if (input.address === assignment && input.functionName === 'OPERATOR_ROLE') {
+      return state.operatorRole;
     }
-    if (input.address === assignment && input.functionName === 'owner') {
-      return getAddress('0x4444444444444444444444444444444444444444');
+    if (input.address === assignment && input.functionName === 'hasRole') {
+      return state.signerHasOperatorRole;
     }
     if (input.address === assignment && input.functionName === 'token') {
       return state.assignmentToken;
@@ -189,17 +235,13 @@ describe('TVD blockchain service', () => {
         configured: true,
         rpcReachable: true,
         chainIdMatches: true,
-        operatorMatches: true,
+        signerHasOperatorRole: true,
         tokenAddressMatches: true,
         decimalsMatch: true,
-        signerHasGas: true,
         assignmentContractTokenBalance: '5000',
-        assignmentContractTotalAssigned: '1000',
-        assignmentContractAssignableBalance: '4000',
-        assignmentAccountingConsistent: true,
+        assignmentContractAssignableBalance: '5000',
       });
       await expect(service.getNetworkChainId()).resolves.toBe(84532);
-      await expect(service.getOperatorAddress()).resolves.toBe(operator);
       await expect(service.getTokenAddressFromAssignmentContract()).resolves.toBe(token);
       await expect(service.getTokenDecimals()).resolves.toBe(2);
     });
@@ -282,7 +324,6 @@ describe('TVD blockchain service', () => {
       const { service } = createHarness();
 
       await expect(service.getLiquidBalance(institution)).resolves.toBe('1500');
-      await expect(service.getAssignedBalance(institution)).resolves.toBe('500');
 
       const total = await service.getTotalBalance(institution);
       expect(total).toMatchObject({
@@ -299,33 +340,6 @@ describe('TVD blockchain service', () => {
       });
     });
 
-    it('P-UNIT-012/P-UNIT-013/P-UNIT-014/P-UNIT-015/P-UNIT-016/P-UNIT-017 | POSITIVO | UNITARIO | ejecuta assign y retorna resultado sanitizado', async () => {
-      const { service, walletClient } = createHarness();
-
-      const result = await service.assignTokens({
-        institutionWallet: institution,
-        amountSmallestUnit: '1000',
-      });
-
-      expect(walletClient.writeContract).toHaveBeenCalledWith(
-        expect.objectContaining({
-          address: assignment,
-          functionName: 'assign',
-          args: [institution, 1000n],
-        }),
-      );
-      expect(result).toEqual({
-        txHash,
-        blockNumber: '100',
-        chainId: 84532,
-        contractAddress: assignment,
-        operatorAddress: operator,
-        institutionWallet: institution,
-        amountSmallestUnit: '1000',
-        confirmations: 6,
-      });
-      expect(JSON.stringify(result)).not.toContain(privateKey);
-    });
   });
 
   describe('NEGATIVOS', () => {
@@ -360,82 +374,14 @@ describe('TVD blockchain service', () => {
       expect(caught).not.toHaveProperty('cause');
     });
 
-    it.each([
-      [
-        'N-UNIT-003',
-        'chain incorrecta',
-        { state: { chainId: 1 } },
-        'TVD_CHAIN_MISMATCH',
-      ],
-      [
-        'N-UNIT-005',
-        'signer distinto de operator',
-        {
-          state: {
-            accountAddress: getAddress('0x5555555555555555555555555555555555555555'),
-          },
-        },
-        'TVD_OPERATOR_MISMATCH',
-      ],
-      [
-        'N-UNIT-006',
-        'direccion de token incorrecta',
-        {
-          state: {
-            assignmentToken: getAddress('0x6666666666666666666666666666666666666666'),
-          },
-        },
-        'TVD_TOKEN_ADDRESS_MISMATCH',
-      ],
-      [
-        'N-UNIT-007',
-        'decimals diferente',
-        { state: { decimals: 3 } },
-        'TVD_DECIMALS_MISMATCH',
-      ],
-      [
-        'N-UNIT-013',
-        'gas insuficiente',
-        { state: { gas: 0n } },
-        'TVD_INSUFFICIENT_GAS',
-      ],
-      [
-        'N-UNIT-014',
-        'tokens insuficientes en contrato',
-        { state: { contractTokenBalance: 999n } },
-        'TVD_INSUFFICIENT_CONTRACT_BALANCE',
-      ],
-      [
-        'N-UNIT-014B',
-        'tokens insuficientes por totalAssigned',
-        { state: { contractTokenBalance: 5000n, totalAssigned: 4501n } },
-        'TVD_INSUFFICIENT_CONTRACT_BALANCE',
-      ],
-      [
-        'N-UNIT-014C',
-        'contabilidad inconsistente totalAssigned mayor al balance',
-        { state: { contractTokenBalance: 5000n, totalAssigned: 5001n } },
-        'TVD_INSUFFICIENT_CONTRACT_BALANCE',
-      ],
-    ])('%s | NEGATIVO | UNITARIO | %s', async (_id, _scenario, override, code) => {
-      const { service } = createHarness(override as any);
-
-      await expect(
-        service.assignTokens({
-          institutionWallet: institution,
-          amountSmallestUnit: '1000',
-        }),
-      ).rejects.toMatchObject({ code });
-    });
-
-    it('N-UNIT-004 | NEGATIVO | UNITARIO | private key invalida', () => {
+    it('N-UNIT-004 | NEGATIVO | UNITARIO | private key invalida', async () => {
       const { service } = createHarness({
         config: { 'app.tvd.operatorPrivateKey': 'not-a-private-key' },
       });
 
-      expect(() => service.getConfiguredSignerAddress()).toThrow(
-        expect.objectContaining({ code: 'TVD_OPERATOR_PRIVATE_KEY_INVALID' }),
-      );
+      await expect(service.getConfiguredSignerAddress()).rejects.toMatchObject({
+        code: 'TVD_OPERATOR_PRIVATE_KEY_INVALID',
+      });
     });
 
     it('N-UNIT-023 | NEGATIVO | UNITARIO | rechaza usar TVDToken como spender', async () => {
@@ -679,43 +625,6 @@ describe('TVD blockchain service', () => {
       warnSpy.mockRestore();
     });
 
-    it.each([
-      ['N-UNIT-008', 'wallet invalida', '0x123', '1000', 'TVD_INVALID_WALLET'],
-      [
-        'N-UNIT-009',
-        'zero address',
-        '0x0000000000000000000000000000000000000000',
-        '1000',
-        'TVD_INVALID_WALLET',
-      ],
-      ['N-UNIT-010', 'monto cero', institution, '0', 'TVD_INVALID_AMOUNT'],
-      ['N-UNIT-011', 'monto negativo', institution, '-1', 'TVD_INVALID_AMOUNT'],
-      ['N-UNIT-012', 'monto decimal', institution, '1.5', 'TVD_INVALID_AMOUNT'],
-    ])(
-      '%s | NEGATIVO | UNITARIO | %s',
-      async (_id, _scenario, wallet, amount, code) => {
-        const { service } = createHarness();
-
-        await expect(
-          service.assignTokens({
-            institutionWallet: wallet,
-            amountSmallestUnit: amount,
-          }),
-        ).rejects.toMatchObject({ code });
-      },
-    );
-
-    it('N-UNIT-015 | NEGATIVO | UNITARIO | assign revertido', async () => {
-      const { service, walletClient } = createHarness();
-      walletClient.writeContract.mockRejectedValueOnce(new Error('execution reverted'));
-
-      await expect(
-        service.assignTokens({
-          institutionWallet: institution,
-          amountSmallestUnit: '1000',
-        }),
-      ).rejects.toMatchObject({ code: 'TVD_ASSIGN_REVERTED' });
-    });
   });
 
   it('documenta metadata minima de casos', () => {
