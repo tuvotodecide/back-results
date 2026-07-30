@@ -6,14 +6,14 @@ async function validateDto(payload: unknown) {
   return validate(plainToInstance(ResolveInstitutionalWalletByDniDto, payload));
 }
 
-describe('ResolveInstitutionalWalletByDniDto', () => {
-  it('accepts one trimmed DNI', async () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | DTO wallet institucional', () => {
+it('D-NEW-006 | accepts one trimmed DNI', async () => {
     const dto = plainToInstance(ResolveInstitutionalWalletByDniDto, { dni: ' 12345678 ' });
     await expect(validate(dto)).resolves.toHaveLength(0);
     expect(dto.dni).toBe('12345678');
   });
 
-  it('rejects arrays, CSV, empty, short and nested DNI values', async () => {
+it('D-NEW-011 | rejects arrays, CSV, empty, short and nested DNI values', async () => {
     await expect(validateDto({ dni: ['12345678'] })).resolves.not.toHaveLength(0);
     await expect(validateDto({ dni: '123456,876543' })).resolves.not.toHaveLength(0);
     await expect(validateDto({ dni: '   ' })).resolves.not.toHaveLength(0);

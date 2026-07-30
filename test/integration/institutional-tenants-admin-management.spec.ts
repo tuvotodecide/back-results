@@ -15,7 +15,7 @@ import { Connection, Types } from 'mongoose';
 import request from 'supertest';
 import { TestLoggerModule } from '../utils/module-helpers';
 
-describe('Institutional tenant admin management (integration)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Administración de tenants', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let mongod: MongoMemoryReplSet;
@@ -202,7 +202,7 @@ describe('Institutional tenant admin management (integration)', () => {
     };
   }
 
-  it('catalogo publico lista solo instituciones activas con busqueda, paginacion y sin datos internos', async () => {
+  it('D-LIST-001 / D-LIST-002 | catalogo publico lista solo instituciones activas con busqueda, paginacion y sin datos internos', async () => {
     const activeOne = await seedTenantWithAdmins('catalog-one');
     const activeTwo = await seedTenantWithAdmins('catalog-two');
     await conn.collection('institutional_tenants').insertOne({
@@ -245,7 +245,7 @@ describe('Institutional tenant admin management (integration)', () => {
       .expect(400);
   });
 
-  it('ADMIN lista instituciones con multiples wallets y bloquea roles no globales', async () => {
+  it('D-LIST-003 / D-PERM-002 | ADMIN lista instituciones con multiples wallets y bloquea roles no globales', async () => {
     const seeded = await seedTenantWithAdmins('global-list');
     const emptyTenantId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
@@ -320,7 +320,7 @@ describe('Institutional tenant admin management (integration)', () => {
     }
   });
 
-  it('lista administradores del tenant con roles, wallets y sin secretos ni mezcla cross-tenant', async () => {
+  it('D-LIST-004 / D-LIST-005 | lista administradores del tenant con roles, wallets y sin secretos ni mezcla cross-tenant', async () => {
     const seeded = await seedTenantWithAdmins('list');
     const pendingUserId = new Types.ObjectId();
     const pendingAssignmentId = new Types.ObjectId();
@@ -454,7 +454,7 @@ describe('Institutional tenant admin management (integration)', () => {
     expect(JSON.stringify(response.body)).not.toContain(String(otherTenantId));
   });
 
-  it('D-DIS-001 a D-DIS-006 PRIMARY suspende y reactiva SECONDARY sin tocar wallet ni otras instituciones', async () => {
+  it('D-DIS-001 / D-DIS-002 / D-DIS-003 / D-DIS-004 / D-DIS-005 / D-DIS-006 PRIMARY suspende y reactiva SECONDARY sin tocar wallet ni otras instituciones', async () => {
     const seeded = await seedTenantWithAdmins('status');
     const other = await seedTenantWithAdmins('status-other');
     await conn.collection('tenant_admin_assignments').updateOne(
@@ -561,7 +561,7 @@ describe('Institutional tenant admin management (integration)', () => {
     });
   });
 
-  it('SECONDARY no administra y PRIMARY de tenant A no administra tenant B', async () => {
+  it('D-PERM-003 / D-MULTI-008 | SECONDARY no administra y PRIMARY de tenant A no administra tenant B', async () => {
     const tenantA = await seedTenantWithAdmins('a');
     const tenantB = await seedTenantWithAdmins('b');
 
@@ -582,7 +582,7 @@ describe('Institutional tenant admin management (integration)', () => {
       .expect(403);
   });
 
-  it('D-TRF-001/D-TRF-006: inicia transferencia PRIMARY con autorizacion movil y conserva roles hasta confirmar red', async () => {
+  it('D-TRF-001 / D-TRF-005 / D-TRF-006 | inicia transferencia PRIMARY con autorizacion movil y conserva roles hasta confirmar red', async () => {
     const seeded = await seedTenantWithAdmins('transfer');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
@@ -630,7 +630,7 @@ describe('Institutional tenant admin management (integration)', () => {
     })).resolves.toBe(1);
   });
 
-  it('D-TRF-011: transferencias concurrentes dejan una sola solicitud pendiente y roles intactos', async () => {
+  it('D-TRF-007 / D-TRF-011 | transferencias concurrentes dejan una sola solicitud pendiente y roles intactos', async () => {
     const seeded = await seedTenantWithAdmins('race');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
@@ -659,7 +659,7 @@ describe('Institutional tenant admin management (integration)', () => {
     expect(primaryCount).toBe(1);
   });
 
-  it('D-TRF-002/D-TRF-003/D-TRF-004: bloquea destino pendiente, suspendido o eliminado sin solicitud movil', async () => {
+  it('D-TRF-003 / D-TRF-004 | bloquea destino pendiente, suspendido o eliminado sin solicitud movil', async () => {
     const seeded = await seedTenantWithAdmins('blocked-targets');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
@@ -705,7 +705,7 @@ describe('Institutional tenant admin management (integration)', () => {
     })).resolves.toBe(1);
   });
 
-  it('D-TRF-001: bloquea transferencia si no existe principal vigente de la institucion', async () => {
+  it('D-TRF-002 / D-PERM-003 | bloquea transferencia si no existe principal vigente de la institucion', async () => {
     const seeded = await seedTenantWithAdmins('designate');
     await conn.collection('tenant_admin_assignments').updateOne(
       { _id: seeded.primaryAssignmentId },

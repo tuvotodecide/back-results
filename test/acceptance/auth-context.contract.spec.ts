@@ -18,7 +18,7 @@ import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import { AuthController } from '@/modules/auth/controllers/auth.controller';
 import { AuthService } from '@/modules/auth/services/auth.service';
 
-describe('Auth context HTTP contract', () => {
+describe('MX-03 | Autenticación, sesiones, roles y permisos | Backend Results | Auth HTTP contract', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let authService: {
@@ -95,7 +95,7 @@ describe('Auth context HTTP contract', () => {
     await moduleRef?.close();
   });
 
-  it('POST /api/v1/auth/login retorna contexto estable para admin', async () => {
+  it('AUT-LOG-P0-002 | POST /api/v1/auth/login retorna contexto estable para admin', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: 'admin@example.com', password: 'secret123' })
@@ -142,7 +142,7 @@ describe('Auth context HTTP contract', () => {
     });
   });
 
-  it('POST /api/v1/auth/login inválido retorna error controlado sin token', async () => {
+  it('AUT-CRE-P0-001 / AUT-HTTP-P0-001 | POST /api/v1/auth/login inválido retorna error controlado sin token', async () => {
     authService.signIn.mockRejectedValueOnce(
       new ForbiddenException('Credenciales inválidas'),
     );
@@ -162,7 +162,7 @@ describe('Auth context HTTP contract', () => {
     expect(response.body).not.toHaveProperty('accessToken');
   });
 
-  it('GET /api/v1/auth/access-status retorna shape estable autenticado', async () => {
+  it('AUT-SES-P0-001 | GET /api/v1/auth/access-status retorna shape estable autenticado', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/auth/access-status')
       .auth('mock-access-token', { type: 'bearer' })
@@ -190,7 +190,7 @@ describe('Auth context HTTP contract', () => {
     );
   });
 
-  it('GET /api/v1/auth/access-status sin token retorna 401 controlado', async () => {
+  it('AUT-SES-P0-002 | GET /api/v1/auth/access-status sin token retorna 401 controlado', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/auth/access-status')
       .expect(401);

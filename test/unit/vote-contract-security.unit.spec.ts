@@ -67,7 +67,7 @@ function expectDecodedCall(
 }
 
 describe('D-SEC institutional vote contract ABI and wrappers', () => {
-  it('D-SEC-001: createInstitution usa firma vigente, proxy configurado y evento InstitutionCreated', () => {
+  it('D-SEC-001 | createInstitution usa firma vigente, proxy configurado y evento InstitutionCreated', () => {
     expectFunction('createInstitution', ['string', 'address'], [], 'nonpayable');
     expectFunction('getInstitutionAdmin', ['string'], ['address'], 'view');
 
@@ -88,7 +88,7 @@ describe('D-SEC institutional vote contract ABI and wrappers', () => {
     );
   });
 
-  it('D-SEC-002: addAuthorizedAddress e isAuthorizedAddress usan la ABI vigente; el ABI no expone evento add/remove', () => {
+  it('D-SEC-002 | addAuthorizedAddress e isAuthorizedAddress usan la ABI vigente; el ABI no expone evento add/remove', () => {
     expectFunction('addAuthorizedAddress', ['string', 'address'], [], 'nonpayable');
     expectFunction('isAuthorizedAddress', ['string', 'address'], ['bool'], 'view');
     expect(findEvent('AuthorizedAddressAdded')).toBeUndefined();
@@ -100,7 +100,7 @@ describe('D-SEC institutional vote contract ABI and wrappers', () => {
     );
   });
 
-  it('D-SEC-003: removeAuthorizedAddress e isAuthorizedAddress usan la ABI vigente; el ABI no expone evento add/remove', () => {
+  it('D-SEC-003 | removeAuthorizedAddress e isAuthorizedAddress usan la ABI vigente; el ABI no expone evento add/remove', () => {
     expectFunction('removeAuthorizedAddress', ['string', 'address'], [], 'nonpayable');
     expectFunction('isAuthorizedAddress', ['string', 'address'], ['bool'], 'view');
     expect(findEvent('AuthorizedAddressRemoved')).toBeUndefined();
@@ -112,7 +112,7 @@ describe('D-SEC institutional vote contract ABI and wrappers', () => {
     );
   });
 
-  it('D-SEC-004: changeInstitutionAdmin usa firma vigente, lectura getInstitutionAdmin y evento InstitutionAdminChanged', () => {
+  it('D-SEC-004 | changeInstitutionAdmin usa firma vigente, lectura getInstitutionAdmin y evento InstitutionAdminChanged', () => {
     expectFunction('changeInstitutionAdmin', ['string', 'address'], [], 'nonpayable');
     expectFunction('getInstitutionAdmin', ['string'], ['address'], 'view');
 

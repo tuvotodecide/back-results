@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InstitutionalWalletsService } from '@/modules/institutional-wallets/services/institutional-wallets.service';
 
-describe('InstitutionalWalletsService', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Contrato consumidor Identity', () => {
   const httpService = {
     axiosRef: {
       post: jest.fn(),
@@ -28,7 +28,7 @@ describe('InstitutionalWalletsService', () => {
     service = new InstitutionalWalletsService(httpService as any, configService as any);
   });
 
-  it('resolves a DNI through Identity without exposing the API key in the response', async () => {
+it('D-NEW-006 / D-REG-001 | resolves a DNI through Identity without exposing the API key in the response', async () => {
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: {
         registered: true,
@@ -53,7 +53,7 @@ describe('InstitutionalWalletsService', () => {
     expect(JSON.stringify(result)).not.toContain('identity-secret-key');
   });
 
-  it('returns a controlled not registered response when Identity has no wallet', async () => {
+it('D-NEW-012 / D-REG-003 | returns a controlled not registered response when Identity has no wallet', async () => {
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: { registered: false, accountAddress: null },
     });
@@ -77,14 +77,14 @@ describe('InstitutionalWalletsService', () => {
     );
   });
 
-  it('rejects CSV values before calling Identity', async () => {
+it('D-NEW-011 | rejects CSV values before calling Identity', async () => {
     await expect(service.resolveByDni('123456,789012')).rejects.toBeInstanceOf(
       BadRequestException,
     );
     expect(httpService.axiosRef.post).not.toHaveBeenCalled();
   });
 
-  it('maps Identity invalid responses to BadGatewayException', async () => {
+it('D-NEW-014 | maps Identity invalid responses to BadGatewayException', async () => {
     httpService.axiosRef.post.mockResolvedValueOnce({ data: { ok: true } });
 
     await expect(service.resolveByDni('12345678')).rejects.toBeInstanceOf(
@@ -92,7 +92,7 @@ describe('InstitutionalWalletsService', () => {
     );
   });
 
-  it('maps Identity timeouts to GatewayTimeoutException', async () => {
+it('D-NEW-014 / D-REG-003 | maps Identity timeouts to GatewayTimeoutException', async () => {
     httpService.axiosRef.post.mockRejectedValueOnce({ code: 'ECONNABORTED' });
 
     await expect(service.resolveByDni('12345678')).rejects.toBeInstanceOf(
@@ -100,7 +100,7 @@ describe('InstitutionalWalletsService', () => {
     );
   });
 
-  it('maps Identity unavailability to ServiceUnavailableException without leaking secrets', async () => {
+it('D-NEW-015 | maps Identity unavailability to ServiceUnavailableException without leaking secrets', async () => {
     httpService.axiosRef.post.mockRejectedValueOnce(
       Object.assign(new Error('identity-secret-key ECONNREFUSED'), { code: 'ECONNREFUSED' }),
     );

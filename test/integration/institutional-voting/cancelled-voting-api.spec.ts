@@ -249,7 +249,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
   }
 
   it.each(['DRAFT', 'READY_FOR_REVIEW', 'PUBLICATION_EXPIRED'])(
-    'DELETE cancela lógicamente un evento %s y conserva recursos asociados',
+    'ELE-CANCL-P0-001 DELETE cancela lógicamente un evento %s y conserva recursos asociados',
     async (state) => {
       const eventId = await createEventInState(state);
       await seedAssociatedResources(eventId);
@@ -302,7 +302,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     'RESULTS_PUBLISHED',
     'DISABLED',
   ])(
-    'DELETE rechaza estado no cancelable %s sin cambiar estado, borrar recursos ni notificar',
+    'ELE-CANCL-P0-001 / ELE-HTTP-P0-002 DELETE rechaza estado no cancelable %s sin cambiar estado, borrar recursos ni notificar',
     async (state) => {
       const eventId = await createEventInState(state, {
         convocationNotifiedAt: new Date(),
@@ -327,7 +327,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     },
   );
 
-  it('DELETE de evento inexistente devuelve error sin generar notificación', async () => {
+  it('ELE-HTTP-P0-002 DELETE de evento inexistente devuelve error sin generar notificación', async () => {
     const missingId = String(new Types.ObjectId());
 
     const response = await request(ctx.httpServer)
@@ -340,7 +340,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(cancellationNotifications.logs).toHaveLength(0);
   });
 
-  it('DELETE de evento ya CANCELLED no es idempotente y no duplica notificación', async () => {
+  it('ELE-CANCL-P1-002 DELETE de evento ya CANCELLED no es idempotente y no duplica notificación', async () => {
     const eventId = await createEventInState('CANCELLED', {
       convocationNotifiedAt: new Date(),
     });
@@ -361,7 +361,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(cancellationNotifications.logs).toHaveLength(0);
   });
 
-  it('DELETE sin convocationNotifiedAt no crea UserNotification ni NotificationLog de cancelación', async () => {
+  it('ELE-CANCL-P1-002 DELETE sin convocationNotifiedAt no crea UserNotification ni NotificationLog de cancelación', async () => {
     const eventId = await createEventInState('READY_FOR_REVIEW', {
       convocationNotifiedAt: null,
     });
@@ -377,7 +377,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(cancellationNotifications.logs).toHaveLength(0);
   });
 
-  it('DELETE con convocationNotifiedAt notifica INSTITUTIONAL_VOTING_CANCELLED al padrón actual', async () => {
+  it('ELE-CANCL-P1-002 DELETE con convocationNotifiedAt notifica INSTITUTIONAL_VOTING_CANCELLED al padrón actual', async () => {
     const eventId = await createEventInState('READY_FOR_REVIEW', {
       convocationNotifiedAt: new Date(),
       name: `Cancel notified ${Date.now()}`,
@@ -442,7 +442,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     );
   });
 
-  it('DELETE con convocationNotifiedAt pero sin destinatarios no rompe ni crea registros', async () => {
+  it('ELE-CANCL-P1-002 DELETE con convocationNotifiedAt pero sin destinatarios no rompe ni crea registros', async () => {
     const eventId = await createEventInState('READY_FOR_REVIEW', {
       convocationNotifiedAt: new Date(),
     });
@@ -461,7 +461,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(cancellationNotifications.logs).toHaveLength(0);
   });
 
-  it('GET admin list oculta CANCELLED y conserva eventos normales visibles para el tenant', async () => {
+  it('ELE-LST-P1-004 GET admin list oculta CANCELLED y conserva eventos normales visibles para el tenant', async () => {
     const visibleId = await createEventInState('DRAFT');
     const cancelledId = await createEventInState('CANCELLED');
 
@@ -493,7 +493,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(ids).not.toContain(cancelledId);
   });
 
-  it('GET public detail de CANCELLED devuelve contrato mínimo seguro para la app', async () => {
+  it('ELE-HTTP-P1-003 GET public detail de CANCELLED devuelve contrato mínimo seguro para la app', async () => {
     const eventId = await createEventInState('CANCELLED');
     await seedAssociatedResources(eventId);
 
@@ -520,7 +520,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(response.body).not.toHaveProperty('canVote');
   });
 
-  it('GET admin detail de CANCELLED conserva trazabilidad pero bloquea edición', async () => {
+  it('ELE-EDT-P1-003 GET admin detail de CANCELLED conserva trazabilidad pero bloquea edición', async () => {
     const eventId = await createEventInState('CANCELLED');
     await seedAssociatedResources(eventId);
 
@@ -550,7 +550,7 @@ describe('Institutional voting integration - cancelled voting API contract', () 
     expect(response.body.options.length).toBeGreaterThan(0);
   });
 
-  it('bloquea acciones administrativas y públicas principales sobre evento CANCELLED', async () => {
+  it('ELE-EDT-P0-002 / ELE-HTTP-P0-002 bloquea acciones administrativas y públicas principales sobre evento CANCELLED', async () => {
     const eventId = await createEventInState('CANCELLED');
 
     const patchEvent = await request(ctx.httpServer)

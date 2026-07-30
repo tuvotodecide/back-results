@@ -26,7 +26,7 @@ import request from 'supertest';
 import { TestLoggerModule } from '../utils/module-helpers';
 import { VoteContractReads } from '@/api/vote';
 
-describe('Institutional wallet regularization (integration)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Regularización de wallet', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let mongod: MongoMemoryReplSet;
@@ -198,7 +198,7 @@ describe('Institutional wallet regularization (integration)', () => {
       .send(body);
   }
 
-  it('D-REG-001/D-REG-002/D-REG-006: resuelve wallet por Identity y crea una sola operación si la institución no existe en la red', async () => {
+  it('D-REG-001 / D-REG-006 | resuelve wallet por Identity y crea una sola operación si la institución no existe en la red', async () => {
     const seeded = await seedLegacyAssignment({ role: 'PRIMARY' });
     currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
 
@@ -260,7 +260,7 @@ describe('Institutional wallet regularization (integration)', () => {
     );
   });
 
-  it('D-REG-003/D-REG-004: no persiste cuando Identity no encuentra persona o no responde', async () => {
+  it('D-REG-003 / D-REG-005 | no persiste cuando Identity no encuentra persona o no responde', async () => {
     const rejected = await seedLegacyAssignment();
     currentUser = { sub: String(rejected.userId), role: 'USER', active: true };
     httpService.axiosRef.post.mockResolvedValueOnce({
@@ -285,7 +285,7 @@ describe('Institutional wallet regularization (integration)', () => {
     expect(stored?.accountAddress).toBeNull();
   });
 
-  it('D-REG-005: si la institución ya existe en la red completa metadata sin crear operación nueva', async () => {
+  it('D-REG-007 / D-REG-008 | si la institución ya existe en la red completa metadata sin crear operación nueva', async () => {
     const seeded = await seedLegacyAssignment({
       accountAddress: walletA,
       walletVerified: false,
@@ -325,7 +325,7 @@ describe('Institutional wallet regularization (integration)', () => {
     })).toBe(0);
   });
 
-  it('D-REG-009/D-REG-010: bloquea persona sin permiso, wallet manipulada, cuenta revocada y reemplazo de wallet', async () => {
+  it('D-REG-009 / D-REG-010 | bloquea persona sin permiso, wallet manipulada, cuenta revocada y reemplazo de wallet', async () => {
     const owner = await seedLegacyAssignment({
       accountAddress: walletA.toUpperCase().replace('0X', '0x'),
     });
@@ -375,7 +375,7 @@ describe('Institutional wallet regularization (integration)', () => {
     expect(httpService.axiosRef.post).toHaveBeenCalled();
   });
 
-  it('bloquea formato invalido, relacion inexistente y usuario sin DNI interno', async () => {
+  it('D-REG-003 / D-REG-009 | bloquea formato invalido, relacion inexistente y usuario sin DNI interno', async () => {
     const invalidWallet = await seedLegacyAssignment();
     currentUser = { sub: String(invalidWallet.userId), role: 'USER', active: true };
     await regularize(invalidWallet.tenantId, {
@@ -396,7 +396,7 @@ describe('Institutional wallet regularization (integration)', () => {
     await regularize(noDni.tenantId, { dni: '12345678' }).expect(409);
   });
 
-  it('D-REG-007/D-REG-008: repetir regularización conserva ID estable y no duplica operación pendiente', async () => {
+  it('D-RETRY-007 | repetir regularización conserva ID estable y no duplica operación pendiente', async () => {
     const seeded = await seedLegacyAssignment({ role: 'PRIMARY' });
     currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
 

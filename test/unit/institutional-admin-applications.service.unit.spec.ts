@@ -27,7 +27,7 @@ const execResolved = <T>(value: T) => ({ exec: jest.fn().mockResolvedValue(value
 const sortResolved = <T>(value: T) => ({ sort: jest.fn().mockResolvedValue(value) });
 const leanResolved = <T>(value: T) => ({ lean: jest.fn().mockResolvedValue(value) });
 
-describe('InstitutionalAdminApplicationsService (unit)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Solicitudes institucionales unitarias', () => {
   let applicationModel: any;
   let roledUserModel: any;
   let tenantModel: any;
@@ -150,7 +150,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     );
   });
 
-  it('createApplication crea usuario nuevo, solicitud pendiente de email y envia verificacion', async () => {
+it('D-NEW-001 | createApplication crea usuario nuevo, solicitud pendiente de email y envia verificacion', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.findOne.mockReturnValue(execResolved(null));
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -211,7 +211,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(mailService.sendEmail).toHaveBeenCalled();
   });
 
-  it('createApplication rechaza solicitud pendiente duplicada', async () => {
+  it('D-NEW-002 / D-RETRY-001 | createApplication rechaza solicitud pendiente duplicada', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(
@@ -234,7 +234,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-  it('createApplication para institucion existente queda pendiente sin crear tenant, assignment ni on-chain', async () => {
+it('D-NEW-003 | createApplication para institucion existente queda pendiente sin crear tenant, assignment ni on-chain', async () => {
     const existingTenant = {
       _id: tenantId,
       name: 'Institucion Activa',
@@ -295,7 +295,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(httpService.axiosRef.post).toHaveBeenCalled();
   });
 
-  it('createApplication rechaza institucion existente inactiva o inexistente', async () => {
+it('D-NEW-004 | createApplication rechaza institucion existente inactiva o inexistente', async () => {
     tenantModel.findById.mockResolvedValue(null);
 
     await expect(
@@ -384,7 +384,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-  it('createApplication rechaza wallet con formato invalido sin consultar Identity ni persistir', async () => {
+it('D-NEW-011 | createApplication rechaza wallet con formato invalido sin consultar Identity ni persistir', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -406,7 +406,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-  it('createApplication rechaza persona no registrada sin crear usuario ni solicitud', async () => {
+it('D-NEW-012 | createApplication rechaza persona no registrada sin crear usuario ni solicitud', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -435,7 +435,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-  it('createApplication rechaza persona registrada sin billetera sin guardar billetera vacia', async () => {
+it('D-NEW-013 | createApplication rechaza persona registrada sin billetera sin guardar billetera vacia', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -464,7 +464,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-  it('createApplication falla cerrado ante timeout, 5xx o respuesta invalida de Identity', async () => {
+it('D-NEW-014 / D-REG-003 | createApplication falla cerrado ante timeout, 5xx o respuesta invalida de Identity', async () => {
     const payload = {
       dni: '123456',
       email: 'admin@example.com',
@@ -517,7 +517,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-  it('createApplication consulta Identity antes de cualquier write', async () => {
+it('D-NEW-006 / D-NEW-007 | createApplication consulta Identity antes de cualquier write', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -552,7 +552,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     );
   });
 
-  it('verifyEmail cambia a PENDING_APPROVAL sin crear assignment y rechaza token expirado', async () => {
+it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear assignment y rechaza token expirado', async () => {
     const app: any = {
       _id: appId,
       status: 'PENDING_EMAIL_VERIFICATION',
@@ -582,7 +582,7 @@ describe('InstitutionalAdminApplicationsService (unit)', () => {
     );
   });
 
-  it('D-NEW-006: approveApplication crea tenant/asignacion pendientes sin activar acceso', async () => {
+  it('D-NEW-006 | approveApplication crea tenant/asignacion pendientes sin activar acceso', async () => {
     const app: any = {
       _id: appId,
       status: 'PENDING_APPROVAL',

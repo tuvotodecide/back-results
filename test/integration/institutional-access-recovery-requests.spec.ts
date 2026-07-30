@@ -14,7 +14,7 @@ import request from 'supertest';
 import { MailService } from '@/modules/mail/mail.service';
 import { TestLoggerModule } from '../utils/module-helpers';
 
-describe('Institutional access recovery requests (integration)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Recuperación de acceso institucional', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let mongod: MongoMemoryReplSet;
@@ -577,7 +577,7 @@ describe('Institutional access recovery requests (integration)', () => {
     });
   });
 
-  it('D-MAIL-003 y D-MAIL-005 a D-MAIL-012 aprueba cambiando solo correo, invalida token viejo y conserva invariantes', async () => {
+  it('D-MAIL-003 / D-MAIL-005 / D-MAIL-006 / D-MAIL-007 / D-MAIL-008 / D-MAIL-009 / D-MAIL-010 / D-MAIL-011 | aprueba cambiando solo correo, invalida token viejo y conserva invariantes', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     const beforeUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
     const beforeAssignments = await conn.collection('tenant_admin_assignments').find({ userId: seeded.userId }).toArray();
@@ -679,7 +679,7 @@ describe('Institutional access recovery requests (integration)', () => {
     expect(await conn.collection('institutional_email_outbox').countDocuments({})).toBe(0);
   });
 
-  it('D-MAIL-013 y D-MAIL-014 conserva cambio aprobado si falla aviso y reintenta solo el aviso', async () => {
+  it('D-MAIL-013 / D-MAIL-014 conserva cambio aprobado si falla aviso y reintenta solo el aviso', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     const oldLogin = await login(seeded.email, seeded.password).expect(200);
     const created = await createEmailChange(oldLogin.body.accessToken, 'aviso-fallido@example.com').expect(201);
@@ -744,7 +744,7 @@ describe('Institutional access recovery requests (integration)', () => {
     ).toBe(1);
   });
 
-  it('D-MAIL bloquea actor no superadmin, resoluciones repetidas y correo ocupado al aprobar', async () => {
+  it('D-MAIL-005 / D-MAIL-010 / D-MAIL-012 | bloquea actor no superadmin, resoluciones repetidas y correo ocupado al aprobar', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     const oldLogin = await login(seeded.email, seeded.password).expect(200);
     const created = await createEmailChange(oldLogin.body.accessToken, 'decision@example.com').expect(201);

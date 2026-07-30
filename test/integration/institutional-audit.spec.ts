@@ -37,7 +37,7 @@ import { Connection, Types } from 'mongoose';
 import request from 'supertest';
 import { TestLoggerModule } from '../utils/module-helpers';
 
-describe('Institutional audit (integration)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Auditoría institucional', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let mongod: MongoMemoryReplSet;
@@ -249,7 +249,7 @@ describe('Institutional audit (integration)', () => {
       .expect(200);
   }
 
-  it('registro, verificacion y aprobacion producen auditoria segura y consultable por ADMIN', async () => {
+  it('D-AUDIT-001 | registro, verificacion y aprobacion producen auditoria segura y consultable por ADMIN', async () => {
     const primary = await createAndApprovePrimary();
     currentUser = { sub: String(new Types.ObjectId()), role: 'ADMIN', active: true };
 
@@ -285,7 +285,7 @@ describe('Institutional audit (integration)', () => {
     expect(JSON.stringify(response.body)).not.toContain('dni-primary');
   });
 
-  it('rechazo, reapertura y revocacion producen eventos sin mezclar tenants', async () => {
+  it('D-AUDIT-002 | rechazo, reapertura y revocacion producen eventos sin mezclar tenants', async () => {
     const primary = await createAndApprovePrimary();
     currentUser = { sub: String(new Types.ObjectId()), role: 'ADMIN', active: true };
     await request(app.getHttpServer())
@@ -324,7 +324,7 @@ describe('Institutional audit (integration)', () => {
     );
   });
 
-  it('deshabilitacion, rehabilitacion y solicitud de transferencia auditan cambios administrativos', async () => {
+  it('D-AUDIT-003 | deshabilitacion, rehabilitacion y solicitud de transferencia auditan cambios administrativos', async () => {
     const tenantObjectId = new Types.ObjectId();
     const primaryUserId = new Types.ObjectId();
     const primaryAssignmentId = new Types.ObjectId();
@@ -405,7 +405,7 @@ describe('Institutional audit (integration)', () => {
     );
   });
 
-  it('fallo de transferencia no deja evento de exito', async () => {
+  it('D-AUDIT-004 | fallo de transferencia no deja evento de exito', async () => {
     const primary = await createAndApprovePrimary();
     const before = await conn
       .collection('institutional_audit_events')
@@ -422,7 +422,7 @@ describe('Institutional audit (integration)', () => {
     ).resolves.toBe(before);
   });
 
-  it('recuperacion aprobada y rechazada audita sin exponer token ni cambiar assignment', async () => {
+  it('D-MAIL-013 / D-MAIL-014 / D-AUDIT-004 | recuperacion aprobada y rechazada audita sin exponer token ni cambiar assignment', async () => {
     const primary = await createAndApprovePrimary();
     const secondary = await seedSecondary(primary.tenantId, 'recovery');
     currentUser = { sub: String(new Types.ObjectId()), role: 'ADMIN', active: true };
@@ -473,7 +473,7 @@ describe('Institutional audit (integration)', () => {
     expect(JSON.stringify(response.body)).not.toContain('70000000');
   });
 
-  it('regularizacion de wallet audita solo cuando Identity confirma', async () => {
+  it('D-REG-006 / D-AUDIT-003 | regularizacion de wallet audita solo cuando Identity confirma', async () => {
     const primary = await createAndApprovePrimary();
     const legacyUserId = new Types.ObjectId();
     const legacyAssignmentId = new Types.ObjectId();
@@ -548,7 +548,7 @@ describe('Institutional audit (integration)', () => {
     expect(String(events[0].assignmentId)).toBe(String(legacyAssignmentId));
   });
 
-  it('ADMIN consulta, PRIMARY solo su tenant, SECONDARY y ACCESS_APPROVER quedan bloqueados con paginacion estable', async () => {
+  it('D-AUDIT-001 / D-AUDIT-002 / D-AUDIT-003 / D-AUDIT-004 | ADMIN consulta, PRIMARY solo su tenant, SECONDARY y ACCESS_APPROVER quedan bloqueados con paginacion estable', async () => {
     const primary = await createAndApprovePrimary();
     const secondary = await seedSecondary(primary.tenantId, 'read');
     const otherTenantId = new Types.ObjectId();

@@ -2,7 +2,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { InstitutionalAuditService } from '@/modules/institutional-audit/services/institutional-audit.service';
 
-describe('InstitutionalAuditService (unit)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Auditoría unitarias', () => {
   let auditEventModel: any;
   let assignmentModel: any;
   let tenantModel: any;
@@ -36,7 +36,7 @@ describe('InstitutionalAuditService (unit)', () => {
     );
   });
 
-  it('registra eventos append-only y sanitiza secretos, DNI, tokens, correos y telefonos', async () => {
+it('D-AUDIT-001 | registra eventos append-only y sanitiza secretos, DNI, tokens, correos y telefonos', async () => {
     auditEventModel.create.mockImplementation(async (doc: any) => doc);
 
     await service.record({
@@ -88,7 +88,7 @@ describe('InstitutionalAuditService (unit)', () => {
     );
   });
 
-  it('registra dentro de la sesion cuando existe transaccion', async () => {
+it('D-AUDIT-002 | registra dentro de la sesion cuando existe transaccion', async () => {
     const session = { id: 'session' } as any;
     auditEventModel.create.mockResolvedValue([{ _id: new Types.ObjectId() }]);
 
@@ -107,7 +107,7 @@ describe('InstitutionalAuditService (unit)', () => {
     );
   });
 
-  it('resuelve rol institucional activo del actor contra DB', async () => {
+it('D-AUDIT-003 | resuelve rol institucional activo del actor contra DB', async () => {
     assignmentModel.findOne.mockReturnValue(query({ institutionalRole: 'PRIMARY' }));
 
     await expect(
@@ -122,7 +122,7 @@ describe('InstitutionalAuditService (unit)', () => {
     });
   });
 
-  it('ADMIN consulta cualquier tenant con paginacion, orden y filtros seguros', async () => {
+it('D-AUDIT-004 | ADMIN consulta cualquier tenant con paginacion, orden y filtros seguros', async () => {
     const eventId = new Types.ObjectId('64d000000000000000000005');
     tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
     auditEventModel.find.mockReturnValue({
@@ -181,7 +181,7 @@ describe('InstitutionalAuditService (unit)', () => {
     });
   });
 
-  it('PRIMARY consulta solo su tenant y SECONDARY o ACCESS_APPROVER quedan bloqueados', async () => {
+it('D-AUDIT-004 | PRIMARY consulta solo su tenant y SECONDARY o ACCESS_APPROVER quedan bloqueados', async () => {
     tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
     auditEventModel.find.mockReturnValue({
       sort: jest.fn().mockReturnThis(),
@@ -207,7 +207,7 @@ describe('InstitutionalAuditService (unit)', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('rechaza tenant inexistente y no expone eventos globales sin tenant por ruta de tenant', async () => {
+it('D-AUDIT-004 | rechaza tenant inexistente y no expone eventos globales sin tenant por ruta de tenant', async () => {
     tenantModel.findById.mockReturnValue(query(null));
 
     await expect(

@@ -13,7 +13,7 @@ const chainLean = <T>(value: T) => ({
   lean: jest.fn().mockResolvedValue(value),
 });
 
-describe('TerritorialRestrictionGuard (unit)', () => {
+describe('MX-03 | Autenticación, sesiones, roles y permisos | Backend Results | TerritorialRestrictionGuard', () => {
   let contractModel: any;
   let guard: TerritorialRestrictionGuard;
 
@@ -25,13 +25,13 @@ describe('TerritorialRestrictionGuard (unit)', () => {
     guard = new TerritorialRestrictionGuard(contractModel);
   });
 
-  it('rechaza request sin user autenticado', async () => {
+  it('AUT-GRD-P0-001 | rechaza request sin user autenticado', async () => {
     await expect(guard.canActivate(mkCtx({ query: {}, body: {} }))).rejects.toBeInstanceOf(
       ForbiddenException,
     );
   });
 
-  it('permite roles no territoriales sin buscar contrato', async () => {
+  it('AUT-TER-P0-001 | permite roles no territoriales sin buscar contrato', async () => {
     await expect(
       guard.canActivate(
         mkCtx({
@@ -45,7 +45,7 @@ describe('TerritorialRestrictionGuard (unit)', () => {
     expect(contractModel.findOne).not.toHaveBeenCalled();
   });
 
-  it('rechaza usuario territorial sin electionId o sin contrato activo', async () => {
+  it('AUT-TER-P0-002 | rechaza usuario territorial sin electionId o sin contrato activo', async () => {
     await expect(
       guard.canActivate(
         mkCtx({
@@ -68,7 +68,7 @@ describe('TerritorialRestrictionGuard (unit)', () => {
     ).rejects.toThrow(/No tiene un contrato activo/i);
   });
 
-  it('fuerza departamento para gobernador y bloquea departamento ajeno', async () => {
+  it('AUT-TER-P0-001 | fuerza departamento para gobernador y bloquea departamento ajeno', async () => {
     const contract = {
       _id: new Types.ObjectId(),
       clientId: new Types.ObjectId(userId),
@@ -102,7 +102,7 @@ describe('TerritorialRestrictionGuard (unit)', () => {
     ).rejects.toThrow(/fuera de su departamento/i);
   });
 
-  it('fuerza municipio para alcalde en query y body', async () => {
+  it('AUT-TER-P0-001 | fuerza municipio para alcalde en query y body', async () => {
     const contract = {
       _id: new Types.ObjectId(),
       clientId: new Types.ObjectId(userId),

@@ -11,7 +11,7 @@ const INCENTIVE_CAMPAIGNS = '0x78D7215D20EB2e2DD1F80400E3A9228B0E7166d5';
 const ELECTORAL_CREDITS = '0xA1e9cf68769Bd676e536c45c5B0E5215216e511f';
 const MULTISIG = '0x5D1E6D936a28041bE5fEE3983289c4Bbef8360e4';
 
-describe('contract runtime configuration', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Configuración contrato', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
@@ -23,7 +23,7 @@ describe('contract runtime configuration', () => {
     process.env = originalEnv;
   });
 
-  it('Base Sepolia VoteContractCalls resuelve el proxy vigente aunque exista la variable legada obsoleta', () => {
+it('D-SEC-001 | Base Sepolia VoteContractCalls resuelve el proxy vigente aunque exista la variable legada obsoleta', () => {
     delete process.env.VOTE_MANAGER_PROXY_ADDRESS;
     delete process.env.VOTE_MANAGER_ADDRESS;
     process.env.TVD_VOTE_MANAGER_ADDRESS = OBSOLETE_VOTE_MANAGER_PROXY;
@@ -35,7 +35,7 @@ describe('contract runtime configuration', () => {
     );
   });
 
-  it('app.config usa VOTE_MANAGER_PROXY_ADDRESS como fuente canonica antes del nombre legado', () => {
+it('D-SEC-001 | app.config usa VOTE_MANAGER_PROXY_ADDRESS como fuente canonica antes del nombre legado', () => {
     process.env.VOTE_MANAGER_PROXY_ADDRESS = CURRENT_VOTE_MANAGER_PROXY;
     process.env.TVD_VOTE_MANAGER_ADDRESS = OBSOLETE_VOTE_MANAGER_PROXY;
 
@@ -47,7 +47,7 @@ describe('contract runtime configuration', () => {
     );
   });
 
-  it('.env.example expone solo direcciones publicas vigentes y placeholders para secretos', () => {
+it('D-SEC-004 | .env.example expone solo direcciones publicas vigentes y placeholders para secretos', () => {
     const example = readFileSync(resolve(process.cwd(), '.env.example'), 'utf8');
 
     expect(example).toContain(`VOTE_MANAGER_PROXY_ADDRESS=${CURRENT_VOTE_MANAGER_PROXY}`);

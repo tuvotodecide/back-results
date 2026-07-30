@@ -15,7 +15,7 @@ function buildContext(ip = '10.0.0.1') {
   } as any;
 }
 
-describe('InstitutionalPublicRateLimitGuard wallet resolution limits', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Rate limit wallet institucional', () => {
   const configService = {
     get: jest.fn((key: string, fallback?: unknown) => {
       if (key === 'INSTITUTIONAL_WALLET_RESOLUTION_RATE_LIMIT_PER_MINUTE') return 2;
@@ -30,7 +30,7 @@ describe('InstitutionalPublicRateLimitGuard wallet resolution limits', () => {
     jest.clearAllMocks();
   });
 
-  it('returns 429 after the configured wallet resolution limit for the same IP', () => {
+it('D-NEW-014 | returns 429 after the configured wallet resolution limit for the same IP', () => {
     const guard = new InstitutionalPublicRateLimitGuard(configService as any);
     const context = buildContext('192.0.2.10');
 

@@ -60,7 +60,7 @@ import { VoteContractCalls, VoteContractReads } from '@/api/vote';
 
 const validAccountAddress = '0x1234567890abcdef1234567890abcdef12345678';
 
-describe('Institutional admin application wallet validation (integration)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Solicitudes y firma institucional', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let mongod: MongoMemoryReplSet;
@@ -495,7 +495,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     await applicationsService.reconcileMobileAuthorizationOperation(targetId);
   }
 
-  it('crea solicitud pendiente solo cuando Identity confirma wallet-DNI', async () => {
+it('D-NEW-001 / D-NEW-006 / D-NEW-007 | crea solicitud pendiente solo cuando Identity confirma wallet-DNI', async () => {
     const payload = validPayload();
     delete (payload as any).accountAddress;
 
@@ -533,7 +533,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     );
   });
 
-  it('registro acepta institutionId activo, resuelve nombre backend y conserva validacion wallet-DNI', async () => {
+it('D-NEW-003 / D-NEW-004 | registro acepta institutionId activo, resuelve nombre backend y conserva validacion wallet-DNI', async () => {
     const tenantId = new Types.ObjectId();
     const primaryUserId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
@@ -617,7 +617,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     });
   });
 
-  it('registro rechaza institutionId inexistente o inactivo antes de consultar Identity', async () => {
+it('D-NEW-005 | registro rechaza institutionId inexistente o inactivo antes de consultar Identity', async () => {
     const inactiveTenantId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
       _id: inactiveTenantId,
@@ -651,7 +651,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(httpService.axiosRef.get).not.toHaveBeenCalled();
   });
 
-  it('D-INV-001: crea invitación para persona registrada sin habilitar acceso ni solicitud móvil', async () => {
+  it('D-INV-001 | crea invitación para persona registrada sin habilitar acceso ni solicitud móvil', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
 
     const response = await request(app.getHttpServer())
@@ -674,7 +674,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-INV-002/D-INV-012: reutiliza cuenta existente al aceptar y no duplica usuario', async () => {
+  it('D-INV-002 / D-INV-012 | reutiliza cuenta existente al aceptar y no duplica usuario', async () => {
     const { tenantId } = await createActiveTenantWithPrimary('Institucion Cuenta Existente');
     await conn.collection('roled_users').insertOne({
       _id: new Types.ObjectId(),
@@ -713,7 +713,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId })).toBe(1);
   });
 
-  it('D-INV-003: rechaza invitación si Identity indica persona no registrada', async () => {
+  it('D-INV-003 | rechaza invitación si Identity indica persona no registrada', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: { registered: false, accountAddress: null },
@@ -730,7 +730,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(1);
   });
 
-  it('D-INV-004: bloquea invitación si la persona ya administra la institución', async () => {
+  it('D-INV-004 | bloquea invitación si la persona ya administra la institución', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
     const existingUserId = new Types.ObjectId();
     await conn.collection('roled_users').insertOne({
@@ -764,7 +764,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('notification_logs').countDocuments()).toBe(0);
   });
 
-  it('D-INV-005: bloquea invitación vigente duplicada sin reenviar aviso', async () => {
+  it('D-INV-005 | bloquea invitación vigente duplicada sin reenviar aviso', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
@@ -786,7 +786,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-INV-006: aceptar invitación crea solicitud pendiente sin acceso activo', async () => {
+  it('D-INV-006 | aceptar invitación crea solicitud pendiente sin acceso activo', async () => {
     const { tenantId } = await createActiveTenantWithPrimary('Institucion Aceptada');
     const created = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
@@ -817,7 +817,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId })).toBe(1);
   });
 
-  it('D-INV-007: rechazar invitación invalida token y no crea solicitud', async () => {
+  it('D-INV-007 | rechazar invitación invalida token y no crea solicitud', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
     const created = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
@@ -835,7 +835,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('institutional_admin_applications').countDocuments()).toBe(0);
   });
 
-  it('D-INV-008: invitación vencida no puede aceptarse y conserva historial', async () => {
+  it('D-INV-008 | invitación vencida no puede aceptarse y conserva historial', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
     const created = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
@@ -864,7 +864,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('institutional_admin_applications').countDocuments()).toBe(0);
   });
 
-  it('D-INV-009/D-INV-010: cancela y reenvía sin crear invitaciones duplicadas', async () => {
+  it('D-INV-009 / D-INV-010 | cancela y reenvía sin crear invitaciones duplicadas', async () => {
     const { tenantId } = await createActiveTenantWithPrimary('Institucion Reenvio');
     const resend = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
@@ -905,7 +905,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('institutional_admin_applications').countDocuments()).toBe(0);
   });
 
-  it('D-INV-011: aceptar con correo ocupado conserva invitación y no crea relación', async () => {
+  it('D-INV-011 | aceptar con correo ocupado conserva invitación y no crea relación', async () => {
     const { tenantId } = await createActiveTenantWithPrimary('Institucion Correo Ocupado');
     await conn.collection('roled_users').insertOne({
       _id: new Types.ObjectId(),
@@ -942,7 +942,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId })).toBe(1);
   });
 
-  it('D-INV-001/D-INV-008/D-INV-009/D-INV-010: lista invitaciones reales para Cuenta institucional', async () => {
+  it('D-INV-001 / D-INV-008 / D-INV-009 / D-INV-010 | lista invitaciones reales para Cuenta institucional', async () => {
     const { tenantId, primaryUserId } = await createActiveTenantWithPrimary('Institucion Lista Invitaciones');
 
     const pending = await request(app.getHttpServer())
@@ -1020,7 +1020,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('rechaza correo duplicado antes de consultar Identity', async () => {
+it('D-NEW-013 | rechaza correo duplicado antes de consultar Identity', async () => {
     const payload = validPayload();
 
     await request(app.getHttpServer())
@@ -1041,7 +1041,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await countApplications()).toBe(1);
   });
 
-  it('D-REQ-001/D-REQ-002: crea una solicitud de acceso vigente y bloquea duplicados', async () => {
+  it('D-REQ-001 / D-REQ-002 | crea una solicitud de acceso vigente y bloquea duplicados', async () => {
     const { tenantId } = await createActiveTenantWithPrimary('Institucion Solicitud Acceso');
     await conn.collection('roled_users').insertOne({
       _id: new Types.ObjectId(),
@@ -1098,7 +1098,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-REQ-003: bloquea solicitud cuando la persona ya administra la institución', async () => {
+  it('D-REQ-003 | bloquea solicitud cuando la persona ya administra la institución', async () => {
     const { tenantId } = await createActiveTenantWithPrimary('Institucion Ya Admin');
     const userId = new Types.ObjectId();
     await conn.collection('roled_users').insertOne({
@@ -1140,7 +1140,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('notification_logs').countDocuments()).toBe(0);
   });
 
-  it('D-REQ-004/D-REQ-005/D-REQ-009: rechazo conserva historial y permite nueva solicitud', async () => {
+  it('D-REQ-004 / D-REQ-005 / D-REQ-009 | rechazo conserva historial y permite nueva solicitud', async () => {
     const { tenantId, primaryUserId } = await createActiveTenantWithPrimary('Institucion Rechazo Acceso');
     await conn.collection('roled_users').insertOne({
       _id: new Types.ObjectId(),
@@ -1197,7 +1197,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(0);
   });
 
-  it('rechaza wallet manual con formato invalido sin consultar Identity ni persistir', async () => {
+it('D-NEW-011 | rechaza wallet manual con formato invalido sin consultar Identity ni persistir', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/institutional-admin-applications')
       .send({ ...validPayload(), accountAddress: '0x123' })
@@ -1209,7 +1209,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await countUsers()).toBe(0);
   });
 
-  it('rechaza persona no registrada sin persistencia ni efectos externos', async () => {
+it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos externos', async () => {
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: { registered: false, accountAddress: null },
     });
@@ -1284,7 +1284,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await countUsers()).toBe(0);
   });
 
-  it('D-NEW-006: aprobar una nueva institución deja acceso pendiente de confirmación de red', async () => {
+  it('D-NEW-006 | aprobar una nueva institución deja acceso pendiente de confirmación de red', async () => {
     const { id, payload } = await createVerifiedApplication();
 
     const approveRes = await request(app.getHttpServer())
@@ -1323,7 +1323,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-STATE-001 a D-STATE-005: expone estados funcionales autoritativos para solicitudes institucionales', async () => {
+  it('D-STATE-001 / D-STATE-002 / D-STATE-003 / D-STATE-004 / D-STATE-005 | expone estados funcionales autoritativos para solicitudes institucionales', async () => {
     const now = new Date();
     const rows = [
       ['state-review', 'PENDING_APPROVAL', null, 'PENDING_REVIEW', 'Pendiente de revisión'],
@@ -1374,7 +1374,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     });
   });
 
-  it('D-NEW-007: rechazar conserva historial y no crea institución, relación ni operación', async () => {
+  it('D-NEW-007 | rechazar conserva historial y no crea institución, relación ni operación', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('reject-new', 'Institucion Rechazada', validAccountAddress),
     );
@@ -1404,7 +1404,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-NEW-008: una nueva solicitud tras rechazo obtiene otro ID y no reabre la anterior', async () => {
+  it('D-NEW-008 | una nueva solicitud tras rechazo obtiene otro ID y no reabre la anterior', async () => {
     const payload = payloadFor('new-after-reject', 'Institucion Reintento', validAccountAddress);
     const first = await createVerifiedApplication(payload);
     await request(app.getHttpServer())
@@ -1432,7 +1432,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(0);
   });
 
-  it('D-NEW-009: la aprobación usa el ID estable de institución y no el ID de solicitud', async () => {
+  it('D-NEW-009 | la aprobación usa el ID estable de institución y no el ID de solicitud', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('stable-id', 'Institucion ID Estable', validAccountAddress),
     );
@@ -1466,7 +1466,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     );
   });
 
-  it('D-NEW-010: el procesamiento enviado conserva institución y relación inactivas', async () => {
+  it('D-NEW-010 | el procesamiento enviado conserva institución y relación inactivas', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-pending', 'Institucion Pendiente Red', validAccountAddress),
     );
@@ -1508,7 +1508,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(assignment).toEqual(expect.objectContaining({ status: 'PENDING', active: false }));
   });
 
-  it('D-NEW-011: un error recuperable conserva la operación y agenda reintento sin activar acceso', async () => {
+  it('D-NEW-011 | un error recuperable conserva la operación y agenda reintento sin activar acceso', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-timeout', 'Institucion Timeout Red', validAccountAddress),
     );
@@ -1556,7 +1556,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('institutional_admin_applications').countDocuments()).toBe(1);
   });
 
-  it('D-NEW-012: la confirmación de red activa una sola institución y una relación principal', async () => {
+  it('D-NEW-012 | la confirmación de red activa una sola institución y una relación principal', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-confirmed', 'Institucion Confirmada Red', validAccountAddress),
     );
@@ -1603,7 +1603,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
   });
 
-  it('D-NEW-013: si la red ya confirmó y el estado local quedó incompleto, reconcilia sin reenviar', async () => {
+  it('D-NEW-013 | si la red ya confirmó y el estado local quedó incompleto, reconcilia sin reenviar', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-local-fail', 'Institucion Reconciliada', validAccountAddress),
     );
@@ -1647,7 +1647,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-NEW-014: dos aprobaciones y dos workers concurrentes dejan una sola operación efectiva', async () => {
+  it('D-NEW-014 | dos aprobaciones y dos workers concurrentes dejan una sola operación efectiva', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('double-approve', 'Institucion Concurrencia', validAccountAddress),
     );
@@ -1693,7 +1693,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
   });
 
-  it('D-NEW-015: el backfill histórico ejecutado dos veces asigna ID estable sin duplicar operaciones', async () => {
+  it('D-NEW-015 | el backfill histórico ejecutado dos veces asigna ID estable sin duplicar operaciones', async () => {
     const pendingTenantId = new Types.ObjectId();
     const confirmedTenantId = new Types.ObjectId();
     const pendingUserId = new Types.ObjectId();
@@ -1773,7 +1773,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(0);
   });
 
-  it('D-COMPAT-001/D-COMPAT-002/D-COMPAT-003/D-COMPAT-004/D-COMPAT-005/D-COMPAT-006/D-COMPAT-007/D-COMPAT-008: el backfill común regulariza históricos sin duplicados ni acceso antes de red', async () => {
+  it('D-COMPAT-001 / D-COMPAT-002 / D-COMPAT-003 / D-COMPAT-004 / D-COMPAT-005 / D-COMPAT-006 / D-COMPAT-007 / D-COMPAT-008 | el backfill común regulariza históricos sin duplicados ni acceso antes de red', async () => {
     const pendingTenantId = new Types.ObjectId();
     const confirmedTenantId = new Types.ObjectId();
     const pendingUserId = new Types.ObjectId();
@@ -1938,7 +1938,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     ).toBe(1);
   });
 
-  it('D-REQ-008/D-APR-002: PRIMARY aprueba acceso y lo deja pendiente de autorización móvil', async () => {
+  it('D-REQ-008 / D-APR-002 | PRIMARY aprueba acceso y lo deja pendiente de autorización móvil', async () => {
     const first = await createVerifiedApplication(
       payloadFor('primary-flow', 'Tenant Principal', validAccountAddress),
     );
@@ -2008,7 +2008,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     ).rejects.toThrow('No autorizado para operar este tenant');
   });
 
-  it('D-APR-001/D-APR-006: crear o rechazar solicitud no genera aviso al teléfono', async () => {
+  it('D-APR-001 / D-APR-006 | crear o rechazar solicitud no genera aviso al teléfono', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('no-mobile-before-primary', 'Tenant Sin Aviso', validAccountAddress),
     );
@@ -2039,7 +2039,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-APR-003: notifica solo al administrador principal vigente', async () => {
+  it('D-APR-003 | notifica solo al administrador principal vigente', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('notify-primary', 'Tenant Notifica Principal', validAccountAddress),
     );
@@ -2087,7 +2087,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(0);
   });
 
-  it('D-APR-004/D-APR-005: dos aprobaciones no duplican solicitud móvil ni notificación', async () => {
+  it('D-APR-004 / D-APR-005 | dos aprobaciones no duplican solicitud móvil ni notificación', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('two-tabs-primary', 'Tenant Dos Pestañas', validAccountAddress),
     );
@@ -2123,7 +2123,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-SIGN-001/D-SIGN-005/D-SIGN-006/D-SIGN-007/D-SIGN-008/D-SIGN-015: prepara addAuthorizedAddress con ID estable y registra una sola operación firmada', async () => {
+  it('D-SIGN-001 / D-SIGN-005 / D-SIGN-006 / D-SIGN-007 / D-SIGN-008 / D-SIGN-015 | prepara addAuthorizedAddress con ID estable y registra una sola operación firmada', async () => {
     const {
       target,
       primaryApplication,
@@ -2228,7 +2228,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-004: bloquea la firma con billetera distinta sin preparar operación', async () => {
+  it('D-SIGN-004 | bloquea la firma con billetera distinta sin preparar operación', async () => {
     const { target } = await createPendingMobileAuthorization('sign-wallet-mismatch');
     currentReviewer.smartAccountAddress = '0x0000000000000000000000000000000000000bad';
 
@@ -2246,7 +2246,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
   });
 
-  it('D-TRF-005/D-TRF-006: prepara changeInstitutionAdmin con ID estable y conserva roles originales', async () => {
+  it('D-TRF-005 / D-TRF-006 | prepara changeInstitutionAdmin con ID estable y conserva roles originales', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('claim');
 
     const claim = await request(app.getHttpServer())
@@ -2459,7 +2459,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalled();
   });
 
-  it('D-TRF-008/D-TRF-009/D-TRF-010/D-TRF-011: confirma por getInstitutionAdmin y deja exactamente un principal', async () => {
+  it('D-TRF-008 / D-TRF-009 / D-TRF-010 / D-TRF-011 | confirma por getInstitutionAdmin y deja exactamente un principal', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('confirm');
 
     await request(app.getHttpServer())
@@ -2508,7 +2508,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-TRF-007/D-TRF-011: error recuperable conserva firma y dos workers no duplican transferencia', async () => {
+  it('D-TRF-007 / D-TRF-011 | error recuperable conserva firma y dos workers no duplican transferencia', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('retry');
 
     await request(app.getHttpServer())
@@ -2555,7 +2555,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-003: rechazo móvil cierra la autorización sin firma ni acceso', async () => {
+  it('D-SIGN-003 | rechazo móvil cierra la autorización sin firma ni acceso', async () => {
     const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('sign-reject');
 
@@ -2578,7 +2578,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-002/D-SIGN-014/D-RETRY-004: autorización vencida no permite firmar y exige una nueva autorización móvil', async () => {
+  it('D-SIGN-002 / D-SIGN-014 / D-RETRY-004 | autorización vencida no permite firmar y exige una nueva autorización móvil', async () => {
     const { target, targetApplication } =
       await createPendingMobileAuthorization('sign-expired');
     const expiredAt = new Date(Date.now() - 60_000);
@@ -2613,7 +2613,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-009/D-SIGN-010/D-SIGN-011/D-SIGN-012/D-SIGN-013: confirma por isAuthorizedAddress y reconcilia sin reenviar', async () => {
+  it('D-SIGN-009 / D-SIGN-010 / D-SIGN-011 / D-SIGN-012 / D-SIGN-013 | confirma por isAuthorizedAddress y reconcilia sin reenviar', async () => {
     const { target, primaryApplication, targetApplication, stableInstitutionId, targetWallet } =
       await createPendingMobileAuthorization('sign-confirm');
     await request(app.getHttpServer())
@@ -2660,7 +2660,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-SIGN-010/D-RETRY-001/D-RETRY-002/D-RETRY-003/D-RETRY-005/D-RETRY-007: reintenta con claim, conserva firma y lee red antes de reenviar', async () => {
+  it('D-SIGN-010 / D-RETRY-001 / D-RETRY-002 / D-RETRY-003 / D-RETRY-005 / D-RETRY-007 | reintenta con claim, conserva firma y lee red antes de reenviar', async () => {
     const { target, primaryApplication, targetApplication, targetWallet, stableInstitutionId } =
       await createPendingMobileAuthorization('retry-flow');
     await request(app.getHttpServer())
@@ -2715,7 +2715,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-RETRY-006: doble notificación conserva una sola autorización móvil activa', async () => {
+  it('D-RETRY-006 | doble notificación conserva una sola autorización móvil activa', async () => {
     const { target } = await createPendingMobileAuthorization('retry-notice');
 
     await request(app.getHttpServer())
@@ -2732,7 +2732,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-REV-001/D-REV-002/D-REV-003/D-REV-004/D-REV-005/D-REV-008/D-REV-009/D-REV-011: elimina wallet solo tras confirmación de red', async () => {
+  it('D-REV-001 / D-REV-002 / D-REV-003 / D-REV-004 / D-REV-005 / D-REV-008 / D-REV-009 / D-REV-011 | elimina wallet solo tras confirmación de red', async () => {
     const { target, primaryApplication, targetApplication, stableInstitutionId, targetWallet } =
       await createPendingMobileAuthorization('remove-flow');
     await confirmPendingMobileAuthorization(target.id, 'qa-phone-remove-add');
@@ -2836,7 +2836,7 @@ describe('Institutional admin application wallet validation (integration)', () =
       .expect(409);
   });
 
-  it('D-REV-006/D-REV-007: error recuperable de eliminación conserva acceso y reintenta sin duplicar operación', async () => {
+  it('D-REV-006 / D-REV-007 | error recuperable de eliminación conserva acceso y reintenta sin duplicar operación', async () => {
     const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('remove-retry');
     await confirmPendingMobileAuthorization(target.id, 'qa-phone-remove-retry-add');
@@ -2885,7 +2885,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     })).toBe(1);
   });
 
-  it('D-REV-010: bloquea eliminación definitiva del administrador principal', async () => {
+  it('D-REV-010 | bloquea eliminación definitiva del administrador principal', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('remove-primary', 'Tenant Eliminar Principal', validAccountAddress),
     );
@@ -2914,7 +2914,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(VoteContractCalls.removeAuthorizedAddress).not.toHaveBeenCalled();
   });
 
-  it('revoca PRIMARY como inactivo sin promover automaticamente a SECONDARY', async () => {
+it('D-REV-010 / D-COMPAT-006 | revoca PRIMARY como inactivo sin promover automaticamente a SECONDARY', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('revoke-primary-real', 'Tenant Revocacion Real', validAccountAddress),
     );
@@ -2992,7 +2992,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(pending?.status).toBe('PENDING_APPROVAL');
   });
 
-  it('D-REQ-007: rechaza aprobación por administrador sin permiso o de otra institución', async () => {
+  it('D-REQ-007 | rechaza aprobación por administrador sin permiso o de otra institución', async () => {
     const tenantA = await createVerifiedApplication(
       payloadFor('tenant-a-primary', 'Tenant A', validAccountAddress),
     );
@@ -3040,7 +3040,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(pending?.status).toBe('PENDING_APPROVAL');
   });
 
-  it('D-REQ-006: bloquea a SUPERADMIN al aprobar acceso interno y mantiene autoaprobacion bloqueada', async () => {
+  it('D-REQ-006 | bloquea a SUPERADMIN al aprobar acceso interno y mantiene autoaprobacion bloqueada', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('support-primary', 'Tenant Soporte', validAccountAddress),
     );
@@ -3083,7 +3083,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     ).toBeNull();
   });
 
-  it('bloquea aprobaciones con principal revocado y tenants heredados sin rol explicito', async () => {
+it('D-PERM-008 / D-COMPAT-007 | bloquea aprobaciones con principal revocado y tenants heredados sin rol explicito', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('revoked-primary', 'Tenant Revocado', validAccountAddress),
     );
@@ -3140,7 +3140,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(legacyApplication?.status).toBe('PENDING_APPROVAL');
   });
 
-  it('rechaza aprobar solicitud heredada sin wallet y no crea relacion', async () => {
+it('D-COMPAT-008 | rechaza aprobar solicitud heredada sin wallet y no crea relacion', async () => {
     const applicationId = new Types.ObjectId();
     await conn.collection('institutional_admin_applications').insertOne({
       _id: applicationId,
@@ -3165,7 +3165,7 @@ describe('Institutional admin application wallet validation (integration)', () =
       .toEqual(expect.objectContaining({ status: 'PENDING_APPROVAL' }));
   });
 
-  it('rechaza wallet ya usada por otro usuario sin escrituras parciales de aprobacion', async () => {
+it('D-REG-009 | rechaza wallet ya usada por otro usuario sin escrituras parciales de aprobacion', async () => {
     const tenantId = new Types.ObjectId();
     const otherUserId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
@@ -3216,7 +3216,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(1);
   });
 
-  it('reintento de aprobacion no duplica assignment', async () => {
+it('D-RETRY-007 | reintento de aprobacion no duplica assignment', async () => {
     const { id } = await createVerifiedApplication();
 
     await approveAndConfirmApplication(id);
@@ -3227,7 +3227,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(1);
   });
 
-  it('resolveAdminWalletForTenant devuelve wallet correcta y rechaza tenant incorrecto', async () => {
+it('D-LIST-004 | resolveAdminWalletForTenant devuelve wallet correcta y rechaza tenant incorrecto', async () => {
     const { id, payload } = await createVerifiedApplication();
     await approveAndConfirmApplication(id);
 
@@ -3288,7 +3288,7 @@ describe('Institutional admin application wallet validation (integration)', () =
     ).rejects.toThrow('No autorizado para operar este tenant');
   });
 
-  it('cuenta heredada aprobada sin wallet no recibe wallet ficticia ni queda lista', async () => {
+it('D-COMPAT-008 | cuenta heredada aprobada sin wallet no recibe wallet ficticia ni queda lista', async () => {
     const tenantId = new Types.ObjectId();
     const userId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({

@@ -448,7 +448,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     );
   });
 
-  it('valida y parsea fechas coherentes del evento', () => {
+  it('ELE-TIM-P0-001 valida y parsea fechas coherentes del evento', () => {
     const votingStart = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
     const votingEnd = new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString();
     const resultsPublishAt = new Date(
@@ -468,7 +468,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result.resultsPublishAt).toBeInstanceOf(Date);
   });
 
-  it('permite fechas exactamente en el límite mínimo de 12 horas', () => {
+  it('ELE-TIM-P1-002 permite fechas exactamente en el límite mínimo de 12 horas', () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     const createLeadHours = service.getCreateLeadHours();
@@ -529,7 +529,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(service.parseAndValidateDates()).toEqual({});
   });
 
-  it('rechaza fechas incompletas o fuera de regla operativa', () => {
+  it('ELE-TIM-P0-001 / ELE-HTTP-P0-001 rechaza fechas incompletas o fuera de regla operativa', () => {
     expect(() =>
       service.parseAndValidateDates(
         new Date(Date.now() + 60_000).toISOString(),

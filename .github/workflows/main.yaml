@@ -102,13 +102,13 @@ jobs:
       - name: Check module test map
         run: pnpm test:modules:check
 
-      - name: Run module tests - Authentication and admin accounts
+      - name: MX-03 | Autenticación, sesiones, roles y permisos | Backend Results
         if: ${{ !cancelled() }}
-        run: pnpm test:module:auth-admin
+        run: pnpm test:matrix:03
 
-      - name: Run module tests - Institutional applications and tenants
+      - name: MX-02 | Gestión de instituciones, administradores y wallets | Backend Results
         if: ${{ !cancelled() }}
-        run: pnpm test:module:institutional-access
+        run: pnpm test:matrix:02
 
       - name: Run module tests - Public users and ZK security
         if: ${{ !cancelled() }}
@@ -130,7 +130,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:module:geography
 
-      - name: Run module tests - Institutional voting
+      - name: MX-04 | Creación y configuración de votaciones | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:04
+
+      - name: Run module tests - Institutional voting residual outside MX-04
         if: ${{ !cancelled() }}
         run: pnpm test:module:institutional-voting
 

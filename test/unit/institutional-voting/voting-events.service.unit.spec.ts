@@ -250,7 +250,7 @@ describe('VotingEventsService (unit)', () => {
     service = moduleRef.get(VotingEventsService);
   });
 
-  it('crea un evento institucional en borrador', async () => {
+  it('ELE-NEW-P0-001 / ELE-NEW-P0-006 crea un evento institucional en borrador', async () => {
     const tenant = { _id: new Types.ObjectId() };
     const created = {
       _id: new Types.ObjectId(),
@@ -292,7 +292,7 @@ describe('VotingEventsService (unit)', () => {
     expect(eventRoleModel.create).not.toHaveBeenCalled();
   });
 
-  it('persiste referendum y crea automaticamente el cargo tecnico CONSULTA', async () => {
+  it('ELE-REF-P0-001 / ELE-REF-P0-002 persiste referendum y crea automaticamente el cargo tecnico CONSULTA', async () => {
     const tenant = { _id: new Types.ObjectId() };
     const created = {
       _id: new Types.ObjectId(),
@@ -348,7 +348,7 @@ describe('VotingEventsService (unit)', () => {
     expect(result.allowPostPublicationPadronEnable).toBe(true);
   });
 
-  it('marca como CANCELLED un evento DRAFT sin borrar recursos relacionados', async () => {
+  it('ELE-CANCL-P0-001 marca como CANCELLED un evento DRAFT sin borrar recursos relacionados', async () => {
     const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -397,7 +397,7 @@ describe('VotingEventsService (unit)', () => {
     });
   });
 
-  it('no notifica cancelación si READY_FOR_REVIEW nunca notificó convocatoria', async () => {
+  it('ELE-CANCL-P1-002 no notifica cancelación si READY_FOR_REVIEW nunca notificó convocatoria', async () => {
     const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -415,7 +415,7 @@ describe('VotingEventsService (unit)', () => {
     expect(notificationsService.notifyVotingCancelledToCurrentPadron).not.toHaveBeenCalled();
   });
 
-  it('notifica cancelación si READY_FOR_REVIEW ya notificó convocatoria', async () => {
+  it('ELE-CANCL-P1-002 notifica cancelación si READY_FOR_REVIEW ya notificó convocatoria', async () => {
     const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -438,7 +438,7 @@ describe('VotingEventsService (unit)', () => {
     expect(result.cancellationNotification).toEqual({ sent: 2, failed: 0 });
   });
 
-  it('rechaza cancelar eventos publicados oficialmente', async () => {
+  it('ELE-CANCL-P0-001 / ELE-HTTP-P0-002 rechaza cancelar eventos publicados oficialmente', async () => {
     const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -456,7 +456,7 @@ describe('VotingEventsService (unit)', () => {
     expect(notificationsService.notifyVotingCancelledToCurrentPadron).not.toHaveBeenCalled();
   });
 
-  it('excluye eventos CANCELLED del listado normal de administración', async () => {
+  it('ELE-LST-P1-004 excluye eventos CANCELLED del listado normal de administración', async () => {
     const tenantId = new Types.ObjectId();
     accessService.resolveReadableTenantIds.mockResolvedValue([tenantId]);
     votingEventModel.find.mockReturnValue({
@@ -474,7 +474,7 @@ describe('VotingEventsService (unit)', () => {
     expect(result).toEqual({ data: [] });
   });
 
-  it('devuelve contrato público claro para eventos CANCELLED', async () => {
+  it('ELE-HTTP-P1-003 devuelve contrato público claro para eventos CANCELLED', async () => {
     const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -510,7 +510,7 @@ describe('VotingEventsService (unit)', () => {
     expect(votingOptionModel.find).not.toHaveBeenCalled();
   });
 
-  it('actualiza la bandera de habilitación limitada del padrón sin tocar la edición estructural', async () => {
+  it('ELE-EDT-P0-001 actualiza configuración sin tocar la edición estructural', async () => {
     const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -536,7 +536,7 @@ describe('VotingEventsService (unit)', () => {
     expect(result.allowPostPublicationPadronEnable).toBe(false);
   });
 
-  it('rechaza pasar a READY_FOR_REVIEW si faltan precondiciones críticas', async () => {
+  it('ELE-RDY-P1-001 rechaza pasar a READY_FOR_REVIEW si faltan precondiciones críticas', async () => {
     const findOneLean = jest.fn().mockResolvedValue(null);
     const event: any = {
       _id: new Types.ObjectId(),
@@ -854,7 +854,7 @@ describe('VotingEventsService (unit)', () => {
     expect(notificationsService.notifyOfficialPublicationConfirmed).not.toHaveBeenCalled();
   });
 
-  it('abre revisión y notifica a empadronados cuando la elección está completa', async () => {
+  it('ELE-RDY-P0-002 / ELE-PRV-P1-001 abre revisión y notifica a empadronados cuando la elección está completa', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
       totals: { validCount: 2, invalidCount: 0, duplicateCount: 0 },
@@ -898,7 +898,7 @@ describe('VotingEventsService (unit)', () => {
     expect(result.state).toBe('READY_FOR_REVIEW');
   });
 
-  it('permite READY_FOR_REVIEW en referendum usando el cargo tecnico interno', async () => {
+  it('ELE-RDY-P0-003 / ELE-REF-P1-003 permite READY_FOR_REVIEW en referendum usando el cargo tecnico interno', async () => {
     const currentPadron = {
       _id: new Types.ObjectId(),
       totals: { validCount: 2, invalidCount: 0, duplicateCount: 0 },
@@ -1053,7 +1053,7 @@ describe('VotingEventsService (unit)', () => {
     expect(result.state).toBe('READY_FOR_REVIEW');
   });
 
-  it('permite actualizar el evento en READY_FOR_REVIEW sin volver a DRAFT', async () => {
+  it('ELE-EDT-P0-001 permite actualizar el evento en READY_FOR_REVIEW sin volver a DRAFT', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1083,7 +1083,7 @@ describe('VotingEventsService (unit)', () => {
     });
   });
 
-  it('bloquea actualizar el evento cuando ya no está en borrador', async () => {
+  it('ELE-EDT-P0-002 bloquea actualizar el evento cuando ya no está en borrador', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1102,7 +1102,7 @@ describe('VotingEventsService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('permite actualizar el evento cuando aún está en borrador', async () => {
+  it('ELE-EDT-P0-001 permite actualizar el evento cuando aún está en borrador', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1132,7 +1132,7 @@ describe('VotingEventsService (unit)', () => {
     });
   });
 
-  it('no permite cambiar el tipo referendum por actualización posterior del evento', async () => {
+  it('ELE-REF-P0-002 no permite cambiar el tipo referendum por actualización posterior del evento', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1195,7 +1195,7 @@ describe('VotingEventsService (unit)', () => {
     expect(result.presentialKioskEnabled).toBe(false);
   });
 
-  it('bloquea actualizar roles cuando el evento ya no está en borrador', async () => {
+  it('ELE-ROL-P0-004 bloquea actualizar roles cuando el evento ya no está en borrador', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1214,7 +1214,7 @@ describe('VotingEventsService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('bloquea crear cargos cuando el evento ya fue publicado', async () => {
+  it('ELE-ROL-P0-004 bloquea crear cargos cuando el evento ya fue publicado', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1234,7 +1234,7 @@ describe('VotingEventsService (unit)', () => {
     expect(eventRoleModel.create).not.toHaveBeenCalled();
   });
 
-  it('bloquea crear, editar y eliminar cargos manuales en referendum', async () => {
+  it('ELE-REF-P0-002 / ELE-ROL-P0-004 bloquea crear, editar y eliminar cargos manuales en referendum', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1269,7 +1269,7 @@ describe('VotingEventsService (unit)', () => {
     expect(eventRoleModel.findOne).not.toHaveBeenCalled();
   });
 
-  it('bloquea crear opciones cuando el evento ya fue publicado', async () => {
+  it('ELE-OPT-P1-004 bloquea crear opciones cuando el evento ya fue publicado', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1289,7 +1289,7 @@ describe('VotingEventsService (unit)', () => {
     expect(votingOptionModel.create).not.toHaveBeenCalled();
   });
 
-  it('crea opciones con multiples colores y deriva color principal', async () => {
+  it('ELE-OPT-P0-001 / ELE-OPT-P1-002 / ELE-IMG-P1-001 crea opciones con multiples colores y deriva color principal', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1326,7 +1326,7 @@ describe('VotingEventsService (unit)', () => {
     );
   });
 
-  it('actualiza opciones con colors[] manteniendo compatibilidad de respuesta', async () => {
+  it('ELE-OPT-P1-002 / ELE-EDT-P0-001 actualiza opciones con colors[] manteniendo compatibilidad de respuesta', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1364,7 +1364,7 @@ describe('VotingEventsService (unit)', () => {
     expect(updated.colors).toEqual(['#00FF00', '#FFFFFF']);
   });
 
-  it('normaliza lectura legacy de opciones con color unico', async () => {
+  it('ELE-OPT-P1-002 normaliza lectura legacy de opciones con color unico', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1392,7 +1392,7 @@ describe('VotingEventsService (unit)', () => {
     expect(listed.data[0].colors).toEqual(['#F97316']);
   });
 
-  it('rechaza colores invalidos al crear opciones', async () => {
+  it('ELE-OPT-P0-003 / ELE-HTTP-P0-001 rechaza colores invalidos al crear opciones', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1411,7 +1411,7 @@ describe('VotingEventsService (unit)', () => {
     expect(votingOptionModel.create).not.toHaveBeenCalled();
   });
 
-  it('bloquea desactivar una opción cuando el evento ya fue publicado', async () => {
+  it('ELE-OPT-P1-004 bloquea desactivar una opción cuando el evento ya fue publicado', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1431,7 +1431,7 @@ describe('VotingEventsService (unit)', () => {
     expect(votingOptionModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it('bloquea editar el cronograma cuando el evento ya fue publicado', async () => {
+  it('ELE-TIM-P1-003 bloquea editar el cronograma cuando el evento ya fue publicado', async () => {
     const event = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),
@@ -1457,7 +1457,7 @@ describe('VotingEventsService (unit)', () => {
     expect(event.save).not.toHaveBeenCalled();
   });
 
-  it('notifica actualización de cronograma si la revisión previa ya fue notificada', async () => {
+  it('ELE-TIM-P1-003 notifica actualización de cronograma si la revisión previa ya fue notificada', async () => {
     const event: any = {
       _id: new Types.ObjectId(),
       tenantId: new Types.ObjectId(),

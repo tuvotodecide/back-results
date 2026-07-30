@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { InstitutionalEmailOutboxService } from '@/modules/mail/institutional-email-outbox.service';
 
-describe('InstitutionalEmailOutboxService (unit)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Outbox correo institucional', () => {
   let outboxModel: any;
   let applicationModel: any;
   let roledUserModel: any;
@@ -43,7 +43,7 @@ describe('InstitutionalEmailOutboxService (unit)', () => {
 
   const leanQuery = (value: any) => ({ lean: jest.fn().mockResolvedValue(value) });
 
-  it('usa idempotencyKey deterministica y no duplica outbox al encolar', async () => {
+it('D-MAIL-013 | usa idempotencyKey deterministica y no duplica outbox al encolar', async () => {
     const targetId = new Types.ObjectId();
     const created = { _id: new Types.ObjectId(), targetId };
     outboxModel.findOneAndUpdate.mockResolvedValue(created);
@@ -71,7 +71,7 @@ describe('InstitutionalEmailOutboxService (unit)', () => {
     expect(JSON.stringify(outboxModel.findOneAndUpdate.mock.calls[0])).not.toContain('token');
   });
 
-  it('reclama con una operacion atomica, envia y marca SENT', async () => {
+it('D-MAIL-013 | reclama con una operacion atomica, envia y marca SENT', async () => {
     const outboxId = new Types.ObjectId();
     const targetId = new Types.ObjectId();
     outboxModel.findOneAndUpdate
@@ -110,7 +110,7 @@ describe('InstitutionalEmailOutboxService (unit)', () => {
     );
   });
 
-  it('si falla despues de enviar deja NEEDS_REVIEW y no agenda retry automatico', async () => {
+it('D-MAIL-014 | si falla despues de enviar deja NEEDS_REVIEW y no agenda retry automatico', async () => {
     const outboxId = new Types.ObjectId();
     outboxModel.findOneAndUpdate
       .mockResolvedValueOnce({
@@ -139,7 +139,7 @@ describe('InstitutionalEmailOutboxService (unit)', () => {
     );
   });
 
-  it('permite reintento interno consciente de NEEDS_REVIEW sin endpoint publico', async () => {
+it('D-MAIL-014 | permite reintento interno consciente de NEEDS_REVIEW sin endpoint publico', async () => {
     const outboxId = new Types.ObjectId();
     const retryAt = new Date('2026-01-01T00:00:00.000Z');
     const retried = { _id: outboxId, status: 'PENDING' };

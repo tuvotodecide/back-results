@@ -8,7 +8,7 @@ import {
 } from '../../utils/institutional-voting.helpers';
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
 
-describe('Institutional voting integration - multi tenant access', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Multi tenant', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
 
   beforeAll(async () => {
@@ -76,7 +76,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     return String(user!._id);
   }
 
-  it('aísla eventos por tenant entre admin global y tenant admin', async () => {
+  it('D-MULTI-001 | aísla eventos por tenant entre admin global y tenant admin', async () => {
     const ownEvent = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -143,7 +143,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     expect(tenantContexts).toHaveLength(1);
   });
 
-  it('D-MULTI-002 D-MULTI-003 D-MULTI-004 | selector con varias instituciones activas recalcula rol y wallet por tenant', async () => {
+  it('D-MULTI-002 / D-MULTI-003 / D-MULTI-004 | selector con varias instituciones activas recalcula rol y wallet por tenant', async () => {
     const primaryTenantId = await createTenant('D-MULTI-002 Tenant principal');
     const secondaryTenantId = await createTenant('D-MULTI-002 Tenant secundario');
     const userId = await assignTenantToNoContractUser(
@@ -179,7 +179,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     });
   });
 
-  it('D-MULTI-005 D-MULTI-006 D-MULTI-007 | cambiar tenant no mezcla votaciones ni conserva datos del contexto anterior', async () => {
+  it('D-MULTI-005 / D-MULTI-006 / D-MULTI-007 | cambiar tenant no mezcla votaciones ni conserva datos del contexto anterior', async () => {
     const tenantA = await createTenant('D-MULTI-005 Tenant A');
     const tenantB = await createTenant('D-MULTI-005 Tenant B');
     await assignTenantToNoContractUser(
@@ -223,7 +223,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     expect(listB.body.data.map((item: any) => item.id)).not.toContain(eventA.body.id);
   });
 
-  it('D-MULTI-008 D-MULTI-009 D-MULTI-010 D-MULTI-011 | bloquea institutionId manipulado y contextos no operativos', async () => {
+  it('D-MULTI-008 / D-MULTI-009 / D-MULTI-010 / D-MULTI-011 | bloquea institutionId manipulado y contextos no operativos', async () => {
     const activeTenant = await createTenant('D-MULTI-008 Tenant activo');
     const pendingTenant = await createTenant('D-MULTI-009 Tenant pendiente');
     const suspendedTenant = await createTenant('D-MULTI-010 Tenant suspendido');
@@ -290,7 +290,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     expect(manipulated.body.data).toBeUndefined();
   });
 
-  it('bloquea detalle y mutación de evento ajeno para tenant admin', async () => {
+  it('D-MULTI-005 / D-MULTI-006 | bloquea detalle y mutación de evento ajeno para tenant admin', async () => {
     const otherTenant = await request(ctx.httpServer)
       .post('/api/v1/institutional-tenants')
       .auth(ctx.adminToken, { type: 'bearer' })
@@ -318,7 +318,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     expect(patchForbidden.status).toBe(403);
   });
 
-  it('bloquea endpoints administrativos sin autenticación y con usuario sin asignación activa', async () => {
+  it('D-PERM-001 / D-PERM-006 | bloquea endpoints administrativos sin autenticación y con usuario sin asignación activa', async () => {
     const unauthorized = await request(ctx.httpServer)
       .post('/api/v1/voting/events')
       .send({
@@ -344,7 +344,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     expect(forbiddenCreate.status).toBe(403);
   });
 
-  it('bloquea mutaciones con token ya emitido cuando se revoca la asignación institucional', async () => {
+  it('D-REV-001 / D-PERM-007 | bloquea mutaciones con token ya emitido cuando se revoca la asignación institucional', async () => {
     await ctx.conn.collection('tenant_admin_assignments').updateOne(
       {
         tenantId: new Types.ObjectId(ctx.createdTenantId),
@@ -369,7 +369,7 @@ describe('Institutional voting integration - multi tenant access', () => {
     expect(forbiddenCreate.status).toBe(403);
   });
 
-  it('mantiene públicos los endpoints públicos sin bearer token', async () => {
+  it('D-COMPAT-001 | mantiene públicos los endpoints públicos sin bearer token', async () => {
     const event = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,

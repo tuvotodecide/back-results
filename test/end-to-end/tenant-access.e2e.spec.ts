@@ -39,6 +39,23 @@ jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
   })),
 }));
 
+jest.mock('@/modules/institutional-admin-applications/auth/institutional-mobile-zk-auth.service', () => ({
+  InstitutionalMobileZkAuthService: jest.fn().mockImplementation(() => ({
+    createAuthRequest: jest.fn().mockResolvedValue({
+      apiKey: 'institutional-mobile-api-key',
+      request: {},
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }),
+    getContextByApiKey: jest.fn().mockResolvedValue(null),
+  })),
+}));
+
+jest.mock('@/modules/institutional-admin-applications/auth/institutional-mobile-zk-auth.guard', () => ({
+  InstitutionalMobileZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
 const MailMockService = {
   sendEmail: jest.fn(),
   createEmail: jest.fn(),
@@ -48,6 +65,14 @@ const MailMockService = {
 const IdentityHttpMockService = {
   axiosRef: {
     get: jest.fn().mockResolvedValue({ data: { ok: true } }),
+    post: jest.fn((_url: string, body?: any) =>
+      Promise.resolve({
+        data: {
+          registered: true,
+          accountAddress: testAccountAddress(`${body?.dni ?? 'identity'}-wallet`),
+        },
+      }),
+    ),
   },
 };
 
@@ -88,7 +113,7 @@ async function seedMinimalVotingLocations(conn: Connection) {
   );
 }
 
-describe('Tenant access phase 1 (e2e)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Acceso tenant E2E', () => {
   let app: INestApplication;
   let moduleRef: TestingModule;
   let mongod: MongoMemoryReplSet;
@@ -228,8 +253,6 @@ describe('Tenant access phase 1 (e2e)', () => {
       .send({
         ...payload,
         password: 'secret123',
-        accountAddress:
-          payload.accountAddress ?? testAccountAddress(`${payload.dni}-${payload.email}`),
       })
       .expect(201);
 
@@ -261,8 +284,6 @@ describe('Tenant access phase 1 (e2e)', () => {
       .send({
         ...payload,
         password: 'secret123',
-        accountAddress:
-          payload.accountAddress ?? testAccountAddress(`${payload.dni}-${payload.email}`),
       })
       .expect(201);
   }
@@ -337,7 +358,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     return registerRes.body;
   }
 
-  it('login de ACCESS_APPROVER devuelve contexto de aprobaciones', async () => {
+it('D-PERM-001 | login de ACCESS_APPROVER devuelve contexto de aprobaciones', async () => {
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: 'access.approver@example.com', password: 'secret123' })
@@ -356,7 +377,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     );
   });
 
-  it('login devuelve contextos múltiples para usuario territorial con acceso tenant aprobado', async () => {
+it('D-MULTI-001 / D-MULTI-002 | login devuelve contextos múltiples para usuario territorial con acceso tenant aprobado', async () => {
     const tenantRes = await request(app.getHttpServer())
       .post('/api/v1/institutional-tenants')
       .auth(adminToken, { type: 'bearer' })
@@ -412,7 +433,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(JSON.stringify(statusRes.body)).not.toContain('accountAddressNormalized');
   });
 
-  it('mantiene solicitud tenant pendiente y la lista para ADMIN', async () => {
+it('D-REQ-001 | mantiene solicitud tenant pendiente y la lista para ADMIN', async () => {
     const email = `pending-${Date.now()}@example.com`;
     const created = await createAndVerifyApplication({
       dni: `P${Date.now()}`,
@@ -446,7 +467,7 @@ describe('Tenant access phase 1 (e2e)', () => {
       });
   });
 
-  it('bloquea login de solicitud institucional pendiente de verificación de correo sin consultar Identity', async () => {
+it('D-MAIL-006 | bloquea login de solicitud institucional pendiente de verificación de correo sin consultar Identity', async () => {
     const email = `pending-email-${Date.now()}@example.com`;
     await createUnverifiedApplication({
       dni: `PE${Date.now()}`,
@@ -470,7 +491,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(IdentityHttpMockService.axiosRef.get).not.toHaveBeenCalled();
   });
 
-  it('aprueba acceso tenant y login devuelve contexto tenant por defecto', async () => {
+it('D-APR-001 | aprueba acceso tenant y login devuelve contexto tenant por defecto', async () => {
     const email = `approved-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
       dni: `A${Date.now()}`,
@@ -521,7 +542,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(loginRes.body.tenantId).toBe(approveRes.body.tenantId);
   });
 
-  it('access-status no marca VERIFIED si la wallet aprobada no tiene metadata de verificacion', async () => {
+it('D-STATE-001 | access-status no marca VERIFIED si la wallet aprobada no tiene metadata de verificacion', async () => {
     const email = `approved-unverified-wallet-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
       dni: `UW${Date.now()}`,
@@ -572,7 +593,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(JSON.stringify(loginRes.body)).not.toContain('accountAddressNormalized');
   });
 
-  it('bloquea login de usuario institucional aprobado pero deshabilitado', async () => {
+it('D-DIS-001 | bloquea login de usuario institucional aprobado pero deshabilitado', async () => {
     const email = `disabled-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
       dni: `D${Date.now()}`,
@@ -601,7 +622,7 @@ describe('Tenant access phase 1 (e2e)', () => {
       });
   });
 
-  it('bloquea login cuando assignment o tenant institucional dejan de estar activos', async () => {
+it('D-DIS-004 | bloquea login cuando assignment o tenant institucional dejan de estar activos', async () => {
     const email = `inactive-assignment-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
       dni: `IA${Date.now()}`,
@@ -654,7 +675,7 @@ describe('Tenant access phase 1 (e2e)', () => {
       });
   });
 
-  it('rechaza solicitud tenant y bloquea el login del solicitante', async () => {
+it('D-APR-003 | rechaza solicitud tenant y bloquea el login del solicitante', async () => {
     const email = `rejected-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
       dni: `R${Date.now()}`,
@@ -679,7 +700,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(loginRes.body.message).toBe('La solicitud institucional fue rechazada');
   });
 
-  it('revoca acceso tenant aprobado y bloquea el login del solicitante', async () => {
+it('D-REV-001 | revoca acceso tenant aprobado y bloquea el login del solicitante', async () => {
     const email = `revoked-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
       dni: `V${Date.now()}`,
@@ -709,7 +730,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     expect(loginRes.body.message).toBe('El acceso institucional fue revocado');
   });
 
-  it('ACCESS_APPROVER gestiona solicitudes institucionales sin poder crear tenants manualmente', async () => {
+it('D-PERM-001 / D-REQ-002 | ACCESS_APPROVER gestiona solicitudes institucionales sin poder crear tenants manualmente', async () => {
     const email = `approver-tenant-${Date.now()}@example.com`;
     const application = await createAndVerifyApplication({
       dni: `AT${Date.now()}`,
@@ -817,7 +838,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     );
   });
 
-  it('USER, MAYOR y GOVERNOR no pueden consumir endpoints de aprobaciones', async () => {
+it('D-PERM-006 | USER, MAYOR y GOVERNOR no pueden consumir endpoints de aprobaciones', async () => {
     const userApplication = await createAndVerifyApplication({
       dni: `U${Date.now()}`,
       email: `tenant-user-${Date.now()}@example.com`,
@@ -897,7 +918,6 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Both Access User',
         password: 'secret123',
         institutionName: `Institution Both ${Date.now()}`,
-        accountAddress: testAccountAddress(`${dni}-${email}`),
       })
       .expect(201);
 
@@ -974,7 +994,7 @@ describe('Tenant access phase 1 (e2e)', () => {
     );
   });
 
-  it('no duplica la solicitud tenant si ya existe pendiente para la misma institución', async () => {
+it('D-RETRY-001 | no duplica la solicitud tenant si ya existe pendiente para la misma institución', async () => {
     const email = `dup-pending-${Date.now()}@example.com`;
     const dni = `DP${Date.now()}`;
     const institutionName = `Institution Duplicate ${Date.now()}`;
@@ -994,14 +1014,13 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Duplicate Pending',
         password: 'secret123',
         institutionName,
-        accountAddress: testAccountAddress(`${dni}-${email}`),
       });
 
     expect(retryRes.status).toBe(409);
     expect(retryRes.body.message).toBe('La solicitud institucional ya existe y sigue pendiente');
   });
 
-  it('reabre consistentemente una solicitud tenant rechazada cuando el usuario vuelve a solicitar', async () => {
+it('D-RETRY-002 | reabre consistentemente una solicitud tenant rechazada cuando el usuario vuelve a solicitar', async () => {
     const email = `reapply-rejected-${Date.now()}@example.com`;
     const dni = `RR${Date.now()}`;
     const institutionName = `Institution Reapply Rejected ${Date.now()}`;
@@ -1027,7 +1046,6 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Reapply Rejected',
         password: 'secret123',
         institutionName,
-        accountAddress: testAccountAddress(`${dni}-${email}`),
       })
       .expect(201);
 
@@ -1071,7 +1089,6 @@ describe('Tenant access phase 1 (e2e)', () => {
         name: 'Reapply Revoked',
         password: 'secret123',
         institutionName,
-        accountAddress: testAccountAddress(`${dni}-${email}`),
       })
       .expect(201);
 
@@ -1084,7 +1101,7 @@ describe('Tenant access phase 1 (e2e)', () => {
       .expect(401);
   });
 
-  it('access-status informa cuando un usuario territorial no tiene acceso tenant todavía', async () => {
+it('D-STATE-004 | access-status informa cuando un usuario territorial no tiene acceso tenant todavía', async () => {
     const lapaz = await conn.collection<Department>('departments').findOne({ name: 'La Paz' });
     const email = `territorial-only-${Date.now()}@example.com`;
     const dni = `TO${Date.now()}`;

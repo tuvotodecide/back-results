@@ -6,7 +6,7 @@ import {
 import { Types } from 'mongoose';
 import { InstitutionalAccessRecoveryRequestsService } from '@/modules/institutional-access-recovery-requests/services/institutional-access-recovery-requests.service';
 
-describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
+describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Recuperación de acceso unitarias', () => {
   let recoveryRequestModel: any;
   let tenantModel: any;
   let assignmentModel: any;
@@ -77,7 +77,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     );
   });
 
-  it('crea solicitud valida pendiente sin cambiar correo ni exponer candidato', async () => {
+it('D-MAIL-001 | crea solicitud valida pendiente sin cambiar correo ni exponer candidato', async () => {
     const tenantId = new Types.ObjectId('64c000000000000000000001');
     const userId = new Types.ObjectId('64c000000000000000000002');
     const assignmentId = new Types.ObjectId('64c000000000000000000003');
@@ -131,7 +131,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
   });
 
-  it('rechaza institucion inexistente, email duplicado y solicitud pendiente duplicada', async () => {
+it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y solicitud pendiente duplicada', async () => {
     const tenantId = new Types.ObjectId('64c000000000000000000010');
     tenantModel.findById.mockReturnValue(query(null));
     await expect(
@@ -169,7 +169,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('deja pendiente sin candidato cuando la coincidencia es ambigua o inexistente', async () => {
+it('D-MAIL-006 | deja pendiente sin candidato cuando la coincidencia es ambigua o inexistente', async () => {
     const tenantId = new Types.ObjectId('64c000000000000000000020');
     const userA = new Types.ObjectId();
     const userB = new Types.ObjectId();
@@ -207,7 +207,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     );
   });
 
-  it('D-MAIL-001 normaliza y crea solicitud autenticada sin aceptar identidad ni wallet del cliente', async () => {
+  it('D-MAIL-001 | normaliza y crea solicitud autenticada sin aceptar identidad ni wallet del cliente', async () => {
     const tenantId = new Types.ObjectId('64c000000000000000000080');
     const userId = new Types.ObjectId('64c000000000000000000081');
     const assignmentId = new Types.ObjectId('64c000000000000000000082');
@@ -282,7 +282,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(mailService.enqueueInstitutionalEmailChangeNotice).not.toHaveBeenCalled();
   });
 
-  it('D-MAIL-003 aprueba conservando password wallet rol y usando aviso informativo', async () => {
+  it('D-MAIL-003 | aprueba conservando password wallet rol y usando aviso informativo', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000084');
     const tenantId = new Types.ObjectId('64c000000000000000000085');
     const userId = new Types.ObjectId('64c000000000000000000086');
@@ -359,7 +359,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(mailService.processPendingBatch).toHaveBeenCalledWith(1);
   });
 
-  it('lista y detalla solo para ADMIN con campos administrativos seguros', async () => {
+it('D-MAIL-012 | lista y detalla solo para ADMIN con campos administrativos seguros', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000030');
     const row = {
       _id: requestId,
@@ -394,7 +394,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(JSON.stringify(detail)).not.toContain('password');
   });
 
-  it('aprueba conservando userId tenant assignment wallet rol y estado, y genera reset seguro', async () => {
+it('D-MAIL-003 / D-MAIL-005 / D-MAIL-006 / D-MAIL-007 / D-MAIL-008 / D-MAIL-009 | aprueba conservando userId tenant assignment wallet rol y estado, y genera reset seguro', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000040');
     const tenantId = new Types.ObjectId('64c000000000000000000041');
     const userId = new Types.ObjectId('64c000000000000000000042');
@@ -460,7 +460,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(JSON.stringify(result)).not.toContain(userDoc.passwordResetToken);
   });
 
-  it('bloquea aprobacion repetida, objetivo incoherente y email usado por otro usuario', async () => {
+it('D-MAIL-010 / D-MAIL-011 / D-MAIL-012 | bloquea aprobacion repetida, objetivo incoherente y email usado por otro usuario', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000050');
     const tenantId = new Types.ObjectId('64c000000000000000000051');
     const userId = new Types.ObjectId('64c000000000000000000052');
@@ -520,7 +520,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('bloquea aprobacion si el objetivo no corresponde al candidato capturado', async () => {
+it('D-MAIL-005 | bloquea aprobacion si el objetivo no corresponde al candidato capturado', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000055');
     const tenantId = new Types.ObjectId('64c000000000000000000056');
     const userId = new Types.ObjectId('64c000000000000000000057');
@@ -564,7 +564,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
   });
 
-  it('bloquea aprobacion si wallet o rol cambiaron desde la solicitud', async () => {
+it('D-MAIL-006 | bloquea aprobacion si wallet o rol cambiaron desde la solicitud', async () => {
     const requestId = new Types.ObjectId('64c00000000000000000005a');
     const tenantId = new Types.ObjectId('64c00000000000000000005b');
     const userId = new Types.ObjectId('64c00000000000000000005c');
@@ -624,7 +624,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
   });
 
-  it('si falla el outbox la aprobacion propaga error dentro de la transaccion', async () => {
+it('D-MAIL-013 | si falla el outbox la aprobacion propaga error dentro de la transaccion', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000060');
     const tenantId = new Types.ObjectId('64c000000000000000000061');
     const userId = new Types.ObjectId('64c000000000000000000062');
@@ -660,7 +660,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     ).rejects.toThrow('outbox down');
   });
 
-  it('rechaza solicitud sin modificar cuenta ni assignment', async () => {
+it('D-MAIL-014 | rechaza solicitud sin modificar cuenta ni assignment', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000070');
     const requestDoc: any = {
       _id: requestId,
@@ -688,7 +688,7 @@ describe('InstitutionalAccessRecoveryRequestsService (unit)', () => {
     expect(assignmentModel.findOne).not.toHaveBeenCalled();
   });
 
-  it('rejectRequest propaga fallo de auditoria dentro de la transaccion', async () => {
+it('D-AUDIT-004 | rejectRequest propaga fallo de auditoria dentro de la transaccion', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000071');
     const requestDoc: any = {
       _id: requestId,

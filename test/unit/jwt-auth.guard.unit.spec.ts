@@ -52,10 +52,10 @@ const buildGuard = (
   };
 };
 
-describe('JwtAuthGuard authVersion freshness', () => {
+describe('MX-03 | Autenticación, sesiones, roles y permisos | Backend Results | JwtAuthGuard', () => {
   const userId = new Types.ObjectId().toString();
 
-  it('permite rutas institucionales cuando el authVersion del token sigue vigente', async () => {
+  it('AUT-SES-P0-001 | permite rutas institucionales cuando el authVersion del token sigue vigente', async () => {
     const request: RequestLike = {
       headers: { authorization: 'Bearer token-ok' },
       path: '/api/v1/institutional-access-recovery-requests',
@@ -79,7 +79,7 @@ describe('JwtAuthGuard authVersion freshness', () => {
     expect(request.user).toEqual(payload);
   });
 
-  it('devuelve AUTH_VERSION_MISMATCH solo cuando el token institucional queda viejo', async () => {
+  it('AUT-SES-P0-005 | devuelve AUTH_VERSION_MISMATCH solo cuando el token institucional queda viejo', async () => {
     const request: RequestLike = {
       headers: { authorization: 'Bearer token-old' },
       path: '/api/v1/institutional-access-recovery-requests',
@@ -102,7 +102,7 @@ describe('JwtAuthGuard authVersion freshness', () => {
     );
   });
 
-  it('mantiene 401 generico para JWT invalido', async () => {
+  it('AUT-SES-P0-003 | mantiene 401 genérico para JWT inválido', async () => {
     const request: RequestLike = {
       headers: { authorization: 'Bearer bad-token' },
       path: '/api/v1/institutional-access-recovery-requests',

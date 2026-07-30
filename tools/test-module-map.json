@@ -1,25 +1,34 @@
 {
-  "auth-admin": {
-    "name": "Authentication and admin accounts - Security P0",
+  "matrix_03": {
+    "name": "MX-03 | Autenticación, sesiones, roles y permisos | Backend Results",
     "flows": [
-      "SEC-P0",
-      "AUTH",
-      "ADMIN_ACCOUNTS"
+      "MX-03",
+      "AUT-LOG",
+      "AUT-CRE",
+      "AUT-STA",
+      "AUT-EML",
+      "AUT-PWD",
+      "AUT-SES",
+      "AUT-APR",
+      "AUT-TER",
+      "AUT-HTTP"
     ],
     "files": [
       "test/acceptance/auth-context.contract.spec.ts",
-      "test/end-to-end/auth.e2e.spec.ts"
+      "test/unit/access-approver.guard.unit.spec.ts",
+      "test/unit/auth.service.tokens.unit.spec.ts",
+      "test/unit/jwt-auth.guard.unit.spec.ts",
+      "test/unit/territorial-restriction.guard.unit.spec.ts"
     ]
   },
   "institutional-access": {
-    "name": "Institutional applications and tenants - Institutional access P0",
+    "name": "MX-02 | Gestión de instituciones, administradores y wallets | Backend Results",
     "flows": [
       "ACCESS-P0",
       "TENANTS",
       "INSTITUTIONAL_APPLICATIONS"
     ],
     "files": [
-      "test/end-to-end/tenant-access.e2e.spec.ts",
       "test/integration/institutional-access-recovery-requests.spec.ts",
       "test/integration/institutional-admin-applications.wallet.spec.ts",
       "test/integration/institutional-audit.spec.ts",
@@ -35,8 +44,16 @@
       "test/unit/vote-contract-security.unit.spec.ts",
       "test/unit/institutional-wallets-rate-limit.guard.unit.spec.ts",
       "test/unit/institutional-wallets.dto.unit.spec.ts",
-      "test/unit/institutional-wallets.service.unit.spec.ts",
-      "test/unit/jwt-auth.guard.unit.spec.ts"
+      "test/unit/institutional-wallets.service.unit.spec.ts"
+    ]
+  },
+  "institutional-access-e2e-pending": {
+    "name": "Institutional tenant access E2E pending realignment outside MX-02 CI",
+    "flows": [
+      "INSTITUTIONAL_ACCESS_E2E_PENDING"
+    ],
+    "files": [
+      "test/end-to-end/tenant-access.e2e.spec.ts"
     ]
   },
   "institutional-tools": {
@@ -124,6 +141,30 @@
       "test/unit/guards.unit.spec.ts"
     ]
   },
+  "matrix_04": {
+    "name": "MX-04 | Creación y configuración de votaciones | Backend Results",
+    "flows": [
+      "MX-04",
+      "ELE-LST",
+      "ELE-NEW",
+      "ELE-TIM",
+      "ELE-REF",
+      "ELE-ROL",
+      "ELE-OPT",
+      "ELE-CAN",
+      "ELE-PRV",
+      "ELE-RDY",
+      "ELE-EDT",
+      "ELE-CANCL",
+      "ELE-HTTP"
+    ],
+    "files": [
+      "test/integration/institutional-voting/voting-configuration-api.spec.ts",
+      "test/integration/institutional-voting/cancelled-voting-api.spec.ts",
+      "test/unit/institutional-voting/access.service.unit.spec.ts",
+      "test/unit/institutional-voting/voting-events.service.unit.spec.ts"
+    ]
+  },
   "institutional-voting": {
     "name": "Institutional voting - BRS-F10 to BRS-F19",
     "flows": [
@@ -149,14 +190,12 @@
       "test/integration/institutional-voting/participation-concurrency.regression.spec.ts",
       "test/integration/institutional-voting/participation-analytics.spec.ts",
       "test/integration/institutional-voting/padron-editing-rules.spec.ts",
-      "test/integration/institutional-voting/cancelled-voting-api.spec.ts",
       "test/integration/institutional-voting/presential-sessions.spec.ts",
       "test/integration/institutional-voting/participations-history.spec.ts",
       "test/integration/institutional-voting/public-participation-check.spec.ts",
       "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
       "test/integration/institutional-voting/publication-results.spec.ts",
       "test/integration/institutional-voting/participation-report.spec.ts",
-      "test/unit/institutional-voting/access.service.unit.spec.ts",
       "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
       "test/unit/institutional-voting/lifecycle.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-certificate-pdf.service.unit.spec.ts",
@@ -168,7 +207,6 @@
       "test/unit/institutional-voting/participation.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-reader.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
-      "test/unit/institutional-voting/voting-events.service.unit.spec.ts",
       "test/unit/institutional-voting/voting-results.service.unit.spec.ts",
       "test/integration/institutional-voting/official-publication-api.integration.spec.ts",
       "test/unit/institutional-voting/institutional-voting-access.service.unit.spec.ts",
@@ -215,12 +253,12 @@
     ],
     "files": [
       "test/end-to-end/complete.e2e.spec.ts",
+      "test/end-to-end/auth.e2e.spec.ts",
       "test/end-to-end/participation.e2e.spec.ts",
       "test/unit/client-reports.controller.unit.spec.ts",
       "test/unit/client-reports.service.unit.spec.ts",
       "test/unit/contracts.service.unit.spec.ts",
-      "test/unit/delegates.service.unit.spec.ts",
-      "test/unit/territorial-restriction.guard.unit.spec.ts"
+      "test/unit/delegates.service.unit.spec.ts"
     ]
   },
   "health-core-database": {
@@ -247,6 +285,7 @@
       "test/integration/red-enlace-webhook-route.spec.ts",
       "test/unit/red-enlace-config.unit.spec.ts",
       "test/unit/red-enlace-qr-http.provider.unit.spec.ts",
+      "test/unit/payment-reconciliation.service.unit.spec.ts",
       "test/unit/payment-transactions.service.unit.spec.ts",
       "test/unit/red-enlace-webhook.service.unit.spec.ts",
       "test/unit/payment-provider-event.schema.unit.spec.ts"

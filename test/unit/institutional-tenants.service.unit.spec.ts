@@ -32,6 +32,10 @@ describe('InstitutionalTenantsService (unit)', () => {
     session: jest.fn().mockReturnThis(),
   });
 
+  const sessionValue = (value: any) => ({
+    session: jest.fn().mockResolvedValue(value),
+  });
+
   const pagedQuery = (value: any) => ({
     sort: jest.fn().mockReturnThis(),
     skip: jest.fn().mockReturnThis(),
@@ -71,10 +75,13 @@ describe('InstitutionalTenantsService (unit)', () => {
       findById: jest.fn(),
       find: jest.fn(),
     };
-    applicationModel = {
-      findOne: jest.fn(() => query(null)),
-      create: jest.fn().mockResolvedValue([{}]),
-    };
+    applicationModel = jest.fn().mockImplementation((doc: any) => ({
+      _id: new Types.ObjectId(),
+      ...doc,
+      save: jest.fn().mockResolvedValue(undefined),
+    }));
+    applicationModel.findOne = jest.fn(() => query(null));
+    applicationModel.create = jest.fn().mockResolvedValue([{}]);
     notificationLogModel = {
       findOneAndUpdate: jest.fn(() => query({ _id: new Types.ObjectId() })),
     };
@@ -528,7 +535,7 @@ describe('InstitutionalTenantsService (unit)', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('PRIMARY transfiere a SECONDARY elegible y preserva wallets con exactamente un PRIMARY', async () => {
+  it('D-TRF-001 / D-TRF-005 / D-TRF-006 | PRIMARY inicia transferencia móvil y preserva roles hasta confirmación', async () => {
     const tenantId = new Types.ObjectId('64b000000000000000000080');
     const primaryId = new Types.ObjectId('64b000000000000000000081');
     const targetId = new Types.ObjectId('64b000000000000000000082');
@@ -552,18 +559,26 @@ describe('InstitutionalTenantsService (unit)', () => {
       active: true,
       accountAddress: '0x0000000000000000000000000000000000000084',
     };
-    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
+    tenantModel.findById.mockReturnValue(sessionValue({
+      _id: tenantId,
+      active: true,
+      stableInstitutionId: 'tenant-stable-80',
+      name: 'Colegio Médico',
+      nameNorm: 'colegio medico',
+    }));
     assignmentModel.findOne
-      .mockReturnValueOnce(query(target))
-      .mockReturnValueOnce(query(primary));
-    assignmentModel.find
-      .mockReturnValueOnce(query([primary]))
-      .mockReturnValueOnce(query([]));
-    roledUserModel.findById.mockReturnValue(query({ _id: targetUserId, active: true }));
-    assignmentModel.updateOne
-      .mockResolvedValueOnce({ modifiedCount: 1 })
-      .mockResolvedValueOnce({ modifiedCount: 1 });
-    assignmentModel.countDocuments.mockReturnValue(countQuery(1));
+      .mockReturnValueOnce(query(primary))
+      .mockReturnValueOnce(query(target));
+    assignmentModel.find.mockReturnValue(query([]));
+    applicationModel.findOne.mockReturnValue(sessionValue(null));
+    roledUserModel.findById.mockReturnValue(query({
+      _id: targetUserId,
+      active: true,
+      dni: '12345678',
+      email: 'target@example.test',
+      name: 'Admin destino',
+      password: 'hash',
+    }));
 
     await expect(
       service.transferPrimary(
@@ -573,25 +588,17 @@ describe('InstitutionalTenantsService (unit)', () => {
       ),
     ).resolves.toMatchObject({
       tenantId: String(tenantId),
-      previousPrimaryAssignmentId: String(primaryId),
-      primaryAssignmentId: String(targetId),
+      targetAssignmentId: String(targetId),
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      signerWallet: primary.accountAddress,
+      targetWallet: target.accountAddress,
     });
     expect(session.withTransaction).toHaveBeenCalled();
-    expect(assignmentModel.updateOne).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ _id: primaryId, institutionalRole: 'PRIMARY' }),
-      expect.objectContaining({ $set: expect.objectContaining({ institutionalRole: 'SECONDARY' }) }),
-      { session },
-    );
-    expect(assignmentModel.updateOne).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ _id: targetId, institutionalRole: 'SECONDARY' }),
-      expect.objectContaining({ $set: expect.objectContaining({ institutionalRole: 'PRIMARY' }) }),
-      { session },
-    );
+    expect(assignmentModel.updateOne).not.toHaveBeenCalled();
   });
 
-  it('ADMIN designa PRIMARY cuando el tenant no tiene principal y bloquea ACCESS_APPROVER', async () => {
+  it('D-TRF-002 / D-PERM-003 | bloquea transferencia si no la inicia el PRIMARY vigente', async () => {
     const tenantId = new Types.ObjectId('64b000000000000000000090');
     const targetId = new Types.ObjectId('64b000000000000000000091');
     const target = {
@@ -603,14 +610,11 @@ describe('InstitutionalTenantsService (unit)', () => {
       active: true,
       accountAddress: '0x0000000000000000000000000000000000000091',
     };
-    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    assignmentModel.findOne.mockReturnValue(query(target));
-    assignmentModel.find
-      .mockReturnValueOnce(query([]))
-      .mockReturnValueOnce(query([]));
-    roledUserModel.findById.mockReturnValue(query({ _id: target.userId, active: true }));
-    assignmentModel.updateOne.mockResolvedValue({ modifiedCount: 1 });
-    assignmentModel.countDocuments.mockReturnValue(countQuery(1));
+    tenantModel.findById.mockReturnValue(sessionValue({
+      _id: tenantId,
+      active: true,
+      stableInstitutionId: 'tenant-stable-90',
+    }));
 
     await expect(
       service.transferPrimary(
@@ -618,16 +622,9 @@ describe('InstitutionalTenantsService (unit)', () => {
         { assignmentId: String(targetId) },
         { role: 'ADMIN', sub: String(new Types.ObjectId()) },
       ),
-    ).resolves.toMatchObject({
-      previousPrimaryAssignmentId: null,
-      primaryAssignmentId: String(targetId),
-    });
+    ).rejects.toBeInstanceOf(ForbiddenException);
 
-    assignmentModel.findOne.mockClear();
-    assignmentModel.find.mockClear();
-    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    assignmentModel.findOne.mockReturnValue(query(target));
-    assignmentModel.find.mockReturnValue(query([]));
+    assignmentModel.findOne.mockReturnValue(query(null));
     await expect(
       service.transferPrimary(
         String(tenantId),
@@ -637,22 +634,43 @@ describe('InstitutionalTenantsService (unit)', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('bloquea transferencia a target invalido, inactivo, sin wallet o cross-tenant', async () => {
+  it('D-TRF-003 / D-TRF-004 | bloquea transferencia a target invalido, inactivo, sin wallet o cross-tenant', async () => {
     const tenantId = new Types.ObjectId('64b0000000000000000000a0');
     const targetId = new Types.ObjectId('64b0000000000000000000a1');
-    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    assignmentModel.findOne.mockReturnValue(query(null));
+    const primary = {
+      _id: new Types.ObjectId('64b0000000000000000000a2'),
+      tenantId,
+      userId: new Types.ObjectId('64b0000000000000000000a3'),
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+      accountAddress: '0x00000000000000000000000000000000000000a3',
+    };
+    tenantModel.findById.mockReturnValue(sessionValue({
+      _id: tenantId,
+      active: true,
+      stableInstitutionId: 'tenant-stable-a0',
+    }));
+    assignmentModel.findOne
+      .mockReturnValueOnce(query(primary))
+      .mockReturnValueOnce(query(null));
 
     await expect(
       service.transferPrimary(
         String(tenantId),
         { assignmentId: String(targetId) },
-        { role: 'ADMIN' },
+        { role: 'USER', sub: String(primary.userId) },
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
 
-    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    assignmentModel.findOne.mockReturnValue(query({
+    tenantModel.findById.mockReturnValue(sessionValue({
+      _id: tenantId,
+      active: true,
+      stableInstitutionId: 'tenant-stable-a0',
+    }));
+    assignmentModel.findOne
+      .mockReturnValueOnce(query(primary))
+      .mockReturnValueOnce(query({
       _id: targetId,
       tenantId,
       institutionalRole: 'SECONDARY',
@@ -664,7 +682,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       service.transferPrimary(
         String(tenantId),
         { assignmentId: String(targetId) },
-        { role: 'ADMIN' },
+        { role: 'USER', sub: String(primary.userId) },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
 
@@ -673,9 +691,18 @@ describe('InstitutionalTenantsService (unit)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('revierte la transferencia ante fallo intermedio y traduce E11000 o WriteConflict', async () => {
+  it('D-TRF-007 / D-TRF-011 | traduce duplicidad o WriteConflict de autorización móvil', async () => {
     const tenantId = new Types.ObjectId('64b0000000000000000000b0');
     const targetId = new Types.ObjectId('64b0000000000000000000b1');
+    const primary = {
+      _id: new Types.ObjectId('64b0000000000000000000b2'),
+      tenantId,
+      userId: new Types.ObjectId('64b0000000000000000000b3'),
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+      accountAddress: '0x00000000000000000000000000000000000000b3',
+    };
     const duplicate = Object.assign(new Error('E11000 duplicate key'), {
       code: 11000,
       keyPattern: { tenantId: 1, institutionalRole: 1 },
@@ -683,8 +710,16 @@ describe('InstitutionalTenantsService (unit)', () => {
     session.withTransaction.mockImplementationOnce(async (fn) => {
       await fn();
     });
-    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
-    assignmentModel.findOne.mockReturnValue(query({
+    tenantModel.findById.mockReturnValue(sessionValue({
+      _id: tenantId,
+      active: true,
+      stableInstitutionId: 'tenant-stable-b0',
+      name: 'Colegio Médico',
+      nameNorm: 'colegio medico',
+    }));
+    assignmentModel.findOne
+      .mockReturnValueOnce(query(primary))
+      .mockReturnValueOnce(query({
       _id: targetId,
       tenantId,
       userId: new Types.ObjectId(),
@@ -694,14 +729,25 @@ describe('InstitutionalTenantsService (unit)', () => {
       accountAddress: '0x00000000000000000000000000000000000000b1',
     }));
     assignmentModel.find.mockReturnValue(query([]));
-    roledUserModel.findById.mockReturnValue(query({ active: true }));
-    assignmentModel.updateOne.mockRejectedValueOnce(duplicate);
+    applicationModel.findOne.mockReturnValue(sessionValue(null));
+    roledUserModel.findById.mockReturnValue(query({
+      active: true,
+      dni: '12345678',
+      email: 'target@example.test',
+      name: 'Admin destino',
+      password: 'hash',
+    }));
+    applicationModel.mockImplementationOnce((doc: any) => ({
+      _id: new Types.ObjectId(),
+      ...doc,
+      save: jest.fn().mockRejectedValueOnce(duplicate),
+    }));
 
     await expect(
       service.transferPrimary(
         String(tenantId),
         { assignmentId: String(targetId) },
-        { role: 'ADMIN' },
+        { role: 'USER', sub: String(primary.userId) },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(session.endSession).toHaveBeenCalled();
