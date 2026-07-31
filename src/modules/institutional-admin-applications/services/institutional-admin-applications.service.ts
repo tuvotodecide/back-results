@@ -692,7 +692,8 @@ export class InstitutionalAdminApplicationsService {
 
     const usesMobileAuthorization =
       Boolean(app.mobileAuthorizationUserOpHash) ||
-      Boolean(app.mobileAuthorizationAction);
+      app.mobileAuthorizationAction === 'REMOVE_AUTHORIZED_ADDRESS' ||
+      app.mobileAuthorizationAction === 'CHANGE_INSTITUTION_ADMIN';
 
     if (usesMobileAuthorization) {
       if (app.mobileAuthorizationUserOpHash) {
@@ -710,6 +711,9 @@ export class InstitutionalAdminApplicationsService {
       await this.reconcileInstitutionCreationOperation(applicationId);
     } else {
       const processed = await this.processInstitutionCreationOperation(applicationId);
+      if (!processed?.processed) {
+        throw new ConflictException('La autorización no está disponible para reintento en este momento');
+      }
       if (processed?.status === 'SENT' || processed?.status === 'CONFIRMED') {
         await this.reconcileInstitutionCreationOperation(applicationId);
       }
@@ -757,7 +761,7 @@ export class InstitutionalAdminApplicationsService {
     const app = await this.applicationModel.findOneAndUpdate(
       {
         _id: this.toObjectId(applicationId),
-        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING'] },
+        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'RECONCILIATION_PENDING', 'CHAIN_RETRY_PENDING'] },
         chainStatus: { $in: ['PENDING_SEND', 'RETRY_PENDING', 'SENT'] },
         $and: [
           {
@@ -781,6 +785,9 @@ export class InstitutionalAdminApplicationsService {
         $set: {
           chainLockedAt: now,
           chainLockedUntil: lockUntil,
+        },
+        $inc: {
+          chainAttempts: 1,
         },
       },
       { returnDocument: 'after' },
@@ -812,7 +819,25 @@ export class InstitutionalAdminApplicationsService {
       }
     } catch (error) {
       if (!this.isRecoverableChainError(error)) {
-        throw error;
+        await this.applicationModel.updateOne(
+          { _id: app._id },
+          {
+            $set: {
+              status: 'CHAIN_FAILED',
+              chainStatus: 'FAILED',
+              chainLastError: this.toSafeChainError(error),
+              chainNextRetryAt: null,
+              chainLockedAt: null,
+              chainLockedUntil: null,
+            },
+          },
+        );
+        return {
+          processed: true,
+          status: 'FAILED',
+          stableInstitutionId,
+          attempts: app.chainAttempts ?? 1,
+        };
       }
     }
 
@@ -830,7 +855,7 @@ export class InstitutionalAdminApplicationsService {
 
     try {
       const response = await this.createInstitutionOnChain(stableInstitutionId, accountAddress);
-      const attempts = (app.chainAttempts ?? 0) + 1;
+      const attempts = app.chainAttempts ?? 1;
       await this.applicationModel.updateOne(
         { _id: app._id },
         {
@@ -854,7 +879,7 @@ export class InstitutionalAdminApplicationsService {
         attempts,
       };
     } catch (error) {
-      const attempts = (app.chainAttempts ?? 0) + 1;
+      const attempts = app.chainAttempts ?? 1;
       const recoverable = this.isRecoverableChainError(error);
       const nextRetryAt = recoverable ? this.calculateNextChainRetryAt(attempts) : null;
       await this.applicationModel.updateOne(
