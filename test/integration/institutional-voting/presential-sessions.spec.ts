@@ -5,7 +5,7 @@ import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  seedPublishedEventForNonPublicationTest,
+  seedActivePublishedPresentialEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../../utils/institutional-voting.helpers';
@@ -56,11 +56,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
       .send({ status: 'OK' });
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
-      votingStart: new Date(Date.now() - 60_000),
-      votingEnd: new Date(Date.now() + 60 * 60 * 1000),
-      resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-    });
+    await seedActivePublishedPresentialEvent(ctx, eventId);
 
     return eventId;
   }
@@ -101,7 +97,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     }
   };
 
-  it('crea la sesión QR actual del kiosco y expone el contrato limitado de acceso', async () => {
+  it('KIO-HAB-P1-002 KIO-QR-P0-001 KIO-QR-P0-002 KIO-QR-P1-003 KIO-SEC-P0-001 | crea la sesión QR actual del kiosco y expone el contrato limitado de acceso', async () => {
     const eventId = await createConfiguredEvent();
 
     const created = await createKioskSession(eventId, {
@@ -121,7 +117,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.body.session.qrToken).toBe(created.body.currentSession.qrToken);
   });
 
-  it('rechaza consulta current sin x-kiosk-token o con token inválido', async () => {
+  it('KIO-SEC-P0-002 KIO-SEC-P0-003 | rechaza consulta current sin x-kiosk-token o con token inválido', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId, {
       regenerateKioskAccessToken: true,
@@ -139,7 +135,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(validToken.status).toBe(200);
   });
 
-  it('permite claim válido del QR y deja el kiosco en estado CLAIMED', async () => {
+  it('KIO-SCN-P0-005 KIO-VAL-P0-004 KIO-AUT-P0-001 | permite claim válido del QR y deja el kiosco en estado CLAIMED', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
 
@@ -164,7 +160,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.body.session.qrToken).toBeNull();
   });
 
-  it('usa READY TTL por defecto de 300 segundos y al reclamar pasa a TTL de CLAIM', async () => {
+  it('KIO-QR-P0-001 KIO-CON-P0-002 | usa READY TTL por defecto de 300 segundos y al reclamar pasa a TTL de CLAIM', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId, {
       readyTtlSeconds: 30,
@@ -190,7 +186,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(claimed?.expiresAt.getTime()).toBeGreaterThan(readyExpiresAt + 240_000);
   });
 
-  it('mantiene READY TTL por defecto en 300 segundos cuando no se envía override', async () => {
+  it('KIO-QR-P0-001 | mantiene READY TTL por defecto en 300 segundos cuando no se envía override', async () => {
     const eventId = await createConfiguredEvent();
     const createdAt = Date.now();
     const created = await createKioskSession(eventId);
@@ -201,7 +197,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(expiresAt - createdAt).toBeLessThanOrEqual(305_000);
   });
 
-  it('mantiene compatibilidad con kioscos legados que usan stationId=default de forma explícita', async () => {
+  it('KIO-QR-P0-001 | mantiene compatibilidad con kioscos legados que usan stationId=default de forma explícita', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId, {
       stationId: 'default',
@@ -216,7 +212,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.body.session.status).toBe('READY');
   });
 
-  it('bloquea el claim concurrente duplicado del mismo QR', async () => {
+  it('KIO-CON-P0-004 KIO-VAL-P0-004 | bloquea el claim concurrente duplicado del mismo QR', async () => {
     const eventId = await createConfiguredEvent(
       'carnet,habilitado\nABC-789,si\nXYZ-123,si\n',
     );
@@ -240,7 +236,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.body.session.status).toBe('CLAIMED');
   });
 
-  it('rechaza token inválido y QR READY expirado', async () => {
+  it('KIO-SCN-P0-004 KIO-VAL-P0-001 KIO-VAL-P0-005 KIO-SEC-P0-003 | rechaza token inválido y QR READY expirado', async () => {
     const invalid = await request(ctx.httpServer)
       .post('/api/v1/voting/presential-sessions/scan')
       .send({
@@ -268,7 +264,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(expired.body.error).toBe('QR_EXPIRED');
   });
 
-  it('no permite rotar QR mientras hay una sesión CLAIMED vigente', async () => {
+  it('KIO-QR-P0-005 KIO-CON-P0-001 | no permite rotar QR mientras hay una sesión CLAIMED vigente', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
 
@@ -289,7 +285,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(rotate.status).toBe(409);
   });
 
-  it('bloquea scan y participación con sesión vieja cuando el kiosco queda apagado', async () => {
+  it('KIO-HAB-P0-001 KIO-VAL-P0-002 | bloquea scan y participación con sesión vieja cuando el kiosco queda apagado', async () => {
     const eventId = await createConfiguredEvent(
       'carnet,habilitado\nABC-789,si\nXYZ-123,si\n',
     );
@@ -352,7 +348,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(normalParticipation.body.participated).toBe(true);
   });
 
-  it('expira una sesión reclamada por abandono y deja una nueva sesión READY', async () => {
+  it('KIO-CON-P0-002 | expira una sesión reclamada por abandono y deja una nueva sesión READY', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
     const claim = await request(ctx.httpServer)
@@ -380,7 +376,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(expired?.status).toBe('EXPIRED');
   });
 
-  it('cierra correctamente la sesión presencial al registrar la participación final', async () => {
+  it('KIO-CNS-P0-001 | cierra correctamente la sesión presencial al registrar la participación final', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
 
@@ -416,7 +412,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(current.body.session.id).not.toBe(claim.body.presentialSessionId);
   });
 
-  it('rechaza participación con presentialSessionId READY no reclamado', async () => {
+  it('KIO-CNS-P0-002 KIO-AUT-P1-002 | rechaza participación con presentialSessionId READY no reclamado', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
 
@@ -432,7 +428,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(response.body.error).toBe('PRESENTIAL_SESSION_NOT_CLAIMED');
   });
 
-  it('rechaza participación cuando la sesión presencial pertenece a otro carnet', async () => {
+  it('KIO-CNS-P0-002 KIO-VAL-P0-005 | rechaza participación cuando la sesión presencial pertenece a otro carnet', async () => {
     const eventId = await createConfiguredEvent(
       'carnet,habilitado\nABC-789,si\nXYZ-123,si\n',
     );
@@ -458,7 +454,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(response.body.error).toBe('PRESENTIAL_SESSION_NOT_OWNED');
   });
 
-  it('rechaza participación cuando la sesión presencial reclamada expiró', async () => {
+  it('KIO-CNS-P0-002 KIO-CON-P0-002 | rechaza participación cuando la sesión presencial reclamada expiró', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
 
@@ -487,7 +483,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(response.body.error).toBe('PRESENTIAL_SESSION_NOT_CLAIMED');
   });
 
-  it('evita doble voto en el flujo presencial después de registrar la participación', async () => {
+  it('KIO-CNS-P1-003 KIO-VAL-P0-003 | evita doble voto en el flujo presencial después de registrar la participación', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId);
 
@@ -521,7 +517,7 @@ describe('Institutional voting integration - presential QR sessions', () => {
     expect(secondScan.status).toBe(409);
   });
 
-  it('emite eventos estilo SSE cuando la sesión cambia de estado', async () => {
+  it('KIO-QR-P1-004 KIO-CON-P1-003 | emite eventos estilo SSE cuando la sesión cambia de estado', async () => {
     const eventId = await createConfiguredEvent();
     const created = await createKioskSession(eventId, {
       stationId: 'stream-kiosk',

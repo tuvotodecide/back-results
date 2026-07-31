@@ -200,7 +200,7 @@
     ]
   },
   "institutional-voting_remaining": {
-    "name": "Institutional voting residual outside MX-04, MX-05, MX-06, MX-07 and MX-08",
+    "name": "Institutional voting residual outside MX-04, MX-05, MX-06, MX-07, MX-08 and MX-09",
     "flows": [
       "BRS-F10",
       "BRS-F11",
@@ -216,7 +216,6 @@
     "files": [
       "test/end-to-end/institutional-voting.e2e.spec.ts",
       "test/integration/institutional-voting/participation-analytics.spec.ts",
-      "test/integration/institutional-voting/presential-sessions.spec.ts",
       "test/integration/institutional-voting/participation-report.spec.ts",
       "test/unit/institutional-voting/lifecycle.service.unit.spec.ts",
       "test/unit/institutional-voting/participation-analytics.service.unit.spec.ts",
@@ -358,6 +357,24 @@
       "test/integration/institutional-voting/public-participation-check.spec.ts",
       "test/unit/institutional-voting/institutional-voting.service.unit.spec.ts",
       "test/unit/institutional-voting/notifications.service.unit.spec.ts"
+    ]
+  },
+  "matrix_09": {
+    "name": "MX-09 | Votación presencial mediante kiosco y QR | Backend Results",
+    "flows": [
+      "MX-09",
+      "KIO-HAB",
+      "KIO-QR",
+      "KIO-SCN",
+      "KIO-VAL",
+      "KIO-AUT",
+      "KIO-CNS",
+      "KIO-CON",
+      "KIO-SEC",
+      "KIO-UX"
+    ],
+    "files": [
+      "test/integration/institutional-voting/presential-sessions.spec.ts"
     ]
   },
   "payments_remaining": {

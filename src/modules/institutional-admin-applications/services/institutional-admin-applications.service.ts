@@ -38,6 +38,7 @@ import { InstitutionalAdminApplication, InstitutionalAdminApplicationDocument } 
 import { InstitutionalMobileRequestUser } from '../auth/institutional-mobile-auth.types';
 import { executeCoinbaseOp } from '@/api/account';
 import { VoteContractCalls, VoteContractReads } from '@/api/vote';
+import { availableNetworks } from '@/api/params';
 import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
 import { NotificationLog, NotificationLogDocument } from '@/modules/notifications/schemas/notification-log.schema';
 import { AcceptInstitutionalAdminInvitationDto } from '../dto/accept-institutional-admin-invitation.dto';
@@ -65,6 +66,7 @@ type IdentityGetByDniResponse = {
 
 @Injectable()
 export class InstitutionalAdminApplicationsService {
+  private readonly logger = new Logger(InstitutionalAdminApplicationsService.name);
   private readonly chain: string;
   private readonly pk: string;
 
@@ -677,7 +679,7 @@ export class InstitutionalAdminApplicationsService {
     }
 
     if (app.status === 'APPROVED') {
-      return this.toApplicationResponse(app);
+      return this.toAuthorizationRetryResponse(app);
     }
 
     if (
@@ -685,6 +687,7 @@ export class InstitutionalAdminApplicationsService {
         'PENDING_CHAIN_CONFIRMATION',
         'RECONCILIATION_PENDING',
         'CHAIN_RETRY_PENDING',
+        'CHAIN_FAILED',
       ].includes(String(app.status))
     ) {
       throw new BadRequestException('La solicitud no permite reintentar autorización');
@@ -710,6 +713,20 @@ export class InstitutionalAdminApplicationsService {
     if (app.chainTxHash) {
       await this.reconcileInstitutionCreationOperation(applicationId);
     } else {
+      if (app.status === 'CHAIN_FAILED') {
+        await this.applicationModel.updateOne(
+          { _id: app._id },
+          {
+            $set: {
+              status: 'CHAIN_RETRY_PENDING',
+              chainStatus: 'RETRY_PENDING',
+              chainNextRetryAt: null,
+              chainLockedAt: null,
+              chainLockedUntil: null,
+            },
+          },
+        );
+      }
       const processed = await this.processInstitutionCreationOperation(applicationId);
       if (!processed?.processed) {
         throw new ConflictException('La autorización no está disponible para reintento en este momento');
@@ -720,7 +737,7 @@ export class InstitutionalAdminApplicationsService {
     }
 
     const refreshed = await this.getApplicationOrThrow(applicationId);
-    return this.toApplicationResponse(refreshed);
+    return this.toAuthorizationRetryResponse(refreshed);
   }
 
   async createInstitutionOnChain(
@@ -804,6 +821,34 @@ export class InstitutionalAdminApplicationsService {
     const accountAddress = this.normalizeAccountAddress(app.accountAddress);
 
     try {
+      this.assertInstitutionCreationChainConfig(stableInstitutionId, accountAddress);
+    } catch (error) {
+      this.logInstitutionCreationError(error, app, stableInstitutionId, accountAddress);
+      const attempts = app.chainAttempts ?? 1;
+      await this.applicationModel.updateOne(
+        { _id: app._id },
+        {
+          $set: {
+            status: 'CHAIN_RETRY_PENDING',
+            chainStatus: 'RETRY_PENDING',
+            chainAttempts: attempts,
+            chainNextRetryAt: this.calculateNextChainRetryAt(attempts),
+            chainLastError: this.toSafeChainError(error),
+            chainLockedAt: null,
+            chainLockedUntil: null,
+          },
+        },
+      );
+      return {
+        processed: true,
+        status: 'RETRY_PENDING',
+        stableInstitutionId,
+        attempts,
+        nextRetryAt: this.calculateNextChainRetryAt(attempts),
+      };
+    }
+
+    try {
       const alreadyConfirmed = await this.isInstitutionConfirmedOnChain(
         stableInstitutionId,
         accountAddress,
@@ -818,6 +863,7 @@ export class InstitutionalAdminApplicationsService {
         };
       }
     } catch (error) {
+      this.logInstitutionCreationError(error, app, stableInstitutionId, accountAddress);
       if (!this.isRecoverableChainError(error)) {
         await this.applicationModel.updateOne(
           { _id: app._id },
@@ -879,6 +925,7 @@ export class InstitutionalAdminApplicationsService {
         attempts,
       };
     } catch (error) {
+      this.logInstitutionCreationError(error, app, stableInstitutionId, accountAddress);
       const attempts = app.chainAttempts ?? 1;
       const recoverable = this.isRecoverableChainError(error);
       const nextRetryAt = recoverable ? this.calculateNextChainRetryAt(attempts) : null;
@@ -1776,12 +1823,21 @@ export class InstitutionalAdminApplicationsService {
   private isRecoverableChainError(error: any): boolean {
     const code = String(error?.code ?? error?.cause?.code ?? '').toUpperCase();
     const status = Number(error?.status ?? error?.response?.status ?? error?.cause?.status ?? 0);
+    const responseStatus = Number(error?.response?.statusCode ?? error?.cause?.response?.statusCode ?? 0);
+    const responseCode = String(error?.response?.code ?? error?.cause?.response?.code ?? '').toUpperCase();
+    const name = String(error?.name ?? error?.cause?.name ?? '').toLowerCase();
     const message = String(error?.message ?? error?.cause?.message ?? '').toLowerCase();
     return (
       ['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET', 'TIMEOUT'].includes(code) ||
+      responseCode.endsWith('_NOT_CONFIGURED') ||
+      responseCode === 'CHAIN_NOT_CONFIGURED' ||
+      name.includes('serviceunavailable') ||
       status === 408 ||
       status === 429 ||
       status >= 500 ||
+      responseStatus === 408 ||
+      responseStatus === 429 ||
+      responseStatus >= 500 ||
       message.includes('timeout') ||
       message.includes('pending') ||
       message.includes('temporarily') ||
@@ -1799,6 +1855,94 @@ export class InstitutionalAdminApplicationsService {
       return 'No pudimos completar la creación en la red. El sistema volverá a intentar.';
     }
     return 'No pudimos completar la creación en la red.';
+  }
+
+  private assertInstitutionCreationChainConfig(
+    stableInstitutionId: string,
+    accountAddress: string,
+  ) {
+    const network = availableNetworks[this.chain as keyof typeof availableNetworks] as any;
+    if (!network) {
+      throw new ServiceUnavailableException({
+        code: 'CHAIN_NOT_CONFIGURED',
+        message: 'No pudimos completar la creación en la red.',
+      });
+    }
+    if (!network.chain?.id) {
+      throw new ServiceUnavailableException({
+        code: 'CHAIN_ID_NOT_CONFIGURED',
+        message: 'No pudimos completar la creación en la red.',
+      });
+    }
+    if (!network.bundler) {
+      throw new ServiceUnavailableException({
+        code: 'BUNDLER_NOT_CONFIGURED',
+        message: 'No pudimos completar la creación en la red.',
+      });
+    }
+    if (!network.voteContract || !isAddress(network.voteContract)) {
+      throw new ServiceUnavailableException({
+        code: 'VOTE_CONTRACT_NOT_CONFIGURED',
+        message: 'No pudimos completar la creación en la red.',
+      });
+    }
+    if (!this.pk || !/^0x[a-fA-F0-9]{64}$/.test(this.pk)) {
+      throw new ServiceUnavailableException({
+        code: 'OPERATOR_PRIVATE_KEY_NOT_CONFIGURED',
+        message: 'No pudimos completar la creación en la red.',
+      });
+    }
+    if (!stableInstitutionId || !accountAddress) {
+      throw new ServiceUnavailableException({
+        code: 'INSTITUTION_CREATION_CONTEXT_INCOMPLETE',
+        message: 'No pudimos completar la creación en la red.',
+      });
+    }
+  }
+
+  private logInstitutionCreationError(
+    error: any,
+    app: InstitutionalAdminApplicationDocument,
+    stableInstitutionId: string,
+    accountAddress: string,
+  ) {
+    const network = availableNetworks[this.chain as keyof typeof availableNetworks] as any;
+    this.logger.error({
+      event: 'INSTITUTION_CREATION_CHAIN_ERROR',
+      applicationId: String(app._id),
+      tenantId: app.tenantId ? String(app.tenantId) : null,
+      stableInstitutionId,
+      accountAddress,
+      chain: this.chain,
+      chainId: network?.chain?.id ?? null,
+      contractAddress: network?.voteContract ?? null,
+      chainAttempt: app.chainAttempts ?? 0,
+      ...this.extractSafeErrorDetails(error),
+    });
+  }
+
+  private extractSafeErrorDetails(error: any) {
+    const cause = error?.cause;
+    return {
+      errorName: this.sanitizeLogValue(error?.name),
+      errorMessage: this.sanitizeLogValue(error?.message),
+      errorShortMessage: this.sanitizeLogValue(error?.shortMessage),
+      errorDetails: this.sanitizeLogValue(error?.details),
+      errorCode: this.sanitizeLogValue(error?.code ?? error?.response?.code),
+      errorCauseName: this.sanitizeLogValue(cause?.name),
+      errorCauseMessage: this.sanitizeLogValue(cause?.message),
+      metaMessages: Array.isArray(error?.metaMessages)
+        ? error.metaMessages.map((item: unknown) => this.sanitizeLogValue(item))
+        : undefined,
+      stack: this.sanitizeLogValue(error?.stack),
+    };
+  }
+
+  private sanitizeLogValue(value: unknown) {
+    if (value === undefined || value === null) return undefined;
+    return String(value)
+      .replace(/0x[a-fA-F0-9]{64}/g, '[REDACTED_HEX_32]')
+      .replace(/(api[_-]?key|token|authorization|password|secret)=([^&\s]+)/gi, '$1=[REDACTED]');
   }
 
   private normalizeName(input: string) {
@@ -3204,6 +3348,42 @@ export class InstitutionalAdminApplicationsService {
     return value instanceof Types.ObjectId ? value : new Types.ObjectId(String(value));
   }
 
+  private toAuthorizationRetryResponse(row: any) {
+    const application = this.toApplicationResponse(row);
+    const hasTxHash = Boolean(row?.chainTxHash);
+    let outcome = 'PENDING';
+    let retryable = false;
+    let message = 'La operación fue enviada y está pendiente de confirmación.';
+
+    if (row?.status === 'APPROVED' && row?.chainStatus === 'CONFIRMED') {
+      outcome = 'APPROVED';
+      retryable = false;
+      message = 'La autorización fue completada correctamente.';
+    } else if (row?.status === 'CHAIN_RETRY_PENDING') {
+      outcome = 'RETRYABLE_FAILURE';
+      retryable = true;
+      message = row?.chainLastError ?? 'No pudimos completar la autorización. Corrige la causa e inténtalo nuevamente.';
+    } else if (row?.status === 'CHAIN_FAILED') {
+      retryable = !hasTxHash;
+      outcome = retryable ? 'RETRYABLE_FAILURE' : 'FINAL_FAILURE';
+      message = row?.chainLastError ?? 'No fue posible completar la autorización.';
+    } else if (['PENDING_CHAIN_CONFIRMATION', 'RECONCILIATION_PENDING'].includes(String(row?.status))) {
+      outcome = 'PENDING';
+      retryable = !hasTxHash || row?.status === 'RECONCILIATION_PENDING';
+      message = hasTxHash
+        ? 'La operación fue enviada y está pendiente de confirmación.'
+        : 'La autorización sigue pendiente de envío a la red.';
+    }
+
+    return {
+      ...application,
+      application,
+      outcome,
+      retryable,
+      message,
+    };
+  }
+
   private toApplicationResponse(row: any) {
     const functionalStatus = this.resolveApplicationFunctionalStatus(row);
     return {
@@ -3227,6 +3407,7 @@ export class InstitutionalAdminApplicationsService {
       chainStatus: row.chainStatus ?? null,
       chainAttempts: row.chainAttempts ?? 0,
       chainNextRetryAt: row.chainNextRetryAt ?? null,
+      chainLastError: row.chainLastError ?? null,
       chainTxHash: row.chainTxHash ?? null,
       chainConfirmedAt: row.chainConfirmedAt ?? null,
       mobileAuthorizationRequestedAt: row.mobileAuthorizationRequestedAt ?? null,
@@ -3234,6 +3415,7 @@ export class InstitutionalAdminApplicationsService {
         ? String(row.mobileAuthorizationNotificationId)
         : null,
       createdAt: row.createdAt ?? null,
+      updatedAt: row.updatedAt ?? null,
     };
   }
 

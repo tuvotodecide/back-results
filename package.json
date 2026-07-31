@@ -38,6 +38,7 @@
     "test:matrix:06": "node tools/run-module-tests.mjs matrix_06",
     "test:matrix:07": "node tools/run-module-tests.mjs matrix_07",
     "test:matrix:08": "node tools/run-module-tests.mjs matrix_08",
+    "test:matrix:09": "node tools/run-module-tests.mjs matrix_09",
     "test:matrix:02": "node tools/run-module-tests.mjs institutional-access",
     "test:module:institutional-access": "node tools/run-module-tests.mjs institutional-access",
     "test:module:users-zk": "node tools/run-module-tests.mjs users-zk",

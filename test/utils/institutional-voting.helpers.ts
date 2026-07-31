@@ -426,6 +426,21 @@ export async function seedPublishedEventForNonPublicationTest(
   );
 }
 
+export async function seedActivePublishedPresentialEvent(
+  ctx: Pick<InstitutionalVotingContext, 'conn'>,
+  eventId: string,
+  payload: Parameters<typeof seedPublishedEventForNonPublicationTest>[2] = {},
+) {
+  const now = Date.now();
+  await seedPublishedEventForNonPublicationTest(ctx, eventId, {
+    votingStart: new Date(now - 60_000),
+    votingEnd: new Date(now + 60 * 60 * 1000),
+    resultsPublishAt: new Date(now + 2 * 60 * 60 * 1000),
+    presentialKioskEnabled: true,
+    ...payload,
+  });
+}
+
 export async function validateInstitutionalEventReadiness(
   httpServer: any,
   token: string,
