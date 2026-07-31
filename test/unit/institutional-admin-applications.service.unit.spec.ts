@@ -22,10 +22,12 @@ import {
 import { Types } from 'mongoose';
 import { InstitutionalAdminApplicationsService } from '@/modules/institutional-admin-applications/services/institutional-admin-applications.service';
 import { executeCoinbaseOp } from '@/api/account';
+import { VoteContractCalls, VoteContractReads } from '@/api/vote';
 
 const execResolved = <T>(value: T) => ({ exec: jest.fn().mockResolvedValue(value) });
 const sortResolved = <T>(value: T) => ({ sort: jest.fn().mockResolvedValue(value) });
 const leanResolved = <T>(value: T) => ({ lean: jest.fn().mockResolvedValue(value) });
+const institutionNotFoundError = () => new Error('Institution does not exist');
 
 describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Solicitudes institucionales unitarias', () => {
   let applicationModel: any;
@@ -56,9 +58,11 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     };
     applicationModel = {
       findOne: jest.fn(),
+      findOneAndUpdate: jest.fn(),
       create: jest.fn(),
       findById: jest.fn(),
       find: jest.fn(),
+      updateOne: jest.fn(),
       updateMany: jest.fn(),
       deleteMany: jest.fn(),
       db: { startSession: jest.fn().mockResolvedValue(session) },
@@ -115,6 +119,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
         if (key === 'app.identity.apiKey') return 'identity-api-key';
         if (key === 'IDENTITY_HTTP_TIMEOUT_MS') return 5000;
         if (key === 'FRONTEND_URL') return 'https://front.example.com';
+        if (key === 'app.blockchain.chain') return 'base-sepolia';
+        if (key === 'app.blockchain.privateKey') return `0x${'1'.repeat(64)}`;
         return fallback;
       }),
     };
@@ -133,7 +139,16 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     historyService = {
       createWithSession: jest.fn().mockResolvedValue({ success: true, data: null }),
     };
-    (executeCoinbaseOp as jest.Mock).mockClear();
+    (executeCoinbaseOp as jest.Mock).mockReset();
+    (VoteContractCalls.createInstitution as jest.Mock).mockReset();
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockReset();
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockReset();
+    (executeCoinbaseOp as jest.Mock).mockResolvedValue({ txHash: '0xabc123' });
+    (VoteContractCalls.createInstitution as jest.Mock).mockReturnValue({ calldata: '0x' });
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValue(
+      institutionNotFoundError(),
+    );
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
     service = new InstitutionalAdminApplicationsService(
       applicationModel,
       roledUserModel,
@@ -610,6 +625,8 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
     tenantModel.findOne.mockResolvedValueOnce(null);
     tenantModel.create.mockImplementation(async ([doc]) => doc);
     assignmentModel.findOneAndUpdate.mockResolvedValue({});
+    applicationModel.findOneAndUpdate.mockResolvedValue(app);
+    applicationModel.updateOne.mockResolvedValue({});
     roledUserModel.findById.mockResolvedValue(user);
     assignmentModel.exists.mockResolvedValue(null);
     roledUserModel.updateOne.mockResolvedValue({});
@@ -623,7 +640,6 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
       status: 'PENDING_CHAIN_CONFIRMATION',
       tenantId: createdTenantId,
       userId: userId.toString(),
-      institutionalRole: 'PRIMARY',
       stableInstitutionId: createdTenantId,
       chainStatus: 'PENDING_SEND',
     }));
@@ -661,7 +677,7 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
     expect(app.status).toBe('PENDING_CHAIN_CONFIRMATION');
     expect(app.chainStatus).toBe('PENDING_SEND');
     expect(user.active).toBe(false);
-    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+    expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
   });
 
   it('approveApplication rechaza primera aprobacion por actor no global', async () => {

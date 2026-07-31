@@ -216,7 +216,7 @@ describe('Institutional voting integration - publication and results', () => {
 
     const first = await confirmInstitutionalOfficialPublication(
       ctx.httpServer,
-      ctx.adminToken,
+      ctx.tenantAdminToken,
       eventId,
       {
         txHash: '0xofficialtx',
@@ -251,7 +251,7 @@ describe('Institutional voting integration - publication and results', () => {
 
     const second = await confirmInstitutionalOfficialPublication(
       ctx.httpServer,
-      ctx.adminToken,
+      ctx.tenantAdminToken,
       eventId,
       { txHash: '0xsecond' },
     );
@@ -285,7 +285,7 @@ describe('Institutional voting integration - publication and results', () => {
     const eventId = await preparePublishedEvent();
     const official = await confirmInstitutionalOfficialPublication(
       ctx.httpServer,
-      ctx.adminToken,
+      ctx.tenantAdminToken,
       eventId,
       { txHash: '0xreminder' },
     );

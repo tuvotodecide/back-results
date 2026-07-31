@@ -7,13 +7,16 @@ import {
 } from '@/modules/tvd/types/tvd-blockchain.types';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import { entryPoint07Address } from 'viem/account-abstraction';
 import { encodeAbiParameters, encodeEventTopics, getAddress } from 'viem';
 
 const token = getAddress('0x1111111111111111111111111111111111111111');
 const assignment = getAddress('0x2222222222222222222222222222222222222222');
 const operator = getAddress('0x3333333333333333333333333333333333333333');
 const institution = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+const entryPoint = getAddress(entryPoint07Address);
 const txHash = `0x${'8'.repeat(64)}`;
+const operatorRole = `0x${'0'.repeat(64)}`;
 
 function tokensAssignedLog(wallet = institution, amount = '1000', address = assignment) {
   return {
@@ -52,7 +55,7 @@ describe('TVD blockchain isolated integration with mocks', () => {
       receipt: {
         transactionHash: txHash,
         status: 'success',
-        to: assignment,
+        to: entryPoint,
         from: operator,
         blockNumber: 100n,
         logs: [tokensAssignedLog()],
@@ -73,6 +76,12 @@ describe('TVD blockchain isolated integration with mocks', () => {
         }
         if (input.address === assignment && input.functionName === 'operator') {
           return state.operator;
+        }
+        if (input.address === assignment && input.functionName === 'OPERATOR_ROLE') {
+          return operatorRole;
+        }
+        if (input.address === assignment && input.functionName === 'hasRole') {
+          return input.args?.[0] === operatorRole && input.args?.[1] === state.operator;
         }
         if (input.address === assignment && input.functionName === 'token') {
           return state.assignmentToken;
@@ -121,6 +130,7 @@ describe('TVD blockchain isolated integration with mocks', () => {
                 'app.tvd.operatorPrivateKey': `0x${'1'.repeat(64)}`,
                 'app.tvd.confirmationsRequired': '3',
                 'app.tvd.decimals': '2',
+                'app.blockchain.chain': 'base-sepolia',
               };
               return values[key];
             }),
@@ -131,6 +141,19 @@ describe('TVD blockchain isolated integration with mocks', () => {
     }).compile();
 
     service = moduleRef.get(TvdBlockchainService);
+    Object.defineProperty(service, 'getCoinbaseSmartAccountClients', {
+      value: jest.fn(async () => ({
+        account: {
+          address: operator,
+          entryPoint: {
+            address: entryPoint,
+            version: '0.7',
+          },
+        },
+        publicClient,
+        smartAccountClient: {},
+      })),
+    });
   });
 
   afterEach(async () => {
@@ -142,33 +165,33 @@ describe('TVD blockchain isolated integration with mocks', () => {
       await expect(service.validateBlockchainConfiguration()).resolves.toMatchObject({
         configured: true,
         chainIdMatches: true,
-        operatorMatches: true,
+        signerHasOperatorRole: true,
         tokenAddressMatches: true,
         decimalsMatch: true,
-        signerHasGas: true,
       });
     });
 
-    it('P-INT-002 | POSITIVO | INTEGRACION | ejecuta flujo completo simulado de assign', async () => {
-      const result = await service.assignTokens({
+    it('P-INT-002 | POSITIVO | INTEGRACION | valida readiness y receipt del flujo assign actual', async () => {
+      const readiness = await service.validateAssignReadiness({
         institutionWallet: institution,
         amountSmallestUnit: '1000',
       });
+      const receipt = await service.validateSubmittedAssignReceipt({
+        receipt: state.receipt,
+        expectedInstitutionWallet: institution,
+        expectedAmountSmallestUnit: '1000',
+      });
 
-      expect(walletClient.writeContract).toHaveBeenCalledWith(
-        expect.objectContaining({
-          functionName: 'assign',
-          args: [institution, 1000n],
-        }),
-      );
-      expect(result).toMatchObject({
-        txHash,
-        blockNumber: '100',
+      expect(readiness).toMatchObject({
         chainId: 84532,
         contractAddress: assignment,
         operatorAddress: operator,
         institutionWallet: institution,
         amountSmallestUnit: '1000',
+      });
+      expect(receipt).toMatchObject({
+        txHash,
+        blockNumber: '100',
         confirmations: 6,
       });
     });
@@ -192,7 +215,7 @@ describe('TVD blockchain isolated integration with mocks', () => {
       state.decimals = 6;
 
       await expect(
-        service.assignTokens({
+        service.validateAssignReadiness({
           institutionWallet: institution,
           amountSmallestUnit: '1000',
         }),
@@ -203,7 +226,7 @@ describe('TVD blockchain isolated integration with mocks', () => {
       state.operator = getAddress('0x5555555555555555555555555555555555555555');
 
       await expect(
-        service.assignTokens({
+        service.validateAssignReadiness({
           institutionWallet: institution,
           amountSmallestUnit: '1000',
         }),
@@ -217,9 +240,10 @@ describe('TVD blockchain isolated integration with mocks', () => {
       };
 
       await expect(
-        service.assignTokens({
-          institutionWallet: institution,
-          amountSmallestUnit: '1000',
+        service.validateSubmittedAssignReceipt({
+          receipt: state.receipt,
+          expectedInstitutionWallet: institution,
+          expectedAmountSmallestUnit: '1000',
         }),
       ).rejects.toMatchObject({ code: 'TVD_EVENT_NOT_FOUND' });
     });

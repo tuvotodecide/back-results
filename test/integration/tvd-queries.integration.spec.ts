@@ -35,6 +35,7 @@ import {
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import {
   getConnectionToken,
   getModelToken,
@@ -95,6 +96,10 @@ describe('TVD query endpoints (integration)', () => {
     getTokenDecimals: jest.fn(async () => 18),
     getTokenSymbol: jest.fn(async () => 'TVD'),
     getTokenAddressFromAssignmentContract: jest.fn(async () => tokenContract),
+    getTokenRuntimeContext: jest.fn(() => ({
+      chainId: 84532,
+      tokenContractAddress: tokenContract,
+    })),
     getOperatorContext: jest.fn(() => ({
       chainId: 84532,
       operatorAddress: getAddress('0x3333333333333333333333333333333333333333'),
@@ -119,6 +124,7 @@ describe('TVD query endpoints (integration)', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([
@@ -406,21 +412,28 @@ describe('TVD query endpoints (integration)', () => {
       .set('Authorization', 'Bearer institutional')
       .expect(200);
 
-    expect(blockchain.getTotalBalance).toHaveBeenCalledWith(walletA);
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletA);
     expect(res.body).toMatchObject({
       tenantId: String(seed.tenantA._id),
       assignmentId: String(seed.assignmentA._id),
       wallet: walletA,
       walletStatus: 'VERIFIED',
+      balanceStatus: 'AVAILABLE',
       tokenSymbol: 'TVD',
       chainId: 84532,
       contractAddress: tokenContract,
-      assignmentContractAddress: assignmentContract,
-      assignedBalance: {
+      assignmentContractAddress: null,
+      liquidBalance: {
         smallestUnit: '11000000000000000000',
         formatted: '11',
         decimals: 18,
       },
+      totalBalance: {
+        smallestUnit: '11000000000000000000',
+        formatted: '11',
+        decimals: 18,
+      },
+      assignedBalance: null,
       pendingAccreditationsCount: 0,
     });
     expect(JSON.stringify(res.body)).not.toContain('serializedTransaction');
@@ -925,15 +938,20 @@ describe('TVD query endpoints (integration)', () => {
       })
       .expect(400);
 
-    blockchain.getTotalBalance.mockRejectedValueOnce(
+    blockchain.getLiquidBalance.mockRejectedValueOnce(
       new Error('rpc unavailable with secret'),
     );
     const res = await request(app.getHttpServer())
       .get('/api/v1/tvd/me/summary')
       .set('Authorization', 'Bearer institutional')
-      .expect(503);
+      .expect(200);
     expect(res.body).toMatchObject({
-      code: 'TVD_BALANCE_TEMPORARILY_UNAVAILABLE',
+      balanceStatus: 'UNAVAILABLE',
+      balanceErrorCode: 'TVD_RPC_UNAVAILABLE',
+      balance: null,
+      formattedBalance: null,
+      liquidBalance: null,
+      totalBalance: null,
     });
     expect(JSON.stringify(res.body)).not.toContain(
       'rpc unavailable with secret',

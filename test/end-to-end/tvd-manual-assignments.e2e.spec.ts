@@ -14,6 +14,7 @@ import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.serv
 import { TvdModule } from '@/modules/tvd/tvd.module';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
@@ -81,6 +82,7 @@ describe('TVD manual assignments controlled e2e', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([

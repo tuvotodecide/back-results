@@ -47,6 +47,7 @@ import { TvdModule } from '@/modules/tvd/tvd.module';
 import { InstitutionalVotingService } from '@/modules/institutional-voting/services/institutional-voting.service';
 import { INestApplication, UnauthorizedException, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import {
   getConnectionToken,
   getModelToken,
@@ -114,6 +115,7 @@ describe('TVD capacity endpoints (integration)', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([

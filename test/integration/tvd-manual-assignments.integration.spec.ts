@@ -20,6 +20,7 @@ import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.serv
 import { TvdModule } from '@/modules/tvd/tvd.module';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
@@ -93,6 +94,7 @@ describe('TVD manual assignments endpoint (integration)', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([
@@ -260,7 +262,6 @@ describe('TVD manual assignments endpoint (integration)', () => {
       expect(blockchain.prepareSignedAssignTransaction).toHaveBeenCalledWith({
         institutionWallet: wallet,
         amountSmallestUnit: '2500',
-        nonce: '7',
       });
       expect(await accreditationModel.countDocuments({ sourceType: 'QR_PAYMENT' })).toBe(0);
       expect(await paymentModel.countDocuments({})).toBe(0);
@@ -375,7 +376,7 @@ describe('TVD manual assignments endpoint (integration)', () => {
       expect(JSON.stringify(response.body)).toContain('TVD_CONFIG_INCOMPLETE');
       const stored = await accreditationModel.findOne({ sourceId: 'integration-blockchain-error' }).lean();
       expect(stored).toMatchObject({
-        status: 'FAILED',
+        status: 'BLOCKED_CONFIGURATION',
         lastErrorCode: 'TVD_CONFIG_INCOMPLETE',
       });
       expect(blockchain.prepareSignedAssignTransaction).not.toHaveBeenCalled();

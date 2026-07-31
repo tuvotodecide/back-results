@@ -24,6 +24,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import {
   getConnectionToken,
   getModelToken,
@@ -94,6 +95,7 @@ describe('TVD accounting models, snapshots and idempotency (integration)', () =>
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([

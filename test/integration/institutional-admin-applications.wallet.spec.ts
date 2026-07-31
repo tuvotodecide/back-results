@@ -59,6 +59,7 @@ import { executeCoinbaseOp } from '@/api/account';
 import { VoteContractCalls, VoteContractReads } from '@/api/vote';
 
 const validAccountAddress = '0x1234567890abcdef1234567890abcdef12345678';
+const institutionNotFoundError = () => new Error('Institution does not exist');
 
 describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend Results | Solicitudes y firma institucional', () => {
   let app: INestApplication;
@@ -170,13 +171,20 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    (executeCoinbaseOp as jest.Mock).mockReset();
+    (VoteContractCalls.createInstitution as jest.Mock).mockReset();
+    (VoteContractCalls.addAuthorizedAddress as jest.Mock).mockReset();
+    (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockReset();
+    (VoteContractCalls.changeInstitutionAdmin as jest.Mock).mockReset();
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockReset();
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockReset();
     (executeCoinbaseOp as jest.Mock).mockResolvedValue({ txHash: '0xabc123' });
     (VoteContractCalls.createInstitution as jest.Mock).mockReturnValue({ calldata: '0x' });
     (VoteContractCalls.addAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x1234' });
     (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x5678' });
     (VoteContractCalls.changeInstitutionAdmin as jest.Mock).mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x9abc' });
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(validAccountAddress);
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValue(institutionNotFoundError());
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
     httpService.axiosRef.post.mockResolvedValue({
       data: { registered: true, accountAddress: validAccountAddress },
     });
@@ -272,6 +280,12 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .expect(201);
 
     await applicationsService.processInstitutionCreationOperation(id);
+    const application = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(id),
+    });
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(
+      application?.accountAddress,
+    );
     await applicationsService.reconcileInstitutionCreationOperation(id);
 
     return approveRes;
@@ -1292,7 +1306,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       .expect(201);
     expect(approveRes.body).toMatchObject({
       status: 'PENDING_CHAIN_CONFIRMATION',
-      chainStatus: 'PENDING_SEND',
+      chainStatus: 'SENT',
       functionalStatus: 'PROCESSING_AUTHORIZATION',
       functionalStatusLabel: 'Procesando autorización',
     });
@@ -1307,7 +1321,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
 
     expect(application?.status).toBe('PENDING_CHAIN_CONFIRMATION');
     expect(application?.stableInstitutionId).toBe(String(application?.tenantId));
-    expect(application?.chainStatus).toBe('PENDING_SEND');
+    expect(application?.chainStatus).toBe('SENT');
     expect(await conn.collection('institutional_tenants').findOne({ _id: application?.tenantId }))
       .toEqual(expect.objectContaining({ active: false }));
     expect(assignment).toEqual(
@@ -1320,7 +1334,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
         institutionalRole: 'PRIMARY',
       }),
     );
-    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+    expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
   });
 
   it('D-STATE-001 / D-STATE-002 / D-STATE-003 / D-STATE-004 / D-STATE-005 | expone estados funcionales autoritativos para solicitudes institucionales', async () => {
@@ -1448,8 +1462,8 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(application?.stableInstitutionId).toBe(String(application?.tenantId));
     expect(application?.stableInstitutionId).not.toBe(id);
 
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(
-      '0x0000000000000000000000000000000000000000',
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValueOnce(
+      institutionNotFoundError(),
     );
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValueOnce(false);
     await applicationsService.processInstitutionCreationOperation(id);
@@ -1473,19 +1487,6 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/${id}/approve`)
       .expect(201);
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(
-      '0x0000000000000000000000000000000000000000',
-    );
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValueOnce(false);
-
-    const processed = await applicationsService.processInstitutionCreationOperation(id);
-
-    expect(processed).toMatchObject({
-      processed: true,
-      status: 'SENT',
-      txHash: '0xabc123',
-      attempts: 1,
-    });
     const application = await conn.collection('institutional_admin_applications').findOne({
       _id: new Types.ObjectId(id),
     });
@@ -1504,6 +1505,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
         chainAttempts: 1,
       }),
     );
+    expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
     expect(tenant?.active).toBe(false);
     expect(assignment).toEqual(expect.objectContaining({ status: 'PENDING', active: false }));
   });
@@ -1512,23 +1514,22 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     const { id } = await createVerifiedApplication(
       payloadFor('chain-timeout', 'Institucion Timeout Red', validAccountAddress),
     );
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/${id}/approve`)
-      .expect(201);
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(
-      '0x0000000000000000000000000000000000000000',
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValueOnce(
+      institutionNotFoundError(),
     );
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValueOnce(false);
     (executeCoinbaseOp as jest.Mock).mockRejectedValueOnce(
       Object.assign(new Error('network timeout'), { code: 'ETIMEDOUT' }),
     );
 
-    const processed = await applicationsService.processInstitutionCreationOperation(id);
+    const approve = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${id}/approve`)
+      .expect(201);
 
-    expect(processed).toMatchObject({
-      processed: true,
-      status: 'RETRY_PENDING',
-      attempts: 1,
+    expect(approve.body).toMatchObject({
+      status: 'CHAIN_RETRY_PENDING',
+      chainStatus: 'RETRY_PENDING',
+      functionalStatus: 'RECOVERABLE_ERROR',
     });
     const application = await conn.collection('institutional_admin_applications').findOne({
       _id: new Types.ObjectId(id),
@@ -1563,8 +1564,8 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/${id}/approve`)
       .expect(201);
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(
-      '0x0000000000000000000000000000000000000000',
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValueOnce(
+      institutionNotFoundError(),
     );
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValueOnce(false);
     await applicationsService.processInstitutionCreationOperation(id);
@@ -1651,8 +1652,8 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     const { id } = await createVerifiedApplication(
       payloadFor('double-approve', 'Institucion Concurrencia', validAccountAddress),
     );
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(
-      '0x0000000000000000000000000000000000000000',
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValue(
+      institutionNotFoundError(),
     );
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
 
@@ -1679,11 +1680,6 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       tenantId: applicationAfterApproval?.tenantId,
       userId: applicationAfterApproval?.userId,
     })).toBe(1);
-
-    await Promise.allSettled([
-      applicationsService.processInstitutionCreationOperation(id),
-      applicationsService.processInstitutionCreationOperation(id),
-    ]);
 
     const applicationAfterWorkers = await conn.collection('institutional_admin_applications').findOne({
       _id: new Types.ObjectId(id),
@@ -1741,9 +1737,9 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       },
     ]);
     (VoteContractReads.getInstitutionAdmin as jest.Mock)
-      .mockResolvedValueOnce('0x0000000000000000000000000000000000000000')
+      .mockRejectedValueOnce(institutionNotFoundError())
       .mockResolvedValueOnce('0x0000000000000000000000000000000000000b15')
-      .mockResolvedValue('0x0000000000000000000000000000000000000000');
+      .mockRejectedValue(institutionNotFoundError());
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
 
     const firstRun = await applicationsService.backfillHistoricalInstitutionStableIds();
@@ -1847,9 +1843,9 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       },
     ]);
     (VoteContractReads.getInstitutionAdmin as jest.Mock)
-      .mockResolvedValueOnce('0x0000000000000000000000000000000000000000')
+      .mockRejectedValueOnce(institutionNotFoundError())
       .mockResolvedValueOnce('0x0000000000000000000000000000000000000c02')
-      .mockResolvedValue('0x0000000000000000000000000000000000000000');
+      .mockRejectedValue(institutionNotFoundError());
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
 
     const first = await applicationsService.backfillHistoricalInstitutionStableIds();

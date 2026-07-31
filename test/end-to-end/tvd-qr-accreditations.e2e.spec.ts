@@ -33,6 +33,7 @@ import { TvdExchangeRatesService } from '@/modules/tvd/services/tvd-exchange-rat
 import { TvdModule } from '@/modules/tvd/tvd.module';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import {
   getConnectionToken,
   getModelToken,
@@ -61,7 +62,7 @@ describe('TVD QR accreditations controlled e2e', () => {
 
   const qrProvider = {
     generateQr: jest.fn(async (input: any) => ({
-      providerReference: `RED-${input.merchantReference}`,
+      providerReference: input.merchantReference,
       originMerchantReference: input.merchantReference,
       amountMinor: input.amountMinor,
       currency: input.currency,
@@ -87,6 +88,7 @@ describe('TVD QR accreditations controlled e2e', () => {
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TvdModule,
         MongooseModule.forFeature([
