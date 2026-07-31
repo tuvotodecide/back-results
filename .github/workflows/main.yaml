@@ -119,6 +119,22 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:09
 
+      - name: MX-10 | Administración territorial, contratos y delegados | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:10
+
+      - name: MX-11 | Atestiguamiento, actas y evidencias | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:11
+
+      - name: MX-12 | Resultados administrativos y reportes | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:12
+
+      - name: MX-13 | Resultados públicos y landing de votaciones | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:13
+
       - name: Run module tests - Institutional voting residual outside MX-04, MX-05, MX-06, MX-07, MX-08 and MX-09
         if: ${{ !cancelled() }}
         run: pnpm test:module:institutional-voting
@@ -127,17 +143,9 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:module:users-zk
 
-      - name: Run module tests - Electoral results
-        if: ${{ !cancelled() }}
-        run: pnpm test:module:results
-
       - name: Run module tests - Ballots and worksheets
         if: ${{ !cancelled() }}
         run: pnpm test:module:ballots-worksheets
-
-      - name: Run module tests - Attestation and oracle
-        if: ${{ !cancelled() }}
-        run: pnpm test:module:attestation
 
       - name: Run module tests - Geography, parties and configuration
         if: ${{ !cancelled() }}

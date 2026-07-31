@@ -74,7 +74,7 @@ describe('AttestationResolverService (unit)', () => {
     runs = { save: jest.fn().mockResolvedValue(undefined) };
   });
 
-  it('resolvePending no procesa si no hay elecciones activas', async () => {
+  it('[ADM-CAS-P1-003] no resuelve casos cuando no hay elecciones activas', async () => {
     electionConfigService.getActiveConfigs.mockResolvedValue([]);
     const service = buildService(false);
 
@@ -84,7 +84,7 @@ describe('AttestationResolverService (unit)', () => {
     expect(oracleResolver.resolveAttestations).not.toHaveBeenCalled();
   });
 
-  it('resolvePending off-chain marca CLOSED con un acta apoyada por jurado', async () => {
+  it('[ADM-CAS-P1-003][TRA-P1-004] cierra caso off-chain con acta apoyada por jurado y fechas de resolucion', async () => {
     const electionId = new Types.ObjectId('64f000000000000000000001');
     const ballotId = new Types.ObjectId('64f000000000000000000002');
     electionConfigService.getActiveConfigs.mockResolvedValue([
@@ -129,7 +129,7 @@ describe('AttestationResolverService (unit)', () => {
     );
   });
 
-  it('resolvePending on-chain respeta lock y no llama oracle si no lo adquiere', async () => {
+  it('[REC-PAR-P0-006] respeta lock on-chain y no repite operacion contractual si no lo adquiere', async () => {
     const electionId = new Types.ObjectId('64f000000000000000000011');
     electionConfigService.getActiveConfigs.mockResolvedValue([
       {
@@ -157,7 +157,7 @@ describe('AttestationResolverService (unit)', () => {
     expect(oracleResolver.resolveAttestations).not.toHaveBeenCalled();
   });
 
-  it('resolvePending on-chain con lock adquirido llama oracle y libera lock', async () => {
+  it('[ADM-CAS-P1-003][ACT-SND-P0-001] resuelve on-chain con lock adquirido y libera la operacion controlada', async () => {
     const electionId = new Types.ObjectId('64f000000000000000000021');
     electionConfigService.getActiveConfigs.mockResolvedValue([
       {
@@ -208,7 +208,7 @@ describe('AttestationResolverService (unit)', () => {
     );
   });
 
-  it('resolvePending on-chain guarda error de oracle y libera lock', async () => {
+  it('[SEC-FIL-P0-003][REC-PAR-P0-006] guarda error de oracle sin filtrar secretos y libera lock', async () => {
     const electionId = new Types.ObjectId('64f000000000000000000031');
     electionConfigService.getActiveConfigs.mockResolvedValue([
       {
@@ -249,7 +249,7 @@ describe('AttestationResolverService (unit)', () => {
     );
   });
 
-  it('resolvePending on-chain no reprocesa caso cerrado', async () => {
+  it('[REC-DUP-P0-004] no reprocesa caso cerrado ni duplica transicion', async () => {
     const electionId = new Types.ObjectId('64f000000000000000000041');
     electionConfigService.getActiveConfigs.mockResolvedValue([
       {

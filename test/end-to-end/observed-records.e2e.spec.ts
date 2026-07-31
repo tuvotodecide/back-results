@@ -87,7 +87,7 @@ describe('Observed Records End-to-End Tests', () => {
     await app.close();
   });
 
-  it('AQ1: should return 201 on create observed ballot', async () => {
+  it('[ACT-FRM-P0-003] crea acta observada con texto de observacion valido', async () => {
     const table = cbbaTables[0];
 
     // Mock IPFS fetching
@@ -115,7 +115,7 @@ describe('Observed Records End-to-End Tests', () => {
     expect(savedBallot?.observationText).toBe('Observation for testing');
   });
 
-  it('AQ2: observed record should be counted on results', async () => {
+  it('[ADM-MES-P1-002] conserva acta observada disponible para consulta operativa por mesa', async () => {
     const table = cbbaTables[1];
 
     // Upload ballot and attestation
@@ -162,7 +162,7 @@ describe('Observed Records End-to-End Tests', () => {
     expect(res.body.summary).toHaveProperty('validVotes', 300);
   });
 
-  it('AQ3: should return 400 on observed ballot without observation text', async () => {
+  it('[ACT-FRM-P0-003] rechaza acta observada sin texto de observacion', async () => {
     const table = cbbaTables[2];
 
     // Mock IPFS fetching
@@ -184,7 +184,7 @@ describe('Observed Records End-to-End Tests', () => {
     expect(ballot.body).toHaveProperty('message', 'observationText es obligatorio cuando hasObservation=true');
   });
 
-  it('AQ4: should return 201 on observed ballot with observation text on IPFS', async () => {
+  it('[ACT-FRM-P0-003][EVD-IPF-P0-004] persiste acta observada cuando metadata IPFS contiene observacion valida', async () => {
     const table = cbbaTables[3];
     const mockedData = getMockOpenSeaMetadata(table.tableCode, table.tableNumber, table.electoralLocationId, cbbaParties.codes);
 
@@ -216,7 +216,7 @@ describe('Observed Records End-to-End Tests', () => {
     expect(savedBallot?.observationText).toBe('Observation for testing 4');
   });
 
-  it('AO5: shoud not mark ballot as observed if hasObservation is not send and observationText has text "correyvale"', async () => {
+  it('[ACT-FRM-P0-003] no marca observacion cuando el texto correyvale no activa hasObservation', async () => {
     const table = cbbaTables[4];
 
     // Mock IPFS fetching
@@ -243,7 +243,7 @@ describe('Observed Records End-to-End Tests', () => {
     expect(savedBallot?.observationText).toBeUndefined();
   })
 
-  it('AQ6: should return 400 on create observed ballot with empty observation text', async () => {
+  it('[ACT-FRM-P0-003] rechaza observacion vacia sin persistir acta', async () => {
     const table = cbbaTables[5];
 
     // Mock IPFS fetching

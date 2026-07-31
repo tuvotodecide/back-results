@@ -85,7 +85,7 @@ describe('ClientReportsService (unit)', () => {
     );
   });
 
-  it('delegate-activity agrupa por delegado, recinto y mesa con totales actuales', async () => {
+  it('[ADM-REP-P1-004][SEC-DEL-P0-005] agrupa actividad de atestiguamiento por delegado recinto y mesa con datos minimos', async () => {
     contractModel.findById.mockReturnValue(chainLean(contract));
     delegateModel.find.mockReturnValue(chainLean(delegates));
     attestationModel.aggregate.mockReturnValue({
@@ -152,7 +152,7 @@ describe('ClientReportsService (unit)', () => {
     ]);
   });
 
-  it('delegate-activity documenta empty state con contrato vigente sin actividad', async () => {
+  it('[ADM-REP-P1-004] muestra empty state de actividad con contrato vigente sin atestiguamientos', async () => {
     contractModel.findById.mockReturnValue(chainLean(contract));
     delegateModel.find.mockReturnValue(chainLean(delegates));
     attestationModel.aggregate.mockReturnValue({
@@ -181,7 +181,7 @@ describe('ClientReportsService (unit)', () => {
     );
   });
 
-  it('executive-summary calcula metricas con y sin actividad', async () => {
+  it('[ADM-REP-P1-004][TRA-P1-004] calcula metricas operativas con y sin actividad de atestiguamiento', async () => {
     contractModel.findById.mockReturnValue(chainLean(contract));
     delegateModel.countDocuments.mockResolvedValue(1);
     delegateModel.find.mockReturnValue(chainLean(delegates));
@@ -225,7 +225,7 @@ describe('ClientReportsService (unit)', () => {
     );
   });
 
-  it('audit-match resume MATCH, MISMATCH y PENDING con filtros actuales', async () => {
+  it('[ADM-IMG-P1-001][ADM-MES-P1-002][ADM-AUD-P1-005][SEC-ACC-P0-001] resume evidencia por imagen mesa MATCH MISMATCH y PENDING filtrado por contrato y territorio', async () => {
     const secondBallotId = new Types.ObjectId();
     const pendingBallotId = new Types.ObjectId();
     contractModel.findById.mockReturnValue(chainLean(contract));
@@ -290,7 +290,7 @@ describe('ClientReportsService (unit)', () => {
     ]);
   });
 
-  it('lanza NotFoundException cuando el contrato de reporte no existe', async () => {
+  it('[SEC-ACC-P0-001] rechaza reporte operativo cuando el contrato no existe', async () => {
     contractModel.findById.mockReturnValue(chainLean(null));
 
     await expect(

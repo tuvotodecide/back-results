@@ -175,7 +175,7 @@ describe('Results E2E (HTTP caja negra)', () => {
   });
 
   describe('403 cuando no hay configuración activa', () => {
-    it('GET /api/v1/results/quick-count -> 403 NO_ELECTION_CONFIG (sin configs)', async () => {
+    it('[RES-ACC-P0-001][RES-ACC-P1-003][RES-SEC-P0-001] rechaza quick-count sin configuracion electoral activa', async () => {
       // Vaciar configs
       await conn.collection('election_configs').deleteMany({});
       const res = await request(app.getHttpServer())
@@ -187,7 +187,7 @@ describe('Results E2E (HTTP caja negra)', () => {
   });
 
   describe('Guards + escenarios', () => {
-    it('ResultsPeriodGuard: requiere resultsStartDate alcanzada (FINAL)', async () => {
+    it('[RES-ACC-P0-001] permite resultados finales solo al alcanzar resultsStartDate', async () => {
       // dejamos solo la FINAL activa
       await conn.collection('election_configs').deleteMany({});
       await conn.collection('election_configs').insertOne({
@@ -208,7 +208,7 @@ describe('Results E2E (HTTP caja negra)', () => {
         .expect(200);
     });
 
-    it('PreliminaryResultsGuard: LIVE solo durante jornada o allowDataModification=true', async () => {
+    it('[RES-ACC-P0-001][RES-SUM-P0-002] permite resultados live solo durante jornada o modificacion habilitada', async () => {
       // solo LIVE activa y estamos dentro de votación
       await conn.collection('election_configs').deleteMany({});
       await conn.collection('election_configs').insertOne({
@@ -231,7 +231,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(res.body.summary?.validVotes).toBe(200);
     });
 
-    it('Con múltiples activas y sin electionId: 403 NO_ELECTION_CONFIG_FOR_REQUEST (guard)', async () => {
+    it('[RES-ACC-P1-003][RES-FIL-P1-001] rechaza multiples elecciones activas sin electionId', async () => {
       // Activamos FINAL y LIVE a la vez
       const now = Date.now();
       await conn.collection('election_configs').deleteMany({});
@@ -273,7 +273,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       });
     });
 
-    it('quick-count FINAL: usa solo la versión ganadora (T1 v2) y excluye mesas observadas', async () => {
+    it('[RES-SUM-P0-001][RES-CAS-P0-003][RES-CON-P0-001] quick-count final usa solo version ganadora y excluye mesas observadas', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/quick-count?electionId=${electionFinalId}`)
         .expect(200);
@@ -294,7 +294,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(cc.percentage).toBe('52.94');  // 90/170*100=52.9411
     });
 
-    it('by-location FINAL: totalTables cuenta mesas activas no observadas y tablesProcessed solo efectivas', async () => {
+    it('[RES-SUM-P0-001][RES-TER-P0-001][RES-CON-P0-001] by-location final cuenta mesas activas y procesadas efectivas', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/by-location?electionType=presidential&department=La%20Paz&electionId=${electionFinalId}`)
         .expect(200);
@@ -314,7 +314,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(cc.percentage).toBe('41.67');  // 50/120
     });
 
-    it('by-circunscripcion FINAL HTTP: filtra circunscripción y calcula votos efectivos', async () => {
+    it('[RES-TER-P0-001][RES-CAT-P0-001] by-circunscripcion final filtra dimension y calcula votos efectivos', async () => {
       const res = await request(app.getHttpServer())
         .get(
           `/api/v1/results/by-circunscripcion?electionType=presidential&circunscripcionType=Uninominal&electionId=${electionFinalId}`,
@@ -335,7 +335,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(circ.blankVotes).toBe(5);
     });
 
-    it('heat-map FINAL department: partyPercentages con round(2) y orden por location', async () => {
+    it('[RES-TER-P1-003][RES-SUM-P0-003] heat-map final calcula porcentajes por departamento con dos decimales', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/heat-map?electionType=presidential&locationType=department&electionId=${electionFinalId}`)
         .expect(200);
@@ -353,7 +353,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(sc.partyPercentages.CC).toBe(80.00);
     });
 
-    it('final/ballots: retorna solo actas finales efectivas, excluye observadas y pagina', async () => {
+    it('[RES-MES-P1-004][RES-ACT-P0-001][RES-CON-P0-001] final ballots retorna actas efectivas excluye observadas y pagina', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/final/ballots?electionType=presidential&electionId=${electionFinalId}&limit=10`)
         .expect(200);
@@ -376,7 +376,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(res.body.totalPages).toBe(1);
     });
 
-    it('live/by-location HTTP: calcula summary y porcentajes del modo preliminar', async () => {
+    it('[RES-SUM-P0-002][RES-TER-P0-001] live by-location calcula resumen preliminar autorizado', async () => {
       await conn.collection('election_configs').deleteMany({});
       await conn.collection('election_configs').insertOne({
         _id: new Types.ObjectId(electionLiveId),
@@ -406,7 +406,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(cc.percentage).toBe('40.00');
     });
 
-    it('live/heat-map HTTP: agrega porcentajes preliminares por departamento', async () => {
+    it('[RES-SUM-P0-002][RES-TER-P1-003] live heat-map agrega porcentajes preliminares por departamento', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/live/heat-map?locationType=department&electionId=${electionLiveId}`)
         .expect(200);
@@ -417,7 +417,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(lp.partyPercentages.CC).toBe(40.00);
     });
 
-    it('live/by-circunscripcion HTTP: filtra circunscripción y usa ballots live efectivos', async () => {
+    it('[RES-SUM-P0-002][RES-CAT-P0-001] live by-circunscripcion usa ballots live efectivos', async () => {
       const res = await request(app.getHttpServer())
         .get(
           `/api/v1/results/live/by-circunscripcion?circunscripcionType=Uninominal&electionId=${electionLiveId}`,
@@ -438,7 +438,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(circ.blankVotes).toBe(5);
     });
 
-    it('live/ballots: retorna actas preliminares efectivas y excluye observadas', async () => {
+    it('[RES-MES-P1-004][RES-SUM-P0-002] live ballots retorna actas preliminares efectivas', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/results/live/ballots?electionId=${electionLiveId}&limit=10`)
         .expect(200);
@@ -457,7 +457,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(res.body.totalPages).toBe(1);
     });
 
-    it('quick-count FINAL: empty state y votos cero no dividen por cero', async () => {
+    it('[RES-ACC-P1-003][RES-SUM-P0-003] quick-count final responde vacio y cero votos sin dividir por cero', async () => {
       const emptyElectionId = await seedElectionConfig(conn, {
         name: 'final-empty',
         votingStartDate: new Date(Date.now() - 4 * 60 * 60 * 1000),
@@ -523,7 +523,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       await conn.collection('electoral_tables').deleteMany({ tableCode: 'Z0' });
     });
 
-    it('live/quick-count y live/ballots: empty state sin ballots preliminares', async () => {
+    it('[RES-ACC-P1-003][RES-SUM-P0-002] live quick-count y ballots responden vacio sin actas preliminares', async () => {
       await conn.collection('election_configs').deleteMany({});
       const emptyLiveId = await seedElectionConfig(conn, {
         name: 'live-empty',
@@ -555,7 +555,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       );
     });
 
-    it('registration-progress por filtro y system-statistics sin 500 con BD vacía', async () => {
+    it('[RES-REP-P1-002][RES-TRA-P1-003] registration-progress y estadisticas responden sin 500 con BD vacia', async () => {
       await conn.collection('election_configs').deleteMany({});
       await conn.collection('election_configs').insertOne({
         _id: new Types.ObjectId(electionFinalId),
@@ -590,7 +590,7 @@ describe('Results E2E (HTTP caja negra)', () => {
       expect(res2.body.departmentCoverage.length).toBe(0);
     });
 
-    it('Cache TTL: lastUpdate estable dentro del TTL del endpoint; cambia al vencer', async () => {
+    it('[RES-UPD-P1-002][RES-CON-P0-002][RES-TRA-P1-003] cache TTL mantiene lastUpdate dentro del endpoint y cambia al vencer', async () => {
       // Dejamos una sola config presidencial activa para evitar conflicto con el índice parcial único
       await conn.collection('election_configs').deleteMany({});
       await conn.collection('election_configs').insertOne({

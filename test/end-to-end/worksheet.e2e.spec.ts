@@ -120,7 +120,7 @@ describe('Worksheet End-to-End Tests', () => {
     return mockedData;
   }
 
-  it('HT1: should create a worksheet', async () => {
+  it('[ATE-AUT-P0-004][ATE-SEL-P1-004][REC-DUP-P0-003] crea hoja de trabajo para DNI mesa y eleccion autorizados', async () => {
     const currentTable = cbbaTables[0];
     mockWorksheet(currentTable);
 
@@ -142,7 +142,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(worksheet?.votes?.parties?.totalVotes).toBe(157);
   });
 
-  it('HT2-A: should return 400 for invalid IPFS URI', async () => {
+  it('[EVD-IPF-P0-004][SEC-FIL-P0-003] rechaza URI IPFS invalida con error seguro', async () => {
     jest.spyOn(worksheetService, 'fetchFromIpfs' as any).mockRestore();
     const response = await request(appHttpServer)
       .post('/api/v1/worksheets/from-ipfs')
@@ -155,7 +155,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body).toHaveProperty('message', 'Error al obtener datos de IPFS');
   });
 
-  it('HT2-B: should return 400 for IPFS URI with bad data', async () => {
+  it('[EVD-IPF-P0-004] rechaza metadata IPFS sin datos validos', async () => {
     jest.spyOn(worksheetService, 'fetchFromIpfs' as any).mockRestore();
     const response = await request(appHttpServer)
       .post('/api/v1/worksheets/from-ipfs')
@@ -168,7 +168,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body).toHaveProperty('message', 'Error al obtener datos de IPFS');
   });
 
-  it('HT2-C: should return 400 for IPFS timeout/error mock', async () => {
+  it('[EVD-IPF-P0-004][SEC-FIL-P0-003] rechaza fallo de gateway IPFS sin persistir hoja', async () => {
     jest
       .spyOn(worksheetService, 'fetchFromIpfs' as any)
       .mockRejectedValue(
@@ -190,7 +190,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body).toHaveProperty('message', 'Error al obtener datos de IPFS');
   });
 
-  it('HT3: should return 403 for non zk-authorized users', async () => {
+  it('[ATE-AUT-P0-005] rechaza hoja de trabajo sin x-api-key vigente', async () => {
     const table = cbbaTables[1];
     mockWorksheet(table);
 
@@ -209,7 +209,7 @@ describe('Worksheet End-to-End Tests', () => {
     mockZkAuthGuard.canActivate.mockResolvedValue(true);
   });
 
-  it('HT4: should return the registered worksheet', async () => {
+  it('[ATE-SEL-P1-004] devuelve hoja registrada para DNI mesa y eleccion', async () => {
     const response = await request(appHttpServer)
       .get(`/api/v1/worksheets/${userDni}/by-table/${cbbaTables[0].tableCode}`)
       .query({ electionId: activeElectionId })
@@ -221,7 +221,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body.ipfsUri).toBe('https://ipfs.io/ipfs/testworksheet1');
   });
 
-  it('HT4-B: should return worksheet detail with image and votes', async () => {
+  it('[ATE-SEL-P1-004][ACT-FRM-P1-004] devuelve detalle de hoja con imagen y votos comparables', async () => {
     const response = await request(appHttpServer)
       .get(`/api/v1/worksheets/${userDni}/by-table/${cbbaTables[0].tableCode}/detail`)
       .query({ electionId: activeElectionId })
@@ -235,7 +235,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body.votes.parties.totalVotes).toBe(157);
   });
 
-  it('HT5-A: should return NOT_FOUND if no worksheet found for not registered dni', async () => {
+  it('[SEC-DNI-P0-002] responde NOT_FOUND para DNI sin hoja sin enumerar datos ajenos', async () => {
     const response = await request(appHttpServer)
       .get(`/api/v1/worksheets/000000/by-table/${cbbaTables[0].tableCode}`)
       .query({ electionId: activeElectionId })
@@ -244,7 +244,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body.status).toBe('NOT_FOUND');
   });
 
-  it('HT5-B: should return NOT_FOUND if no worksheet found for wrong table code', async () => {
+  it('[ATE-SEL-P1-004] responde NOT_FOUND para mesa incorrecta sin filtrar hoja', async () => {
     const response = await request(appHttpServer)
       .get(`/api/v1/worksheets/${userDni}/by-table/${cbbaTables[1].tableCode}`)
       .query({ electionId: activeElectionId })
@@ -253,7 +253,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body.status).toBe('NOT_FOUND');
   });
 
-  it('HT5-C: should return NOT_FOUND if no worksheet found for non-existent election id', async () => {
+  it('[ATE-SEL-P1-004] responde NOT_FOUND para eleccion inexistente sin filtrar hoja', async () => {
     const response = await request(appHttpServer)
       .get(`/api/v1/worksheets/${userDni}/by-table/${cbbaTables[0].tableCode}`)
       .query({ electionId: pastElectionId })
@@ -278,7 +278,7 @@ describe('Worksheet End-to-End Tests', () => {
       }
     });
 
-    it('HT6: should return MATCH on match compare worksheet with provided votes', async () => {
+    it('[ACT-FRM-P1-004] devuelve MATCH al comparar hoja y acta equivalentes', async () => {
       const response = await request(appHttpServer)
         .post('/api/v1/worksheets/compare')
         .send({
@@ -291,7 +291,7 @@ describe('Worksheet End-to-End Tests', () => {
       expect(response.body.differences).toHaveLength(0);
     });
 
-    it('HT7-A: should return MISMATCH on compare worksheet with different party names', async () => {
+    it('[ACT-FRM-P1-004] devuelve MISMATCH con nombres de partidos diferentes', async () => {
       const votes: WorksheetVotesDto = {
         parties: {
           ...mockedData.data.votes.parties!,
@@ -315,7 +315,7 @@ describe('Worksheet End-to-End Tests', () => {
       expect(response.body.differences).toHaveLength(6);
     });
 
-    it('HT7-B: should return MISMATCH on compare worksheet with 1 party more', async () => {
+    it('[ACT-FRM-P1-004] devuelve MISMATCH cuando el acta tiene un partido adicional', async () => {
       const votes: WorksheetVotesDto = {
         parties: {
           ...mockedData.data.votes.parties!,
@@ -338,7 +338,7 @@ describe('Worksheet End-to-End Tests', () => {
       expect(response.body.differences).toHaveLength(1);
     });
 
-    it('HT7-C: should return MISMATCH on compare worksheet with 1 party less', async () => {
+    it('[ACT-FRM-P1-004] devuelve MISMATCH cuando falta un partido del acta', async () => {
       const votes: WorksheetVotesDto = {
         parties: {
           ...mockedData.data.votes.parties!,
@@ -361,7 +361,7 @@ describe('Worksheet End-to-End Tests', () => {
       expect(response.body.differences).toHaveLength(1);
     });
 
-    it('HT7-D: should return MISMATCH on compare worksheet with different totals', async () => {
+    it('[ACT-FRM-P1-004] devuelve MISMATCH con totales distintos', async () => {
       const votes: WorksheetVotesDto = {
         parties: {
           totalVotes: mockedData.data.votes.parties!.totalVotes! + 3,
@@ -384,7 +384,7 @@ describe('Worksheet End-to-End Tests', () => {
       expect(response.body.differences).toHaveLength(4);
     });
 
-    it('HT7-E: should return MISMATCH on compare worksheet with different party votes', async () => {
+    it('[ACT-FRM-P1-004] devuelve MISMATCH con votos por partido distintos', async () => {
       const votes: WorksheetVotesDto = {
         parties: {
           ...mockedData.data.votes.parties!,
@@ -407,7 +407,7 @@ describe('Worksheet End-to-End Tests', () => {
       expect(response.body.differences).toHaveLength(3);
     });
 
-    it('HT8: should return NOT_FOUND on compare not existing worksheet', async () => {
+    it('[ACT-FRM-P1-004] devuelve NOT_FOUND al comparar hoja inexistente', async () => {
       const response = await request(appHttpServer)
         .post('/api/v1/worksheets/compare')
         .send({
@@ -419,7 +419,7 @@ describe('Worksheet End-to-End Tests', () => {
       expect(response.body.status).toBe('NOT_FOUND');
     });
 
-    it('HT9: should return NOT_AVAILABLE on failed worksheet', async () => {
+    it('[ACT-FRM-P1-004][REC-QUE-P0-001] devuelve NOT_AVAILABLE para hoja fallida recuperable', async () => {
       const failedTable = cbbaTables[4];
 
       // Upload a failed worksheet (simulate IPFS fetch failure)
@@ -456,7 +456,7 @@ describe('Worksheet End-to-End Tests', () => {
     });
   });
 
-  it('HT10: should return 409 on try to upload the same worksheet', async () => {
+  it('[REC-DUP-P0-003] devuelve conflicto al subir la misma hoja de trabajo', async () => {
     const currentTable = cbbaTables[0];
     mockWorksheet(currentTable);
 
@@ -471,7 +471,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body).toHaveProperty('message', 'La hoja de trabajo ya fue subida para esta mesa y elección'); 
   });
 
-  it('HT12: should return 400 on retry an uploaded worksheet', async () => {
+  it('[REC-DUP-P0-003] rechaza reintento de hoja ya subida', async () => {
     const currentTable = cbbaTables[0];
     mockWorksheet(currentTable);
 
@@ -487,7 +487,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body).toHaveProperty('message', 'Solo se puede reintentar una hoja en estado FAILED'); 
   });
 
-  it('HT13: should return 404 on retry a non-existing worksheet', async () => {
+  it('[REC-QUE-P0-002] rechaza reintento de hoja inexistente sin crear duplicado', async () => {
     const currentTable = cbbaTables[5];
     mockWorksheet(currentTable);
 
@@ -503,7 +503,7 @@ describe('Worksheet End-to-End Tests', () => {
     expect(response.body).toHaveProperty('message', 'No existe hoja de trabajo fallida para reintentar'); 
   });
 
-  it('HT14: should return 201 on retry a failed worksheet', async () => {
+  it('[REC-QUE-P0-002][REC-PAR-P0-006] reintenta hoja fallida desde checkpoint sin duplicar evidencia', async () => {
     const failedTable = cbbaTables[5];
     const mockedData = getMockOpenSeaMetadata(failedTable.tableCode, failedTable.tableNumber, failedTable.electoralLocationId, cbbaParties.codes);
 

@@ -236,7 +236,7 @@ describe('ResultsService integración', () => {
     await moduleRef?.close();
   });
 
-  it('getQuickCount FINAL con lista de electionId ($in)', async () => {
+  it('[RES-FIL-P1-001][RES-SUM-P0-001] getQuickCount final acepta lista de electionId validos', async () => {
     const r = await service.getQuickCount(`${electionA},${electionB}`, 'final');
     // A: X1 (v2) valid=120 ; B: X2 valid=200 => total valid=320
     expect(r.summary.validVotes).toBe(320);
@@ -251,13 +251,13 @@ describe('ResultsService integración', () => {
     expect(pb!.percentage).toBe('46.88');
   });
 
-  it('getQuickCount LIVE incluye solo mesas con 1 versión y no observadas (ignora cases)', async () => {
+  it('[RES-SUM-P0-002][RES-CON-P0-001] getQuickCount live incluye solo mesas con una version y no observadas', async () => {
     const r = await service.getQuickCount(electionB, 'live');
     // B solo X2 (1 versión), valid=200
     expect(r.summary.validVotes).toBe(200);
   });
 
-  it('getResultsByLocation: summary.totalTables vs tablesProcessed (FINAL)', async () => {
+  it('[RES-SUM-P0-001][RES-TER-P0-001] getResultsByLocation mantiene totalTables y tablesProcessed final', async () => {
     const r = await service.getResultsByLocation({
       electionType: 'presidential',
       department: 'La Paz',
@@ -271,7 +271,7 @@ describe('ResultsService integración', () => {
     expect(r.summary.tablesProcessed).toBe(1);
   });
 
-  it('getResultsByCircunscripcion: agrupa y respeta filtros', async () => {
+  it('[RES-CAT-P0-001][RES-TER-P0-001] getResultsByCircunscripcion agrupa y respeta filtros', async () => {
     const r = await service.getResultsByCircunscripcion({
       electionType: 'presidential',
       circunscripcionType: 'Uninominal',
@@ -285,7 +285,7 @@ describe('ResultsService integración', () => {
     expect(c.validVotes).toBe(120); // X1 v2
   });
 
-  it('getHeatMapData: redondeo a 2 decimales y claves por departamento', async () => {
+  it('[RES-TER-P1-003][RES-SUM-P0-003] getHeatMapData redondea porcentajes por departamento', async () => {
     const r = await service.getHeatMapData({
       electionType: 'presidential',
       locationType: 'department',
@@ -298,7 +298,7 @@ describe('ResultsService integración', () => {
     expect(lp!.partyPercentages.B).toBe(58.33);
   });
 
-  it('getRegistrationProgress: compara con tablas activas (no observadas) bajo mismo filtro', async () => {
+  it('[RES-REP-P1-002][RES-TER-P0-001] getRegistrationProgress compara tablas activas bajo el mismo filtro', async () => {
     const rp = await service.getRegistrationProgress({
       department: 'La Paz',
       electionId: electionA,
@@ -309,14 +309,14 @@ describe('ResultsService integración', () => {
     expect(rp.progress.registeredBallots).toBe(3);
   });
 
-  it('getSystemStatistics: no falla con BD vacía', async () => {
+  it('[RES-REP-P1-002][RES-ACC-P1-003] getSystemStatistics responde empty state con BD vacia', async () => {
     await conn.dropDatabase();
     const stats = await service.getSystemStatistics();
     expect(stats.summary.totalBallots).toBe(0);
     expect(stats.departmentCoverage.length).toBe(0);
   });
 
-  it('allowDiskUse(true) no falla con miles de docs', async () => {
+  it('[RES-UPD-P1-002][RES-CON-P0-002] allowDiskUse soporta agregaciones grandes sin resultados parciales', async () => {
     // re-seed mínimo
     await seedGeoMinimal(conn);
     await upsertTable(conn, {

@@ -36,7 +36,7 @@ describe('ClientReportsController (unit)', () => {
     controller = new ClientReportsController(clientReportsService, contractsService);
   });
 
-  it('delegate-activity usa req.contract para usuario territorial y contractId para SUPERADMIN', async () => {
+  it('[ADM-REP-P1-004][SEC-ACC-P0-001] usa req.contract para usuario territorial y contractId para SUPERADMIN', async () => {
     clientReportsService.getDelegateActivityReport.mockResolvedValueOnce({
       groupBy: 'table',
       data: [],
@@ -67,7 +67,7 @@ describe('ClientReportsController (unit)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('executive-summary y audit-match delegan filtros al servicio con shape actual', async () => {
+  it('[ADM-AUD-P1-005][ADM-REP-P1-004] delega filtros de auditoria y reporte al servicio con shape actual', async () => {
     clientReportsService.getExecutiveSummary.mockResolvedValueOnce({
       summary: { totalAttestations: 0 },
     });
@@ -108,7 +108,7 @@ describe('ClientReportsController (unit)', () => {
     });
   });
 
-  it('my-contract documenta usuario con contrato y usuario sin contrato', async () => {
+  it('[ATE-AUT-P0-004][SEC-DEL-P0-005] documenta usuario con contrato activo y usuario sin contrato', async () => {
     contractsService.getClientContract.mockResolvedValueOnce(contract);
 
     const withContract = await controller.getMyContract(electionId, {
@@ -139,7 +139,7 @@ describe('ClientReportsController (unit)', () => {
     });
   });
 
-  it('my-active-contract usa electionId opcional y documenta empty state', async () => {
+  it('[ATE-AVL-P1-003][ATE-AUT-P0-004] usa electionId opcional para contrato activo y documenta empty state', async () => {
     contractsService.getClientContract.mockResolvedValueOnce(contract);
     await expect(
       controller.getMyActiveContract(electionId, { user: { sub: userId } }),
@@ -161,7 +161,7 @@ describe('ClientReportsController (unit)', () => {
     ).resolves.toEqual({ hasContract: false, contract: null });
   });
 
-  it('my-delegates documenta placeholder actual sin implementar lista real', async () => {
+  it('[SEC-DEL-P0-005] responde referencia minima de delegados sin exponer directorio general', async () => {
     const response = await controller.getMyDelegates(
       electionId,
       undefined as any,

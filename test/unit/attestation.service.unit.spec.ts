@@ -83,7 +83,7 @@ describe('AttestationService', () => {
     jest.clearAllMocks();
   });
 
-  it('crear attestation crea usuario si no existe', async () => {
+  it('[ACT-SND-P0-004][SEC-DNI-P0-002] crea atestiguamiento con DNI recibido y usuario normalizado', async () => {
     const validBallotId = new Types.ObjectId().toString();
     const validElectionId = new Types.ObjectId().toString();
 
@@ -100,7 +100,7 @@ describe('AttestationService', () => {
     expect(userSvc.findOrCreateByDni).toHaveBeenCalledWith('12345678');
   });
 
-  it('unicidad retorna error', async () => {
+  it('[REC-DUP-P0-004] rechaza atestiguamiento duplicado por usuario y acta', async () => {
     const validBallotId = new Types.ObjectId().toString();
     const validElectionId = new Types.ObjectId().toString();
 
@@ -118,7 +118,7 @@ describe('AttestationService', () => {
     ).rejects.toThrow(/ya atestiguó/i);
   });
 
-  it('filtros por electionId/isJury/support', async () => {
+  it('[SEC-ACC-P0-001][SEC-DEL-P0-005] filtra atestiguamientos por eleccion jurado soporte y alcance minimo', async () => {
     (svc as any).attestationModel.find.mockReturnValue({
       skip: () => ({
         limit: () => ({ sort: () => ({ lean: () => [{ _id: 'A1' }] }) }),
@@ -137,7 +137,7 @@ describe('AttestationService', () => {
     expect(Array.isArray(res.items)).toBe(true);
   });
 
-  it('runBallotComparisons persiste MATCH cuando coincide con TSE', async () => {
+  it('[ADM-AUD-P1-005][TRA-P1-004] persiste comparacion MATCH con trazabilidad temporal disponible', async () => {
     const electionId = new Types.ObjectId().toString();
     const ballotId = new Types.ObjectId();
 
@@ -218,7 +218,7 @@ describe('AttestationService', () => {
     expect((svc as any).ballotComparisonModel.findOneAndUpdate).toHaveBeenCalled();
   });
 
-  it('createBulk reporta duplicado en errors[] y summary.failed', async () => {
+  it('[REC-DUP-P0-004][REC-PAR-P0-006] reporta duplicado en errors y conserva resumen sin persistencia doble', async () => {
     const ballotId = new Types.ObjectId();
     const electionId = new Types.ObjectId();
 
@@ -262,7 +262,7 @@ describe('AttestationService', () => {
     expect(result.summary).toEqual({ total: 1, successful: 0, failed: 1 });
   });
 
-  it('createBulk marca delegado fuera de scope como isValidForClientReport=false', async () => {
+  it('[SEC-ACC-P0-001][SEC-DEL-P0-005] marca delegado fuera de alcance como no valido para reporte de contrato', async () => {
     const ballotId = new Types.ObjectId();
     const electionId = new Types.ObjectId();
 

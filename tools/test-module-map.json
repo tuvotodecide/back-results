@@ -87,13 +87,7 @@
       "BRS-F01",
       "BRS-F02"
     ],
-    "files": [
-      "test/acceptance/results.acceptance.spec.ts",
-      "test/end-to-end/results.e2e.spec.ts",
-      "test/integration/results.service.int-spec.ts",
-      "test/unit/results.controller.unit.spec.ts",
-      "test/unit/results.service.unit.spec.ts"
-    ]
+    "files": []
   },
   "ballots-worksheets": {
     "name": "Ballots and worksheets - BRS-F03 to BRS-F05",
@@ -104,8 +98,6 @@
     ],
     "files": [
       "test/acceptance/ballots.acceptance.spec.ts",
-      "test/end-to-end/observed-records.e2e.spec.ts",
-      "test/end-to-end/worksheet.e2e.spec.ts",
       "test/unit/ballot.service.unit.spec.ts"
     ]
   },
@@ -115,11 +107,7 @@
       "BRS-F06",
       "BRS-F07"
     ],
-    "files": [
-      "test/unit/attestation.service.unit.spec.ts",
-      "test/unit/attestation-resolver.service.unit.spec.ts",
-      "test/unit/oracle-resolver.service.unit.spec.ts"
-    ]
+    "files": []
   },
   "geography": {
     "name": "Geography, parties and configuration - BRS-F08 to BRS-F09",
@@ -249,8 +237,6 @@
       "test/end-to-end/complete.e2e.spec.ts",
       "test/end-to-end/auth.e2e.spec.ts",
       "test/end-to-end/participation.e2e.spec.ts",
-      "test/unit/client-reports.controller.unit.spec.ts",
-      "test/unit/client-reports.service.unit.spec.ts",
       "test/unit/contracts.service.unit.spec.ts",
       "test/unit/delegates.service.unit.spec.ts"
     ]
@@ -375,6 +361,141 @@
     ],
     "files": [
       "test/integration/institutional-voting/presential-sessions.spec.ts"
+    ]
+  },
+  "matrix_10": {
+    "name": "MX-10 | Administración territorial, contratos y delegados | Backend Results",
+    "flows": [
+      "MX-10",
+      "TER-LST",
+      "TER-JER",
+      "TER-NEW",
+      "TER-DEL",
+      "TER-CON",
+      "TER-ERR",
+      "CON-ACC",
+      "CON-NEW",
+      "CON-TER",
+      "CON-DUP",
+      "CON-LST",
+      "CON-PUB",
+      "CON-DIS",
+      "CON-CON",
+      "CON-ERR",
+      "DEL-UPL",
+      "DEL-ADD",
+      "DEL-DUP",
+      "DEL-MUL",
+      "DEL-LST",
+      "DEL-REM",
+      "DEL-AUT",
+      "DEL-CON",
+      "PER-GOV",
+      "PER-MAY",
+      "PER-NOC",
+      "PER-APP",
+      "PER-REP",
+      "SEC-TEN",
+      "SEC-DAT",
+      "SEC-DEL",
+      "SEC-BLO",
+      "TRA-P1"
+    ],
+    "files": [
+      "test/unit/matrix-10-geography.unit.spec.ts",
+      "test/unit/matrix-10-contracts-delegates.unit.spec.ts",
+      "test/unit/matrix-10-permissions-security.unit.spec.ts"
+    ]
+  },
+  "matrix_11": {
+    "name": "MX-11 | Atestiguamiento, actas y evidencias | Backend Results",
+    "flows": [
+      "MX-11",
+      "ATE-AVL",
+      "ATE-AUT",
+      "ATE-SEL",
+      "ACT-FRM",
+      "ACT-SND",
+      "EVD-IPF",
+      "ADM-IMG",
+      "ADM-MES",
+      "ADM-CAS",
+      "ADM-REP",
+      "ADM-AUD",
+      "REC-QUE",
+      "REC-DUP",
+      "REC-PAR",
+      "SEC-ACC",
+      "SEC-DNI",
+      "SEC-FIL",
+      "SEC-DEL",
+      "TRA",
+      "ACC-BE"
+    ],
+    "files": [
+      "test/end-to-end/observed-records.e2e.spec.ts",
+      "test/end-to-end/worksheet.e2e.spec.ts",
+      "test/unit/attestation.service.unit.spec.ts",
+      "test/unit/attestation-resolver.service.unit.spec.ts",
+      "test/unit/oracle-resolver.service.unit.spec.ts",
+      "test/unit/client-reports.controller.unit.spec.ts",
+      "test/unit/client-reports.service.unit.spec.ts",
+      "test/unit/matrix-11-attestation-backend-focal.unit.spec.ts"
+    ]
+  },
+  "matrix_12": {
+    "name": "MX-12 | Resultados administrativos y reportes | Backend Results",
+    "flows": [
+      "MX-12",
+      "RES-ACC",
+      "RES-SUM",
+      "RES-CAT",
+      "RES-TER",
+      "RES-MES",
+      "RES-ACT",
+      "RES-CAS",
+      "RES-FIL",
+      "RES-UPD",
+      "RES-REP",
+      "RES-CON",
+      "RES-SEC",
+      "RES-TRA",
+      "RES-UX"
+    ],
+    "files": [
+      "test/acceptance/results.acceptance.spec.ts",
+      "test/end-to-end/results.e2e.spec.ts",
+      "test/integration/results.service.int-spec.ts",
+      "test/unit/results.controller.unit.spec.ts",
+      "test/unit/results.service.unit.spec.ts",
+      "test/unit/matrix-12-results-admin-focal.unit.spec.ts"
+    ]
+  },
+  "matrix_13": {
+    "name": "MX-13 | Resultados públicos y landing de votaciones | Backend Results",
+    "flows": [
+      "MX-13",
+      "PUB-LND",
+      "PUB-LST",
+      "PUB-ACC",
+      "PUB-STA",
+      "PUB-INF",
+      "PUB-RES",
+      "PUB-CAT",
+      "PUB-TER",
+      "PUB-MES",
+      "PUB-ACT",
+      "PUB-CAS",
+      "PUB-FIL",
+      "PUB-UPD",
+      "PUB-CNS",
+      "PUB-SEC",
+      "PUB-UX"
+    ],
+    "files": [
+      "test/unit/institutional-voting/voting-results-public.service.unit.spec.ts",
+      "test/unit/matrix-13-public-voting-events.unit.spec.ts",
+      "test/unit/matrix-13-public-results-routes.unit.spec.ts"
     ]
   },
   "payments_remaining": {

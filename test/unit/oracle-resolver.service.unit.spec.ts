@@ -97,14 +97,14 @@ describe('OracleResolverService (unit)', () => {
     service = new OracleResolverService(config());
   });
 
-  it('resolveAttestations no envia transaccion si no hay items', async () => {
+  it('[REC-PAR-P0-006] no envia transaccion contractual mockeada si no hay items pendientes', async () => {
     await expect(service.resolveAttestations([])).resolves.toEqual({ success: true });
 
     expect(mockSendTransaction).not.toHaveBeenCalled();
     expect(mockEncodeFunctionData).not.toHaveBeenCalled();
   });
 
-  it('resolveAttestations en modo EOA construye payload y envia una tx por item', async () => {
+  it('[ACT-SND-P0-001][ACT-SND-P0-002] construye payload contractual mockeado y envia una tx por acta o apoyo', async () => {
     const result = await service.resolveAttestations([
       { tableCode: 'A-1', electionId: 'election-1' },
       { tableCode: 'A-2', electionId: 'election-1' },
@@ -130,7 +130,7 @@ describe('OracleResolverService (unit)', () => {
     });
   });
 
-  it('resolveAttestations retorna error controlado ante fallo RPC mockeado', async () => {
+  it('[SEC-FIL-P0-003] retorna error contractual mockeado sin filtrar secretos ante fallo RPC', async () => {
     mockSendTransaction.mockRejectedValueOnce(new Error('rpc failed'));
 
     await expect(
@@ -138,7 +138,7 @@ describe('OracleResolverService (unit)', () => {
     ).resolves.toEqual({ success: false, error: 'rpc failed' });
   });
 
-  it('initialize falla sin configuracion blockchain obligatoria', async () => {
+  it('[SEC-FIL-P0-003] rechaza configuracion contractual incompleta sin ejecutar contrato real', async () => {
     service = new OracleResolverService(config({ RESOLVER_KEY: undefined }));
 
     await expect(service.initialize()).rejects.toThrow(
@@ -146,7 +146,7 @@ describe('OracleResolverService (unit)', () => {
     );
   });
 
-  it('getAttestationInfo lee contrato y normaliza respuesta', async () => {
+  it('[ADM-CAS-P1-003] lee contrato mockeado y normaliza estado de caso de atestiguamiento', async () => {
     mockReadContract.mockResolvedValueOnce([3, 99n]);
 
     await expect(service.getAttestationInfo('A-1', 'election-1')).resolves.toEqual({
@@ -162,7 +162,7 @@ describe('OracleResolverService (unit)', () => {
     );
   });
 
-  it('mapContractStatusToString mapea estados del contrato', () => {
+  it('[ADM-CAS-P1-003] mapea estados contractuales VERIFYING CONSENSUAL CLOSED y PENDING', () => {
     expect(service.mapContractStatusToString(0)).toBe('VERIFYING');
     expect(service.mapContractStatusToString(1)).toBe('CONSENSUAL');
     expect(service.mapContractStatusToString(3)).toBe('CLOSED');
