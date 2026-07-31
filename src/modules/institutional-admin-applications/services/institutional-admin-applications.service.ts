@@ -864,27 +864,30 @@ export class InstitutionalAdminApplicationsService {
       }
     } catch (error) {
       this.logInstitutionCreationError(error, app, stableInstitutionId, accountAddress);
-      if (!this.isRecoverableChainError(error)) {
-        await this.applicationModel.updateOne(
-          { _id: app._id },
-          {
-            $set: {
-              status: 'CHAIN_FAILED',
-              chainStatus: 'FAILED',
-              chainLastError: this.toSafeChainError(error),
-              chainNextRetryAt: null,
-              chainLockedAt: null,
-              chainLockedUntil: null,
-            },
+      const attempts = app.chainAttempts ?? 1;
+      const recoverable = this.isRecoverableChainError(error);
+      const nextRetryAt = recoverable ? this.calculateNextChainRetryAt(attempts) : null;
+      await this.applicationModel.updateOne(
+        { _id: app._id },
+        {
+          $set: {
+            status: recoverable ? 'CHAIN_RETRY_PENDING' : 'CHAIN_FAILED',
+            chainStatus: recoverable ? 'RETRY_PENDING' : 'FAILED',
+            chainAttempts: attempts,
+            chainLastError: this.toSafeChainError(error),
+            chainNextRetryAt: nextRetryAt,
+            chainLockedAt: null,
+            chainLockedUntil: null,
           },
-        );
-        return {
-          processed: true,
-          status: 'FAILED',
-          stableInstitutionId,
-          attempts: app.chainAttempts ?? 1,
-        };
-      }
+        },
+      );
+      return {
+        processed: true,
+        status: recoverable ? 'RETRY_PENDING' : 'FAILED',
+        stableInstitutionId,
+        attempts,
+        nextRetryAt,
+      };
     }
 
     if (app.chainStatus === 'SENT') {
@@ -1740,10 +1743,19 @@ export class InstitutionalAdminApplicationsService {
       ) {
         return true;
       }
-    } catch (error) {
-      if (!this.isRecoverableChainError(error)) {
-        throw error;
+      if (typeof admin === 'string' && admin.trim()) {
+        throw new ConflictException('La institución ya existe en la red con otro administrador');
       }
+    } catch (error) {
+      if (this.isInstitutionNotFoundRevert(error)) {
+        this.logger.debug({
+          event: 'INSTITUTION_NOT_FOUND_ON_CHAIN',
+          stableInstitutionId,
+          chain: this.chain,
+        });
+        return false;
+      }
+      throw error;
     }
 
     try {
@@ -1755,7 +1767,7 @@ export class InstitutionalAdminApplicationsService {
         ),
       );
     } catch (error) {
-      if (this.isRecoverableChainError(error)) {
+      if (this.isInstitutionNotFoundRevert(error)) {
         return false;
       }
       throw error;
@@ -1843,6 +1855,27 @@ export class InstitutionalAdminApplicationsService {
       message.includes('temporarily') ||
       message.includes('network')
     );
+  }
+
+  private isInstitutionNotFoundRevert(error: any): boolean {
+    const expectedReason = 'institution does not exist';
+    const values = this.collectErrorTextValues(error);
+    return values.some((value) => value.trim().toLowerCase().includes(expectedReason));
+  }
+
+  private collectErrorTextValues(error: any, depth = 0): string[] {
+    if (!error || depth > 4) return [];
+    const values: string[] = [];
+    for (const key of ['name', 'message', 'shortMessage', 'details']) {
+      const value = error?.[key];
+      if (typeof value === 'string') values.push(value);
+    }
+    if (Array.isArray(error?.metaMessages)) {
+      for (const item of error.metaMessages) {
+        if (typeof item === 'string') values.push(item);
+      }
+    }
+    return values.concat(this.collectErrorTextValues(error.cause, depth + 1));
   }
 
   private calculateNextChainRetryAt(attempts: number): Date {
