@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -26,6 +27,7 @@ import {
 
 @Injectable()
 export class InstitutionalVotingAccessService {
+  private readonly logger = new Logger(InstitutionalVotingAccessService.name);
   private readonly createLeadHours = 12;
   private readonly officialPublicationLeadHours = 6;
 
@@ -318,7 +320,7 @@ export class InstitutionalVotingAccessService {
           userId: new Types.ObjectId(requesterId),
           status: 'APPROVED',
         },
-        { _id: 1, tenantId: 1, userId: 1, accountAddress: 1, status: 1 },
+        { _id: 1, tenantId: 1, userId: 1, accountAddress: 1, status: 1, stableInstitutionId: 1 },
       )
       .lean();
 
@@ -329,7 +331,11 @@ export class InstitutionalVotingAccessService {
       });
     }
 
-    const institutionId = String(application._id);
+    const institutionId = this.resolveCanonicalInstitutionId({
+      stableInstitutionId: application.stableInstitutionId,
+      tenantId: application.tenantId,
+      applicationId: assignment.applicationId,
+    });
     const applicationWallet = application.accountAddress?.trim();
     if (
       applicationWallet &&
@@ -345,13 +351,33 @@ export class InstitutionalVotingAccessService {
       eventId: String(event._id),
       tenantId: String(tenantId),
       assignmentId: String(assignment._id),
-      applicationId: institutionId,
+      applicationId: String(assignment.applicationId),
       institutionId,
       accountAddress,
       signerUserId: requesterId,
       smartAccountAddress: accountAddress,
       institutionalRole: assignment.institutionalRole ?? null,
     };
+  }
+
+  private resolveCanonicalInstitutionId(input: {
+    stableInstitutionId?: string | null;
+    tenantId?: Types.ObjectId | string | null;
+    applicationId?: Types.ObjectId | string | null;
+  }) {
+    // On-chain institution identity must use the persisted stableInstitutionId, never applicationId.
+    const stableInstitutionId = input.stableInstitutionId?.trim();
+    if (stableInstitutionId) return stableInstitutionId;
+
+    this.logger.warn({
+      event: 'EVENT_INSTITUTION_ID_NOT_AVAILABLE',
+      applicationId: input.applicationId ? String(input.applicationId) : null,
+      tenantId: input.tenantId ? String(input.tenantId) : null,
+    });
+    throw new ConflictException({
+      code: 'EVENT_INSTITUTION_ID_NOT_AVAILABLE',
+      message: 'La identidad institucional on-chain no esta disponible para esta votacion',
+    });
   }
 
   parseAndValidateDates(
