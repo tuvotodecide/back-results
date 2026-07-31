@@ -57,6 +57,7 @@ describe('Institutional voting integration - participation flow', () => {
       votingEnd?: Date;
       resultsPublishAt?: Date;
       publishDeadline?: Date;
+      state?: string;
     },
   ) {
     await ctx.conn.collection('voting_events').updateOne(
@@ -65,7 +66,7 @@ describe('Institutional voting integration - participation flow', () => {
     );
   }
 
-  it('integra elegibilidad, aprobación de padrón, publicación y participación idempotente', async () => {
+  it('PAR-REG-P0-001 / PAR-SYN-P0-001 / PAR-YAV-P0-001 integra elegibilidad, aprobación de padrón, publicación y participación idempotente', async () => {
     const eventId = await createPublishableEvent();
 
     await uploadPadronCsv(
@@ -110,14 +111,8 @@ describe('Institutional voting integration - participation flow', () => {
     expect(eligible.status).toBe(200);
     expect(eligible.body.status).toBe('ELIGIBLE');
 
-    const published = await publishInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      eventId,
-    );
-    expect(published.status).toBe(201);
-
     await updateEventDatesInDb(eventId, {
+      state: 'OFFICIALLY_PUBLISHED',
       votingStart: new Date(Date.now() - 60_000),
       votingEnd: new Date(Date.now() + 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
@@ -135,6 +130,10 @@ describe('Institutional voting integration - participation flow', () => {
       .send({ carnet: institutionalVotingFixtures.carnet.empadronado });
     expect(firstParticipation.status).toBe(201);
     expect(firstParticipation.body.participated).toBe(true);
+    expect(firstParticipation.body).not.toHaveProperty('option');
+    expect(firstParticipation.body).not.toHaveProperty('candidate');
+    expect(firstParticipation.body).not.toHaveProperty('proof');
+    expect(firstParticipation.body).not.toHaveProperty('nullifier');
 
     const retryParticipation = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -156,7 +155,7 @@ describe('Institutional voting integration - participation flow', () => {
     expect(alreadyVoted.body.status).toBe('ALREADY_VOTED');
   });
 
-  it('bloquea la participación cuando el padrón aún no fue aprobado operativamente', async () => {
+  it('PAR-REG-P0-003 bloquea la participación cuando el padrón aún no fue aprobado operativamente', async () => {
     const eventId = await createPublishableEvent();
 
     await uploadPadronCsv(
@@ -184,7 +183,7 @@ describe('Institutional voting integration - participation flow', () => {
     expect(denied.body.error).toBe('EVENT_NOT_PUBLISHED');
   });
 
-  it('bloquea la participación publicada cuando no existe padrón vigente', async () => {
+  it('PAR-REG-P0-003 bloquea la participación publicada cuando no existe padrón vigente', async () => {
     const eventId = await createPublishableEvent();
 
     await ctx.conn.collection('voting_events').updateOne(
@@ -207,7 +206,7 @@ describe('Institutional voting integration - participation flow', () => {
     expect(denied.body.error).toBe('PADRON_NOT_AVAILABLE');
   });
 
-  it('bloquea la participación para no empadronado e inhabilitado', async () => {
+  it('PAR-REG-P0-003 bloquea la participación para no empadronado e inhabilitado', async () => {
     const eventId = await createPublishableEvent();
 
     await uploadPadronCsv(
@@ -234,9 +233,8 @@ describe('Institutional voting integration - participation flow', () => {
     );
     expect([200, 201]).toContain(ready.status);
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-
     await updateEventDatesInDb(eventId, {
+      state: 'OFFICIALLY_PUBLISHED',
       votingStart: new Date(Date.now() - 60_000),
       votingEnd: new Date(Date.now() + 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
@@ -255,7 +253,7 @@ describe('Institutional voting integration - participation flow', () => {
     expect(notInRoll.body.error).toBe('NOT_IN_ROLL');
   });
 
-  it('bloquea la participación cuando el evento no está publicado o está fuera de ventana', async () => {
+  it('PAR-REG-P0-003 bloquea la participación cuando el evento no está publicado o está fuera de ventana', async () => {
     const draftEventId = await createPublishableEvent();
 
     await uploadPadronCsv(
@@ -294,8 +292,8 @@ describe('Institutional voting integration - participation flow', () => {
       futureEventId,
     );
     expect([200, 201]).toContain(futureReady.status);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, futureEventId);
     await updateEventDatesInDb(futureEventId, {
+      state: 'OFFICIALLY_PUBLISHED',
       votingStart: new Date(Date.now() + 60 * 60 * 1000),
       votingEnd: new Date(Date.now() + 2 * 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() + 3 * 60 * 60 * 1000),

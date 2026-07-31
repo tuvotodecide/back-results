@@ -42,6 +42,11 @@ const FORBIDDEN_HISTORY_FIELDS = [
   'txHash',
   'transactionId',
   'blockchainHash',
+  'credential',
+  'privateKey',
+  'seed',
+  'authToken',
+  'deviceToken',
 ];
 
 describe('Institutional voting integration - participation history', () => {
@@ -150,7 +155,7 @@ describe('Institutional voting integration - participation history', () => {
     expect(response.status).toBe(400);
   });
 
-  it('MP-GET-BE-004 devuelve participaciones de voto con metadata segura', async () => {
+  it('PAR-YAV-P1-002 devuelve participaciones de voto con metadata segura', async () => {
     const eventId = await insertEvent('Elección Historial Seguro');
     const participatedAt = new Date('2026-01-03T14:00:00.000Z');
     const participationId = await insertParticipation({
@@ -181,7 +186,7 @@ describe('Institutional voting integration - participation history', () => {
     expect(response.body).toEqual([]);
   });
 
-  it('MP-GET-BE-006 no devuelve datos sensibles aunque existan como campos extra', async () => {
+  it('PAR-SEC-P0-001 / PAR-SEC-P0-002 no devuelve datos sensibles aunque existan como campos extra', async () => {
     const eventId = await insertEvent('Elección Payload Seguro');
     await insertParticipation({
       eventId,
@@ -199,6 +204,11 @@ describe('Institutional voting integration - participation history', () => {
         txHash: '0xabc',
         transactionId: 'tx-1',
         blockchainHash: '0xdef',
+        credential: 'credential-secret',
+        privateKey: 'private-key-secret',
+        seed: 'seed-secret',
+        authToken: 'auth-token-secret',
+        deviceToken: 'device-token-secret',
       },
     });
 

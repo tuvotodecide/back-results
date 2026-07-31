@@ -27,6 +27,11 @@ const FORBIDDEN_PUBLIC_FIELDS = [
   'hash',
   'receipt',
   'selectedOption',
+  'credential',
+  'privateKey',
+  'seed',
+  'authToken',
+  'deviceToken',
 ];
 
 describe('Institutional voting integration - public participation check', () => {
@@ -76,7 +81,7 @@ describe('Institutional voting integration - public participation check', () => 
     });
   }
 
-  it('responde true para un CI con participación registrada y solo expone campos mínimos', async () => {
+  it('PAR-YAV-P1-003 / PAR-SEC-P0-001 responde true para un CI con participación registrada y solo expone campos mínimos', async () => {
     const eventId = await createEvent();
     await insertParticipation(eventId, '123456');
 
@@ -92,7 +97,7 @@ describe('Institutional voting integration - public participation check', () => 
     expectMinimalPublicResponse(response.body);
   });
 
-  it('normaliza el carnet y encuentra participación con espacios y guiones', async () => {
+  it('PAR-REG-P0-003 normaliza el carnet y encuentra participación con espacios y guiones', async () => {
     const eventId = await createEvent();
     await insertParticipation(eventId, 'ABC789');
 
@@ -108,7 +113,7 @@ describe('Institutional voting integration - public participation check', () => 
     expectMinimalPublicResponse(response.body);
   });
 
-  it('responde false para un CI sin participación sin revelar padrón ni habilitación', async () => {
+  it('PAR-YAV-P1-003 responde false para un CI sin participación sin revelar padrón ni habilitación', async () => {
     const eventId = await createEvent();
 
     const response = await request(ctx.httpServer)
@@ -123,7 +128,7 @@ describe('Institutional voting integration - public participation check', () => 
     expectMinimalPublicResponse(response.body);
   });
 
-  it('funciona con evento cerrado o en resultados sin depender de ventana de votación', async () => {
+  it('PAR-YAV-P1-003 funciona con evento cerrado o en resultados sin depender de ventana de votación', async () => {
     const eventId = await createEvent({
       name: `Resultados Publicos ${Date.now()}`,
     });

@@ -5,6 +5,7 @@ import { institutionalVotingFixtures } from '../../fixtures.institutional-voting
 import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
+  seedPublishedEventForNonPublicationTest,
   teardownInstitutionalVotingContext,
 } from '../../utils/institutional-voting.helpers';
 
@@ -216,9 +217,10 @@ describe('Institutional voting integration - participation report PDF', () => {
       { carnetNorm: 'A3' },
       { carnetNorm: 'A4', enabled: false },
     ]);
+    await seedPublishedEventForNonPublicationTest(ctx, event.id);
     await insertParticipations(event.id, ['A1', 'A3', 'A4']);
 
-    const response = await reportRequest(event.id, ctx.tenantAdminToken);
+    const response = await reportRequest(event.id, ctx.adminToken);
     const text = pdfText(response);
     const tableText = pdfTableText(response);
 

@@ -5,7 +5,7 @@ import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  publishInstitutionalEvent,
+  seedPublishedEventForNonPublicationTest,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../../utils/institutional-voting.helpers';
@@ -56,18 +56,11 @@ describe('Institutional voting integration - presential QR sessions', () => {
       .send({ status: 'OK' });
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-
-    await ctx.conn.collection('voting_events').updateOne(
-      { _id: new Types.ObjectId(eventId) },
-      {
-        $set: {
-          votingStart: new Date(Date.now() - 60_000),
-          votingEnd: new Date(Date.now() + 60 * 60 * 1000),
-          resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
-        },
-      },
-    );
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
+      votingStart: new Date(Date.now() - 60_000),
+      votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+      resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+    });
 
     return eventId;
   }

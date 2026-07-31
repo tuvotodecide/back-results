@@ -7,7 +7,7 @@ import {
   confirmInstitutionalOfficialPublication,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  publishInstitutionalEvent,
+  seedPublishedEventForNonPublicationTest,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
   validateInstitutionalEventReadiness,
@@ -334,6 +334,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.createdTenantId,
       {
         ...institutionalVotingFixtures.event,
+        name: `Padron Approval ${Date.now()}`,
         votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
         votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
         resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
@@ -421,7 +422,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
     const publish = await confirmInstitutionalOfficialPublication(
       ctx.httpServer,
-      ctx.adminToken,
+      ctx.tenantAdminToken,
       eventId,
       { txHash: '0xabc123', wallet: '0xAdmin', chainId: '1' },
     );
@@ -480,7 +481,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
     const publish = await confirmInstitutionalOfficialPublication(
       ctx.httpServer,
-      ctx.adminToken,
+      ctx.tenantAdminToken,
       eventId,
       { txHash: '0xpublish2' },
     );
@@ -591,7 +592,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
   it('EVT-008: bloquea edición estructural en OFFICIALLY_PUBLISHED', async () => {
     const eventId = await createPublishReadyEvent();
-    await confirmInstitutionalOfficialPublication(ctx.httpServer, ctx.adminToken, eventId, {
+    await confirmInstitutionalOfficialPublication(ctx.httpServer, ctx.tenantAdminToken, eventId, {
       txHash: '0xblocked',
     });
 
@@ -860,8 +861,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .send({ status: 'OK' });
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 60_000),
       votingEnd: new Date(Date.now() + 3_600_000),
       resultsPublishAt: new Date(Date.now() + 7_200_000),
@@ -927,8 +927,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .send({ status: 'OK' });
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 60_000),
       votingEnd: new Date(Date.now() + 3_600_000),
       resultsPublishAt: new Date(Date.now() + 7_200_000),
@@ -968,9 +967,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
 
   it('PAR-004: votante inhabilitado no puede participar', async () => {
     const eventId = await createPublishReadyEvent('carnet,habilitado\nABC-789,no\n123456,si\n');
-    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    expect(published.status).toBe(201);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 60_000),
       votingEnd: new Date(Date.now() + 3_600_000),
       resultsPublishAt: new Date(Date.now() + 7_200_000),
@@ -1047,7 +1044,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ status: 'OK' });
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await seedPublishedEventForNonPublicationTest(ctx, eventId);
 
     const voteOutOfWindow = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
@@ -1167,13 +1164,13 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       institutionalVotingFixtures.padronCsv,
       { name: ownEligibleName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownEligibleEventId);
+    await seedPublishedEventForNonPublicationTest(ctx, ownEligibleEventId);
 
     const ownDisabledEventId = await createPublishReadyEvent(
       'carnet,habilitado\nABC-789,no\n123456,si\n',
       { name: ownDisabledName },
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownDisabledEventId);
+    await seedPublishedEventForNonPublicationTest(ctx, ownDisabledEventId);
 
     const ownPrivateEventId = await createPublishReadyEvent(
       institutionalVotingFixtures.padronCsv,
@@ -1184,7 +1181,9 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ enabled: false });
     expect(ownPrivateToggle.status).toBe(200);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, ownPrivateEventId);
+    await seedPublishedEventForNonPublicationTest(ctx, ownPrivateEventId, {
+      publicEligibilityEnabled: false,
+    });
 
     const otherTenant = await request(ctx.httpServer)
       .post('/api/v1/institutional-tenants')
@@ -1232,7 +1231,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
       ctx.adminToken,
       otherEligibleEventId,
     );
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, otherEligibleEventId);
+    await seedPublishedEventForNonPublicationTest(ctx, otherEligibleEventId);
 
     const allVisible = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')
@@ -1306,8 +1305,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     expect(beforePublishAt.body.error).toBe('RESULTS_NOT_AVAILABLE');
 
     const availableEventId = await createPublishReadyEvent();
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, availableEventId);
-    await updateEventDatesInDb(availableEventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, availableEventId, {
       votingStart: new Date(Date.now() - 7_200_000),
       votingEnd: new Date(Date.now() - 3_600_000),
       resultsPublishAt: new Date(Date.now() - 60_000),
@@ -1332,8 +1330,7 @@ describe('Institutional voting E2E (phase 1 + phase 2 + phase 3)', () => {
     await seedLinkedUsers(['ABC789']);
     const eventId = await createPublishReadyEvent();
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 7_200_000),
       votingEnd: new Date(Date.now() - 3_600_000),
       resultsPublishAt: new Date(Date.now() - 60_000),

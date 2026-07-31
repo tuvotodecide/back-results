@@ -200,7 +200,7 @@
     ]
   },
   "institutional-voting_remaining": {
-    "name": "Institutional voting residual outside MX-04, MX-05 and MX-06",
+    "name": "Institutional voting residual outside MX-04, MX-05, MX-06, MX-07 and MX-08",
     "flows": [
       "BRS-F10",
       "BRS-F11",
@@ -214,37 +214,16 @@
       "BRS-F19"
     ],
     "files": [
-      "test/acceptance/institutional-participation.contract.spec.ts",
       "test/end-to-end/institutional-voting.e2e.spec.ts",
-      "test/end-to-end/zk-vote.contract.e2e.spec.ts",
-      "test/integration/institutional-voting/participation-flow.spec.ts",
-      "test/integration/institutional-voting/participation-concurrency.regression.spec.ts",
       "test/integration/institutional-voting/participation-analytics.spec.ts",
       "test/integration/institutional-voting/presential-sessions.spec.ts",
-      "test/integration/institutional-voting/participations-history.spec.ts",
-      "test/integration/institutional-voting/public-participation-check.spec.ts",
-      "test/integration/institutional-voting/publication-results.spec.ts",
       "test/integration/institutional-voting/participation-report.spec.ts",
-      "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
       "test/unit/institutional-voting/lifecycle.service.unit.spec.ts",
       "test/unit/institutional-voting/participation-analytics.service.unit.spec.ts",
-      "test/unit/institutional-voting/participation.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-reader.service.unit.spec.ts",
-      "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
       "test/unit/institutional-voting/voting-results.service.unit.spec.ts",
       "test/unit/institutional-voting/institutional-voting-access.service.unit.spec.ts",
-      "test/unit/institutional-voting/institutional-voting-admin.controller.unit.spec.ts",
-      "test/unit/institutional-voting/institutional-voting.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-admin.controller.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-artifacts.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile-auth.controller.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile-zk-auth.guard.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile-zk-auth.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile.controller.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-notification.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request-state.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request.dto.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request.service.unit.spec.ts"
+      "test/unit/institutional-voting/institutional-voting-admin.controller.unit.spec.ts"
     ]
   },
   "notifications-mail": {
@@ -258,7 +237,6 @@
       "test/end-to-end/notifications-announcements.e2e.spec.ts",
       "test/end-to-end/notifications-internal-push.e2e.spec.ts",
       "test/end-to-end/notifications-logs.e2e.spec.ts",
-      "test/unit/institutional-voting/notifications.service.unit.spec.ts",
       "test/unit/notifications/direct-push.service.unit.spec.ts"
     ]
   },
@@ -325,9 +303,61 @@
       "test/unit/institutional-voting/official-publication-api.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-chain-verification.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-finalization.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-admin.controller.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-artifacts.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-mobile-auth.controller.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-mobile-zk-auth.guard.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-mobile-zk-auth.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-mobile.controller.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-notification.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-preparation.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-reconciliation.worker.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request.schema.unit.spec.ts"
+      "test/unit/institutional-voting/official-publication-request-state.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-request.dto.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-request.schema.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-request.service.unit.spec.ts",
+      "test/integration/institutional-voting/publication-results.spec.ts"
+    ]
+  },
+  "matrix_07": {
+    "name": "MX-07 | Emisión del voto móvil | Backend Results",
+    "flows": [
+      "MX-07",
+      "VOT-ACC",
+      "VOT-PRE",
+      "VOT-CHN",
+      "VOT-ERR",
+      "VOT-SEC"
+    ],
+    "files": [
+      "test/unit/institutional-voting/participation.service.unit.spec.ts",
+      "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
+      "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
+      "test/end-to-end/zk-vote.contract.e2e.spec.ts"
+    ]
+  },
+  "matrix_08": {
+    "name": "MX-08 | Participación, confirmación visible y recompensa | Backend Results",
+    "flows": [
+      "MX-08",
+      "PAR-REG",
+      "PAR-SYN",
+      "PAR-CMP",
+      "PAR-YAV",
+      "PAR-RWD",
+      "PAR-NTF",
+      "PAR-ERR",
+      "PAR-SEC",
+      "PAR-UX"
+    ],
+    "files": [
+      "test/acceptance/institutional-participation.contract.spec.ts",
+      "test/integration/institutional-voting/participation-flow.spec.ts",
+      "test/integration/institutional-voting/participation-concurrency.regression.spec.ts",
+      "test/integration/institutional-voting/participations-history.spec.ts",
+      "test/integration/institutional-voting/public-participation-check.spec.ts",
+      "test/unit/institutional-voting/institutional-voting.service.unit.spec.ts",
+      "test/unit/institutional-voting/notifications.service.unit.spec.ts"
     ]
   },
   "payments_remaining": {

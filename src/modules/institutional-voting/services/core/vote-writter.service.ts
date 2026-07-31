@@ -86,6 +86,9 @@ export class VoteWritterService {
 
     const txHash = await this.smartAccountClient.sendTransaction(callData);
     const receipt = await this.waitForReceiptWithFallback(txHash);
+    if (String(receipt?.status || '').toLowerCase() === 'reverted') {
+      throw new Error(`Transaction ${txHash} reverted`);
+    }
 
     let returnData: any;
     if (waitEvent && eventName) {
@@ -251,6 +254,7 @@ export class VoteWritterService {
     secret: string,
   ) {
     const voteNullfier = await VoteContractUtils.getVoteHash(eventId, secret);
+    const expectedVoteId = VoteContractUtils.idToHex(eventId);
     const callData = VoteContractCalls.castVote(
       this.chain,
       eventId,
@@ -258,7 +262,28 @@ export class VoteWritterService {
       voteNullfier,
     );
 
-    await this.executeOperation(callData, undefined, undefined);
+    await this.executeOperation(
+      callData,
+      async (chainId, eventName, fromBlock) => {
+        const events = await VoteContractReads.getVotedEvents(chainId, fromBlock);
+        const matchingEvent = (Array.isArray(events) ? events : []).find((event: any) => {
+          if (String(event?.eventName || eventName) !== eventName) {
+            return false;
+          }
+          if (event?.args?.voteId === undefined || event?.args?.voteId === null) {
+            return false;
+          }
+          return BigInt(event.args.voteId) === expectedVoteId;
+        });
+
+        if (!matchingEvent) {
+          throw new Error(`Expected Voted event for vote ${eventId} was not found`);
+        }
+
+        return matchingEvent;
+      },
+      'Voted',
+    );
   }
 
   async disableVote(eventId: string) {

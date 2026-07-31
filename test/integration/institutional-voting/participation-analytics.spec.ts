@@ -5,6 +5,7 @@ import { institutionalVotingFixtures } from '../../fixtures.institutional-voting
 import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
+  seedPublishedEventForNonPublicationTest,
   teardownInstitutionalVotingContext,
 } from '../../utils/institutional-voting.helpers';
 
@@ -131,9 +132,10 @@ describe('Institutional voting integration - participation analytics', () => {
       { carnetNorm: 'A3' },
       { carnetNorm: 'A4', enabled: false },
     ]);
+    await seedPublishedEventForNonPublicationTest(ctx, event.id);
     await insertParticipations(event.id, ['A1', 'A2', 'A4', 'NO_ROLL']);
 
-    const response = await analyticsRequest(event.id, ctx.tenantAdminToken);
+    const response = await analyticsRequest(event.id, ctx.adminToken);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(
@@ -192,6 +194,7 @@ describe('Institutional voting integration - participation analytics', () => {
     expect(otherTenant.status).toBe(201);
 
     const ownEvent = await createEvent();
+    await seedPublishedEventForNonPublicationTest(ctx, ownEvent.id);
     const otherEventResponse = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -205,8 +208,9 @@ describe('Institutional voting integration - participation analytics', () => {
       },
     );
     expect(otherEventResponse.status).toBe(201);
+    await seedPublishedEventForNonPublicationTest(ctx, otherEventResponse.body.id);
 
-    expect((await analyticsRequest(ownEvent.id, ctx.tenantAdminToken)).status).toBe(200);
+    expect((await analyticsRequest(ownEvent.id, ctx.adminToken)).status).toBe(200);
     expect((await analyticsRequest(otherEventResponse.body.id, ctx.tenantAdminToken)).status).toBe(403);
     expect((await analyticsRequest(otherEventResponse.body.id, ctx.adminToken)).status).toBe(200);
   });

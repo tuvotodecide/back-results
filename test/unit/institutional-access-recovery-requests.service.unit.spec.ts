@@ -105,9 +105,7 @@ it('D-MAIL-001 | crea solicitud valida pendiente sin cambiar correo ni exponer c
     const result = await service.createRequest({
       institutionId: String(tenantId),
       fullName: ' Admin   Principal ',
-      phoneNumber: '+591 70000001',
       newEmail: 'NEW@EXAMPLE.COM',
-      supervisorPhoneNumber: '+591 70000002',
     });
 
     expect(result).toEqual({
@@ -138,9 +136,7 @@ it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y
       service.createRequest({
         institutionId: String(tenantId),
         fullName: 'Admin',
-        phoneNumber: '70000001',
         newEmail: 'new@example.com',
-        supervisorPhoneNumber: '70000002',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
@@ -150,9 +146,7 @@ it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y
       service.createRequest({
         institutionId: String(tenantId),
         fullName: 'Admin',
-        phoneNumber: '70000001',
         newEmail: 'used@example.com',
-        supervisorPhoneNumber: '70000002',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
@@ -162,9 +156,7 @@ it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y
       service.createRequest({
         institutionId: String(tenantId),
         fullName: 'Admin',
-        phoneNumber: '70000001',
         newEmail: 'new@example.com',
-        supervisorPhoneNumber: '70000002',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
@@ -193,9 +185,7 @@ it('D-MAIL-006 | deja pendiente sin candidato cuando la coincidencia es ambigua 
     await service.createRequest({
       institutionId: String(tenantId),
       fullName: 'Admin Repetido',
-      phoneNumber: '70000001',
       newEmail: 'new@example.com',
-      supervisorPhoneNumber: '70000002',
     });
 
     expect(recoveryRequestModel.create).toHaveBeenCalledWith(

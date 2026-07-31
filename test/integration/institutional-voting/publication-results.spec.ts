@@ -9,6 +9,7 @@ import {
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
   publishInstitutionalEvent,
+  seedPublishedEventForNonPublicationTest,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../../utils/institutional-voting.helpers';
@@ -144,7 +145,7 @@ describe('Institutional voting integration - publication and results', () => {
 
     const published = await publishInstitutionalEvent(
       ctx.httpServer,
-      ctx.adminToken,
+      ctx.tenantAdminToken,
       eventId,
     );
 
@@ -349,7 +350,7 @@ describe('Institutional voting integration - publication and results', () => {
 
     const published = await publishInstitutionalEvent(
       ctx.httpServer,
-      ctx.adminToken,
+      ctx.tenantAdminToken,
       eventId,
     );
 
@@ -388,8 +389,7 @@ describe('Institutional voting integration - publication and results', () => {
     expect(blocked.body.error).toBe('RESULTS_NOT_AVAILABLE');
 
     const visibleEventId = await preparePublishedEvent();
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, visibleEventId);
-    await updateEventDatesInDb(visibleEventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, visibleEventId, {
       votingStart: new Date(Date.now() - 2 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() - 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() - 60_000),
@@ -426,7 +426,7 @@ describe('Institutional voting integration - publication and results', () => {
 
   it('actualiza snapshot único para un evento publicado sin duplicarlo', async () => {
     const eventId = await preparePublishedEvent();
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await seedPublishedEventForNonPublicationTest(ctx, eventId);
 
     const first = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/results/snapshot`)
@@ -488,8 +488,7 @@ describe('Institutional voting integration - publication and results', () => {
 
   it('lee resultados publicados sin snapshot usando el shape vacío actual', async () => {
     const eventId = await preparePublishedEvent();
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 2 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() - 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() - 60_000),
@@ -561,8 +560,7 @@ describe('Institutional voting integration - publication and results', () => {
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
     });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() - 60_000),
@@ -604,7 +602,7 @@ describe('Institutional voting integration - publication and results', () => {
       votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
     });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await seedPublishedEventForNonPublicationTest(ctx, eventId);
 
     const eventObjectId = new Types.ObjectId(eventId);
     const currentVersion = await ctx.conn
@@ -701,8 +699,7 @@ describe('Institutional voting integration - publication and results', () => {
       votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString(),
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
     });
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() - 60_000),
@@ -744,8 +741,7 @@ describe('Institutional voting integration - publication and results', () => {
       resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000).toISOString(),
     });
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    await updateEventDatesInDb(eventId, {
+    await seedPublishedEventForNonPublicationTest(ctx, eventId, {
       votingStart: new Date(Date.now() - 3 * 60 * 60 * 1000),
       votingEnd: new Date(Date.now() - 2 * 60 * 60 * 1000),
       resultsPublishAt: new Date(Date.now() - 60_000),

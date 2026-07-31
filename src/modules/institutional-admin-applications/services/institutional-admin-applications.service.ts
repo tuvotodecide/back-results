@@ -651,10 +651,72 @@ export class InstitutionalAdminApplicationsService {
             : null,
         };
       });
+      if (
+        response?.status === 'PENDING_CHAIN_CONFIRMATION' &&
+        response?.chainStatus === 'PENDING_SEND'
+      ) {
+        return this.retryInstitutionCreationAuthorization(applicationId, requester);
+      }
       return response;
     } finally {
       await session.endSession();
     }
+  }
+
+  async retryInstitutionCreationAuthorization(applicationId: string, requester: any) {
+    if (!Types.ObjectId.isValid(applicationId)) {
+      throw new BadRequestException('applicationId inválido');
+    }
+
+    const app = await this.getApplicationOrThrow(applicationId);
+    if (!this.isGlobalInstitutionalApprover(requester)) {
+      if (!app.tenantId) {
+        throw new ForbiddenException('No autorizado para revisar esta solicitud institucional');
+      }
+      await this.assertRequesterIsPrimaryForTenant(requester, app.tenantId);
+    }
+
+    if (app.status === 'APPROVED') {
+      return this.toApplicationResponse(app);
+    }
+
+    if (
+      ![
+        'PENDING_CHAIN_CONFIRMATION',
+        'RECONCILIATION_PENDING',
+        'CHAIN_RETRY_PENDING',
+      ].includes(String(app.status))
+    ) {
+      throw new BadRequestException('La solicitud no permite reintentar autorización');
+    }
+
+    const usesMobileAuthorization =
+      Boolean(app.mobileAuthorizationUserOpHash) ||
+      Boolean(app.mobileAuthorizationAction);
+
+    if (usesMobileAuthorization) {
+      if (app.mobileAuthorizationUserOpHash) {
+        const reconciled = await this.reconcileMobileAuthorizationOperation(applicationId);
+        if (reconciled?.reconciled) {
+          return reconciled.request;
+        }
+        await this.processMobileAuthorizationRetry(applicationId);
+      }
+      const refreshed = await this.getApplicationOrThrow(applicationId);
+      return this.toApplicationResponse(refreshed);
+    }
+
+    if (app.chainTxHash) {
+      await this.reconcileInstitutionCreationOperation(applicationId);
+    } else {
+      const processed = await this.processInstitutionCreationOperation(applicationId);
+      if (processed?.status === 'SENT' || processed?.status === 'CONFIRMED') {
+        await this.reconcileInstitutionCreationOperation(applicationId);
+      }
+    }
+
+    const refreshed = await this.getApplicationOrThrow(applicationId);
+    return this.toApplicationResponse(refreshed);
   }
 
   async createInstitutionOnChain(

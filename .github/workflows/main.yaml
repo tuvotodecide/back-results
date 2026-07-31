@@ -84,31 +84,40 @@ jobs:
       - name: Run Nest build
         run: pnpm build
 
-      - name: Run unit coverage
-        run: pnpm test:cov:unit
-
-      - name: Official publication focused tests
-        if: ${{ !cancelled() }}
-        run: >
-          npx jest --config jest.config.ts
-          test/unit/institutional-voting/official-publication-api.service.unit.spec.ts
-          test/unit/institutional-voting/official-publication-request-state.service.unit.spec.ts
-          test/unit/institutional-voting/official-publication-request.service.unit.spec.ts
-          test/unit/institutional-voting/official-publication-chain-verification.service.unit.spec.ts
-          test/unit/institutional-voting/official-publication-reconciliation.worker.unit.spec.ts
-          test/unit/institutional-voting/official-publication-finalization.service.unit.spec.ts
-          --runInBand
-
       - name: Check module test map
         run: pnpm test:modules:check
+
+      - name: MX-02 | Gestión de instituciones, administradores y wallets | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:02
 
       - name: MX-03 | Autenticación, sesiones, roles y permisos | Backend Results
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:03
 
-      - name: MX-02 | Gestión de instituciones, administradores y wallets | Backend Results
+      - name: MX-04 | Creación y configuración de votaciones | Backend Results
         if: ${{ !cancelled() }}
-        run: pnpm test:matrix:02
+        run: pnpm test:matrix:04
+
+      - name: MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:05
+
+      - name: MX-06 | TVD, QR, acreditación y publicación | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:06
+
+      - name: MX-07 | Emisión del voto móvil | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:07
+
+      - name: MX-08 | Participación, confirmación visible y recompensa | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:08
+
+      - name: Run module tests - Institutional voting residual outside MX-04, MX-05, MX-06, MX-07 and MX-08
+        if: ${{ !cancelled() }}
+        run: pnpm test:module:institutional-voting
 
       - name: Run module tests - Public users and ZK security
         if: ${{ !cancelled() }}
@@ -130,22 +139,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:module:geography
 
-      - name: MX-04 | Creación y configuración de votaciones | Backend Results
-        if: ${{ !cancelled() }}
-        run: pnpm test:matrix:04
-
-      - name: MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results
-        if: ${{ !cancelled() }}
-        run: pnpm test:matrix:05
-
-      - name: MX-06 | TVD, QR, acreditación y publicación | Backend Results
-        if: ${{ !cancelled() }}
-        run: pnpm test:matrix:06
-
-      - name: Run module tests - Institutional voting residual outside MX-04, MX-05 and MX-06
-        if: ${{ !cancelled() }}
-        run: pnpm test:module:institutional-voting
-
       - name: Run module tests - News, notifications and mail
         if: ${{ !cancelled() }}
         run: pnpm test:module:notifications-mail
@@ -165,6 +158,18 @@ jobs:
       - name: Run module tests - Operations history log
         if: ${{ !cancelled() }}
         run: pnpm test:module:history
+
+      - name: Run unit coverage
+        if: ${{ !cancelled() }}
+        run: pnpm test:cov:unit
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-results-unit-coverage
+          path: coverage/unit/
+          if-no-files-found: warn
 
       - name: Cleanup .env
         if: always()

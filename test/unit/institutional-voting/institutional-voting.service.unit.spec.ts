@@ -45,7 +45,7 @@ describe('InstitutionalVotingService reward notification after participation', (
     return { service, participationService, notificationsService };
   };
 
-  it('notifica recompensa después de crear participación y confirmar ALREADY_VOTED', async () => {
+  it('PAR-REG-P0-001 / PAR-RWD-P0-001 notifica recompensa después de crear participación y confirmar ALREADY_VOTED', async () => {
     const { service, participationService, notificationsService } = makeService();
 
     const result = await service.createParticipation(
@@ -70,7 +70,7 @@ describe('InstitutionalVotingService reward notification after participation', (
     );
   });
 
-  it('no consulta recompensa si la participación no queda confirmada como ALREADY_VOTED', async () => {
+  it('PAR-RWD-P0-001 no consulta recompensa si la participación no queda confirmada como ALREADY_VOTED', async () => {
     const { service, notificationsService } = makeService({
       participationService: {
         checkParticipationStatus: jest.fn().mockResolvedValue({
@@ -85,7 +85,7 @@ describe('InstitutionalVotingService reward notification after participation', (
     expect(notificationsService.notifyVoteRewardAvailableIfEligible).not.toHaveBeenCalled();
   });
 
-  it('no invalida la participación si falla el flujo de notificación posterior', async () => {
+  it('PAR-RWD-P1-004 / PAR-ERR-P1-003 no invalida la participación si falla el flujo de notificación posterior', async () => {
     const { service, notificationsService } = makeService({
       notificationsService: {
         notifyVoteRewardAvailableIfEligible: jest.fn().mockRejectedValue(new Error('rpc down')),

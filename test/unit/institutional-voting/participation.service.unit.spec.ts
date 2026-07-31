@@ -242,7 +242,7 @@ describe('ParticipationService (unit)', () => {
     expect(accessService.getEventOrThrow).not.toHaveBeenCalled();
   });
 
-  it('informa que no se puede votar cuando el evento no está publicado', async () => {
+  it('VOT-ACC-P0-002 | informa que no se puede votar cuando el evento no está publicado', async () => {
     accessService.getEventOrThrow.mockResolvedValue({
       _id: new Types.ObjectId(),
       state: 'DRAFT',
@@ -257,7 +257,7 @@ describe('ParticipationService (unit)', () => {
     });
   });
 
-  it('informa bloqueo cuando la votación está fuera de la ventana permitida', async () => {
+  it('VOT-ACC-P0-002 | informa bloqueo cuando la votación está fuera de la ventana permitida', async () => {
     accessService.getEventOrThrow.mockResolvedValue({
       _id: new Types.ObjectId(),
       state: 'PUBLISHED',
@@ -284,7 +284,7 @@ describe('ParticipationService (unit)', () => {
     });
   });
 
-  it('informa bloqueo cuando el padrón aún no está aprobado operativamente', async () => {
+  it('VOT-ACC-P0-002 | informa bloqueo cuando el padrón aún no está aprobado operativamente', async () => {
     const event = activeEvent();
     accessService.getEventOrThrow.mockResolvedValue(event);
     padronVersionModel.findOne.mockReturnValue({
@@ -304,7 +304,7 @@ describe('ParticipationService (unit)', () => {
     });
   });
 
-  it('informa bloqueo cuando el votante no pertenece al padrón vigente', async () => {
+  it('VOT-ACC-P0-002 | informa bloqueo cuando el votante no pertenece al padrón vigente', async () => {
     const event = activeEvent();
     accessService.getEventOrThrow.mockResolvedValue(event);
     padronVersionModel.findOne.mockReturnValue({
@@ -327,7 +327,7 @@ describe('ParticipationService (unit)', () => {
     });
   });
 
-  it('informa bloqueo cuando el votante está deshabilitado', async () => {
+  it('VOT-ACC-P0-002 | informa bloqueo cuando el votante está deshabilitado', async () => {
     const event = activeEvent();
     accessService.getEventOrThrow.mockResolvedValue(event);
     padronVersionModel.findOne.mockReturnValue({
@@ -350,7 +350,7 @@ describe('ParticipationService (unit)', () => {
     });
   });
 
-  it('informa cuando el votante ya participó', async () => {
+  it('VOT-ERR-P0-001 | informa cuando el votante ya participó sin emitir otro voto', async () => {
     const event = activeEvent();
     const existing = {
       _id: new Types.ObjectId('64b7f8c2f1e4a2b3c4d5e6f7'),
@@ -382,7 +382,7 @@ describe('ParticipationService (unit)', () => {
     });
   });
 
-  it('informa que el votante puede votar cuando cumple todas las restricciones', async () => {
+  it('VOT-ACC-P0-001 / VOT-PRE-P0-001 | informa que el votante puede votar cuando cumple todas las restricciones', async () => {
     const event = activeEvent();
     accessService.getEventOrThrow.mockResolvedValue(event);
     padronVersionModel.findOne.mockReturnValue({

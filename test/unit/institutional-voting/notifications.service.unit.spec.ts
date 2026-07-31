@@ -289,7 +289,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     });
   });
 
-  it('notifica recompensa por voto una sola vez cuando rewardByVote es mayor que cero', async () => {
+  it('PAR-RWD-P0-002 / PAR-RWD-P0-003 / PAR-NTF-P0-001 notifica recompensa por voto una sola vez cuando rewardByVote es mayor que cero', async () => {
     const userId = new Types.ObjectId();
     padronUsersService.getUsersByCarnets.mockResolvedValue([
       { _id: userId, dni: '1234567', active: true, enabled: true },
@@ -334,9 +334,12 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       }),
     );
     expect(result).toEqual({ sent: 1 });
+    expect(JSON.stringify(userNotificationModel.create.mock.calls)).not.toMatch(
+      /candidate|option|plancha|proof|nullifier|credential|privateKey|authToken|deviceToken/i,
+    );
   });
 
-  it('no notifica recompensa por voto cuando rewardByVote es cero', async () => {
+  it('PAR-RWD-P0-002 no notifica recompensa por voto cuando rewardByVote es cero', async () => {
     (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValueOnce(0n);
 
     const result = await service.notifyVoteRewardAvailableIfEligible('event-1', '1234567');
@@ -346,7 +349,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(firebaseMessaging.send).not.toHaveBeenCalled();
   });
 
-  it('no duplica recompensa por voto cuando ya existe deduplicationKey', async () => {
+  it('PAR-RWD-P0-003 / PAR-ERR-P1-003 no duplica recompensa por voto cuando ya existe deduplicationKey', async () => {
     const userId = new Types.ObjectId();
     padronUsersService.getUsersByCarnets.mockResolvedValue([
       { _id: userId, dni: '1234567', active: true, enabled: true },
@@ -359,7 +362,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(firebaseMessaging.send).not.toHaveBeenCalled();
   });
 
-  it('mantiene el flujo exitoso aunque falle RPC o Firebase al notificar recompensa', async () => {
+  it('PAR-RWD-P1-004 / PAR-ERR-P1-003 mantiene el flujo exitoso aunque falle RPC o Firebase al notificar recompensa', async () => {
     (VoteContractReads.rewardByVote as jest.Mock).mockRejectedValueOnce(new Error('rpc down'));
 
     await expect(
@@ -381,6 +384,9 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
         status: 'FAILED',
         error: 'firebase down',
       }),
+    );
+    expect(JSON.stringify(notificationLogModel.create.mock.calls)).not.toMatch(
+      /candidate|option|plancha|proof|nullifier|credential|privateKey|authToken|deviceToken/i,
     );
   });
 

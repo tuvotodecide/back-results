@@ -5,7 +5,6 @@ import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../utils/institutional-voting.helpers';
@@ -67,12 +66,11 @@ describe('Institutional participation HTTP contract', () => {
 
     const ready = await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, id);
     expect([200, 201]).toContain(ready.status);
-    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, id);
-    expect([200, 201]).toContain(published.status);
     await ctx.conn.collection('voting_events').updateOne(
       { _id: new Types.ObjectId(id) },
       {
         $set: {
+          state: 'OFFICIALLY_PUBLISHED',
           votingStart: new Date(Date.now() - 60_000),
           votingEnd: new Date(Date.now() + 3_600_000),
           resultsPublishAt: new Date(Date.now() + 7_200_000),
@@ -83,7 +81,7 @@ describe('Institutional participation HTTP contract', () => {
     return id as string;
   }
 
-  it('GET /api/v1/voting/events/:eventId/participations/status antes de votar retorna CAN_VOTE', async () => {
+  it('PAR-REG-P0-003 GET /api/v1/voting/events/:eventId/participations/status antes de votar retorna CAN_VOTE', async () => {
     const response = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/participations/status`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado })
@@ -98,7 +96,7 @@ describe('Institutional participation HTTP contract', () => {
     );
   });
 
-  it('GET /api/v1/voting/events/:eventId/participations/status rechaza carnet inválido', async () => {
+  it('PAR-REG-P0-003 GET /api/v1/voting/events/:eventId/participations/status rechaza carnet inválido', async () => {
     const response = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/participations/status`)
       .query({ carnet: '###' })
@@ -107,7 +105,7 @@ describe('Institutional participation HTTP contract', () => {
     expect(String(response.body.message)).toContain('carnet inválido');
   });
 
-  it('POST /api/v1/voting/events/:eventId/participations registra participación con shape estable', async () => {
+  it('PAR-REG-P0-001 / PAR-REG-P0-004 POST /api/v1/voting/events/:eventId/participations registra participación con shape estable y segura', async () => {
     const response = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
       .set('Idempotency-Key', 'contract-participation-key')
@@ -123,9 +121,15 @@ describe('Institutional participation HTTP contract', () => {
     );
     expect(response.body).not.toHaveProperty('carnet');
     expect(response.body).not.toHaveProperty('carnetNorm');
+    expect(response.body).not.toHaveProperty('option');
+    expect(response.body).not.toHaveProperty('candidate');
+    expect(response.body).not.toHaveProperty('proof');
+    expect(response.body).not.toHaveProperty('nullifier');
+    expect(response.body).not.toHaveProperty('credential');
+    expect(response.body).not.toHaveProperty('privateKey');
   });
 
-  it('POST /api/v1/voting/events/:eventId/participations idempotente retorna 200 sin cambiar shape', async () => {
+  it('PAR-SYN-P0-001 POST /api/v1/voting/events/:eventId/participations idempotente retorna 200 sin cambiar shape', async () => {
     const response = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
       .set('Idempotency-Key', 'contract-participation-key')
@@ -141,7 +145,7 @@ describe('Institutional participation HTTP contract', () => {
     );
   });
 
-  it('GET /api/v1/voting/events/:eventId/participations/status después de votar retorna ALREADY_VOTED', async () => {
+  it('PAR-YAV-P0-001 GET /api/v1/voting/events/:eventId/participations/status después de votar retorna ALREADY_VOTED', async () => {
     const response = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/participations/status`)
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado })
@@ -157,7 +161,7 @@ describe('Institutional participation HTTP contract', () => {
     );
   });
 
-  it('POST /api/v1/voting/events/:eventId/participations bloquea carnet no habilitado con error controlado', async () => {
+  it('PAR-REG-P0-003 POST /api/v1/voting/events/:eventId/participations bloquea carnet no habilitado con error controlado', async () => {
     const response = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/participations`)
       .send({ carnet: institutionalVotingFixtures.carnet.notEmpadronado })

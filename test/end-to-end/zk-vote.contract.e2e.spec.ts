@@ -91,7 +91,7 @@ describe('ZK vote contract E2E (mocked)', () => {
     await moduleRef?.close();
   });
 
-  it('GET /api/v1/voting/events/vote/cred-vc devuelve VC mínima', async () => {
+  it('VOT-PRE-P0-002 | GET /api/v1/voting/events/vote/cred-vc devuelve VC mínima', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/voting/events/vote/cred-vc')
       .set('x-api-key', 'mock-api-key')
@@ -105,7 +105,7 @@ describe('ZK vote contract E2E (mocked)', () => {
     );
   });
 
-  it('POST /api/v1/voting/events/vote emite voto con proof mockeado', async () => {
+  it('VOT-PRE-P0-004 / VOT-CHN-P0-001 | POST /api/v1/voting/events/vote emite voto con proof mockeado', async () => {
     const response = await request(app.getHttpServer())
       .post('/api/v1/voting/events/vote')
       .query({ optionId: 'blank' })
@@ -113,13 +113,15 @@ describe('ZK vote contract E2E (mocked)', () => {
       .expect(200);
 
     expect(response.body.body.scope).toHaveLength(2);
+    expect(JSON.stringify(response.body)).not.toContain('mock-proof');
+    expect(JSON.stringify(response.body)).not.toContain('private');
     expect(institutionalVotingService.emitVote).toHaveBeenCalledWith(
       'blank',
       { proof: 'mock-proof' },
     );
   });
 
-  it('POST /api/v1/voting/events/vote propaga error controlado de proof inválido', async () => {
+  it('VOT-PRE-P0-004 / VOT-ERR-P1-003 | POST /api/v1/voting/events/vote propaga error controlado de proof inválido', async () => {
     institutionalVotingService.emitVote.mockRejectedValueOnce(
       new BadRequestException('invalid mocked proof'),
     );
@@ -131,7 +133,7 @@ describe('ZK vote contract E2E (mocked)', () => {
       .expect(400);
   });
 
-  it('POST /api/v1/voting/events/vote propaga error controlado de opción inexistente', async () => {
+  it('VOT-CHN-P0-003 | POST /api/v1/voting/events/vote propaga error controlado de opción inexistente', async () => {
     institutionalVotingService.emitVote.mockRejectedValueOnce(
       new NotFoundException('Voting option not found'),
     );

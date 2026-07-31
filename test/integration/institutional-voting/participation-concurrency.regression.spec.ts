@@ -6,7 +6,6 @@ import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../../utils/institutional-voting.helpers';
@@ -73,13 +72,11 @@ describe('Institutional voting integration - participation concurrency regressio
     );
     expect([200, 201]).toContain(ready.status);
 
-    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
-    expect(published.status).toBe(201);
-
     await ctx.conn.collection('voting_events').updateOne(
       { _id: new Types.ObjectId(eventId) },
       {
         $set: {
+          state: 'OFFICIALLY_PUBLISHED',
           votingStart: new Date(Date.now() - 60_000),
           votingEnd: new Date(Date.now() + 60 * 60 * 1000),
           resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
@@ -107,7 +104,7 @@ describe('Institutional voting integration - participation concurrency regressio
     });
   }
 
-  it('dos solicitudes concurrentes para el mismo evento y carnet dejan una sola participación persistida', async () => {
+  it('PAR-SYN-P0-002 / PAR-ERR-P0-001 dos solicitudes concurrentes para el mismo evento y carnet dejan una sola participación persistida', async () => {
     const eventId = await createActiveVotingEvent();
     const carnet = institutionalVotingFixtures.carnet.empadronado;
 
@@ -137,7 +134,7 @@ describe('Institutional voting integration - participation concurrency regressio
     expect(afterCount).toBe(1);
   });
 
-  it('dos solicitudes concurrentes con la misma Idempotency-Key no duplican participación', async () => {
+  it('PAR-SYN-P0-002 dos solicitudes concurrentes con la misma Idempotency-Key no duplican participación', async () => {
     const eventId = await createActiveVotingEvent();
     const carnet = institutionalVotingFixtures.carnet.empadronado;
     const idempotencyKey = 'concurrent-same-idempotency-key';
@@ -172,7 +169,7 @@ describe('Institutional voting integration - participation concurrency regressio
     expect(afterCount).toBe(1);
   });
 
-  it('misma Idempotency-Key con carnet distinto documenta el contrato actual por carnet', async () => {
+  it('PAR-SYN-P0-002 misma Idempotency-Key con carnet distinto documenta el contrato actual por carnet', async () => {
     const eventId = await createActiveVotingEvent();
     const idempotencyKey = 'same-key-different-carnet';
 

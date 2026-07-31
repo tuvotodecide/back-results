@@ -68,7 +68,7 @@ describe('EmitVoteService (unit)', () => {
     );
   });
 
-  it('getVoteVc devuelve la VC cuando existe una sesión habilitada', async () => {
+  it('VOT-PRE-P0-002 | getVoteVc devuelve la VC cuando existe una sesión habilitada', async () => {
     enabledSessionModel.findOne.mockReturnValue(
       execResolved({ sessionToken: 'vc-token-123' }),
     );
@@ -82,7 +82,7 @@ describe('EmitVoteService (unit)', () => {
     });
   });
 
-  it('getVoteVc lanza NotFoundException cuando no existe sesión habilitada', async () => {
+  it('VOT-PRE-P0-002 | getVoteVc lanza NotFoundException cuando no existe sesión habilitada', async () => {
     enabledSessionModel.findOne.mockReturnValue(execResolved(null));
 
     await expect(service.getVoteVc(eventId, '123456')).rejects.toBeInstanceOf(
@@ -90,7 +90,7 @@ describe('EmitVoteService (unit)', () => {
     );
   });
 
-  it('emitVote con optionId=blank extrae eventId/nullifier y emite voto blanco', async () => {
+  it('VOT-SEL-P0-002 / VOT-PRE-P0-004 / VOT-CHN-P0-001 | emitVote con optionId=blank extrae eventId/nullifier y emite voto blanco', async () => {
     zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
 
     await expect(service.emitVote('blank', 'mock-proof')).resolves.toEqual(
@@ -106,7 +106,7 @@ describe('EmitVoteService (unit)', () => {
     expect(votingOptionModel.findById).not.toHaveBeenCalled();
   });
 
-  it('emitVote con opción válida usa el nombre de la opción para escribir on-chain', async () => {
+  it('VOT-PRE-P0-001 / VOT-CHN-P0-001 | emitVote con opción válida usa el nombre de la opción para escribir on-chain una sola vez', async () => {
     zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
     votingOptionModel.findById.mockReturnValue(
       execResolved({ _id: 'option-id', name: 'Frente Azul' }),
@@ -120,9 +120,10 @@ describe('EmitVoteService (unit)', () => {
       'Frente Azul',
       nullifier,
     );
+    expect(voteWritterService.castVote).toHaveBeenCalledTimes(1);
   });
 
-  it('emitVote con opción inexistente devuelve NotFoundException', async () => {
+  it('VOT-CHN-P0-003 | emitVote con opción inexistente devuelve NotFoundException sin escribir on-chain', async () => {
     zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
     votingOptionModel.findById.mockReturnValue(execResolved(null));
 
@@ -132,7 +133,7 @@ describe('EmitVoteService (unit)', () => {
     expect(voteWritterService.castVote).not.toHaveBeenCalled();
   });
 
-  it('emitVote con proof sin eventId devuelve BadRequestException', async () => {
+  it('VOT-PRE-P0-004 / VOT-CHN-P0-003 | emitVote con proof sin eventId devuelve BadRequestException', async () => {
     zkAuthService.zkRequestCallback.mockResolvedValue(
       zkResponse([validScope[1]]),
     );
@@ -143,7 +144,7 @@ describe('EmitVoteService (unit)', () => {
     expect(voteWritterService.castVote).not.toHaveBeenCalled();
   });
 
-  it('emitVote con proof sin nullifier devuelve BadRequestException', async () => {
+  it('VOT-PRE-P0-004 / VOT-CHN-P0-003 | emitVote con proof sin nullifier devuelve BadRequestException', async () => {
     zkAuthService.zkRequestCallback.mockResolvedValue(
       zkResponse([validScope[0]]),
     );
@@ -154,7 +155,7 @@ describe('EmitVoteService (unit)', () => {
     expect(voteWritterService.castVote).not.toHaveBeenCalled();
   });
 
-  it('envuelve el error del writer on-chain mockeado en error controlado', async () => {
+  it('VOT-ERR-P1-003 / VOT-SEC-P0-002 | envuelve el error del writer on-chain mockeado en error controlado sin secretos', async () => {
     const error = new Error('mock writer failure');
     zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
     voteWritterService.castVote.mockRejectedValue(error);
@@ -170,9 +171,12 @@ describe('EmitVoteService (unit)', () => {
     expect((thrown as Error).message).toBe(
       'An error occurred while casting the vote',
     );
+    expect(JSON.stringify(thrown)).not.toContain('mock-proof');
+    expect(JSON.stringify(thrown)).not.toContain(nullifier);
+    expect(JSON.stringify(thrown)).not.toContain('private');
   });
 
-  it('emitVote con nullifier duplicado retorna BadRequestException controlado', async () => {
+  it('VOT-ERR-P0-001 / VOT-CHN-P0-003 | emitVote con nullifier duplicado retorna BadRequestException controlado', async () => {
     zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
     voteWritterService.castVote.mockRejectedValue(
       new Error('Nullifier already used'),
@@ -186,7 +190,7 @@ describe('EmitVoteService (unit)', () => {
     );
   });
 
-  it('emitVote propaga rechazo de ZK callback y no llama writer', async () => {
+  it('VOT-PRE-P0-004 / VOT-ERR-P1-003 | emitVote propaga rechazo de ZK callback y no llama writer', async () => {
     const zkError = new Error('invalid zk proof');
     zkAuthService.zkRequestCallback.mockRejectedValue(zkError);
 

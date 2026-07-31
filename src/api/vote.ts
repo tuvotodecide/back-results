@@ -227,6 +227,22 @@ async function getHashVoted(chainId: string, voteId: string, voteHash: bigint) {
   }
 }
 
+async function getVotedEvents(chainId: string, fromBlock: number | bigint) {
+  const { voteContract } = availableNetworks[chainId];
+  const publicClient = createPublicClient({
+    chain: availableNetworks[chainId].chain,
+    transport: http(availableNetworks[chainId].bundler),
+  });
+
+  return publicClient.getContractEvents({
+    address: voteContract,
+    abi: votingContractAbi,
+    eventName: 'Voted',
+    fromBlock: BigInt(fromBlock),
+    toBlock: 'latest',
+  });
+}
+
 export const VoteContractUtils = {
   idToHex,
   getVoteHash,
@@ -250,4 +266,5 @@ export const VoteContractReads = {
   getInstitutionAdmin,
   isAuthorizedAddress,
   getHashVoted,
+  getVotedEvents,
 }

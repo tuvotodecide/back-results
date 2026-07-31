@@ -26,6 +26,7 @@ import { PadronResolvedUser } from '@/modules/institutional-voting/services/core
 import { VotingEventDocument } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 import { EmitVoteService } from '@/modules/institutional-voting/services/participation/emit-vote.service';
+import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.service';
 
 // Evitar cargar ZK real (dependencias ESM/circuitos) en el entorno de test.
 jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
@@ -125,9 +126,36 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       });
       return voteNullifiers;
     }),
+    prepareCreateVote: jest.fn(async (event: VotingEventDocument, institutionId: string, voters: string[], options: string[]) => ({
+      secrets: voters.map((dni) => `mock-nullifier-${dni}`),
+      ciMerkleTree: { root: 'mock-ci-root' },
+      optionsWithBlank: [...options, 'BLANK'],
+      callData: '0xmock-create-vote-calldata',
+      createVoteArgs: [
+        BigInt(`0x${event._id.toString()}`),
+        institutionId,
+        event.name,
+        Math.floor(event.votingStart!.getTime() / 1000),
+        Math.floor(event.votingEnd!.getTime() / 1000),
+        Math.floor(event.resultsPublishAt!.getTime() / 1000),
+        voters.length,
+        'mock-ci-root',
+        [...options, 'BLANK'],
+      ],
+      onChainElectionId: BigInt(`0x${event._id.toString()}`),
+    })),
+    executePreparedCreateVote: jest.fn(async (_event: VotingEventDocument, prepared: { secrets: string[] }) => prepared.secrets),
     updateVoteSchedule: jest.fn(),
     castVote: jest.fn(),
     addNewVoters: jest.fn(),
+  };
+
+  const tvdBlockchainServiceMock = {
+    validateVotePublicationPreflight: jest.fn(async () => ({
+      ok: true,
+      balance: 100n,
+      requiredCredits: 1n,
+    })),
   };
 
   const issuerServiceMock = {
@@ -187,6 +215,8 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
       .useValue(voteReaderServiceMock)
       .overrideProvider(VoteWritterService)
       .useValue(voteWritterServiceMock)
+      .overrideProvider(TvdBlockchainService)
+      .useValue(tvdBlockchainServiceMock)
       .overrideProvider(IssuerService)
       .useValue(issuerServiceMock)
       .overrideProvider(EmitVoteService)
@@ -241,6 +271,43 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
         userId: governorUserId,
         active: true,
       });
+
+    const institutionalApplicationId = new Types.ObjectId();
+    const institutionalWallet = '0x0000000000000000000000000000000000000e2e';
+    const now = new Date();
+
+    await conn.collection('institutional_admin_applications').insertOne({
+      _id: institutionalApplicationId,
+      tenantId: new Types.ObjectId(tenantRes.body?.id),
+      userId: new Types.ObjectId(governorUserId),
+      institutionName: 'Gobernacion La Paz',
+      institutionNameNorm: 'gobernacion la paz',
+      accountAddress: institutionalWallet,
+      status: 'APPROVED',
+      stableInstitutionId: String(institutionalApplicationId),
+      chainStatus: 'CONFIRMED',
+      chainConfirmedAt: now,
+      approvedBy: new Types.ObjectId(admin._id),
+      approvedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await conn.collection('tenant_admin_assignments').updateOne(
+      {
+        tenantId: new Types.ObjectId(tenantRes.body?.id),
+        userId: new Types.ObjectId(governorUserId),
+      },
+      {
+        $set: {
+          applicationId: institutionalApplicationId,
+          accountAddress: institutionalWallet,
+          status: 'APPROVED',
+          active: true,
+          updatedAt: now,
+        },
+      },
+    );
 
     const tenantAdminLoginRes = await request(httpServer).post('/api/v1/auth/login').send({
       email: governorEmail,
@@ -325,6 +392,38 @@ export async function publishInstitutionalEvent(
     .post(`/api/v1/voting/events/${eventId}/publish`)
     .auth(token, { type: 'bearer' })
     .send(payload);
+}
+
+export async function seedPublishedEventForNonPublicationTest(
+  ctx: Pick<InstitutionalVotingContext, 'conn'>,
+  eventId: string,
+  payload: {
+    votingStart?: Date;
+    votingEnd?: Date;
+    resultsPublishAt?: Date;
+    publicEligibilityEnabled?: boolean;
+    presentialKioskEnabled?: boolean;
+  } = {},
+) {
+  const now = new Date();
+  await ctx.conn.collection('voting_events').updateOne(
+    { _id: new Types.ObjectId(eventId) },
+    {
+      $set: {
+        state: 'OFFICIALLY_PUBLISHED',
+        canEditStructure: false,
+        publicEligibilityEnabled: true,
+        publicationConfirmed: true,
+        officialPublishedAt: now,
+        convocationNotifiedAt: now,
+        officialPublicationTxHash: '0xfixturepublished000000000000000000000000000000000000000000000000',
+        officialPublicationWallet: '0x0000000000000000000000000000000000000f17',
+        officialPublicationChainId: '84532',
+        ...payload,
+      },
+      $unset: { publicationExpiredAt: '' },
+    },
+  );
 }
 
 export async function validateInstitutionalEventReadiness(

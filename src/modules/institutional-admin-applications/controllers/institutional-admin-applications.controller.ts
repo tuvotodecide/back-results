@@ -327,6 +327,22 @@ export class InstitutionalAdminApplicationsController {
     return this.institutionalAdminApplicationsService.approveApplication(applicationId, req.user);
   }
 
+  @Post(':applicationId/retry-authorization')
+  @UseGuards(InstitutionalApplicationReviewGuard)
+  @ApiOperation({
+    summary: 'Reintentar autorización institucional',
+    description:
+      'Continúa una autorización institucional atascada sin repetir la aprobación administrativa.',
+  })
+  @ApiParam({ name: 'applicationId', description: 'ID de la solicitud institucional.' })
+  @ApiResponse({ status: 200, description: 'Autorización reprocesada o reconciliada.' })
+  retryAuthorization(@Param('applicationId') applicationId: string, @Req() req: any) {
+    return this.institutionalAdminApplicationsService.retryInstitutionCreationAuthorization(
+      applicationId,
+      req.user,
+    );
+  }
+
   @Post(':applicationId/reject')
   @UseGuards(InstitutionalApplicationReviewGuard)
   @ApiOperation({

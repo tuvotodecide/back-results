@@ -5,6 +5,7 @@ const mockGetBlock = jest.fn();
 const mockCreateVoteCall = jest.fn();
 const mockCastVoteCall = jest.fn();
 const mockGetVoteHash = jest.fn();
+const mockGetVotedEvents = jest.fn();
 
 jest.mock('@/api/params', () => ({
   availableNetworks: {
@@ -24,7 +25,11 @@ jest.mock('@/api/vote', () => ({
     addNewVoters: jest.fn(),
   },
   VoteContractUtils: {
+    idToHex: (value: string) => BigInt(`0x${value}`),
     getVoteHash: (...args: any[]) => mockGetVoteHash(...args),
+  },
+  VoteContractReads: {
+    getVotedEvents: (...args: any[]) => mockGetVotedEvents(...args),
   },
 }));
 
@@ -71,9 +76,17 @@ describe('VoteWritterService (unit)', () => {
     mockCreateVoteCall.mockReturnValue({ to: '0xVoteContract', data: '0xcreate' });
     mockCastVoteCall.mockReturnValue({ to: '0xVoteContract', data: '0xcast' });
     mockSendTransaction.mockResolvedValue('0xtx');
-    mockWaitForTransactionReceipt.mockResolvedValue({ blockNumber: 123n });
+    mockWaitForTransactionReceipt.mockResolvedValue({ blockNumber: 123n, status: 'success' });
     mockGetBlock.mockResolvedValue({ timestamp: 1_700_000_000n });
     mockGetVoteHash.mockResolvedValue(999n);
+    mockGetVotedEvents.mockResolvedValue([
+      {
+        eventName: 'Voted',
+        args: {
+          voteId: BigInt('0x123abc'),
+        },
+      },
+    ]);
 
     merkletreeService = {
       stringToFieldElement: jest.fn((value: string) =>
@@ -142,13 +155,13 @@ describe('VoteWritterService (unit)', () => {
     expect(merkletreeService.createIfMissing).toHaveBeenCalledWith(eventId, [['ci']]);
   });
 
-  it('castVote construye la llamada con eventId, opción y nullifier', async () => {
-    await service.castVote('event-1', 'Frente Azul', 'secret-1');
+  it('VOT-CHN-P0-001 / VOT-CHN-P0-002 | castVote construye payload, espera receipt exitoso y confirma evento Voted', async () => {
+    await service.castVote('123abc', 'Frente Azul', 'secret-1');
 
-    expect(mockGetVoteHash).toHaveBeenCalledWith('event-1', 'secret-1');
+    expect(mockGetVoteHash).toHaveBeenCalledWith('123abc', 'secret-1');
     expect(mockCastVoteCall).toHaveBeenCalledWith(
       'base-sepolia',
-      'event-1',
+      '123abc',
       'Frente Azul',
       999n,
     );
@@ -156,25 +169,76 @@ describe('VoteWritterService (unit)', () => {
       to: '0xVoteContract',
       data: '0xcast',
     });
+    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({
+      hash: '0xtx',
+      timeout: 900000,
+      pollingInterval: 2000,
+    });
+    expect(mockGetVotedEvents).toHaveBeenCalledWith('base-sepolia', 123n);
   });
 
-  it('propaga errores del cliente/bundler mockeado', async () => {
+  it('VOT-ERR-P1-003 | propaga errores del cliente/bundler mockeado sin confirmar voto', async () => {
     mockSendTransaction.mockRejectedValueOnce(new Error('bundler failed'));
 
     await expect(
-      service.castVote('event-1', 'Frente Azul', 'secret-1'),
+      service.castVote('123abc', 'Frente Azul', 'secret-1'),
     ).rejects.toThrow('bundler failed');
+    expect(mockGetVotedEvents).not.toHaveBeenCalled();
   });
 
-  it('usa getTransactionReceipt como fallback cuando waitForTransactionReceipt expira', async () => {
+  it('VOT-CHN-P0-002 | usa getTransactionReceipt como fallback y confirma Voted cuando waitForTransactionReceipt expira', async () => {
     const timeout = new Error('Timed out while waiting for transaction');
     timeout.name = 'WaitForTransactionReceiptTimeoutError';
     mockWaitForTransactionReceipt.mockRejectedValueOnce(timeout);
-    mockGetTransactionReceipt.mockResolvedValueOnce({ blockNumber: 456n });
+    mockGetTransactionReceipt.mockResolvedValueOnce({ blockNumber: 456n, status: 'success' });
+    mockGetVotedEvents.mockResolvedValueOnce([
+      {
+        eventName: 'Voted',
+        args: {
+          voteId: BigInt('0x123abc'),
+        },
+      },
+    ]);
 
-    await service.castVote('event-2', 'BLANK', 'secret-2');
+    await service.castVote('123abc', 'BLANK', 'secret-2');
 
     expect(mockGetTransactionReceipt).toHaveBeenCalledWith({ hash: '0xtx' });
+    expect(mockGetVotedEvents).toHaveBeenCalledWith('base-sepolia', 456n);
     expect(mockGetBlock).toHaveBeenCalledWith({ blockNumber: 456n });
+  });
+
+  it('VOT-CHN-P0-002 | rechaza receipt revertido sin consultar evento Voted', async () => {
+    mockWaitForTransactionReceipt.mockResolvedValueOnce({
+      blockNumber: 123n,
+      status: 'reverted',
+    });
+
+    await expect(
+      service.castVote('123abc', 'Frente Azul', 'secret-1'),
+    ).rejects.toThrow('Transaction 0xtx reverted');
+    expect(mockGetVotedEvents).not.toHaveBeenCalled();
+  });
+
+  it('VOT-CHN-P0-002 | no confirma cuando falta el evento Voted', async () => {
+    mockGetVotedEvents.mockResolvedValueOnce([]);
+
+    await expect(
+      service.castVote('123abc', 'Frente Azul', 'secret-1'),
+    ).rejects.toThrow('Expected Voted event for vote 123abc was not found');
+  });
+
+  it('VOT-CHN-P0-002 | no confirma cuando el evento Voted corresponde a otra votacion', async () => {
+    mockGetVotedEvents.mockResolvedValueOnce([
+      {
+        eventName: 'Voted',
+        args: {
+          voteId: BigInt('0x999999'),
+        },
+      },
+    ]);
+
+    await expect(
+      service.castVote('123abc', 'Frente Azul', 'secret-1'),
+    ).rejects.toThrow('Expected Voted event for vote 123abc was not found');
   });
 });
