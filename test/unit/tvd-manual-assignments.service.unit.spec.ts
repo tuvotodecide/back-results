@@ -186,7 +186,7 @@ function createHarness(overrides: Record<string, any> = {}) {
 
 describe('TVD manual assignments service', () => {
   describe('CASOS POSITIVOS', () => {
-    it('TVD-MANUAL-POS-U-001/002/003/004/005/006/007/009 | POSITIVO | UNITARIO | SUPERADMIN crea asignacion manual confirmada', async () => {
+    it('TVD-ASSIGN-P0-001 TVD-ASSIGN-P0-002 TVD-ASSIGN-P0-003 TVD-ASSIGN-P0-004 TVD-ASSIGN-P0-005 | TVD-MANUAL-POS-U-001/002/003/004/005/006/007/009 | POSITIVO | UNITARIO | SUPERADMIN crea asignacion manual confirmada', async () => {
       const { service, dto, requester, state, processor, reconciliation, auditService } = createHarness();
 
       const result = await service.createManualAssignment(dto, requester, 'manual-key-1');
@@ -223,7 +223,7 @@ describe('TVD manual assignments service', () => {
       });
     });
 
-    it('TVD-MANUAL-POS-U-008 / TVD-MANUAL-NEG-U-023 | POSITIVO | UNITARIO | idempotencia devuelve existente sin segundo assign', async () => {
+    it('TVD-ASSIGN-P0-004 | TVD-MANUAL-POS-U-008 / TVD-MANUAL-NEG-U-023 | POSITIVO | UNITARIO | idempotencia devuelve existente sin segundo assign', async () => {
       const { service, dto, requester, processor } = createHarness();
 
       const first = await service.createManualAssignment(dto, requester, 'manual-key-2');
@@ -258,7 +258,7 @@ describe('TVD manual assignments service', () => {
   });
 
   describe('CASOS NEGATIVOS', () => {
-    it('TVD-MANUAL-NEG-U-001/002 | NEGATIVO | UNITARIO | rechaza usuario no autenticado o no ADMIN', async () => {
+    it('TVD-ASSIGN-P0-001 TVD-SEC-P0-001 | TVD-MANUAL-NEG-U-001/002 | NEGATIVO | UNITARIO | rechaza usuario no autenticado o no ADMIN', async () => {
       const { service, dto } = createHarness();
 
       await expect(service.createManualAssignment(dto, undefined as any, 'key')).rejects.toBeInstanceOf(UnauthorizedException);

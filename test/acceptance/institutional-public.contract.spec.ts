@@ -5,12 +5,11 @@ import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../utils/institutional-voting.helpers';
 
-describe('Institutional public HTTP contract', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | Public HTTP contract', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
   let eventId: string;
 
@@ -67,12 +66,13 @@ describe('Institutional public HTTP contract', () => {
 
     const ready = await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, id);
     expect([200, 201]).toContain(ready.status);
-    const published = await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, id);
-    expect([200, 201]).toContain(published.status);
     await ctx.conn.collection('voting_events').updateOne(
       { _id: new Types.ObjectId(id) },
       {
         $set: {
+          state: 'PUBLISHED',
+          publicationConfirmed: true,
+          officialPublishedAt: new Date(),
           votingStart: new Date(Date.now() - 60_000),
           votingEnd: new Date(Date.now() + 3_600_000),
           resultsPublishAt: new Date(Date.now() + 7_200_000),
@@ -84,7 +84,16 @@ describe('Institutional public HTTP contract', () => {
     return id as string;
   }
 
-  it('GET /api/v1/voting/events/public/landing retorna agrupación pública estable', async () => {
+  function expectNoPrivatePadronData(payload: unknown) {
+    const serialized = JSON.stringify(payload);
+    expect(serialized).not.toContain('fullName');
+    expect(serialized).not.toContain('email');
+    expect(serialized).not.toContain('birthDate');
+    expect(serialized).not.toContain('padronEntries');
+    expect(serialized).not.toContain('voters');
+  }
+
+  it('PAD-LST-P0-001 / PAD-SEC-P0-001 | GET /api/v1/voting/events/public/landing retorna agrupación pública estable', async () => {
     const response = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/landing')
       .query({ tenantId: ctx.createdTenantId })
@@ -112,7 +121,7 @@ describe('Institutional public HTTP contract', () => {
     );
   });
 
-  it('GET /api/v1/voting/events/public/detail/:eventId retorna detalle público mínimo', async () => {
+  it('PAD-LST-P0-001 / PAD-SEC-P0-001 | GET /api/v1/voting/events/public/detail/:eventId retorna detalle público mínimo', async () => {
     const response = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/public/detail/${eventId}`)
       .expect(200);
@@ -139,7 +148,7 @@ describe('Institutional public HTTP contract', () => {
     );
   });
 
-  it('GET /api/v1/voting/events/public/eligibility-by-carnet retorna elegibilidad pública estable', async () => {
+  it('PAD-ELG-P0-001 / PAD-SEC-P0-001 | GET /api/v1/voting/events/public/eligibility-by-carnet retorna elegibilidad pública estable', async () => {
     const response = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')
       .query({
@@ -168,9 +177,10 @@ describe('Institutional public HTTP contract', () => {
         referenceVersion: expect.any(String),
       }),
     );
+    expectNoPrivatePadronData(response.body);
   });
 
-  it('GET /api/v1/voting/events/public/eligibility-by-carnet retorna no elegible con shape estable', async () => {
+  it('PAD-ELG-P0-002 / PAD-SEC-P0-001 | GET /api/v1/voting/events/public/eligibility-by-carnet retorna no elegible con shape estable', async () => {
     const response = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')
       .query({
@@ -187,9 +197,10 @@ describe('Institutional public HTTP contract', () => {
         eligible: false,
       }),
     );
+    expectNoPrivatePadronData(response.body);
   });
 
-  it('GET /api/v1/voting/events/public/detail/:eventId inválido retorna error controlado', async () => {
+  it('PAD-LST-P1-002 | GET /api/v1/voting/events/public/detail/:eventId inválido retorna error controlado', async () => {
     const response = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/detail/not-a-valid-id')
       .expect(400);

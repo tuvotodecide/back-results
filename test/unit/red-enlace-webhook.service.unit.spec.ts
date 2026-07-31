@@ -158,7 +158,7 @@ describe('PaymentsModule integration surface', () => {
 });
 
 describe('RedEnlaceWebhookService', () => {
-  it('processes the nested Red Enlace contract without storing bank client payload', async () => {
+  it('TVD-QR-P0-006 TVD-SEC-P0-002 | processes the nested Red Enlace contract without storing bank client payload', async () => {
     const { service, eventModel, payments } = createService();
 
     await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
@@ -192,6 +192,10 @@ describe('RedEnlaceWebhookService', () => {
     expect(JSON.stringify(persistedEvent)).not.toContain('14240008');
     expect(JSON.stringify(persistedEvent)).not.toContain('1011000024');
     expect(JSON.stringify(persistedEvent)).not.toContain('BANCO ECONOMICO');
+    expect(JSON.stringify(persistedEvent)).not.toContain('Authorization');
+    expect(JSON.stringify(persistedEvent)).not.toContain('privateKey');
+    expect(JSON.stringify(persistedEvent)).not.toContain('rpc-password');
+    expect(JSON.stringify(persistedEvent)).not.toContain('payloadQr');
     expect(eventModel.updateOne).toHaveBeenLastCalledWith(
       { _id: 'event-id' },
       {
@@ -204,7 +208,7 @@ describe('RedEnlaceWebhookService', () => {
     );
   });
 
-  it('returns a controlled 05 response when the provider reference is unknown', async () => {
+  it('TVD-QR-P0-009 | returns a controlled 05 response when the provider reference is unknown', async () => {
     const { service, eventModel, payments } = createService({
       payments: {
         applyWebhookConfirmation: jest
@@ -339,7 +343,7 @@ describe('RedEnlaceWebhookService', () => {
     expect(eventModel.updateOne).toHaveBeenCalledTimes(1);
   });
 
-  it('detects a duplicate inbox event and does not apply payment processing again', async () => {
+  it('TVD-QR-P0-010 | detects a duplicate inbox event and does not apply payment processing again', async () => {
     const duplicateEvent = { _id: 'event-id', processingStatus: 'RECEIVED' };
     const { service, eventModel, payments } = createService({
       eventModel: {

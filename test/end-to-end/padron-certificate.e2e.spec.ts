@@ -15,7 +15,7 @@ import {
 
 jest.setTimeout(240000);
 
-describe('Padron certificate E2E (phase 4)', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | E2E constancia', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
 
   beforeAll(async () => {
@@ -146,7 +146,7 @@ describe('Padron certificate E2E (phase 4)', () => {
     };
   }
 
-  it('genera constancia PDF inmediatamente desde una versión confirmada', async () => {
+  it('PAD-CFM-P0-001 / PAD-DWN-P1-001 | genera constancia PDF inmediatamente desde una versión confirmada', async () => {
     const { eventId, padronVersionId } = await prepareConfirmedVersionEvent();
 
     const metadata = await getPadronCertificateMetadata(
@@ -172,7 +172,7 @@ describe('Padron certificate E2E (phase 4)', () => {
     });
   });
 
-  it('permite descargar la constancia PDF y contiene metadatos coherentes', async () => {
+  it('PAD-DWN-P1-001 | permite descargar la constancia PDF y contiene metadatos coherentes', async () => {
     const { eventId, padronVersionId } = await prepareConfirmedVersionEvent();
 
     const download = await request(ctx.httpServer)
@@ -194,7 +194,7 @@ describe('Padron certificate E2E (phase 4)', () => {
     expect(text).toContain('789000 | INHABILITADO');
   });
 
-  it('informa ausencia de constancia cuando no existe versión confirmada', async () => {
+  it('PAD-LST-P1-002 | informa ausencia de constancia cuando no existe versión confirmada', async () => {
     const eventId = await createConfiguredEvent();
 
     const metadata = await getPadronCertificateMetadata(
@@ -217,7 +217,7 @@ describe('Padron certificate E2E (phase 4)', () => {
     expect(download.status).toBe(404);
   });
 
-  it('materializa constancia para una versión legacy que no la tenía', async () => {
+  it('PAD-CSV-P1-001 / PAD-DWN-P1-001 | materializa constancia para una versión legacy que no la tenía', async () => {
     const eventId = await createConfiguredEvent();
 
     const legacy = await uploadPadronCsv(
@@ -264,7 +264,7 @@ describe('Padron certificate E2E (phase 4)', () => {
     );
   });
 
-  it('permite consultar constancia en READY_FOR_REVIEW, OFFICIALLY_PUBLISHED, PUBLICATION_EXPIRED, CLOSED y RESULTS_PUBLISHED', async () => {
+  it('PAD-STA-P0-001 / PAD-STA-P0-003 | permite consultar constancia en estados posteriores permitidos', async () => {
     const { eventId, padronVersionId } = await prepareConfirmedVersionEvent();
 
     const comparison = await request(ctx.httpServer)

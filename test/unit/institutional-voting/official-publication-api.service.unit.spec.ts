@@ -95,7 +95,7 @@ describe('OfficialPublicationApiService', () => {
     );
   });
 
-  it('crea una solicitud administrativa sin llamar flujo legacy ni exponer campos internos', async () => {
+  it('TVD-PUB-P0-006 TVD-PUB-P0-007 | crea una solicitud administrativa sin llamar flujo legacy ni exponer campos internos', async () => {
     const result = await service.createAdminRequest(String(eventId), signer);
 
     expect(preparationService.prepareOfficialPublication).toHaveBeenCalledWith(
@@ -122,7 +122,7 @@ describe('OfficialPublicationApiService', () => {
     expect(notificationService.enqueueForRequest).not.toHaveBeenCalled();
   });
 
-  it('mapea configuracion incompleta de creditos electorales a respuesta funcional controlada', async () => {
+  it('TVD-PUB-P0-007 | mapea configuracion incompleta de creditos electorales a respuesta funcional controlada', async () => {
     preparationService.prepareOfficialPublication.mockRejectedValueOnce(
       new TvdBlockchainError('TVD_CREDITS_CONFIG_INCOMPLETE'),
     );
@@ -135,13 +135,14 @@ describe('OfficialPublicationApiService', () => {
     }
     expect(caughtError).toBeInstanceOf(ServiceUnavailableException);
     expect((caughtError as ServiceUnavailableException).getResponse()).toEqual({
-      code: 'ELECTORAL_CREDITS_CONFIGURATION_INCOMPLETE',
-      message: 'La publicacion oficial no esta disponible en este entorno.',
+      code: 'PUBLICATION_CONTRACT_NOT_CONFIGURED',
+      message: 'La publicacion oficial todavia no esta configurada.',
+      details: {},
     });
     expect(notificationService.enqueueForRequest).not.toHaveBeenCalled();
   });
 
-  it('mapea VoteManager sin OPERATOR_ROLE a bloqueo contractual antes de firma', async () => {
+  it('TVD-PUB-P0-007 TVD-PUB-P0-011 | mapea VoteManager sin OPERATOR_ROLE a bloqueo contractual antes de firma', async () => {
     preparationService.prepareOfficialPublication.mockRejectedValueOnce(
       new TvdBlockchainError('TVD_CREDITS_OPERATOR_NOT_AUTHORIZED', undefined, {
         proxyAddress: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
@@ -217,7 +218,7 @@ describe('OfficialPublicationApiService', () => {
     expect(accessService.assertTenantWriteAccess).toHaveBeenCalledWith(tenantId, signer);
   });
 
-  it('consulta activa devuelve latestAttempt retryable sin tratarlo como request activo', async () => {
+  it('TVD-PUB-P0-013 | consulta activa devuelve latestAttempt retryable sin tratarlo como request activo', async () => {
     const failed = {
       ...requestDoc,
       status: 'FAILED_RETRYABLE',
@@ -265,7 +266,7 @@ describe('OfficialPublicationApiService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('autoriza movil por signerUserId aunque requestedByUserId sea otro usuario', async () => {
+  it('TVD-PUB-P0-008 PENDIENTE_EQUIPO_MOVIL | autoriza movil por signerUserId aunque requestedByUserId sea otro usuario', async () => {
     requestService.getRequestById.mockResolvedValueOnce({
       ...requestDoc,
       requestedByUserId: new Types.ObjectId(),
@@ -309,7 +310,7 @@ describe('OfficialPublicationApiService', () => {
     );
   });
 
-  it('reclama y devuelve solo paquete de ejecucion preparado', async () => {
+  it('TVD-PUB-P0-008 TVD-PUB-P0-009 PENDIENTE_EQUIPO_MOVIL | reclama y devuelve solo paquete de ejecucion preparado', async () => {
     const result = await service.claimMobileRequest(requestId, signer, {
       deviceId: 'device-1',
     });
@@ -362,7 +363,7 @@ describe('OfficialPublicationApiService', () => {
     );
   });
 
-  it('marca SIGNING de forma idempotente y registra submission sin aceptar callData del cliente', async () => {
+  it('TVD-PUB-P0-009 TVD-PUB-P0-010 PENDIENTE_EQUIPO_MOVIL | marca SIGNING de forma idempotente y registra submission sin aceptar callData del cliente', async () => {
     requestService.getRequestById.mockResolvedValueOnce({
       ...requestDoc,
       status: 'CLAIMED',

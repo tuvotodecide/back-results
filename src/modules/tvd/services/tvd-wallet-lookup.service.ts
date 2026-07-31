@@ -28,10 +28,12 @@ import {
 } from '@/modules/institutional-tenants/utils/tenant-wallet-verification.util';
 import {
   TvdWalletAssociationStatus,
+  TvdWalletBalanceLookupDto,
   TvdWalletLookupInstitutionSummary,
   TvdWalletLookupReasonCode,
   TvdWalletLookupResponseDto,
 } from '../dto/tvd-wallet-lookup.dto';
+import { TvdBlockchainService } from './tvd-blockchain.service';
 
 type IdentityByAccountResponse =
   | {
@@ -83,6 +85,7 @@ export class TvdWalletLookupService {
     private readonly userModel: Model<RoledUserDocument>,
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly tvdBlockchainService: TvdBlockchainService,
   ) {}
 
   async lookupAdminWallet(
@@ -90,9 +93,10 @@ export class TvdWalletLookupService {
     requester?: { sub?: string; role?: string; active?: boolean },
   ): Promise<TvdWalletLookupResponseDto> {
     const normalizedAddress = this.normalizeAccountAddress(accountAddress);
-    const [identity, associations] = await Promise.all([
+    const [identity, associations, balance] = await Promise.all([
       this.lookupIdentity(normalizedAddress),
       this.lookupLocalAssociations(normalizedAddress),
+      this.lookupLiquidBalance(normalizedAddress),
     ]);
 
     const associationStatus = this.resolveAssociationStatus(associations);
@@ -104,6 +108,7 @@ export class TvdWalletLookupService {
       associationStatus,
       canUse: this.resolveCanUse(identity.registered, associationStatus),
       reasonCode,
+      balance,
       associations,
     };
 
@@ -122,6 +127,37 @@ export class TvdWalletLookupService {
     );
 
     return response;
+  }
+
+  private async lookupLiquidBalance(
+    accountAddress: string,
+  ): Promise<TvdWalletBalanceLookupDto> {
+    try {
+      const balance = await this.tvdBlockchainService.getLiquidBalanceDetails(
+        accountAddress,
+      );
+      return {
+        status: 'AVAILABLE',
+        smallestUnit: balance.smallestUnit,
+        formatted: balance.formatted,
+        decimals: balance.decimals,
+      };
+    } catch (error) {
+      this.logger.warn(
+        {
+          event: 'tvd_admin_wallet_balance_lookup_failed',
+          accountAddress,
+          errorName: error instanceof Error ? error.name : typeof error,
+        },
+        this.context,
+      );
+      return {
+        status: 'UNAVAILABLE',
+        smallestUnit: null,
+        formatted: null,
+        decimals: null,
+      };
+    }
   }
 
   normalizeAccountAddress(value: string) {

@@ -165,8 +165,42 @@
       "test/unit/institutional-voting/voting-events.service.unit.spec.ts"
     ]
   },
-  "institutional-voting": {
-    "name": "Institutional voting - BRS-F10 to BRS-F19",
+  "matrix_05": {
+    "name": "MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results",
+    "flows": [
+      "MX-05",
+      "PAD-ACC",
+      "PAD-LST",
+      "PAD-UPL",
+      "PAD-FIL",
+      "PAD-PRC",
+      "PAD-STG",
+      "PAD-NRM",
+      "PAD-DUP",
+      "PAD-EDT",
+      "PAD-DEL",
+      "PAD-CFM",
+      "PAD-CSV",
+      "PAD-DWN",
+      "PAD-ELG",
+      "PAD-STA",
+      "PAD-SEC"
+    ],
+    "files": [
+      "test/acceptance/institutional-public.contract.spec.ts",
+      "test/end-to-end/padron-pdf-staging.e2e.spec.ts",
+      "test/end-to-end/padron-certificate.e2e.spec.ts",
+      "test/integration/institutional-voting/padron-editing-rules.spec.ts",
+      "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
+      "test/unit/institutional-voting/padron-certificate-pdf.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron-gemini-import.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron-pdf-parser.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron-users.service.unit.spec.ts",
+      "test/unit/institutional-voting/padron.service.unit.spec.ts"
+    ]
+  },
+  "institutional-voting_remaining": {
+    "name": "Institutional voting residual outside MX-04, MX-05 and MX-06",
     "flows": [
       "BRS-F10",
       "BRS-F11",
@@ -180,53 +214,36 @@
       "BRS-F19"
     ],
     "files": [
-      "test/acceptance/institutional-public.contract.spec.ts",
       "test/acceptance/institutional-participation.contract.spec.ts",
       "test/end-to-end/institutional-voting.e2e.spec.ts",
-      "test/end-to-end/padron-pdf-staging.e2e.spec.ts",
-      "test/end-to-end/padron-certificate.e2e.spec.ts",
       "test/end-to-end/zk-vote.contract.e2e.spec.ts",
       "test/integration/institutional-voting/participation-flow.spec.ts",
       "test/integration/institutional-voting/participation-concurrency.regression.spec.ts",
       "test/integration/institutional-voting/participation-analytics.spec.ts",
-      "test/integration/institutional-voting/padron-editing-rules.spec.ts",
       "test/integration/institutional-voting/presential-sessions.spec.ts",
       "test/integration/institutional-voting/participations-history.spec.ts",
       "test/integration/institutional-voting/public-participation-check.spec.ts",
-      "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
       "test/integration/institutional-voting/publication-results.spec.ts",
       "test/integration/institutional-voting/participation-report.spec.ts",
       "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
       "test/unit/institutional-voting/lifecycle.service.unit.spec.ts",
-      "test/unit/institutional-voting/padron-certificate-pdf.service.unit.spec.ts",
-      "test/unit/institutional-voting/padron-gemini-import.service.unit.spec.ts",
-      "test/unit/institutional-voting/padron-pdf-parser.service.unit.spec.ts",
-      "test/unit/institutional-voting/padron-users.service.unit.spec.ts",
-      "test/unit/institutional-voting/padron.service.unit.spec.ts",
       "test/unit/institutional-voting/participation-analytics.service.unit.spec.ts",
       "test/unit/institutional-voting/participation.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-reader.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
       "test/unit/institutional-voting/voting-results.service.unit.spec.ts",
-      "test/integration/institutional-voting/official-publication-api.integration.spec.ts",
       "test/unit/institutional-voting/institutional-voting-access.service.unit.spec.ts",
       "test/unit/institutional-voting/institutional-voting-admin.controller.unit.spec.ts",
       "test/unit/institutional-voting/institutional-voting.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-admin.controller.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-api.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-artifacts.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-chain-verification.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-finalization.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-mobile-auth.controller.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-mobile-zk-auth.guard.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-mobile-zk-auth.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-mobile.controller.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-notification.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-preparation.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-reconciliation.worker.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-request-state.service.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-request.dto.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request.schema.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-request.service.unit.spec.ts"
     ]
   },
@@ -276,10 +293,16 @@
       "test/unit/health.service.unit.spec.ts"
     ]
   },
-  "payments": {
-    "name": "QR payments and Red Enlace - BRS-F25",
+  "matrix_06": {
+    "name": "MX-06 | TVD, QR, acreditación y publicación | Backend Results",
     "flows": [
-      "BRS-F25"
+      "MX-06",
+      "TVD-ASSIGN",
+      "TVD-QR",
+      "TVD-RES",
+      "TVD-PUB",
+      "TVD-SEC",
+      "TVD-UI"
     ],
     "files": [
       "test/integration/red-enlace-webhook-route.spec.ts",
@@ -288,7 +311,39 @@
       "test/unit/payment-reconciliation.service.unit.spec.ts",
       "test/unit/payment-transactions.service.unit.spec.ts",
       "test/unit/red-enlace-webhook.service.unit.spec.ts",
-      "test/unit/payment-provider-event.schema.unit.spec.ts"
+      "test/unit/payment-provider-event.schema.unit.spec.ts",
+      "test/unit/tvd-accounting.service.unit.spec.ts",
+      "test/unit/tvd-admin-operations.service.unit.spec.ts",
+      "test/unit/tvd-blockchain.service.unit.spec.ts",
+      "test/unit/tvd-capacity.service.unit.spec.ts",
+      "test/unit/tvd-manual-assignments.service.unit.spec.ts",
+      "test/unit/tvd-operator-transaction-lock.service.unit.spec.ts",
+      "test/unit/tvd-qr-accreditations.service.unit.spec.ts",
+      "test/unit/tvd-quotes.service.unit.spec.ts",
+      "test/unit/tvd-receipt-validator.service.unit.spec.ts",
+      "test/unit/tvd-wallet-lookup.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-api.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-chain-verification.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-finalization.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-preparation.service.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-reconciliation.worker.unit.spec.ts",
+      "test/unit/institutional-voting/official-publication-request.schema.unit.spec.ts"
+    ]
+  },
+  "payments_remaining": {
+    "name": "QR payments and Red Enlace residual outside MX-06",
+    "flows": [
+      "BRS-F25"
+    ],
+    "files": []
+  },
+  "institutional-voting_mobile_pending": {
+    "name": "Official publication mobile/API integration pending ESM test realignment outside MX-06 CI",
+    "flows": [
+      "PENDIENTE_EQUIPO_MOVIL"
+    ],
+    "files": [
+      "test/integration/institutional-voting/official-publication-api.integration.spec.ts"
     ]
   },
   "history": {
@@ -301,8 +356,8 @@
       "test/unit/history.service.unit.spec.ts"
     ]
   },
-  "tvd": {
-    "name": "TVD blockchain, capacity and accreditations",
+  "tvd_remaining": {
+    "name": "TVD blockchain, capacity and accreditations residual outside MX-06",
     "flows": [
       "TVD",
       "INSTITUTIONAL_TVD"
@@ -318,17 +373,7 @@
       "test/integration/tvd-manual-assignments.integration.spec.ts",
       "test/integration/tvd-qr-accreditations.integration.spec.ts",
       "test/integration/tvd-queries.integration.spec.ts",
-      "test/unit/tvd-accounting.service.unit.spec.ts",
-      "test/unit/tvd-admin-operations.service.unit.spec.ts",
-      "test/unit/tvd-admin-operations.types.unit.spec.ts",
-      "test/unit/tvd-blockchain.service.unit.spec.ts",
-      "test/unit/tvd-capacity.service.unit.spec.ts",
-      "test/unit/tvd-manual-assignments.service.unit.spec.ts",
-      "test/unit/tvd-operator-transaction-lock.service.unit.spec.ts",
-      "test/unit/tvd-qr-accreditations.service.unit.spec.ts",
-      "test/unit/tvd-quotes.service.unit.spec.ts",
-      "test/unit/tvd-receipt-validator.service.unit.spec.ts",
-      "test/unit/tvd-wallet-lookup.service.unit.spec.ts"
+      "test/unit/tvd-admin-operations.types.unit.spec.ts"
     ]
   }
 }

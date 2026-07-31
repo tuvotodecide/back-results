@@ -5,7 +5,6 @@ import { institutionalVotingFixtures } from '../fixtures.institutional-voting';
 import {
   addPadronStagingEntry,
   bootstrapInstitutionalVotingContext,
-  confirmInstitutionalOfficialPublication,
   confirmPadronStaging,
   createInstitutionalEvent,
   deletePadronStagingEntry,
@@ -20,7 +19,7 @@ import {
   uploadPadronPdf,
 } from '../utils/institutional-voting.helpers';
 
-describe('Padron document import + staging E2E (phase 3)', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | E2E staging', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
 
   beforeAll(async () => {
@@ -159,23 +158,24 @@ describe('Padron document import + staging E2E (phase 3)', () => {
   async function prepareOfficiallyPublishedEvent() {
     const eventId = await prepareReadyForReviewEvent();
 
-    const published = await confirmInstitutionalOfficialPublication(
-      ctx.httpServer,
-      ctx.adminToken,
-      eventId,
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
       {
-        txHash: '0xpadron123',
-        wallet: '0xabc',
-        chainId: '11155111',
+        $set: {
+          state: 'OFFICIALLY_PUBLISHED',
+          publicationConfirmed: true,
+          officialPublishedAt: new Date(),
+          votingStart: new Date(Date.now() - 60_000),
+          votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+          resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        },
       },
     );
-    expect([200, 201]).toContain(published.status);
-    expect(published.body.state).toBe('OFFICIALLY_PUBLISHED');
 
     return eventId;
   }
 
-  it('sube PDF, crea staging y expone el resultado parseado', async () => {
+  it('PAD-UPL-P0-001 / PAD-PRC-P0-002 / PAD-STG-P0-001 | sube PDF, crea staging y expone el resultado parseado', async () => {
     const eventId = await createConfiguredEvent();
 
     const upload = await uploadPadronPdf(
@@ -232,7 +232,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     );
   });
 
-  it('maneja error de parseo y deja el import job con estado FAILED', async () => {
+  it('PAD-PRC-P0-003 | maneja error de parseo y deja el import job con estado FAILED', async () => {
     const eventId = await createConfiguredEvent();
 
     const upload = await uploadPadronPdf(
@@ -252,7 +252,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     );
   });
 
-  it('importa una imagen clara de tabla y la normaliza al mismo staging', async () => {
+  it('PAD-UPL-P0-001 / PAD-NRM-P0-001 / PAD-STG-P0-001 | importa una imagen clara de tabla y la normaliza al mismo staging', async () => {
     const eventId = await createConfiguredEvent();
 
     const upload = await uploadPadronImage(
@@ -274,7 +274,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(staging.body.data.map((row: any) => row.ci)).toEqual(['123456', '789000', 'ABC789']);
   });
 
-  it('reporta imagen ilegible con estado FAILED y sin confirmar nada', async () => {
+  it('PAD-PRC-P0-003 / PAD-CFM-P0-001 | reporta imagen ilegible con estado FAILED y sin confirmar nada', async () => {
     const eventId = await createConfiguredEvent();
 
     const upload = await uploadPadronImage(
@@ -302,7 +302,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     );
   });
 
-  it('confirma una imagen importada como versión vigente usando el mismo staging', async () => {
+  it('PAD-CFM-P0-001 / PAD-STG-P0-001 | confirma una imagen importada como versión vigente usando el mismo staging', async () => {
     const eventId = await createConfiguredEvent();
 
     const upload = await uploadPadronImage(
@@ -330,7 +330,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     );
   });
 
-  it('rechaza archivos que no son PDF válidos', async () => {
+  it('PAD-FIL-P0-001 | rechaza archivos que no son PDF válidos', async () => {
     const eventId = await createConfiguredEvent();
 
     const upload = await uploadPadronPdf(
@@ -344,7 +344,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(upload.status).toBe(400);
   });
 
-  it('permite agregar, editar y eliminar entradas del staging antes de confirmar', async () => {
+  it('PAD-EDT-P0-001 / PAD-DEL-P0-001 | permite agregar, editar y eliminar entradas del staging antes de confirmar', async () => {
     const eventId = await createConfiguredEvent();
     await uploadPadronPdf(
       ctx.httpServer,
@@ -395,7 +395,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(staging.body.total).toBe(0);
   });
 
-  it('bulk-delete elimina varias entradas del staging sin dejarlo vacío', async () => {
+  it('PAD-DEL-P0-001 / PAD-CON-P1-001 | bulk-delete elimina varias entradas del staging sin dejarlo vacío', async () => {
     const eventId = await createConfiguredEvent();
     const upload = await uploadPadronPdf(
       ctx.httpServer,
@@ -436,7 +436,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     );
   });
 
-  it('bulk-delete rechaza ids inválidos, ids ajenos y borrar todo el staging', async () => {
+  it('PAD-PER-P0-001 / PAD-DEL-P0-001 | bulk-delete rechaza ids inválidos, ids ajenos y borrar todo el staging', async () => {
     const eventId = await createConfiguredEvent();
     const upload = await uploadPadronPdf(
       ctx.httpServer,
@@ -473,7 +473,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(after.body.total).toBe(2);
   });
 
-  it('confirma el staging como nueva versión vigente del padrón', async () => {
+  it('PAD-CFM-P0-001 / PAD-RPL-P1-001 | confirma el staging como nueva versión vigente del padrón', async () => {
     const eventId = await createConfiguredEvent();
     const uploaded = await uploadPadronPdf(
       ctx.httpServer,
@@ -526,7 +526,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     );
   });
 
-  it('permite seguir editando padrón en READY_FOR_REVIEW sin volver de estado', async () => {
+  it('PAD-STA-P0-001 / PAD-EDT-P0-001 | permite seguir editando padrón en READY_FOR_REVIEW sin volver de estado', async () => {
     const eventId = await prepareReadyForReviewEvent();
 
     const upload = await uploadPadronPdf(
@@ -551,7 +551,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(eventInDb?.state).toBe('READY_FOR_REVIEW');
   });
 
-  it('bloquea upload y edición del padrón en OFFICIALLY_PUBLISHED', async () => {
+  it('PAD-STA-P1-002 / PAD-PER-P0-001 | bloquea upload y edición del padrón en OFFICIALLY_PUBLISHED', async () => {
     const eventId = await prepareOfficiallyPublishedEvent();
 
     const upload = await uploadPadronPdf(
@@ -572,7 +572,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(confirm.status).toBe(404);
   });
 
-  it('bloquea bulk-delete en OFFICIALLY_PUBLISHED', async () => {
+  it('PAD-STA-P1-002 / PAD-DEL-P0-001 | bloquea bulk-delete en OFFICIALLY_PUBLISHED', async () => {
     const eventId = await createConfiguredEvent();
     const upload = await uploadPadronPdf(
       ctx.httpServer,
@@ -603,7 +603,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(deleted.status).toBe(400);
   });
 
-  it('descarga el padrón PDF vigente con headers HTTP después de publicación oficial', async () => {
+  it('PAD-DWN-P1-001 | descarga el padrón PDF vigente con headers HTTP después de publicación oficial', async () => {
     const eventId = await prepareOfficiallyPublishedEvent();
     const current = await getPadronSummary(ctx.httpServer, ctx.adminToken, eventId);
     expect(current.status).toBe(200);
@@ -625,7 +625,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(pdfBody.toString('utf-8')).toContain('%PDF-1.4');
   });
 
-  it('descarga una versión específica del padrón PDF y bloquea la descarga antes de publicación', async () => {
+  it('PAD-DWN-P1-001 / PAD-STA-P0-003 | descarga una versión específica del padrón PDF y bloquea la descarga antes de publicación', async () => {
     const eventId = await prepareReadyForReviewEvent();
     const summary = await getPadronSummary(ctx.httpServer, ctx.adminToken, eventId);
     expect(summary.status).toBe(200);
@@ -637,17 +637,19 @@ describe('Padron document import + staging E2E (phase 3)', () => {
       .auth(ctx.adminToken, { type: 'bearer' });
     expect(beforePublication.status).toBe(400);
 
-    const published = await confirmInstitutionalOfficialPublication(
-      ctx.httpServer,
-      ctx.adminToken,
-      eventId,
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
       {
-        txHash: '0xpadronversion',
-        wallet: '0xabc',
-        chainId: '11155111',
+        $set: {
+          state: 'OFFICIALLY_PUBLISHED',
+          publicationConfirmed: true,
+          officialPublishedAt: new Date(),
+          votingStart: new Date(Date.now() - 60_000),
+          votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+          resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+        },
       },
     );
-    expect([200, 201]).toContain(published.status);
 
     const download = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/padron/download-pdf`)
@@ -662,7 +664,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(decodePdfBody(download.body).length).toBeGreaterThan(0);
   });
 
-  it('expira por plazo y bloquea cambios de padrón en PUBLICATION_EXPIRED', async () => {
+  it('PAD-STA-P0-003 | expira por plazo y bloquea cambios de padrón en PUBLICATION_EXPIRED', async () => {
     const eventId = await prepareReadyForReviewEvent();
 
     await ctx.conn.collection('voting_events').updateOne(
@@ -700,7 +702,7 @@ describe('Padron document import + staging E2E (phase 3)', () => {
     expect(confirm.status).toBe(404);
   });
 
-  it('mantiene compatibilidad razonable con el flujo CSV legacy', async () => {
+  it('PAD-CSV-P1-001 | mantiene compatibilidad razonable con el flujo CSV legacy', async () => {
     const eventId = await createConfiguredEvent();
 
     const legacy = await uploadPadronCsv(

@@ -33,14 +33,14 @@ export class InstitutionalAccessRecoveryRequest {
   @Prop({ required: true, trim: true })
   fullName!: string;
 
-  @Prop({ required: true, trim: true })
-  phoneNumber!: string;
+  @Prop({ type: String, trim: true, default: null })
+  phoneNumber?: string | null;
 
   @Prop({ required: true, trim: true, lowercase: true, index: true })
   newEmail!: string;
 
-  @Prop({ required: true, trim: true })
-  supervisorPhoneNumber!: string;
+  @Prop({ type: String, trim: true, default: null })
+  supervisorPhoneNumber?: string | null;
 
   @Prop({ enum: institutionalAccessRecoveryStatuses, default: 'PENDING', index: true })
   status!: InstitutionalAccessRecoveryStatus;

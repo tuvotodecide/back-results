@@ -5,12 +5,11 @@ import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../../utils/institutional-voting.helpers';
 
-describe('Institutional voting integration - public eligibility across events', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | Elegibilidad pública', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
 
   beforeAll(async () => {
@@ -94,13 +93,18 @@ describe('Institutional voting integration - public eligibility across events', 
         $set: {
           state: 'PUBLISHED',
           publicEligibilityEnabled: true,
+          publicationConfirmed: true,
+          officialPublishedAt: new Date(),
+          votingStart: new Date(Date.now() - 60_000),
+          votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+          resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
           ...patch,
         },
       },
     );
   }
 
-  it('devuelve vacío cuando no existen eventos visibles aplicables', async () => {
+  it('PAD-ELG-P0-002 / PAD-SEC-P0-001 | devuelve vacío cuando no existen eventos visibles aplicables', async () => {
     const empty = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')
       .query({ carnet: institutionalVotingFixtures.carnet.empadronado });
@@ -112,7 +116,7 @@ describe('Institutional voting integration - public eligibility across events', 
     });
   });
 
-  it('combina estados públicos reales entre múltiples eventos visibles', async () => {
+  it('PAD-ELG-P0-001 / PAD-ELG-P0-002 / PAD-SEC-P0-001 | combina estados públicos reales entre múltiples eventos visibles', async () => {
     const tenantId = await createTenant(`Tenant Public Eligibility ${Date.now()}`);
     const eligibleName = `Alpha Eligible ${Date.now()}`;
     const disabledName = `Beta Disabled ${Date.now()}`;
@@ -135,12 +139,7 @@ describe('Institutional voting integration - public eligibility across events', 
       eligibleEventId,
     );
     expect([200, 201]).toContain(eligibleReady.status);
-    const eligiblePublished = await publishInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      eligibleEventId,
-    );
-    expect(eligiblePublished.status).toBe(201);
+    await forceVisibleEvent(eligibleEventId);
 
     const disabledEventId = await createBaseEvent(tenantId, disabledName);
     await addBallotSetup(disabledEventId);
@@ -157,12 +156,7 @@ describe('Institutional voting integration - public eligibility across events', 
       disabledEventId,
     );
     expect([200, 201]).toContain(disabledReady.status);
-    const disabledPublished = await publishInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      disabledEventId,
-    );
-    expect(disabledPublished.status).toBe(201);
+    await forceVisibleEvent(disabledEventId);
 
     const pendingEventId = await createBaseEvent(tenantId, pendingName);
     await addBallotSetup(pendingEventId);
@@ -195,12 +189,7 @@ describe('Institutional voting integration - public eligibility across events', 
     );
     expect([200, 201]).toContain(privateReady.status);
     await setPublicEligibility(privateEventId, false);
-    const privatePublished = await publishInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      privateEventId,
-    );
-    expect(privatePublished.status).toBe(201);
+    await forceVisibleEvent(privateEventId, { publicEligibilityEnabled: false });
 
     const response = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')
@@ -267,7 +256,7 @@ describe('Institutional voting integration - public eligibility across events', 
     );
   });
 
-  it('filtra por institución válida y rechaza un tenant inválido', async () => {
+  it('PAD-PER-P0-001 / PAD-ELG-P0-002 | filtra por institución válida y rechaza un tenant inválido', async () => {
     const ownTenantId = await createTenant(`Tenant Filter Own ${Date.now()}`);
     const otherTenantId = await createTenant(`Tenant Filter Other ${Date.now()}`);
 
@@ -286,12 +275,7 @@ describe('Institutional voting integration - public eligibility across events', 
       ownEventId,
     );
     expect([200, 201]).toContain(ownReady.status);
-    const ownPublished = await publishInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      ownEventId,
-    );
-    expect(ownPublished.status).toBe(201);
+    await forceVisibleEvent(ownEventId);
 
     const otherEventId = await createBaseEvent(otherTenantId, `Other Visible ${Date.now()}`);
     await addBallotSetup(otherEventId);
@@ -308,12 +292,7 @@ describe('Institutional voting integration - public eligibility across events', 
       otherEventId,
     );
     expect([200, 201]).toContain(otherReady.status);
-    const otherPublished = await publishInstitutionalEvent(
-      ctx.httpServer,
-      ctx.adminToken,
-      otherEventId,
-    );
-    expect(otherPublished.status).toBe(201);
+    await forceVisibleEvent(otherEventId);
 
     const filtered = await request(ctx.httpServer)
       .get('/api/v1/voting/events/public/eligibility-by-carnet')

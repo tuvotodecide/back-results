@@ -21,6 +21,7 @@ describe('TvdWalletLookupService (unit)', () => {
   let userModel: any;
   let httpService: any;
   let configService: any;
+  let tvdBlockchainService: any;
   let service: TvdWalletLookupService;
 
   beforeEach(() => {
@@ -49,12 +50,20 @@ describe('TvdWalletLookupService (unit)', () => {
         return fallback;
       }),
     };
+    tvdBlockchainService = {
+      getLiquidBalanceDetails: jest.fn().mockResolvedValue({
+        smallestUnit: '1000000000000000000',
+        formatted: '1',
+        decimals: 18,
+      }),
+    };
     service = new TvdWalletLookupService(
       assignmentModel,
       tenantModel,
       userModel,
       httpService,
       configService,
+      tvdBlockchainService,
     );
   });
 

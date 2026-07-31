@@ -134,7 +134,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:04
 
-      - name: Run module tests - Institutional voting residual outside MX-04
+      - name: MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:05
+
+      - name: MX-06 | TVD, QR, acreditación y publicación | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:06
+
+      - name: Run module tests - Institutional voting residual outside MX-04, MX-05 and MX-06
         if: ${{ !cancelled() }}
         run: pnpm test:module:institutional-voting
 
@@ -150,11 +158,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:module:health-core-database
 
-      - name: Run module tests - QR payments and Red Enlace
-        if: ${{ !cancelled() }}
-        run: pnpm test:module:payments
-
-      - name: Run module tests - TVD blockchain, capacity and accreditations
+      - name: Run module tests - TVD blockchain, capacity and accreditations residual outside MX-06
         if: ${{ !cancelled() }}
         run: pnpm test:module:tvd
 

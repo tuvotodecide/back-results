@@ -5,13 +5,12 @@ import {
   bootstrapInstitutionalVotingContext,
   createInstitutionalEvent,
   markInstitutionalEventReadyForReview,
-  publishInstitutionalEvent,
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
   uploadPadronPdf,
 } from '../../utils/institutional-voting.helpers';
 
-describe('Institutional voting integration - padron editing rules', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | Reglas de edición', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
 
   beforeAll(async () => {
@@ -54,7 +53,24 @@ describe('Institutional voting integration - padron editing rules', () => {
     return Buffer.from(`%PDF-1.4\n${lines.join('\n')}\n`, 'utf-8');
   }
 
-  it('mantiene un draft editable después de confirmar el padrón mientras falten más de 6 horas', async () => {
+  async function forcePublishedVotingWindow(eventId: string, patch: Record<string, unknown> = {}) {
+    await ctx.conn.collection('voting_events').updateOne(
+      { _id: new Types.ObjectId(eventId) },
+      {
+        $set: {
+          state: 'OFFICIALLY_PUBLISHED',
+          publicationConfirmed: true,
+          officialPublishedAt: new Date(),
+          votingStart: new Date(Date.now() - 60_000),
+          votingEnd: new Date(Date.now() + 60 * 60 * 1000),
+          resultsPublishAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          ...patch,
+        },
+      },
+    );
+  }
+
+  it('PAD-CFM-P0-001 / PAD-STA-P0-001 | mantiene un draft editable después de confirmar el padrón mientras falten más de 6 horas', async () => {
     const eventId = await createBaseEvent();
     const importJobId = new Types.ObjectId();
 
@@ -129,7 +145,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     expect(summary.body.editingRules.canEditEverything).toBe(true);
   });
 
-  it('permite revisión pre-publicación desde el active draft autosalvado sin reabrir padron_validation artificialmente', async () => {
+  it('PAD-STA-P0-001 / PAD-RPL-P1-001 | permite revisión pre-publicación desde el active draft autosalvado sin reabrir validación artificialmente', async () => {
     const eventId = await createBaseEvent();
 
     const upload = await uploadPadronPdf(
@@ -179,7 +195,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     expect(readinessAfter.body.pending).not.toContain('padron_validation');
   });
 
-  it('después de publicar oficialmente bloquea la edición total y solo permite habilitar existentes aunque falten más de 6 horas', async () => {
+  it('PAD-STA-P1-002 / PAD-PER-P0-001 | después de publicar oficialmente bloquea edición total y solo permite habilitar existentes', async () => {
     const eventId = await createBaseEvent();
 
     await uploadPadronCsv(
@@ -190,7 +206,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     );
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await forcePublishedVotingWindow(eventId);
 
     const detail = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}`)
@@ -238,7 +254,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     expect(enabled.body.mode).toBe('VOTING_LIMITED');
   });
 
-  it('durante votación solo permite habilitar deshabilitados del padrón vigente', async () => {
+  it('PAD-STA-P1-002 | durante votación solo permite habilitar deshabilitados del padrón vigente', async () => {
     const eventId = await createBaseEvent();
 
     await uploadPadronCsv(
@@ -249,7 +265,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     );
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await forcePublishedVotingWindow(eventId);
 
     await ctx.conn.collection('voting_events').updateOne(
       { _id: new Types.ObjectId(eventId) },
@@ -309,7 +325,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     ]);
   });
 
-  it('en modo limitado no crea una nueva versión estructural del padrón ni altera la publicación vigente', async () => {
+  it('PAD-STA-P1-002 / PAD-CON-P1-001 | en modo limitado no crea una nueva versión estructural ni altera publicación vigente', async () => {
     const eventId = await createBaseEvent();
 
     await uploadPadronCsv(
@@ -320,7 +336,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     );
 
     await markInstitutionalEventReadyForReview(ctx.httpServer, ctx.adminToken, eventId);
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await forcePublishedVotingWindow(eventId);
 
     const beforeVersions = await ctx.conn
       .collection('padron_versions')
@@ -362,7 +378,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     expect(detail.body.state).toBe('OFFICIALLY_PUBLISHED');
   });
 
-  it('bloquea incluso la habilitación desde tabla cuando la bandera post-publicación está desactivada', async () => {
+  it('PAD-STA-P1-002 / PAD-PER-P0-001 | bloquea incluso la habilitación desde tabla cuando la bandera post-publicación está desactivada', async () => {
     const eventId = await createBaseEvent();
 
     await uploadPadronCsv(
@@ -382,7 +398,7 @@ describe('Institutional voting integration - padron editing rules', () => {
     expect(toggled.status).toBe(200);
     expect(toggled.body.allowPostPublicationPadronEnable).toBe(false);
 
-    await publishInstitutionalEvent(ctx.httpServer, ctx.adminToken, eventId);
+    await forcePublishedVotingWindow(eventId, { allowPostPublicationPadronEnable: false });
 
     const voters = await request(ctx.httpServer)
       .get(`/api/v1/voting/events/${eventId}/padron/voters`)

@@ -63,9 +63,9 @@ type RecoveryListItem = {
   tenantId: string;
   institutionName: string;
   fullName: string;
-  phoneNumber: string;
+  phoneNumber: string | null;
   newEmail: string;
-  supervisorPhoneNumber: string;
+  supervisorPhoneNumber: string | null;
   status: string;
   requestedAt?: Date | null;
   resolvedAt?: Date | null;
@@ -90,8 +90,6 @@ export class InstitutionalAccessRecoveryRequestsService {
   async createRequest(dto: CreateInstitutionalAccessRecoveryRequestDto) {
     const tenantId = this.toObjectIdOrBadRequest(dto.institutionId, 'institutionId invalido');
     const fullName = this.normalizeHumanText(dto.fullName);
-    const phoneNumber = this.normalizePhone(dto.phoneNumber);
-    const supervisorPhoneNumber = this.normalizePhone(dto.supervisorPhoneNumber);
     const newEmail = dto.newEmail.trim().toLowerCase();
 
     const tenant = await this.tenantModel.findById(tenantId).lean();
@@ -104,25 +102,39 @@ export class InstitutionalAccessRecoveryRequestsService {
 
     const candidate = await this.resolveCandidate(tenantId, fullName);
     if (candidate.user?.email?.trim().toLowerCase() === newEmail) {
-      throw new ConflictException('No se pudo registrar la solicitud con esos datos');
+      throw new ConflictException({
+        code: 'EMAIL_SAME_AS_CURRENT',
+        message: 'El nuevo correo debe ser distinto del correo actual',
+      });
     }
 
-    const request = await this.recoveryRequestModel.create({
-      tenantId,
-      institutionName: tenant.name,
-      fullName,
-      phoneNumber,
-      newEmail,
-      supervisorPhoneNumber,
-      status: 'PENDING',
-      requestedAt: new Date(),
-      candidateUserId: candidate.user?._id ?? null,
-      candidateAssignmentId: candidate.assignment?._id ?? null,
-      currentEmail: candidate.user?.email ?? null,
-      accountAddress: candidate.assignment?.accountAddress ?? null,
-      institutionalRole: candidate.assignment?.institutionalRole ?? null,
-      warnings: candidate.warnings,
-    });
+    let request: InstitutionalAccessRecoveryRequestDocument;
+    try {
+      request = await this.recoveryRequestModel.create({
+        tenantId,
+        institutionName: tenant.name,
+        fullName,
+        phoneNumber: null,
+        newEmail,
+        supervisorPhoneNumber: null,
+        status: 'PENDING',
+        requestedAt: new Date(),
+        candidateUserId: candidate.user?._id ?? null,
+        candidateAssignmentId: candidate.assignment?._id ?? null,
+        currentEmail: candidate.user?.email ?? null,
+        accountAddress: candidate.assignment?.accountAddress ?? null,
+        institutionalRole: candidate.assignment?.institutionalRole ?? null,
+        warnings: candidate.warnings,
+      });
+    } catch (error) {
+      if (this.isDuplicateKeyError(error)) {
+        throw new ConflictException({
+          code: 'RECOVERY_REQUEST_ALREADY_PENDING',
+          message: 'Ya existe una solicitud de recuperacion pendiente',
+        });
+      }
+      throw error;
+    }
     await this.auditService.record({
       tenantId,
       actor: null,
@@ -429,7 +441,17 @@ export class InstitutionalAccessRecoveryRequestsService {
     user.passwordResetToken = resetToken;
     user.passwordResetTokenExpiresAt = resetTokenExpiresAt;
     user.authVersion = (user.authVersion ?? 0) + 1;
-    await user.save({ session });
+    try {
+      await user.save({ session });
+    } catch (error) {
+      if (this.isDuplicateKeyError(error)) {
+        throw new ConflictException({
+          code: 'EMAIL_ALREADY_IN_USE',
+          message: 'El correo ingresado ya está en uso.',
+        });
+      }
+      throw error;
+    }
 
     request.status = 'APPROVED';
     request.resolvedAt = new Date();
@@ -532,7 +554,17 @@ export class InstitutionalAccessRecoveryRequestsService {
     const previousAuthVersion = user.authVersion ?? 0;
     user.email = request.newEmail;
     user.authVersion = previousAuthVersion + 1;
-    await user.save({ session });
+    try {
+      await user.save({ session });
+    } catch (error) {
+      if (this.isDuplicateKeyError(error)) {
+        throw new ConflictException({
+          code: 'EMAIL_ALREADY_IN_USE',
+          message: 'El correo ingresado ya está en uso.',
+        });
+      }
+      throw error;
+    }
 
     request.status = 'APPROVED';
     request.resolvedAt = new Date();
@@ -613,11 +645,14 @@ export class InstitutionalAccessRecoveryRequestsService {
 
   private async assertEmailAvailableForRequest(
     newEmail: string,
-    message = 'No se pudo registrar la solicitud con esos datos',
+    message = 'El correo ingresado ya está en uso.',
   ) {
     const existing = await this.roledUserModel.findOne({ email: newEmail }).lean();
     if (existing) {
-      throw new ConflictException(message);
+      throw new ConflictException({
+        code: 'EMAIL_ALREADY_IN_USE',
+        message,
+      });
     }
   }
 
@@ -626,7 +661,10 @@ export class InstitutionalAccessRecoveryRequestsService {
       .findOne({ tenantId, newEmail, status: 'PENDING' })
       .lean();
     if (existing) {
-      throw new ConflictException('Ya existe una solicitud de recuperacion pendiente');
+      throw new ConflictException({
+        code: 'RECOVERY_REQUEST_ALREADY_PENDING',
+        message: 'Ya existe una solicitud de recuperacion pendiente',
+      });
     }
   }
 
@@ -679,9 +717,9 @@ export class InstitutionalAccessRecoveryRequestsService {
       tenantId: String(request.tenantId),
       institutionName: request.institutionName,
       fullName: request.fullName,
-      phoneNumber: request.phoneNumber,
+      phoneNumber: request.phoneNumber ?? null,
       newEmail: request.newEmail,
-      supervisorPhoneNumber: request.supervisorPhoneNumber,
+      supervisorPhoneNumber: request.supervisorPhoneNumber ?? null,
       status: request.status,
       requestedAt: request.requestedAt ?? request.createdAt ?? null,
       resolvedAt: request.resolvedAt ?? null,
@@ -719,12 +757,17 @@ export class InstitutionalAccessRecoveryRequestsService {
     return value;
   }
 
-  private normalizePhone(input: string): string {
-    return input.trim().replace(/\s+/g, ' ');
-  }
-
   private normalizeNameForMatch(input: string): string {
     return input.trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  private isDuplicateKeyError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 11000
+    );
   }
 
   private resolveRequesterObjectId(requester: any): Types.ObjectId | null {

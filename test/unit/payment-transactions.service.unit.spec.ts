@@ -125,7 +125,7 @@ function createService(options?: {
 }
 
 describe('PaymentTransactionsService QR payments', () => {
-  it('creates a QR payment with tenant isolation, unique reference and public contract', async () => {
+  it('TVD-QR-P0-001 TVD-QR-P0-002 TVD-QR-P0-003 | creates a QR payment with tenant isolation, unique reference and public contract', async () => {
     const { service, paymentModel, provider, tenantAccess } = createService();
 
     const result = await service.createQrPayment(
@@ -180,7 +180,7 @@ describe('PaymentTransactionsService QR payments', () => {
     expect(result).not.toHaveProperty('providerResponseDetail');
   });
 
-  it('sets local QR expiration from the same Red Enlace TTL configuration', async () => {
+  it('TVD-QR-P0-008 | sets local QR expiration from the same Red Enlace TTL configuration', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-14T12:00:00.000Z'));
     const { service, provider } = createService({
       config: {
@@ -209,7 +209,7 @@ describe('PaymentTransactionsService QR payments', () => {
     );
   });
 
-  it('TVD-QR-POS-U-001/002 | POSITIVO | UNITARIO | creacion QR congela assignment wallet y tvdQuote', async () => {
+  it('TVD-QR-P0-004 TVD-QR-P0-010 | TVD-QR-POS-U-001/002 | POSITIVO | UNITARIO | creacion QR congela assignment wallet y tvdQuote', async () => {
     const tvdQuote = {
       fiatAmountMinor: '1050',
       fiatCurrency: 'BOB',
@@ -241,7 +241,7 @@ describe('PaymentTransactionsService QR payments', () => {
     );
   });
 
-  it('returns the original payment for the same idempotency key and same payload', async () => {
+  it('TVD-QR-P0-003 | returns the original payment for the same idempotency key and same payload', async () => {
     const existing = basePayment({
       status: 'QR_ACTIVE',
       idempotencyKey: 'same-key',
@@ -305,7 +305,7 @@ describe('PaymentTransactionsService QR payments', () => {
     expect(provider.generateQr).not.toHaveBeenCalled();
   });
 
-  it('marks the payment as unresolved when Red Enlace returns an incomplete QR response', async () => {
+  it('TVD-QR-P0-009 | marks the payment as unresolved when Red Enlace returns an incomplete QR response', async () => {
     const { service, paymentModel } = createService({
       provider: {
         generateQr: jest.fn().mockResolvedValue({
@@ -342,7 +342,7 @@ describe('PaymentTransactionsService QR payments', () => {
     );
   });
 
-  it('rejects QR creation without Idempotency-Key before calling Red Enlace', async () => {
+  it('TVD-QR-P0-003 | rejects QR creation without Idempotency-Key before calling Red Enlace', async () => {
     const { service, paymentModel, provider } = createService();
 
     await expect(
@@ -387,7 +387,7 @@ describe('PaymentTransactionsService QR payments', () => {
     expect(provider.generateQr).not.toHaveBeenCalled();
   });
 
-  it('rechecks payload hash when concurrent creation hits the idempotency unique index', async () => {
+  it('TVD-QR-P0-003 TVD-QR-P0-010 | rechecks payload hash when concurrent creation hits the idempotency unique index', async () => {
     const existing = basePayment({
       status: 'CREATED',
       idempotencyKey: 'race-key',
@@ -430,7 +430,7 @@ describe('PaymentTransactionsService QR payments', () => {
     });
   });
 
-  it('applies a successful webhook once and keeps repeated confirmations idempotent', async () => {
+  it('TVD-QR-P0-006 TVD-QR-P0-010 | applies a successful webhook once and keeps repeated confirmations idempotent', async () => {
     const activePayment = basePayment({
       status: 'QR_ACTIVE',
       providerReference: '1511556',
@@ -490,7 +490,7 @@ describe('PaymentTransactionsService QR payments', () => {
     expect(paymentModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
   });
 
-  it('TVD-QR-POS-U-010/011 | POSITIVO | UNITARIO | webhook confirmado crea acreditacion sin blockchain y mantiene contrato Red Enlace', async () => {
+  it('TVD-QR-P0-006 TVD-RES-P0-001 | TVD-QR-POS-U-010/011 | POSITIVO | UNITARIO | webhook confirmado crea acreditacion sin blockchain y mantiene contrato Red Enlace', async () => {
     const activePayment = basePayment({
       status: 'QR_ACTIVE',
       providerReference: '1511556',
@@ -557,7 +557,7 @@ describe('PaymentTransactionsService QR payments', () => {
     'PROVIDER_STATUS_UNRESOLVED',
     'PROVIDER_ERROR',
   ])(
-    'moves a late approved webhook over %s to reconciliation pending',
+    'TVD-QR-P0-007 | moves a late approved webhook over %s to reconciliation pending',
     async (terminalStatus) => {
       const terminalPayment = basePayment({
         status: terminalStatus,
@@ -626,7 +626,7 @@ describe('PaymentTransactionsService QR payments', () => {
     ['03', 'EXPIRED'],
     ['05', 'PROVIDER_ERROR'],
   ])(
-    'maps webhook estado %s over an active QR to %s',
+    'TVD-QR-P0-008 TVD-QR-P0-009 | maps webhook estado %s over an active QR to %s',
     async (estado, expectedStatus) => {
       const activePayment = basePayment({
         status: 'QR_ACTIVE',
@@ -682,7 +682,7 @@ describe('PaymentTransactionsService QR payments', () => {
   );
 
   it.each(['03', '05'])(
-    'does not degrade an already confirmed payment when webhook estado %s arrives late',
+    'TVD-QR-P0-010 | does not degrade an already confirmed payment when webhook estado %s arrives late',
     async (estado) => {
       const confirmedPayment = basePayment({
         status: 'PAYMENT_CONFIRMED',
@@ -787,7 +787,7 @@ describe('PaymentTransactionsService QR payments', () => {
     ).rejects.toMatchObject({ code: 'RED_ENLACE_CURRENCY_MISMATCH' });
   });
 
-  it('reports PAYMENT_NOT_FOUND for unknown webhook provider references', async () => {
+  it('TVD-QR-P0-009 | reports PAYMENT_NOT_FOUND for unknown webhook provider references', async () => {
     const { service } = createService({
       paymentModel: {
         findOne: jest.fn().mockReturnValue({
@@ -940,7 +940,7 @@ describe('PaymentTransactionsService QR payments', () => {
     );
   });
 
-  it('regenerates an expired QR with a still valid frozen quote and new references', async () => {
+  it('TVD-QR-P1-005 | regenerates an expired QR with a still valid frozen quote and new references', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-13T10:10:00.000Z'));
     const oldQuote = {
       fiatAmountMinor: '1050',

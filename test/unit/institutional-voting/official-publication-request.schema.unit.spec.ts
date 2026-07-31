@@ -7,7 +7,7 @@ import {
 } from '@/modules/institutional-voting/schemas/official-publication-request.schema';
 
 describe('OfficialPublicationRequestSchema', () => {
-  it('declara la coleccion y todos los estados requeridos', () => {
+  it('TVD-PUB-P0-007 TVD-PUB-P0-010 TVD-PUB-P0-012 | declara la coleccion y todos los estados requeridos', () => {
     expect(OfficialPublicationRequest.name).toBe('OfficialPublicationRequest');
     expect(OFFICIAL_PUBLICATION_REQUEST_STATUSES).toEqual([
       'PREPARING',
@@ -37,7 +37,7 @@ describe('OfficialPublicationRequestSchema', () => {
     expect(OFFICIAL_PUBLICATION_ACTIVE_STATUSES).not.toContain('COMPLETED');
   });
 
-  it('define campos persistentes requeridos para continuar tras reinicio', () => {
+  it('TVD-PUB-P0-010 TVD-PUB-P0-013 | define campos persistentes requeridos para continuar tras reinicio', () => {
     const paths = OfficialPublicationRequestSchema.paths;
 
     [
@@ -86,7 +86,7 @@ describe('OfficialPublicationRequestSchema', () => {
     ].forEach((path) => expect(paths[path]).toBeDefined());
   });
 
-  it('define indices para solicitud activa, userOpHash, txHash, expiracion y locks', () => {
+  it('TVD-PUB-P0-013 | define indices para solicitud activa, userOpHash, txHash, expiracion y locks', () => {
     const indexes = OfficialPublicationRequestSchema.indexes();
 
     expect(indexes).toEqual(

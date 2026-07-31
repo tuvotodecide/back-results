@@ -8,8 +8,8 @@ import { ComparisonReport } from '@/modules/institutional-voting/schemas/compari
 import { User } from '@/modules/users/schemas/user.schema';
 import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 
-describe('PadronUsersService (unit)', () => {
-  it('resuelve solo votantes registrados sin crear usuarios por DNI del padrón', async () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | PadronUsersService', () => {
+  it('PAD-ROW-P0-002 / PAD-SEC-P0-001 | resuelve solo votantes registrados sin crear usuarios por DNI del padrón', async () => {
     const eventId = new Types.ObjectId();
     const versionId = new Types.ObjectId();
     const userId = new Types.ObjectId();

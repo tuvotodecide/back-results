@@ -127,7 +127,7 @@ describe('OfficialPublicationPreparationService', () => {
     return { service, deps, request };
   }
 
-  it('prepara una solicitud, congela convotatedUsers y no ejecuta blockchain', async () => {
+  it('TVD-PUB-P0-001 TVD-PUB-P0-002 TVD-PUB-P0-004 TVD-PUB-P0-005 TVD-PUB-P0-006 TVD-PUB-P0-007 | prepara una solicitud, congela convotatedUsers y no ejecuta blockchain', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-07-22T12:00:00.000Z'));
     const { service, deps } = setup();
 
@@ -177,7 +177,7 @@ describe('OfficialPublicationPreparationService', () => {
     jest.useRealTimers();
   });
 
-  it('repeticion devuelve la solicitud activa sin regenerar artefactos', async () => {
+  it('TVD-PUB-P0-013 | repeticion devuelve la solicitud activa sin regenerar artefactos', async () => {
     const active = { requestId: 'existing', status: 'PENDING_APPROVAL' };
     const { service, deps } = setup({ active });
 

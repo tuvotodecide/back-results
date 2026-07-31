@@ -1,13 +1,13 @@
 import { PadronCertificatePdfService } from '@/modules/institutional-voting/services/core/padron-certificate-pdf.service';
 
-describe('PadronCertificatePdfService (unit)', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | PadronCertificatePdfService', () => {
   let service: PadronCertificatePdfService;
 
   beforeEach(() => {
     service = new PadronCertificatePdfService();
   });
 
-  it('genera un PDF con datos y filas del padrón confirmado', () => {
+  it('PAD-DWN-P1-001 / PAD-CFM-P0-001 | genera un PDF con datos y filas del padrón confirmado', () => {
     const pdf = service.buildPdf({
       eventName: 'Eleccion Directiva 2026',
       eventId: 'evt-001',
@@ -33,7 +33,7 @@ describe('PadronCertificatePdfService (unit)', () => {
     expect(text).toContain('789000 | INHABILITADO');
   });
 
-  it('genera un PDF de listado del padrón separado de la constancia', () => {
+  it('PAD-DWN-P1-001 | genera un PDF de listado del padrón separado de la constancia', () => {
     const pdf = service.buildPadronListPdf({
       eventName: 'Consulta 2026',
       generatedAt: new Date('2026-01-01T12:00:00.000Z'),

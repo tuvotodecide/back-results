@@ -303,10 +303,25 @@ export class InstitutionalAdminApplicationsService {
     };
   }
 
-  async listApplications(status?: string) {
+  async listApplications(status?: string, requester?: any, tenantIdFilter?: string) {
     const query: Record<string, unknown> = {};
     if (status) {
       query.status = status;
+    }
+    if (this.isGlobalInstitutionalApprover(requester)) {
+      if (tenantIdFilter) {
+        if (!Types.ObjectId.isValid(tenantIdFilter)) {
+          throw new BadRequestException('tenantId inválido');
+        }
+        query.tenantId = new Types.ObjectId(tenantIdFilter);
+      }
+    } else {
+      const tenantId = tenantIdFilter || requester?.tenantId;
+      if (!tenantId || !Types.ObjectId.isValid(String(tenantId))) {
+        throw new ForbiddenException('No autorizado para revisar esta solicitud institucional');
+      }
+      await this.assertRequesterIsPrimaryForTenant(requester, String(tenantId));
+      query.tenantId = new Types.ObjectId(String(tenantId));
     }
 
     const rows = await this.applicationModel
@@ -320,8 +335,14 @@ export class InstitutionalAdminApplicationsService {
     };
   }
 
-  async getApplicationDetail(applicationId: string) {
+  async getApplicationDetail(applicationId: string, requester?: any) {
     const app = await this.getApplicationOrThrow(applicationId);
+    if (!this.isGlobalInstitutionalApprover(requester)) {
+      if (!app.tenantId) {
+        throw new ForbiddenException('No autorizado para revisar esta solicitud institucional');
+      }
+      await this.assertRequesterIsPrimaryForTenant(requester, app.tenantId);
+    }
     return this.toApplicationResponse(app);
   }
 
@@ -1136,8 +1157,8 @@ export class InstitutionalAdminApplicationsService {
     }
   }
 
-  async listPendingApplications() {
-    return this.listApplications('PENDING_APPROVAL');
+  async listPendingApplications(requester?: any) {
+    return this.listApplications('PENDING_APPROVAL', requester);
   }
 
   async listInvitations(tenantId: string, requester: any) {

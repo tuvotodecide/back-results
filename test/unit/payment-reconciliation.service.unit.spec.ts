@@ -101,7 +101,7 @@ describe('PaymentReconciliationService', () => {
     jest.useRealTimers();
   });
 
-  it('does not run when the worker is disabled', async () => {
+  it('TVD-QR-P0-007 VALIDACION_RUNTIME_WORKER | does not run when the worker is disabled', async () => {
     const { service, paymentModel, provider } = createService({
       config: { 'app.redEnlace.reconciliation.enabled': 'false' },
     });
@@ -139,7 +139,7 @@ describe('PaymentReconciliationService', () => {
     );
   });
 
-  it('claims one eligible QR payment atomically with a durable lease', async () => {
+  it('TVD-QR-P0-007 TVD-RES-P0-002 | claims one eligible QR payment atomically with a durable lease', async () => {
     const { service, paymentModel } = createService();
 
     await service.runOnce();
@@ -170,7 +170,7 @@ describe('PaymentReconciliationService', () => {
     );
   });
 
-  it('confirms a lost callback when provider verification returns SUCCESS', async () => {
+  it('TVD-QR-P0-007 TVD-RES-P0-004 VALIDACION_EXTERNA_RED_ENLACE | confirms a lost callback when provider verification returns SUCCESS', async () => {
     const { service, provider, payments, paymentModel } = createService();
 
     await expect(service.runOnce()).resolves.toEqual({

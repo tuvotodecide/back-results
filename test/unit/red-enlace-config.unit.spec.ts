@@ -70,7 +70,7 @@ describe('Red Enlace configuration hardening', () => {
     ).toThrow('RED_ENLACE_API_KEY');
   });
 
-  it('requires sandbox callback token', () => {
+  it('TVD-QR-P0-006 | requires sandbox callback token', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
@@ -164,7 +164,7 @@ describe('Red Enlace configuration hardening', () => {
     ).toThrow('RED_ENLACE_MODE');
   });
 
-  it('does not expose secret values in validation errors', () => {
+  it('TVD-SEC-P0-002 | does not expose secret values in validation errors', () => {
     const apiSecret = 'real-api-secret-value';
     const callbackSecret = 'real-callback-secret-value';
 

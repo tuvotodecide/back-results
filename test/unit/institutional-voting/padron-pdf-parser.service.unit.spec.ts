@@ -1,9 +1,10 @@
 import { Test } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
+import { BadRequestException } from '@nestjs/common';
 import { PadronPdfParserService } from '@/modules/institutional-voting/services/core/padron-pdf-parser.service';
 
-describe('PadronPdfParserService (unit)', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | PadronPdfParserService', () => {
   let service: PadronPdfParserService;
   let configService: { get: jest.Mock };
   let httpService: { axiosRef: { post: jest.Mock } };
@@ -64,7 +65,7 @@ describe('PadronPdfParserService (unit)', () => {
     };
   }
 
-  it('resuelve PDFs claros con parser determinístico sin invocar Gemini', async () => {
+  it('PAD-VAL-P0-001 / PAD-NRM-P0-001 | resuelve PDFs claros con parser determinístico sin invocar Gemini', async () => {
     const result = await service.parsePdf(
       buildPdf(['carnet habilitado', '123456 si', '789000 no', 'ABC789 si']),
     );
@@ -80,7 +81,7 @@ describe('PadronPdfParserService (unit)', () => {
     ]);
   });
 
-  it('escala a Gemini cuando el PDF es ambiguo o el parseo determinístico no alcanza', async () => {
+  it('PAD-EXT-P1-001 / PAD-VAL-P0-001 | escala a Gemini cuando el PDF es ambiguo o el parseo determinístico no alcanza', async () => {
     httpService.axiosRef.post.mockResolvedValue({
       data: {
         candidates: [
@@ -109,7 +110,7 @@ describe('PadronPdfParserService (unit)', () => {
     expect(result.rows).toEqual([{ ci: '123456', enabled: true, sourceRow: 1 }]);
   });
 
-  it('resuelve una imagen clara con parser determinístico sin invocar Gemini', async () => {
+  it('PAD-VAL-P0-001 | resuelve una imagen clara con parser determinístico sin invocar Gemini', async () => {
     const result = await service.parseDocument(
       buildPngWithText(['carnet habilitado', '123456 si', '789000 no']),
     );
@@ -123,7 +124,7 @@ describe('PadronPdfParserService (unit)', () => {
     ]);
   });
 
-  it('escala a Gemini cuando la imagen es ambigua o ilegible para el parser simple', async () => {
+  it('PAD-EXT-P1-001 / PAD-VAL-P0-001 | escala a Gemini cuando la imagen es ambigua o ilegible para el parser simple', async () => {
     httpService.axiosRef.post.mockResolvedValue({
       data: {
         candidates: [
@@ -151,7 +152,7 @@ describe('PadronPdfParserService (unit)', () => {
     expect(result.rows).toEqual([{ ci: '123456', enabled: true, sourceRow: 1 }]);
   });
 
-  it('vuelve al resultado determinístico si Gemini falla en un PDF difícil', async () => {
+  it('PAD-EXT-P1-001 / PAD-PRC-P0-003 | vuelve al resultado determinístico si Gemini falla en un PDF difícil', async () => {
     httpService.axiosRef.post.mockRejectedValue(new Error('Gemini down'));
 
     const result = await service.parsePdf(buildPdf(['obj', 'endobj', 'stream', 'endstream']));
@@ -169,7 +170,7 @@ describe('PadronPdfParserService (unit)', () => {
     );
   });
 
-  it('reporta imagen ilegible si no puede resolverla ni determinísticamente ni con Gemini', async () => {
+  it('PAD-VAL-P0-001 / PAD-PRC-P0-003 | reporta imagen ilegible si no puede resolverla ni determinísticamente ni con Gemini', async () => {
     httpService.axiosRef.post.mockRejectedValue(new Error('Gemini down'));
 
     const result = await service.parseDocument(buildPngBinaryOnly());
@@ -185,5 +186,45 @@ describe('PadronPdfParserService (unit)', () => {
         }),
       ]),
     );
+  });
+
+  it('PAD-FIL-P0-001 | rechaza archivo ausente, extensión o firma inconsistente antes de procesar', () => {
+    const invalidFiles = [
+      {
+        originalname: 'padron.pdf',
+        mimetype: 'application/pdf',
+        buffer: Buffer.alloc(0),
+      },
+      {
+        originalname: 'padron.txt',
+        mimetype: 'text/plain',
+        buffer: Buffer.from('123456 si', 'utf-8'),
+      },
+      {
+        originalname: 'padron.pdf',
+        mimetype: 'application/pdf',
+        buffer: Buffer.from('no-pdf', 'utf-8'),
+      },
+      {
+        originalname: 'padron.png',
+        mimetype: 'image/png',
+        buffer: Buffer.from('not-png', 'utf-8'),
+      },
+      {
+        originalname: 'padron.jpg',
+        mimetype: 'image/jpeg',
+        buffer: Buffer.from('not-jpg', 'utf-8'),
+      },
+      {
+        originalname: 'padron.webp',
+        mimetype: 'image/webp',
+        buffer: Buffer.from('not-webp', 'utf-8'),
+      },
+    ];
+
+    invalidFiles.forEach((file) => {
+      expect(() => service.validateSourceFile(file)).toThrow(BadRequestException);
+    });
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
   });
 });

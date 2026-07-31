@@ -69,7 +69,7 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Get()
-  @UseGuards(AccessApproverGuard)
+  @UseGuards(InstitutionalApplicationReviewGuard)
   @ApiOperation({
     summary: 'Listar solicitudes institucionales',
     description: 'Lista solicitudes institucionales con filtro opcional por estado.',
@@ -81,19 +81,27 @@ export class InstitutionalAdminApplicationsController {
       'Filtra por estado de solicitud (PENDING_EMAIL_VERIFICATION, PENDING_APPROVAL, APPROVED, etc.).',
   })
   @ApiResponse({ status: 200, description: 'Listado de solicitudes institucionales.' })
-  listApplications(@Query('status') status?: string) {
-    return this.institutionalAdminApplicationsService.listApplications(status);
+  listApplications(
+    @Query('status') status?: string,
+    @Query('tenantId') tenantId?: string,
+    @Req() req?: any,
+  ) {
+    return this.institutionalAdminApplicationsService.listApplications(
+      status,
+      req?.user,
+      tenantId,
+    );
   }
 
   @Get('pending')
-  @UseGuards(AccessApproverGuard)
+  @UseGuards(InstitutionalApplicationReviewGuard)
   @ApiOperation({
     summary: 'Listar solicitudes institucionales pendientes',
     description: 'Retorna solo solicitudes en estado pendiente de aprobación.',
   })
   @ApiResponse({ status: 200, description: 'Listado de solicitudes pendientes.' })
-  listPendingApplications() {
-    return this.institutionalAdminApplicationsService.listPendingApplications();
+  listPendingApplications(@Req() req: any) {
+    return this.institutionalAdminApplicationsService.listPendingApplications(req.user);
   }
 
   @Get('tenants/:tenantId/invitations')
@@ -295,15 +303,15 @@ export class InstitutionalAdminApplicationsController {
   }
 
   @Get(':applicationId')
-  @UseGuards(AccessApproverGuard)
+  @UseGuards(InstitutionalApplicationReviewGuard)
   @ApiOperation({
     summary: 'Ver detalle de solicitud institucional',
     description: 'Retorna el detalle de una solicitud institucional por ID.',
   })
   @ApiParam({ name: 'applicationId', description: 'ID de la solicitud institucional.' })
   @ApiResponse({ status: 200, description: 'Detalle de solicitud institucional.' })
-  getApplicationDetail(@Param('applicationId') applicationId: string) {
-    return this.institutionalAdminApplicationsService.getApplicationDetail(applicationId);
+  getApplicationDetail(@Param('applicationId') applicationId: string, @Req() req: any) {
+    return this.institutionalAdminApplicationsService.getApplicationDetail(applicationId, req.user);
   }
 
   @Post(':applicationId/approve')

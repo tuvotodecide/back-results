@@ -617,6 +617,18 @@ export class TvdBlockchainService {
     return balance.toString();
   }
 
+  async getLiquidBalanceDetails(wallet: string) {
+    const config = this.getConfigOrThrow();
+    const address = this.parseWallet(wallet);
+    const balance = await this.readTokenContract(config, 'balanceOf', [address]);
+    return {
+      wallet: address,
+      decimals: config.decimals,
+      smallestUnit: balance.toString(),
+      formatted: formatUnits(balance, config.decimals),
+    };
+  }
+
   private async readPublicationWalletBalance(
     config: TvdElectoralCreditsConfig,
     institutionWallet: Address,

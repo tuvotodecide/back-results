@@ -119,7 +119,7 @@ function createHarness() {
 }
 
 describe('TvdCapacityService', () => {
-  it('calcula capacidad estimada con 1 participante = 1 TVD y saldo exacto', async () => {
+  it('TVD-PUB-P0-001 TVD-PUB-P0-002 | calcula capacidad estimada con 1 participante = 1 TVD y saldo exacto', async () => {
     const { service, blockchain } = createHarness();
 
     const result = await service.estimateCapacity('10', {
@@ -147,7 +147,7 @@ describe('TvdCapacityService', () => {
     });
   });
 
-  it('calcula faltante estimado con bigint sin usar saldos persistidos', async () => {
+  it('TVD-PUB-P0-003 | calcula faltante estimado con bigint sin usar saldos persistidos', async () => {
     const { service, blockchain } = createHarness();
     blockchain.getLiquidBalance.mockResolvedValueOnce('80000000000000000000');
 
@@ -223,7 +223,7 @@ describe('TvdCapacityService', () => {
     });
   });
 
-  it('calcula capacidad definitiva desde el padrón vigente habilitado', async () => {
+  it('TVD-PUB-P0-001 TVD-PUB-P0-002 TVD-PUB-P0-004 | calcula capacidad definitiva desde el padrón vigente habilitado', async () => {
     const { service, eventId, padronVersionId, padronEntryModel } =
       createHarness();
     padronEntryModel.countDocuments.mockResolvedValueOnce(7);
@@ -316,7 +316,7 @@ describe('TvdCapacityService', () => {
     });
   });
 
-  it('devuelve canPublish=false para padrón vacío o saldo insuficiente sin publicar', async () => {
+  it('TVD-PUB-P0-003 TVD-PUB-P0-007 | devuelve canPublish=false para padrón vacío o saldo insuficiente sin publicar', async () => {
     const { service, eventId, padronEntryModel, blockchain } = createHarness();
     padronEntryModel.countDocuments.mockResolvedValueOnce(10);
     blockchain.getLiquidBalance.mockResolvedValueOnce('5000000000000000000');

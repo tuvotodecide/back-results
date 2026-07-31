@@ -93,7 +93,7 @@ function createHarness(overrides: Record<string, any> = {}) {
 
 describe('TVD QR accreditations service', () => {
   describe('CASOS POSITIVOS', () => {
-    it('TVD-QR-POS-U-003/004/005/006/012 | POSITIVO | UNITARIO | pago confirmado crea QR_PAYMENT PENDING desde snapshot', async () => {
+    it('TVD-RES-P0-001 | TVD-QR-POS-U-003/004/005/006/012 | POSITIVO | UNITARIO | pago confirmado crea QR_PAYMENT PENDING desde snapshot', async () => {
       const { service, state } = createHarness();
 
       const result = await service.createOrReuseForConfirmedPayment(payment(), {
@@ -120,7 +120,7 @@ describe('TVD QR accreditations service', () => {
       });
     });
 
-    it('TVD-QR-POS-U-007/008 | POSITIVO | UNITARIO | webhook y reconciliacion reutilizan la misma acreditacion', async () => {
+    it('TVD-RES-P0-001 TVD-QR-P0-010 | TVD-QR-POS-U-007/008 | POSITIVO | UNITARIO | webhook y reconciliacion reutilizan la misma acreditacion', async () => {
       const existing = {
         _id: new Types.ObjectId(),
         sourceType: 'QR_PAYMENT',
@@ -141,7 +141,7 @@ describe('TVD QR accreditations service', () => {
       expect(accreditationModel.create).not.toHaveBeenCalled();
     });
 
-    it('TVD-QR-POS-U-009/010 | POSITIVO | UNITARIO | duplicate key concurrente devuelve existente sin blockchain', async () => {
+    it('TVD-RES-P0-002 | TVD-QR-POS-U-009/010 | POSITIVO | UNITARIO | duplicate key concurrente devuelve existente sin blockchain', async () => {
       const { service, accreditationModel } = createHarness({ duplicateOnCreate: true });
 
       const result = await service.createOrReuseForConfirmedPayment(payment(), {

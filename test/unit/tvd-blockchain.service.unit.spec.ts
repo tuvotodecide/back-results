@@ -293,7 +293,7 @@ describe('TVD blockchain service', () => {
       await expect(service.getTokenDecimals()).resolves.toBe(2);
     });
 
-    it('P-UNIT-018/P-UNIT-019/P-UNIT-020 | POSITIVO | UNITARIO | lee contrato de creditos, operador autorizado y tvdPerCredit', async () => {
+    it('TVD-PUB-P0-002 TVD-PUB-P0-011 VALIDACION_CONTRATO_DESPLEGADO | P-UNIT-018/P-UNIT-019/P-UNIT-020 | POSITIVO | UNITARIO | lee contrato de creditos, operador autorizado y tvdPerCredit', async () => {
       const { service } = createHarness();
 
       await expect(service.getElectoralCreditsSummary()).resolves.toMatchObject({
@@ -322,7 +322,7 @@ describe('TVD blockchain service', () => {
       });
     });
 
-    it('P-UNIT-021 | POSITIVO | UNITARIO | consulta allowance usando TVDCredits como spender', async () => {
+    it('TVD-PUB-P0-011 | P-UNIT-021 | POSITIVO | UNITARIO | consulta allowance usando TVDCredits como spender', async () => {
       const { service, publicClient } = createHarness();
 
       await expect(service.getTvdAllowance(institution)).resolves.toBe(
@@ -337,7 +337,7 @@ describe('TVD blockchain service', () => {
       );
     });
 
-    it('P-UNIT-022 | POSITIVO | UNITARIO | preflight calcula creditos y TVD con bigint sin enviar transaccion', async () => {
+    it('TVD-PUB-P0-004 TVD-PUB-P0-005 TVD-PUB-P0-011 | P-UNIT-022 | POSITIVO | UNITARIO | preflight calcula creditos y TVD con bigint sin enviar transaccion', async () => {
       const { service, publicClient, walletClient } = createHarness({
         state: {
           assignedBalance: 500000000000000000n,
@@ -383,7 +383,7 @@ describe('TVD blockchain service', () => {
       expect(walletClient.writeContract).not.toHaveBeenCalled();
     });
 
-    it('P-UNIT-009/P-UNIT-010/P-UNIT-011 | POSITIVO | UNITARIO | consulta balances y suma exacta', async () => {
+    it('TVD-PUB-P0-001 VALIDACION_EXTERNA_BASE_SEPOLIA | P-UNIT-009/P-UNIT-010/P-UNIT-011 | POSITIVO | UNITARIO | consulta balances y suma exacta', async () => {
       const { service } = createHarness();
 
       await expect(service.getLiquidBalance(institution)).resolves.toBe('1500');
@@ -618,6 +618,7 @@ describe('TVD blockchain service', () => {
           const error = new Error('execution reverted: Institution does not exist');
           (error as any).shortMessage =
             'The contract function "getInstitutionAdmin" reverted with the following reason:\nInstitution does not exist';
+          (error as any).details = 'execution reverted: Institution does not exist';
           throw error;
         }
         if (input.address === token && input.functionName === 'balanceOf') {
@@ -625,6 +626,7 @@ describe('TVD blockchain service', () => {
             ? 5000n
             : 1500n;
         }
+        if (input.address === token && input.functionName === 'decimals') return 18;
         if (input.address === token && input.functionName === 'allowance') return 100000000000000000000n;
         if (input.address === credits && input.functionName === 'token') return token;
         if (input.address === credits && input.functionName === 'tvdPerCredit') return 1000000000000000000n;

@@ -46,6 +46,20 @@ export type TvdWalletLookupInstitutionSummary = {
   walletVerificationSource: string | null;
 };
 
+export type TvdWalletBalanceLookupDto =
+  | {
+      status: 'AVAILABLE';
+      smallestUnit: string;
+      formatted: string;
+      decimals: number;
+    }
+  | {
+      status: 'UNAVAILABLE';
+      smallestUnit: null;
+      formatted: null;
+      decimals: null;
+    };
+
 export type TvdWalletLookupResponseDto = {
   accountAddress: string;
   registeredInIdentity: boolean;
@@ -53,5 +67,6 @@ export type TvdWalletLookupResponseDto = {
   associationStatus: TvdWalletAssociationStatus;
   canUse: boolean;
   reasonCode: TvdWalletLookupReasonCode;
+  balance: TvdWalletBalanceLookupDto;
   associations: TvdWalletLookupInstitutionSummary[];
 };

@@ -26,6 +26,8 @@ async function bootstrap() {
       'cache-control',
       'Pragma',
       'Last-Event-ID',
+      'Idempotency-Key',
+      'idempotency-key',
     ],
     exposedHeaders: ['Content-Disposition'],
     maxAge: 86400,

@@ -1,7 +1,7 @@
 import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PadronGeminiImportService } from '@/modules/institutional-voting/services/core/padron-gemini-import.service';
 
-describe('PadronGeminiImportService', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | PadronGeminiImportService', () => {
   let configService: any;
   let httpService: any;
   let service: PadronGeminiImportService;
@@ -55,7 +55,7 @@ describe('PadronGeminiImportService', () => {
     service = new PadronGeminiImportService(configService, httpService);
   });
 
-  it('llama a Gemini con la key del backend y devuelve el contrato del frontend', async () => {
+  it('PAD-EXT-P1-001 | llama a Gemini simulado con la key del backend y devuelve el contrato del frontend', async () => {
     const result = await service.analyzeDocument(validPdfFile);
 
     expect(httpService.axiosRef.post).toHaveBeenCalledTimes(1);
@@ -93,7 +93,7 @@ describe('PadronGeminiImportService', () => {
     });
   });
 
-  it('rechaza una respuesta inválida con error controlado', async () => {
+  it('PAD-EXT-P1-001 / PAD-PRC-P0-003 | rechaza una respuesta inválida con error controlado', async () => {
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: {
         candidates: [
@@ -111,7 +111,7 @@ describe('PadronGeminiImportService', () => {
     );
   });
 
-  it('convierte timeout de Gemini en error controlado sin exponer red real', async () => {
+  it('PAD-EXT-P1-001 / PAD-PRC-P0-003 | convierte timeout de Gemini en error controlado sin exponer red real', async () => {
     const timeout = new Error('timeout of 60000ms exceeded') as Error & {
       code?: string;
     };
@@ -124,7 +124,7 @@ describe('PadronGeminiImportService', () => {
     expect(httpService.axiosRef.post).toHaveBeenCalledTimes(1);
   });
 
-  it('no procesa si falta la key del backend', async () => {
+  it('PAD-EXT-P1-001 | no procesa si falta la key del backend', async () => {
     configService.get.mockImplementation((key: string) => {
       if (key === 'app.ai.gemini.apiKey') return '';
       if (key === 'app.ai.gemini.model') return 'gemini-test';
@@ -133,6 +133,19 @@ describe('PadronGeminiImportService', () => {
 
     await expect(service.analyzeDocument(validPdfFile)).rejects.toBeInstanceOf(
       InternalServerErrorException,
+    );
+    expect(httpService.axiosRef.post).not.toHaveBeenCalled();
+  });
+
+  it('PAD-EXT-P1-001 / PAD-FIL-P0-001 | rechaza archivos mayores a 20 MB antes de llamar Gemini', async () => {
+    const oversizedFile = {
+      ...validPdfFile,
+      size: 20 * 1024 * 1024 + 1,
+      buffer: Buffer.alloc(20 * 1024 * 1024 + 1),
+    };
+
+    await expect(service.analyzeDocument(oversizedFile)).rejects.toBeInstanceOf(
+      BadRequestException,
     );
     expect(httpService.axiosRef.post).not.toHaveBeenCalled();
   });

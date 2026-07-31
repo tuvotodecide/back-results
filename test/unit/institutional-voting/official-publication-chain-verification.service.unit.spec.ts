@@ -73,7 +73,7 @@ describe('OfficialPublicationChainVerificationService', () => {
     );
   });
 
-  it('confirma userOp con sender, EntryPoint, approve exacto, createVote y TopUp correctos', async () => {
+  it('TVD-PUB-P0-010 TVD-PUB-P0-011 TVD-PUB-P0-012 VALIDACION_EXTERNA_BASE_SEPOLIA | confirma userOp con sender, EntryPoint, approve exacto, createVote y TopUp correctos', async () => {
     const { request, lookup } = makeConfirmedSingleCallEvidence();
 
     userOperationService.getUserOperationByHash.mockResolvedValue(lookup);
@@ -90,7 +90,7 @@ describe('OfficialPublicationChainVerificationService', () => {
     });
   });
 
-  it('confirma batch approve + createVote con spender, monto, orden y hash correctos', async () => {
+  it('TVD-PUB-P0-009 TVD-PUB-P0-010 TVD-PUB-P0-011 TVD-PUB-P0-012 VALIDACION_CONTRATO_DESPLEGADO | confirma batch approve + createVote con spender, monto, orden y hash correctos', async () => {
     const request: any = makeRequest({
       executionMode: 'BATCH',
       approveRequired: true,
@@ -160,7 +160,7 @@ describe('OfficialPublicationChainVerificationService', () => {
     });
   });
 
-  it('mantiene pendiente cuando no existe receipt de UserOperation', async () => {
+  it('TVD-PUB-P0-010 TVD-PUB-P0-013 | mantiene pendiente cuando no existe receipt de UserOperation', async () => {
     userOperationService.getUserOperationByHash.mockResolvedValue(null);
     userOperationService.getUserOperationReceipt.mockResolvedValue(null);
 
@@ -332,7 +332,7 @@ describe('OfficialPublicationChainVerificationService', () => {
     });
   });
 
-  it('BR-N17 clasifica error transitorio RPC como retryable sin fallo final', async () => {
+  it('TVD-PUB-P0-013 | BR-N17 clasifica error transitorio RPC como retryable sin fallo final', async () => {
     const { request, lookup } = makeConfirmedSingleCallEvidence();
     userOperationService.getUserOperationByHash.mockResolvedValue(lookup);
     userOperationService.getUserOperationReceipt.mockResolvedValue(

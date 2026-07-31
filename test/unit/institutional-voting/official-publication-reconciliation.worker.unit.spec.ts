@@ -43,7 +43,7 @@ describe('OfficialPublicationReconciliationWorker', () => {
     );
   });
 
-  it('procesa SUBMITTED como pendiente y no finaliza', async () => {
+  it('TVD-PUB-P0-010 TVD-PUB-P0-013 VALIDACION_RUNTIME_WORKER | procesa SUBMITTED como pendiente y no finaliza', async () => {
     const request = makeRequest('SUBMITTED');
     let lockedRequest: any;
     requestService.findReconciliationBatch.mockResolvedValue([request]);
@@ -75,7 +75,7 @@ describe('OfficialPublicationReconciliationWorker', () => {
     expect(requestService.releaseProcessingLock).toHaveBeenCalled();
   });
 
-  it('confirma CHAIN_PENDING y llama finalizacion local', async () => {
+  it('TVD-PUB-P0-010 TVD-PUB-P0-012 VALIDACION_RUNTIME_WORKER | confirma CHAIN_PENDING y llama finalizacion local', async () => {
     const request = makeRequest('CHAIN_PENDING');
     let lockedRequest: any;
     requestService.findReconciliationBatch.mockResolvedValue([request]);
@@ -116,7 +116,7 @@ describe('OfficialPublicationReconciliationWorker', () => {
     );
   });
 
-  it('no verifica cuando otro worker mantiene lock vigente', async () => {
+  it('TVD-PUB-P0-013 VALIDACION_RUNTIME_WORKER | no verifica cuando otro worker mantiene lock vigente', async () => {
     const request = makeRequest('CHAIN_PENDING');
     requestService.findReconciliationBatch.mockResolvedValue([request]);
     requestService.acquireProcessingLock.mockResolvedValue(null);

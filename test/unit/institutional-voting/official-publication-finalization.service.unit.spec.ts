@@ -102,7 +102,7 @@ describe('OfficialPublicationFinalizationService', () => {
     return { service, deps, request };
   }
 
-  it('finaliza desde CHAIN_CONFIRMED usando artefactos preparados sin blockchain', async () => {
+  it('TVD-PUB-P0-012 | finaliza desde CHAIN_CONFIRMED usando artefactos preparados sin blockchain', async () => {
     const { service, deps } = setup();
 
     const result = await service.finalizeOfficialPublication('request-1', 'worker');
@@ -146,7 +146,7 @@ describe('OfficialPublicationFinalizationService', () => {
     expect(deps.voteWritterService.executePreparedCreateVote).not.toHaveBeenCalled();
   });
 
-  it('repeticion sobre COMPLETED es exito idempotente sin efectos locales', async () => {
+  it('TVD-PUB-P0-013 | repeticion sobre COMPLETED es exito idempotente sin efectos locales', async () => {
     const { service, deps } = setup({ request: { status: 'COMPLETED' } });
 
     const result = await service.finalizeOfficialPublication('request-1', 'worker');
@@ -224,7 +224,7 @@ describe('OfficialPublicationFinalizationService', () => {
     );
   });
 
-  it('fallo local posterior a chain conserva solicitud recuperable', async () => {
+  it('TVD-PUB-P0-013 | fallo local posterior a chain conserva solicitud recuperable', async () => {
     const { service, deps } = setup();
     deps.votingEventModel.updateOne.mockRejectedValueOnce(new Error('mongo down'));
 

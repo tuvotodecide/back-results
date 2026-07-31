@@ -23,7 +23,7 @@ import { EnabledSession } from '@/modules/institutional-voting/schemas/enabled-s
 import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
 import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 
-describe('PadronService (unit)', () => {
+describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | PadronService', () => {
   let service: PadronService;
 
   let padronVersionModel: any;
@@ -172,7 +172,7 @@ describe('PadronService (unit)', () => {
     service = moduleRef.get(PadronService);
   });
 
-  it('mantiene compatibilidad con importación CSV legacy y crea versión vigente', async () => {
+  it('PAD-CSV-P1-001 / PAD-DUP-P0-001 / PAD-NRM-P0-001 | mantiene compatibilidad con importación CSV legacy y crea versión vigente', async () => {
     const csv = ['carnet,habilitado', '123456,si', '123.456,si', '999999,no', '---,si'].join(
       '\n',
     );
@@ -269,7 +269,7 @@ describe('PadronService (unit)', () => {
     );
   });
 
-  it('procesa PDF, crea staging y devuelve el import job resumido', async () => {
+  it('PAD-ACC-P0-001 / PAD-PRC-P0-002 / PAD-STG-P0-001 | procesa PDF, crea staging y devuelve el import job resumido', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const file = {
@@ -385,7 +385,7 @@ describe('PadronService (unit)', () => {
     );
   });
 
-  it('inhabilita automáticamente registros sin identidad aunque lleguen como enabled=true', async () => {
+  it('PAD-ROW-P0-002 / PAD-VAL-P0-001 | inhabilita automáticamente registros sin identidad aunque lleguen como enabled=true', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const registeredEntryId = new Types.ObjectId();
@@ -483,7 +483,7 @@ describe('PadronService (unit)', () => {
     );
   });
 
-  it('marca el import job como FAILED cuando el parser del PDF falla', async () => {
+  it('PAD-PRC-P0-003 | marca el import job como FAILED cuando el parser del PDF falla', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const file = {
@@ -549,7 +549,7 @@ describe('PadronService (unit)', () => {
     );
   });
 
-  it('procesa imagen clara con el mismo flujo y la clasifica como IMAGE', async () => {
+  it('PAD-PRC-P0-002 / PAD-VAL-P0-001 | procesa imagen clara con el mismo flujo y la clasifica como IMAGE', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const file = {
@@ -645,7 +645,7 @@ describe('PadronService (unit)', () => {
     );
   });
 
-  it('rechaza confirmar staging sin entradas válidas', async () => {
+  it('PAD-CFM-P0-001 | rechaza confirmar staging sin entradas válidas', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
 
@@ -670,7 +670,7 @@ describe('PadronService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('recalcula el import job cuando el staging ya tiene filas útiles después de un fallo inicial', async () => {
+  it('PAD-EDT-P0-001 / PAD-STA-P0-001 | recalcula el import job cuando el staging ya tiene filas útiles después de un fallo inicial', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const createdEntry = {
@@ -748,7 +748,7 @@ describe('PadronService (unit)', () => {
     );
   });
 
-  it('materializa el padrón y dispara notificación incremental al agregar habilitados tras la convocatoria', async () => {
+  it('PAD-EDT-P0-001 / PAD-STA-P0-001 | materializa el padrón y dispara notificación incremental al agregar habilitados tras la convocatoria', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const event = {
@@ -831,7 +831,7 @@ describe('PadronService (unit)', () => {
     expect(notificationsService.notifyConvocationIfEligible).toHaveBeenCalledWith(event);
   });
 
-  it('difiere materialización y notificación durante operaciones masivas de staging', async () => {
+  it('PAD-CON-P1-001 | difiere materialización y notificación durante operaciones masivas de staging', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const event = {
@@ -897,7 +897,7 @@ describe('PadronService (unit)', () => {
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
   });
 
-  it('rechaza eliminación múltiple sin registros seleccionados', async () => {
+  it('PAD-DEL-P0-001 | rechaza eliminación múltiple sin registros seleccionados', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
 
@@ -924,7 +924,7 @@ describe('PadronService (unit)', () => {
     expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('bloquea eliminación múltiple si dejaría el padrón vacío', async () => {
+  it('PAD-DEL-P0-001 | bloquea eliminación múltiple si dejaría el padrón vacío', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const entryId = new Types.ObjectId();
@@ -956,7 +956,7 @@ describe('PadronService (unit)', () => {
     expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('elimina varios registros, materializa una sola vez y no notifica en bulk delete', async () => {
+  it('PAD-DEL-P0-001 / PAD-CON-P1-001 | elimina varios registros, materializa una sola vez y no notifica en bulk delete', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const entryA = new Types.ObjectId();
@@ -1023,7 +1023,7 @@ describe('PadronService (unit)', () => {
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
   });
 
-  it('elimina solo no registrados al preparar publicación oficial', async () => {
+  it('PAD-STA-P0-003 | elimina solo no registrados al preparar publicación oficial', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const registeredA = new Types.ObjectId();
@@ -1082,7 +1082,7 @@ describe('PadronService (unit)', () => {
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
   });
 
-  it('no elimina si los no registrados ya se registraron antes de publicar', async () => {
+  it('PAD-STA-P0-003 | no elimina si los no registrados ya se registraron antes de publicar', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const entryId = new Types.ObjectId();
@@ -1127,7 +1127,7 @@ describe('PadronService (unit)', () => {
     expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('bloquea publicación oficial si eliminar no registrados dejaría el padrón vacío', async () => {
+  it('PAD-STA-P0-003 | bloquea publicación oficial si eliminar no registrados dejaría el padrón vacío', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const entryId = new Types.ObjectId();
@@ -1160,7 +1160,7 @@ describe('PadronService (unit)', () => {
     expect(padronStagingEntryModel.deleteMany).not.toHaveBeenCalled();
   });
 
-  it('actualiza el estado de aprobación de una versión específica del padrón', async () => {
+  it('PAD-STA-P0-001 | actualiza el estado de aprobación de una versión específica del padrón', async () => {
     const requester = { sub: String(new Types.ObjectId()), role: 'ADMIN' };
     const version = {
       _id: new Types.ObjectId(),
@@ -1191,7 +1191,7 @@ describe('PadronService (unit)', () => {
     });
   });
 
-  it('rechaza consultar una versión inexistente del padrón', async () => {
+  it('PAD-LST-P1-002 | rechaza consultar una versión inexistente del padrón', async () => {
     const requester = { sub: String(new Types.ObjectId()), role: 'ADMIN' };
     accessService.getEventOrThrow.mockResolvedValue(baseEvent);
     padronVersionModel.findOne.mockResolvedValue(null);
@@ -1206,7 +1206,7 @@ describe('PadronService (unit)', () => {
     ).rejects.toThrow(NotFoundException);
   });
 
-  it('rechaza cambiar el comparison report si el solicitante no es administrador global', async () => {
+  it('PAD-PER-P0-001 | rechaza cambiar el comparison report si el solicitante no es administrador global', async () => {
     const requester = { sub: String(new Types.ObjectId()), role: 'GOVERNOR' };
     accessService.assertGlobalAdminAccess.mockImplementation(() => {
       throw new ForbiddenException(
@@ -1226,7 +1226,7 @@ describe('PadronService (unit)', () => {
     expect(accessService.getEventOrThrow).not.toHaveBeenCalled();
   });
 
-  it('rechaza carnet inválido al consultar elegibilidad', async () => {
+  it('PAD-ELG-P0-001 / PAD-NRM-P0-001 | rechaza carnet inválido al consultar elegibilidad', async () => {
     accessService.getEventOrThrow.mockResolvedValue(baseEvent);
 
     await expect(service.checkEligibility(String(baseEvent._id), '')).rejects.toThrow(
@@ -1234,7 +1234,7 @@ describe('PadronService (unit)', () => {
     );
   });
 
-  it('rechaza agregar nuevos votantes al padrón vigente en modo limitado', async () => {
+  it('PAD-STA-P1-002 | rechaza agregar nuevos votantes al padrón vigente en modo limitado', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     accessService.getEventOrThrow.mockResolvedValue({
       ...baseEvent,
@@ -1252,7 +1252,7 @@ describe('PadronService (unit)', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('bloquea habilitar votantes existentes si la bandera post-publicación está desactivada', async () => {
+  it('PAD-STA-P1-002 / PAD-PER-P0-001 | bloquea habilitar votantes existentes si la bandera post-publicación está desactivada', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     accessService.getEventOrThrow.mockResolvedValue({
       ...baseEvent,
@@ -1274,7 +1274,7 @@ describe('PadronService (unit)', () => {
     expect(padronVersionModel.findOne).not.toHaveBeenCalled();
   });
 
-  it('genera el PDF del padrón vigente como listado y no como constancia', async () => {
+  it('PAD-DWN-P1-001 | genera el PDF del padrón vigente como listado y no como constancia', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const versionId = new Types.ObjectId();
     accessService.getEventOrThrow.mockResolvedValue({
@@ -1314,5 +1314,38 @@ describe('PadronService (unit)', () => {
     expect(result.fileName).toBe(`padron-${String(versionId)}.pdf`);
     expect(result.isCurrent).toBe(true);
     expect(result.pdfBuffer.toString('utf-8')).toContain('%PDF-1.4');
+  });
+
+  it('PAD-DWN-P1-001 | descarga CSV vigente con BOM, header exacto y valores sanitizados', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const versionId = new Types.ObjectId();
+    accessService.getEventOrThrow.mockResolvedValue({
+      ...baseEvent,
+      name: 'Consulta 2026',
+      state: 'OFFICIALLY_PUBLISHED',
+      publicationConfirmed: true,
+    });
+    accessService.isOfficialPublicationConfirmed.mockReturnValue(true);
+    padronVersionModel.findOne.mockResolvedValue({
+      _id: versionId,
+      isCurrent: true,
+    });
+    padronEntryModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { carnetNorm: '123456', enabled: true },
+          { carnetNorm: '789000', enabled: false },
+        ]),
+      }),
+    });
+
+    const result = await service.downloadPadronCsv(String(baseEvent._id), requester);
+
+    expect(result.fileName).toBe(`padron-${String(versionId)}.csv`);
+    expect(result.isCurrent).toBe(true);
+    expect(result.csvContent).toBe('\uFEFFcarnet,habilitado\n123456,si\n789000,no');
+    expect(result.csvContent).not.toContain('=');
+    expect(result.csvContent).not.toContain('+');
+    expect(result.csvContent).not.toContain('@');
   });
 });
