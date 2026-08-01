@@ -13,6 +13,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
   const eventId = new Types.ObjectId();
   const assignmentId = new Types.ObjectId();
   const applicationId = new Types.ObjectId();
+  const stableInstitutionId = 'institution-tse-001';
   const wallet = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
   let assignmentModel: any;
@@ -38,6 +39,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
           _id: applicationId,
           tenantId,
           userId: requesterId,
+          stableInstitutionId,
           accountAddress: wallet,
           status: 'APPROVED',
         }),
@@ -51,7 +53,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
     );
   });
 
-  it('deriva institutionId contractual desde applicationId de la asignacion institucional activa', async () => {
+  it('usa stableInstitutionId como identidad contractual y no applicationId', async () => {
     const result = await service.resolveOfficialPublicationInstitution(
       { _id: eventId, tenantId } as any,
       { sub: String(requesterId) },
@@ -82,7 +84,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
       tenantId: String(tenantId),
       assignmentId: String(assignmentId),
       applicationId: String(applicationId),
-      institutionId: String(applicationId),
+      institutionId: stableInstitutionId,
       accountAddress: wallet,
       institutionalRole: 'PRIMARY',
     });
@@ -134,6 +136,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
         _id: applicationId,
         tenantId,
         userId: requesterId,
+        stableInstitutionId,
         accountAddress: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         status: 'APPROVED',
       }),

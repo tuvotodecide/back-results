@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Connection, Types } from 'mongoose';
 import { HistoryModule } from '@/modules/history/history.module';
+import { HistoryService } from '@/modules/history/services/history.service';
 import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
 import { getBaseTestingModuleImports } from '../../utils/test-module';
 
@@ -26,6 +27,9 @@ describe('HistoryController (integration)', () => {
     moduleRef = await Test.createTestingModule({
       imports: [...getBaseTestingModuleImports(mongod.getUri()), HistoryModule],
     }).compile();
+
+    const historyService = moduleRef.get(HistoryService);
+    jest.spyOn(historyService, 'getAmountParamFromOp').mockResolvedValue(null);
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
