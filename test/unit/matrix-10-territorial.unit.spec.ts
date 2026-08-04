@@ -63,7 +63,7 @@ describe('MX-10 | territorial unitario focal', () => {
     );
   });
 
-  it('[MX-10][TER-NEW-P0-005][UNITARIA] rechaza un recinto sin asiento, coordenadas y circunscripción', async () => {
+  it('[MX-10][TER-NEW-P0-005][UNITARIA] rechaza un recinto sin asiento electoral obligatorio', async () => {
     const dto = new CreateElectoralLocationDto();
     dto.fid = '1';
     dto.code = 'REC-1';
@@ -74,9 +74,11 @@ describe('MX-10 | territorial unitario focal', () => {
 
     const errors = await errorsFor(dto);
 
-    expect(errors.map((error) => error.property)).toEqual(
-      expect.arrayContaining(['electoralSeatId', 'circunscripcion', 'coordinates']),
-    );
+    const properties = errors.map((error) => error.property);
+
+    expect(properties).toEqual(expect.arrayContaining(['electoralSeatId']));
+    expect(properties).not.toContain('coordinates');
+    expect(properties).not.toContain('circunscripcion');
   });
 
   it('[MX-10][TER-NEW-P0-005][UNITARIA] acepta coordenadas y circunscripción anidadas válidas', async () => {
