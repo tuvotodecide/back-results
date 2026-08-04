@@ -951,6 +951,30 @@ export class InstitutionalVotingAdminController {
     return this.institutionalVotingService.getParticipationAnalytics(eventId, req.user);
   }
 
+  @Get(':eventId/participation-list')
+  @ApiOperation({
+    summary: 'Listar estado de participación del padrón vigente',
+    description:
+      'Devuelve los votantes habilitados del padrón vigente con estado PARTICIPATED o PENDING. Requiere acceso administrativo al tenant del evento.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiQuery({ name: 'page', required: false, description: 'Página (default 1).' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Tamaño de página (default 50, máximo 500).' })
+  @ApiResponse({ status: 200, description: 'Listado paginado de participación del padrón vigente.' })
+  getParticipationList(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+    @Query('page') page = 1,
+    @Query('limit') limit = 50,
+  ) {
+    return this.institutionalVotingService.getParticipationList(
+      eventId,
+      req.user,
+      Number(page),
+      Number(limit),
+    );
+  }
+
   @Post(':eventId/participation-report')
   @ApiOperation({
     summary: 'Descargar reporte de participación del evento',

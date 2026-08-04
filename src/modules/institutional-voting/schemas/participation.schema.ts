@@ -14,6 +14,9 @@ export class Participation {
   @Prop({ required: false, trim: true })
   idempotencyKey?: string;
 
+  @Prop({ type: Types.ObjectId, ref: 'PresentialSession', required: false })
+  presentialSessionId?: Types.ObjectId;
+
   @Prop({ required: true, default: Date.now })
   participatedAt: Date;
 }

@@ -9,6 +9,8 @@ describe('InstitutionalVotingService reward notification after participation', (
     const participationService = {
       createParticipation: jest.fn().mockResolvedValue({
         statusCode: 201,
+        created: true,
+        reused: false,
         body: {
           id: 'participation-1',
           participated: true,
@@ -82,6 +84,24 @@ describe('InstitutionalVotingService reward notification after participation', (
 
     await service.createParticipation('event-1', { carnet: '1234567' }, 'idem-1');
 
+    expect(notificationsService.notifyVoteRewardAvailableIfEligible).not.toHaveBeenCalled();
+  });
+
+  it('PAR-SYN-P0-002 no repite la notificación de recompensa al reutilizar una participación idempotente', async () => {
+    const { service, participationService, notificationsService } = makeService({
+      participationService: {
+        createParticipation: jest.fn().mockResolvedValue({
+          statusCode: 200,
+          created: false,
+          reused: true,
+          body: { id: 'participation-1', participated: true, participatedAt: '2026-01-01T12:00:00.000Z' },
+        }),
+      },
+    });
+
+    await service.createParticipation('event-1', { carnet: '1234567' }, 'idem-1');
+
+    expect(participationService.checkParticipationStatus).not.toHaveBeenCalled();
     expect(notificationsService.notifyVoteRewardAvailableIfEligible).not.toHaveBeenCalled();
   });
 

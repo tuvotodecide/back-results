@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { CreateParticipationDto } from '../../dto/participation.dto';
 import {
   ComparisonReport,
@@ -54,19 +54,24 @@ export class ParticipationService {
         .lean();
 
       if (existingByKey) {
-        return {
-          statusCode: 200,
-          body: {
-            id: String(existingByKey._id),
-            participated: true,
-            participatedAt: existingByKey.participatedAt,
-          },
-        };
+        if (this.hasEquivalentPayload(existingByKey, dto)) {
+          return this.reusedParticipation(existingByKey);
+        }
+        throw new ConflictException('Idempotency-Key ya fue usada con datos incompatibles');
       }
     }
 
     const status = await this.resolveParticipationStatus(eventId, carnetNorm);
     if (status.status === 'ALREADY_VOTED') {
+      if (idempotencyKey) {
+        const existingByKey = await this.participationModel
+          .findOne({ eventId: event._id, carnetNorm, idempotencyKey })
+          .lean();
+
+        if (existingByKey && this.hasEquivalentPayload(existingByKey, dto)) {
+          return this.reusedParticipation(existingByKey);
+        }
+      }
       throw new ConflictException('Ya participaste en este evento');
     }
     if (status.status !== 'CAN_VOTE') {
@@ -78,11 +83,14 @@ export class ParticipationService {
         eventId: event._id,
         carnetNorm,
         idempotencyKey,
+        presentialSessionId: dto.presentialSessionId,
         participatedAt: new Date(),
       });
 
       return {
         statusCode: 201,
+        created: true,
+        reused: false,
         body: {
           id: String(created._id),
           participated: true,
@@ -95,15 +103,8 @@ export class ParticipationService {
           .findOne({ eventId: event._id, carnetNorm, idempotencyKey })
           .lean();
 
-        if (existing) {
-          return {
-            statusCode: 200,
-            body: {
-              id: String(existing._id),
-              participated: true,
-              participatedAt: existing.participatedAt,
-            },
-          };
+        if (existing && this.hasEquivalentPayload(existing, dto)) {
+          return this.reusedParticipation(existing);
         }
       }
       if (error?.code === 11000) {
@@ -111,6 +112,27 @@ export class ParticipationService {
       }
       throw error;
     }
+  }
+
+  private hasEquivalentPayload(
+    participation: { presentialSessionId?: Types.ObjectId | string },
+    dto: CreateParticipationDto,
+  ) {
+    return String(participation.presentialSessionId ?? '')
+      === String(dto.presentialSessionId ?? '');
+  }
+
+  private reusedParticipation(participation: { _id: unknown; participatedAt: Date }) {
+    return {
+      statusCode: 200,
+      created: false,
+      reused: true,
+      body: {
+        id: String(participation._id),
+        participated: true,
+        participatedAt: participation.participatedAt,
+      },
+    };
   }
 
   async checkParticipationStatus(eventId: string, carnet: string) {

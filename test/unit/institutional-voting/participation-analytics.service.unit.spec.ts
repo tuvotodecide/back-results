@@ -139,6 +139,35 @@ describe('ParticipationAnalyticsService (unit)', () => {
     expect(result.totalParticipated).toBe(2);
   });
 
+  it('lista el padrón habilitado con el estado de participación paginado', async () => {
+    const entries = [enabledEntry('A2'), enabledEntry('A3')];
+    const lean = jest.fn().mockResolvedValue(entries);
+    const limit = jest.fn().mockReturnValue({ lean });
+    const skip = jest.fn().mockReturnValue({ limit });
+    const sort = jest.fn().mockReturnValue({ skip });
+    padronEntryModel.find.mockReturnValueOnce({ sort });
+    (padronEntryModel as any).countDocuments = jest.fn().mockResolvedValue(4);
+    participationModel.find.mockReturnValueOnce(chainLean([{ carnetNorm: 'A2' }]));
+
+    const result = await service.getParticipationList(String(eventId), requester, 2, 2);
+
+    expect(result).toEqual({
+      data: [
+        { id: String(entries[0]._id), carnetNorm: 'A2', status: 'PARTICIPATED' },
+        { id: String(entries[1]._id), carnetNorm: 'A3', status: 'PENDING' },
+      ],
+      page: 2,
+      limit: 2,
+      total: 4,
+      totalPages: 2,
+      padronVersionId: String(currentVersionId),
+    });
+    expect(participationModel.find).toHaveBeenCalledWith(
+      { eventId, carnetNorm: { $in: ['A2', 'A3'] } },
+      { carnetNorm: 1 },
+    );
+  });
+
   it('calcula totalPending', async () => {
     const result = await service.getAnalytics(String(eventId), requester);
 

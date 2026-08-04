@@ -94,6 +94,8 @@ describe('ParticipationService (unit)', () => {
 
     expect(result).toEqual({
       statusCode: 200,
+      created: false,
+      reused: true,
       body: {
         id: String(existing._id),
         participated: true,
@@ -127,12 +129,34 @@ describe('ParticipationService (unit)', () => {
     );
     expect(result).toEqual({
       statusCode: 201,
+      created: true,
+      reused: false,
       body: {
         id: String(created._id),
         participated: true,
         participatedAt: created.participatedAt,
       },
     });
+  });
+
+  it('mantiene 409 cuando la misma Idempotency-Key cambia la sesión presencial funcional', async () => {
+    const event = activeEvent();
+    accessService.getEventOrThrow.mockResolvedValue(event);
+    participationModel.findOne.mockReturnValue({
+      lean: jest.fn().mockResolvedValue({
+        _id: new Types.ObjectId(),
+        participatedAt: new Date(),
+        presentialSessionId: new Types.ObjectId(),
+      }),
+    });
+
+    await expect(
+      service.createParticipation(
+        String(event._id),
+        { carnet: '123456', presentialSessionId: new Types.ObjectId().toString() },
+        'idem-incompatible',
+      ),
+    ).rejects.toThrow(ConflictException);
   });
 
   it('rechaza un segundo intento real de participación', async () => {

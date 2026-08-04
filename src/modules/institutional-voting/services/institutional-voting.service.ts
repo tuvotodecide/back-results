@@ -280,6 +280,20 @@ export class InstitutionalVotingService {
     return this.participationAnalyticsService.getAnalytics(eventId, requester);
   }
 
+  getParticipationList(
+    eventId: string,
+    requester: any,
+    page?: number,
+    limit?: number,
+  ) {
+    return this.participationAnalyticsService.getParticipationList(
+      eventId,
+      requester,
+      page,
+      limit,
+    );
+  }
+
   downloadParticipationReport(eventId: string, requester: any, payload: any) {
     return this.participationAnalyticsService.downloadParticipationReport(
       eventId,
@@ -327,7 +341,7 @@ export class InstitutionalVotingService {
 
     const out = await this.participationService.createParticipation(eventId, dto, idempotencyKey);
 
-    if (dto.presentialSessionId) {
+    if (dto.presentialSessionId && out.created) {
       await this.presentialSessionsService.completeSessionForParticipation(
         eventId,
         dto.presentialSessionId,
@@ -335,7 +349,9 @@ export class InstitutionalVotingService {
       );
     }
 
-    await this.notifyVoteRewardAfterConfirmedParticipation(eventId, dto.carnet);
+    if (out.created) {
+      await this.notifyVoteRewardAfterConfirmedParticipation(eventId, dto.carnet);
+    }
 
     return out;
   }

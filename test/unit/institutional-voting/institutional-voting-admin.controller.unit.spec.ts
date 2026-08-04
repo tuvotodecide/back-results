@@ -15,6 +15,7 @@ describe('InstitutionalVotingAdminController official publication', () => {
     service = {
       confirmOfficialPublication: jest.fn().mockResolvedValue({ ok: true }),
       publishEvent: jest.fn().mockResolvedValue({ ok: true }),
+      getParticipationList: jest.fn().mockResolvedValue({ data: [] }),
     };
     controller = new InstitutionalVotingAdminController(service, {} as any);
   });
@@ -43,5 +44,13 @@ describe('InstitutionalVotingAdminController official publication', () => {
 
     expect(service.publishEvent).toHaveBeenCalledWith('event-1', requester);
     expect(service.publishEvent.mock.calls[0]).toHaveLength(2);
+  });
+
+  it('solicita la lista de participación con el usuario y paginación', async () => {
+    const requester = { sub: 'admin-1' };
+
+    await controller.getParticipationList('event-1', { user: requester } as any, 2, 100);
+
+    expect(service.getParticipationList).toHaveBeenCalledWith('event-1', requester, 2, 100);
   });
 });

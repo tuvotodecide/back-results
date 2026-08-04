@@ -56,6 +56,85 @@ export class ParticipationAnalyticsService {
     return analytics;
   }
 
+  async getParticipationList(
+    eventId: string,
+    requester: any,
+    page = 1,
+    limit = 50,
+  ) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(500, Math.max(1, Number(limit) || 50));
+    const skip = (safePage - 1) * safeLimit;
+
+    const currentVersion = await this.padronVersionModel
+      .findOne({ eventId: event._id, isCurrent: true }, { _id: 1 })
+      .lean();
+
+    if (!currentVersion) {
+      return {
+        data: [],
+        page: safePage,
+        limit: safeLimit,
+        total: 0,
+        totalPages: 0,
+        padronVersionId: null,
+      };
+    }
+
+    const [entries, total] = await Promise.all([
+      this.padronEntryModel
+        .find(
+          {
+            padronVersionId: currentVersion._id,
+            enabled: { $ne: false },
+          },
+          { _id: 1, carnetNorm: 1 },
+        )
+        .sort({ carnetNorm: 1, _id: 1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .lean(),
+      this.padronEntryModel.countDocuments({
+        padronVersionId: currentVersion._id,
+        enabled: { $ne: false },
+      }),
+    ]);
+
+    const carnetNorms = entries
+      .map((entry) => String(entry.carnetNorm ?? '').trim())
+      .filter(Boolean);
+    const participationRows = carnetNorms.length
+      ? await this.participationModel
+          .find(
+            { eventId: event._id, carnetNorm: { $in: carnetNorms } },
+            { carnetNorm: 1 },
+          )
+          .lean()
+      : [];
+    const participatedCarnets = new Set(
+      participationRows.map((row) => String(row.carnetNorm ?? '').trim()),
+    );
+
+    return {
+      data: entries.map((entry) => {
+        const carnetNorm = String(entry.carnetNorm ?? '').trim();
+        return {
+          id: String(entry._id),
+          carnetNorm,
+          status: participatedCarnets.has(carnetNorm) ? 'PARTICIPATED' : 'PENDING',
+        };
+      }),
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
+      padronVersionId: String(currentVersion._id),
+    };
+  }
+
   async downloadParticipationReport(
     eventId: string,
     requester: any,
