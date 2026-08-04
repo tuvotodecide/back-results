@@ -21,7 +21,7 @@
       "test/unit/territorial-restriction.guard.unit.spec.ts"
     ]
   },
-  "institutional-access": {
+  "matrix_02": {
     "name": "MX-02 | Gestión de instituciones, administradores y wallets | Backend Results",
     "flows": [
       "ACCESS-P0",
@@ -38,6 +38,7 @@
       "test/unit/contract-runtime-config.unit.spec.ts",
       "test/unit/institutional-access-recovery-requests.service.unit.spec.ts",
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
+      "test/unit/institutional-voting/institutional-voting-access.service.unit.spec.ts",
       "test/unit/institutional-audit.service.unit.spec.ts",
       "test/unit/institutional-email-outbox.service.unit.spec.ts",
       "test/unit/institutional-tenants.service.unit.spec.ts",
@@ -150,7 +151,11 @@
       "test/integration/institutional-voting/voting-configuration-api.spec.ts",
       "test/integration/institutional-voting/cancelled-voting-api.spec.ts",
       "test/unit/institutional-voting/access.service.unit.spec.ts",
-      "test/unit/institutional-voting/voting-events.service.unit.spec.ts"
+      "test/unit/institutional-voting/voting-events.service.unit.spec.ts",
+      "test/unit/matrix-04-voting-configuration-focal.unit.spec.ts",
+      "test/integration/matrix-04-voting-configuration-focal.integration.spec.ts",
+      "test/acceptance/matrix-04-voting-configuration-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-04-voting-configuration-focal.e2e.spec.ts"
     ]
   },
   "matrix_05": {
@@ -176,15 +181,19 @@
     ],
     "files": [
       "test/acceptance/institutional-public.contract.spec.ts",
+      "test/acceptance/matrix-05-padron-focal.acceptance.spec.ts",
       "test/end-to-end/padron-pdf-staging.e2e.spec.ts",
       "test/end-to-end/padron-certificate.e2e.spec.ts",
+      "test/end-to-end/matrix-05-padron-focal.e2e.spec.ts",
       "test/integration/institutional-voting/padron-editing-rules.spec.ts",
       "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
+      "test/integration/matrix-05-padron-focal.integration.spec.ts",
       "test/unit/institutional-voting/padron-certificate-pdf.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-gemini-import.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-pdf-parser.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-users.service.unit.spec.ts",
-      "test/unit/institutional-voting/padron.service.unit.spec.ts"
+      "test/unit/institutional-voting/padron.service.unit.spec.ts",
+      "test/unit/matrix-05-padron-focal.unit.spec.ts"
     ]
   },
   "institutional-voting_remaining": {
@@ -209,7 +218,6 @@
       "test/unit/institutional-voting/participation-analytics.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-reader.service.unit.spec.ts",
       "test/unit/institutional-voting/voting-results.service.unit.spec.ts",
-      "test/unit/institutional-voting/institutional-voting-access.service.unit.spec.ts",
       "test/unit/institutional-voting/institutional-voting-admin.controller.unit.spec.ts"
     ]
   },
@@ -301,7 +309,10 @@
       "test/unit/institutional-voting/official-publication-request.dto.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-request.schema.unit.spec.ts",
       "test/unit/institutional-voting/official-publication-request.service.unit.spec.ts",
-      "test/integration/institutional-voting/publication-results.spec.ts"
+      "test/integration/institutional-voting/publication-results.spec.ts",
+      "test/integration/matrix-06-tvd-focal.integration.spec.ts",
+      "test/acceptance/matrix-06-tvd-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-06-tvd-focal.e2e.spec.ts"
     ]
   },
   "matrix_07": {
@@ -318,7 +329,11 @@
       "test/unit/institutional-voting/participation.service.unit.spec.ts",
       "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
-      "test/end-to-end/zk-vote.contract.e2e.spec.ts"
+      "test/end-to-end/zk-vote.contract.e2e.spec.ts",
+      "test/unit/matrix-07-mobile-vote-focal.unit.spec.ts",
+      "test/integration/matrix-07-mobile-vote-focal.integration.spec.ts",
+      "test/acceptance/matrix-07-mobile-vote-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-07-mobile-vote-focal.e2e.spec.ts"
     ]
   },
   "matrix_08": {
@@ -360,7 +375,11 @@
       "KIO-UX"
     ],
     "files": [
-      "test/integration/institutional-voting/presential-sessions.spec.ts"
+      "test/integration/institutional-voting/presential-sessions.spec.ts",
+      "test/unit/matrix-09-kiosk-qr-focal.unit.spec.ts",
+      "test/integration/matrix-09-kiosk-qr-focal.integration.spec.ts",
+      "test/acceptance/matrix-09-kiosk-qr-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-09-kiosk-qr-focal.e2e.spec.ts"
     ]
   },
   "matrix_10": {
@@ -404,7 +423,17 @@
     "files": [
       "test/unit/matrix-10-geography.unit.spec.ts",
       "test/unit/matrix-10-contracts-delegates.unit.spec.ts",
-      "test/unit/matrix-10-permissions-security.unit.spec.ts"
+      "test/unit/matrix-10-permissions-security.unit.spec.ts",
+      "test/unit/matrix-10-territorial-access.unit.spec.ts",
+      "test/unit/matrix-10-territorial.unit.spec.ts",
+      "test/unit/matrix-10-contracts.unit.spec.ts",
+      "test/unit/matrix-10-delegates.unit.spec.ts",
+      "test/unit/matrix-10-access-security.unit.spec.ts",
+      "test/integration/matrix-10-territorial.integration.spec.ts",
+      "test/integration/matrix-10-contracts-delegates.integration.spec.ts",
+      "test/acceptance/matrix-10-territorial.acceptance.spec.ts",
+      "test/acceptance/matrix-10-access-security.acceptance.spec.ts",
+      "test/acceptance/matrix-10-public-contracts-delegates.acceptance.spec.ts"
     ]
   },
   "matrix_11": {
@@ -440,7 +469,10 @@
       "test/unit/oracle-resolver.service.unit.spec.ts",
       "test/unit/client-reports.controller.unit.spec.ts",
       "test/unit/client-reports.service.unit.spec.ts",
-      "test/unit/matrix-11-attestation-backend-focal.unit.spec.ts"
+      "test/unit/matrix-11-attestation-backend-focal.unit.spec.ts",
+      "test/integration/matrix-11-attestation-backend-focal.integration.spec.ts",
+      "test/acceptance/matrix-11-attestation-backend-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-11-attestation-backend-focal.e2e.spec.ts"
     ]
   },
   "matrix_12": {
@@ -468,7 +500,10 @@
       "test/integration/results.service.int-spec.ts",
       "test/unit/results.controller.unit.spec.ts",
       "test/unit/results.service.unit.spec.ts",
-      "test/unit/matrix-12-results-admin-focal.unit.spec.ts"
+      "test/unit/matrix-12-results-admin-focal.unit.spec.ts",
+      "test/integration/matrix-12-results-admin-focal.integration.spec.ts",
+      "test/acceptance/matrix-12-results-admin-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-12-results-admin-focal.e2e.spec.ts"
     ]
   },
   "matrix_13": {
@@ -495,7 +530,53 @@
     "files": [
       "test/unit/institutional-voting/voting-results-public.service.unit.spec.ts",
       "test/unit/matrix-13-public-voting-events.unit.spec.ts",
-      "test/unit/matrix-13-public-results-routes.unit.spec.ts"
+      "test/unit/matrix-13-public-results-routes.unit.spec.ts",
+      "test/unit/matrix-13-public-results-focal.unit.spec.ts",
+      "test/integration/matrix-13-public-results-focal.integration.spec.ts",
+      "test/acceptance/matrix-13-public-results-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-13-public-results-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_14": {
+    "name": "MX-14 | Noticias, notificaciones y device tokens | Backend Results",
+    "flows": [
+      "MX-14",
+      "NOT-ADM",
+      "NOT-PUB",
+      "NOT-TOK",
+      "NOT-GEN",
+      "NOT-SND",
+      "NOT-RCV",
+      "NOT-NAV",
+      "NOT-DUP",
+      "NOT-SEC"
+    ],
+    "files": [
+      "test/unit/matrix-14-notifications-focal.unit.spec.ts",
+      "test/integration/matrix-14-notifications-focal.integration.spec.ts",
+      "test/acceptance/matrix-14-notifications-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-14-notifications-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_16": {
+    "name": "MX-16 | Gestión Superadmin TVD y administración global | Backend Results",
+    "flows": [
+      "MX-16",
+      "ADM-ACC",
+      "ADM-CTR",
+      "ADM-WAL",
+      "ADM-ASG",
+      "ADM-OPS",
+      "ADM-REG",
+      "ADM-REC",
+      "ADM-SEC",
+      "ADM-CON"
+    ],
+    "files": [
+      "test/unit/matrix-16-superadmin-focal.unit.spec.ts",
+      "test/integration/matrix-16-superadmin-focal.integration.spec.ts",
+      "test/acceptance/matrix-16-superadmin-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-16-superadmin-focal.e2e.spec.ts"
     ]
   },
   "payments_remaining": {
@@ -542,6 +623,15 @@
       "test/integration/tvd-qr-accreditations.integration.spec.ts",
       "test/integration/tvd-queries.integration.spec.ts",
       "test/unit/tvd-admin-operations.types.unit.spec.ts"
+    ]
+  },
+  "test_infrastructure": {
+    "name": "Test-only infrastructure and external-network safety guard",
+    "flows": [
+      "TEST_INFRASTRUCTURE"
+    ],
+    "files": [
+      "test/unit/test-external-network-guard.unit.spec.ts"
     ]
   }
 }

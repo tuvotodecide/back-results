@@ -57,6 +57,10 @@ import { InstitutionalVotingAccessService } from '@/modules/institutional-voting
 import { TestLoggerModule } from '../utils/module-helpers';
 import { executeCoinbaseOp } from '@/api/account';
 import { VoteContractCalls, VoteContractReads } from '@/api/vote';
+import {
+  installMx02SyntheticChainConfig,
+  restoreMx02SyntheticChainConfig,
+} from '../utils/mx02-synthetic-chain-config';
 
 const validAccountAddress = '0x1234567890abcdef1234567890abcdef12345678';
 const institutionNotFoundError = () => new Error('Institution does not exist');
@@ -170,6 +174,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
   });
 
   beforeEach(async () => {
+    installMx02SyntheticChainConfig();
     jest.clearAllMocks();
     (executeCoinbaseOp as jest.Mock).mockReset();
     (VoteContractCalls.createInstitution as jest.Mock).mockReset();
@@ -200,6 +205,11 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     await conn.collection('roled_users').deleteMany({});
     await conn.collection('institutional_admin_invitations').deleteMany({});
     await conn.collection('notification_logs').deleteMany({});
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    restoreMx02SyntheticChainConfig();
   });
 
   afterAll(async () => {
@@ -1298,7 +1308,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(await countUsers()).toBe(0);
   });
 
-  it('D-NEW-006 | aprobar una nueva institución deja acceso pendiente de confirmación de red', async () => {
+  it('[MX-02][D-NEW-006][INTEGRACION] | aprobar inicia el procesamiento y mantiene el acceso inactivo hasta confirmación', async () => {
     const { id, payload } = await createVerifiedApplication();
 
     const approveRes = await request(app.getHttpServer())

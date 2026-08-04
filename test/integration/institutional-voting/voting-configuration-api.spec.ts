@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { Types } from 'mongoose';
 import { institutionalVotingFixtures } from '../../fixtures.institutional-voting';
 import {
   bootstrapInstitutionalVotingContext,
@@ -105,6 +106,11 @@ describe('MX-04 | Creación y configuración de votaciones | Backend API', () =>
   });
 
   it('ELE-ROL-P0-001 / ELE-ROL-P0-003 / ELE-OPT-P0-001 / ELE-OPT-P0-003 / ELE-CAN-P0-001 / ELE-CAN-P0-002 configura cargos, opciones y candidatos con errores HTTP específicos', async () => {
+    await ctx.conn.collection('event_roles').createIndex(
+      { eventId: 1, normalizedName: 1 },
+      { unique: true, name: 'eventId_1_normalizedName_1' },
+    );
+
     const created = await createInstitutionalEvent(
       ctx.httpServer,
       ctx.adminToken,
@@ -125,6 +131,12 @@ describe('MX-04 | Creación y configuración de votaciones | Backend API', () =>
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ name: 'Presidencia', maxWinners: 1 });
     expect(duplicateRole.status).toBe(409);
+
+    const persistedRoles = await ctx.conn
+      .collection('event_roles')
+      .find({ eventId: new Types.ObjectId(eventId), normalizedName: 'presidencia' })
+      .toArray();
+    expect(persistedRoles).toHaveLength(1);
 
     const invalidOption = await request(ctx.httpServer)
       .post(`/api/v1/voting/events/${eventId}/options`)

@@ -91,7 +91,7 @@ describe('ZK vote contract E2E (mocked)', () => {
     await moduleRef?.close();
   });
 
-  it('VOT-PRE-P0-002 | GET /api/v1/voting/events/vote/cred-vc devuelve VC mínima', async () => {
+  it('[MX-07][VOT-PRE-P0-002][E2E] GET /api/v1/voting/events/vote/cred-vc devuelve VC mínima', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/voting/events/vote/cred-vc')
       .set('x-api-key', 'mock-api-key')

@@ -155,7 +155,7 @@ describe('EmitVoteService (unit)', () => {
     expect(voteWritterService.castVote).not.toHaveBeenCalled();
   });
 
-  it('VOT-ERR-P1-003 / VOT-SEC-P0-002 | envuelve el error del writer on-chain mockeado en error controlado sin secretos', async () => {
+  it('[MX-07][VOT-SEC-P0-002][UNITARIA] VOT-ERR-P1-003 envuelve el error del writer on-chain mockeado en error controlado sin secretos', async () => {
     const error = new Error('mock writer failure');
     zkAuthService.zkRequestCallback.mockResolvedValue(zkResponse(validScope));
     voteWritterService.castVote.mockRejectedValue(error);

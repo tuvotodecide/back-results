@@ -23,6 +23,10 @@ import { Types } from 'mongoose';
 import { InstitutionalAdminApplicationsService } from '@/modules/institutional-admin-applications/services/institutional-admin-applications.service';
 import { executeCoinbaseOp } from '@/api/account';
 import { VoteContractCalls, VoteContractReads } from '@/api/vote';
+import {
+  installMx02SyntheticChainConfig,
+  restoreMx02SyntheticChainConfig,
+} from '../utils/mx02-synthetic-chain-config';
 
 const execResolved = <T>(value: T) => ({ exec: jest.fn().mockResolvedValue(value) });
 const sortResolved = <T>(value: T) => ({ sort: jest.fn().mockResolvedValue(value) });
@@ -52,6 +56,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
   const validAccountAddress = '0x1234567890abcdef1234567890abcdef12345678';
 
   beforeEach(() => {
+    installMx02SyntheticChainConfig();
     session = {
       withTransaction: jest.fn(async (fn) => fn()),
       endSession: jest.fn().mockResolvedValue(undefined),
@@ -163,6 +168,11 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       auditService,
       historyService,
     );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    restoreMx02SyntheticChainConfig();
   });
 
 it('D-NEW-001 | createApplication crea usuario nuevo, solicitud pendiente de email y envia verificacion', async () => {
@@ -676,8 +686,18 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
     expect(app.save).toHaveBeenCalled();
     expect(app.status).toBe('PENDING_CHAIN_CONFIRMATION');
     expect(app.chainStatus).toBe('PENDING_SEND');
+    expect(app.chainTxHash).toBeUndefined();
     expect(user.active).toBe(false);
+    expect(jest.isMockFunction(VoteContractCalls.createInstitution)).toBe(true);
+    expect(jest.isMockFunction(VoteContractReads.getInstitutionAdmin)).toBe(true);
     expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
+    expect(executeCoinbaseOp).toHaveBeenCalledWith(
+      expect.any(String),
+      'base-sepolia',
+      expect.objectContaining({ calldata: '0x' }),
+      undefined,
+      undefined,
+    );
   });
 
   it('approveApplication rechaza primera aprobacion por actor no global', async () => {

@@ -162,6 +162,32 @@ describe('MX-03 | Autenticación, sesiones, roles y permisos | Backend Results |
     expect(response.body).not.toHaveProperty('accessToken');
   });
 
+  it('AUT-STA-P0-001 | POST /api/v1/auth/login bloquea una cuenta inactiva sin emitir token', async () => {
+    authService.signIn.mockRejectedValueOnce(
+      new UnauthorizedException({
+        message: 'Usuario inactivo',
+        code: 'USER_INACTIVE',
+      }),
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: 'pending@example.com', password: 'secret123' })
+      .expect(401);
+
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        message: 'Usuario inactivo',
+        code: 'USER_INACTIVE',
+      }),
+    );
+    expect(response.body).not.toHaveProperty('accessToken');
+    expect(authService.signIn).toHaveBeenCalledWith({
+      email: 'pending@example.com',
+      password: 'secret123',
+    });
+  });
+
   it('AUT-SES-P0-001 | GET /api/v1/auth/access-status retorna shape estable autenticado', async () => {
     const response = await request(app.getHttpServer())
       .get('/api/v1/auth/access-status')
