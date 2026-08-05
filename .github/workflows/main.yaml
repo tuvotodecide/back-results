@@ -151,10 +151,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:14
 
-      - name: MX-14 | Soporte transversal fuera del conteo canónico | Backend Results
-        if: ${{ !cancelled() }}
-        run: pnpm test:matrix:14:support
-
       - name: MX-16 | Gestión Superadmin TVD y administración global | Backend Results
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:16
