@@ -43,6 +43,17 @@ describe('MX-07 mobile vote focal E2E coverage', () => {
     expect(JSON.stringify(response.body)).not.toContain('proof-controlled');
   });
 
+  it('[MX-07][VOT-PRE-P0-002][E2E] entrega credencial mínima sólo después del guard de sesión controlado', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/v1/voting/events/vote/cred-vc')
+      .query({ eventId: 'event-1', dni: '1234567' })
+      .expect(200);
+
+    expect(guard.canActivate).toHaveBeenCalledTimes(1);
+    expect(voting.getVoteVc).toHaveBeenCalledWith('event-1', '1234567');
+    expect(response.body).toEqual({ vc: 'controlled-vc' });
+  });
+
   it('[MX-07][VOT-CHN-P0-002][E2E] confirma HTTP solo después de respuesta de servicio con evidencia válida', async () => {
     voting.emitVote.mockResolvedValueOnce({ receipt: { status: 'success' }, event: { eventName: 'Voted', args: { voteId: 'event-1' } } });
     const response = await request(app.getHttpServer()).post('/api/v1/voting/events/vote').query({ optionId: 'blank' }).send({ proof: 'proof' }).expect(200);
@@ -53,6 +64,19 @@ describe('MX-07 mobile vote focal E2E coverage', () => {
     voting.emitVote.mockRejectedValueOnce(new BadRequestException('proof inválida')).mockRejectedValueOnce(new NotFoundException('opción inexistente'));
     await request(app.getHttpServer()).post('/api/v1/voting/events/vote').query({ optionId: 'option-1' }).send({ proof: 'bad' }).expect(400);
     await request(app.getHttpServer()).post('/api/v1/voting/events/vote').query({ optionId: 'missing' }).send({ proof: 'valid' }).expect(404);
+  });
+
+  it('[MX-07][VOT-ERR-P0-002][E2E] conserva una operación enviada al perder respuesta sin emitir una segunda vez', async () => {
+    voting.emitVote.mockResolvedValueOnce({ transactionHash: '0xcontrolled', status: 'SUBMITTED' });
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/voting/events/vote')
+      .query({ optionId: 'blank' })
+      .send({ proof: 'proof' })
+      .expect(200);
+
+    expect(response.body).toEqual({ transactionHash: '0xcontrolled', status: 'SUBMITTED' });
+    expect(voting.emitVote).toHaveBeenCalledTimes(1);
   });
 
   it('[MX-07][VOT-UX-P1-001][E2E] recorre un voto válido desde HTTP hasta respuesta confirmada controlada', async () => {

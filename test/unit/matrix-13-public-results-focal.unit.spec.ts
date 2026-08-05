@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { CACHE_TTL_METADATA } from '@nestjs/cache-manager';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { Types } from 'mongoose';
@@ -62,20 +63,36 @@ describe('MX-13 Backend Results — unitarias focales', () => {
     expect(eventModel.find).toHaveBeenCalledWith(expect.objectContaining({ $or: expect.arrayContaining([expect.objectContaining({ state: { $in: expect.arrayContaining(['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED']) } })]) }));
     expect(result.active).toHaveLength(1);
     expect(result.totals).toEqual({ upcoming: 0, active: 1, results: 0 });
-  });
 
-  it('[MX-13][PUB-LST-P0-002][UNITARIA] filtra carnet por versión vigente aprobada y rechaza el inválido', async () => {
-    const eventId = new Types.ObjectId();
     const versionId = new Types.ObjectId();
-    eventModel.find.mockReturnValue(chain([{ _id: eventId, tenantId: new Types.ObjectId(), state: 'PUBLISHED', name: 'Visible', objective: 'O', publicEligibilityEnabled: true, votingStart: new Date(Date.now() - 1_000), votingEnd: new Date(Date.now() + 1_000) }]));
-    versionModel.find.mockReturnValue(chain([{ _id: versionId, eventId }]));
+    versionModel.find.mockReturnValue(chain([{ _id: versionId, eventId: id }]));
     reportModel.find.mockReturnValue(chain([{ padronVersionId: versionId }]));
     entryModel.find.mockReturnValue(chain([{ padronVersionId: versionId }]));
-    const service = makeEventsService();
-
-    await expect(service.getPublicLanding(undefined, 10, 'ab-123')).resolves.toMatchObject({ active: [expect.objectContaining({ id: String(eventId) })] });
+    await expect(makeEventsService().getPublicLanding(undefined, 10, 'ab-123')).resolves.toMatchObject({ active: [expect.objectContaining({ id: String(id) })] });
     expect(entryModel.find).toHaveBeenCalledWith(expect.objectContaining({ carnetNorm: 'AB123' }), { padronVersionId: 1 });
-    await expect(service.getPublicLanding(undefined, 10, '...')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(makeEventsService().getPublicLanding(undefined, 10, '...')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('[MX-13][PUB-LST-P1-003][UNITARIA] reutiliza el listado público y deja fuera eventos privados', async () => {
+    const eventId = new Types.ObjectId();
+    eventModel.find.mockReturnValue(chain([{ _id: eventId, tenantId: new Types.ObjectId(), state: 'PUBLISHED', name: 'Visible', objective: 'O', votingStart: new Date(Date.now() - 1_000), votingEnd: new Date(Date.now() + 1_000) }]));
+    const result = await makeEventsService().getPublicLanding(undefined, 10);
+    expect(eventModel.find).toHaveBeenCalledWith(expect.objectContaining({ $or: expect.arrayContaining([expect.objectContaining({ state: { $in: expect.arrayContaining(['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED']) } })]) }));
+    expect(JSON.stringify(result)).not.toMatch(/draft|private|administrator/i);
+    expect(result.active).toEqual([expect.objectContaining({ id: String(eventId) })]);
+  });
+
+  it('[MX-13][PUB-ACC-P0-001][UNITARIA] permite visitante anónimo y restringe solo alcance territorial autenticado', () => {
+    const guard = new TerritorialScopeGuard();
+    const anonymous = { query: { department: 'La Paz' }, params: {}, method: 'GET', url: '/api/v1/results/by-location' };
+    const governor = { query: { department: 'Otra' }, params: {}, method: 'GET', url: '/api/v1/results/by-location', user: { role: 'GOVERNOR', sub: 'u-1', votingDepartmentId: 'dep-1' } };
+    const mayor = { query: { municipality: 'Otra' }, params: {}, method: 'GET', url: '/api/v1/results/by-location', user: { role: 'MAYOR', sub: 'u-2', votingMunicipalityId: 'mun-1' } };
+    const context = (request: unknown) => ({ switchToHttp: () => ({ getRequest: () => request }) }) as never;
+    expect(guard.canActivate(context(anonymous))).toBe(true);
+    expect(guard.canActivate(context(governor))).toBe(true);
+    expect(guard.canActivate(context(mayor))).toBe(true);
+    expect(governor.query).toEqual(expect.objectContaining({ departmentId: 'dep-1' }));
+    expect(mayor.query).toEqual(expect.objectContaining({ municipalityId: 'mun-1' }));
   });
 
   it('[MX-13][PUB-ACC-P0-002][UNITARIA] oculta DRAFT y devuelve CANCELLED como detalle no disponible', async () => {
@@ -115,6 +132,15 @@ describe('MX-13 Backend Results — unitarias focales', () => {
     expect(result).toMatchObject({ roles: [expect.objectContaining({ name: 'Alcalde' })], options: [expect.objectContaining({ name: 'Lista', active: true })] });
   });
 
+  it('[MX-13][PUB-INF-P0-001][UNITARIA] serializa detalle público mínimo sin campos técnicos o administrativos', async () => {
+    const id = new Types.ObjectId();
+    access.getEventOrThrow.mockResolvedValue({ _id: id, tenantId: id, state: 'PUBLISHED', name: 'Elección pública', objective: 'Información', votingStart: new Date(Date.now() + 1_000), contractAddress: 'private-contract', administratorEmail: 'admin@example.test' });
+    roleModel.find.mockReturnValue(chain([])); optionModel.find.mockReturnValue(chain([]));
+    const detail = await makeEventsService().getPublicEventDetail(String(id));
+    expect(detail).toMatchObject({ id: String(id), name: 'Elección pública', objective: 'Información', phase: 'UPCOMING' });
+    expect(JSON.stringify(detail)).not.toMatch(/contractAddress|administratorEmail|private-contract|admin@example/i);
+  });
+
   it('[MX-13][PUB-RES-P0-001][UNITARIA] solicita votos solo cuando resultsPublishAt fue alcanzado', async () => {
     const id = new Types.ObjectId();
     access.getEventOrThrow.mockResolvedValue({ _id: id, tenantId: id, state: 'RESULTS_PUBLISHED', name: 'N', objective: 'O', resultsPublishAt: new Date(Date.now() - 1_000) });
@@ -123,14 +149,7 @@ describe('MX-13 Backend Results — unitarias focales', () => {
     expect(voteReader.getResults).toHaveBeenCalledWith(String(id));
   });
 
-  it('[MX-13][PUB-RES-P0-002][UNITARIA] [MX-13][PUB-CNS-P0-002][UNITARIA] no declara ganador oficial y conserva total/porcentaje por mesa efectiva', async () => {
-    const id = new Types.ObjectId();
-    const snapshot = { findOne: jest.fn(() => ({ lean: jest.fn().mockResolvedValue({ roles: [{ option: 'A', votes: 0 }] }) })) };
-    const service = new VotingResultsService(snapshot as never, { getEventOrThrow: jest.fn().mockResolvedValue({ _id: id, state: 'RESULTS_PUBLISHED', resultsPublishAt: new Date(Date.now() - 1_000) }) } as never);
-    const result = await service.getResults(String(id));
-    expect(result.roles).toEqual([{ option: 'A', votes: 0 }]);
-    expect(result).not.toHaveProperty('winner');
-
+  it('[MX-13][PUB-CNS-P0-002][UNITARIA] cuenta una mesa efectiva, totales y porcentajes sin mezclar elecciones', async () => {
     const ballotAggregate = jest.fn().mockReturnValue({
       allowDiskUse: jest.fn().mockReturnValue({
         exec: jest.fn().mockResolvedValue([{
@@ -193,6 +212,35 @@ describe('MX-13 Backend Results — unitarias focales', () => {
     const controller = new AttestationController(attestations as never);
     await controller.listCases(1, 10, 'VERIFYING,PENDING,CONSENSUAL,CLOSED', 'La Paz', 'Murillo', 'La Paz', 'e-1', {});
     expect(attestations.listCases).toHaveBeenCalledWith(1, 10, 'VERIFYING,PENDING,CONSENSUAL,CLOSED', 'La Paz', 'Murillo', 'La Paz', 'e-1', undefined, undefined, undefined);
+  });
+
+  it('[MX-13][PUB-RES-P0-002][UNITARIA] expone votos numéricos sin declarar ganador formal', async () => {
+    const id = new Types.ObjectId();
+    const snapshot = { findOne: jest.fn(() => ({ lean: jest.fn().mockResolvedValue({ roles: [{ option: 'A', votes: 0 }, { option: 'B', votes: 0 }] }) })) };
+    const service = new VotingResultsService(snapshot as never, { getEventOrThrow: jest.fn().mockResolvedValue({ _id: id, state: 'RESULTS_PUBLISHED', resultsPublishAt: new Date(Date.now() - 1_000) }) } as never);
+    const result = await service.getResults(String(id));
+    expect(result.roles).toEqual([{ option: 'A', votes: 0 }, { option: 'B', votes: 0 }]);
+    expect(result).not.toHaveProperty('winner');
+  });
+
+  it('[MX-13][PUB-FIL-P1-001][UNITARIA] conserva filtros públicos válidos y delega combinaciones incompatibles al servicio', async () => {
+    const results = { getResultsByLocation: jest.fn().mockResolvedValue({ totalVotes: 1 }) };
+    const controller = new ResultsController(results as never);
+    const filters: ElectionTypeFilterDto = { electionId: 'e-1', electionType: 'municipal', department: 'La Paz', province: 'Murillo', municipality: 'La Paz', electoralSeat: 'Centro', electoralLocation: 'Recinto 1' };
+    await controller.getResultsByLocation(filters);
+    expect(results.getResultsByLocation).toHaveBeenCalledWith(filters);
+    results.getResultsByLocation.mockRejectedValueOnce(new NotFoundException('territorio incompatible'));
+    await expect(controller.getResultsByLocation({ ...filters, municipality: 'Incompatible' })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('[MX-13][PUB-UPD-P1-002][UNITARIA] permite consultas repetidas y conserva TTL público de 60 segundos', async () => {
+    const results = { getResultsByLocation: jest.fn().mockResolvedValueOnce({ totalVotes: 1 }).mockResolvedValueOnce({ totalVotes: 2 }) };
+    const controller = new ResultsController(results as never);
+    const filters: ElectionTypeFilterDto = { electionId: 'e-1', electionType: 'municipal' };
+    await expect(controller.getResultsByLocation(filters)).resolves.toEqual({ totalVotes: 1 });
+    await expect(controller.getResultsByLocation(filters)).resolves.toEqual({ totalVotes: 2 });
+    expect(results.getResultsByLocation).toHaveBeenCalledTimes(2);
+    expect(Reflect.getMetadata(CACHE_TTL_METADATA, ResultsController.prototype.getResultsByLocation)).toBe(60_000);
   });
 
   it('[MX-13][PUB-CNS-P0-001][UNITARIA] rechaza snapshot público antes de fecha o estado permitido', async () => {

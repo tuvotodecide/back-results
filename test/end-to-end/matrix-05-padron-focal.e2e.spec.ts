@@ -51,24 +51,31 @@ describe('MX-05 Backend Results — E2E focal de padrón', () => {
     expect(uploaded.status).toBe(201);
     expect(uploaded.body).toMatchObject({ status: 'PARSED', summary: { stagingCount: 2, validCount: 2 } });
 
+    const importJob = await ctx.conn.collection('padron_import_jobs').findOne({ _id: new Types.ObjectId(uploaded.body.importJobId) });
     const persisted = await ctx.conn.collection('padron_staging_entries').find({ eventId: new Types.ObjectId(eventId) }).sort({ ciNorm: 1 }).toArray();
+    expect(importJob).toMatchObject({ status: 'PARSED', isActiveDraft: true, summary: { stagingCount: 2, validCount: 2 } });
+    expect(String(importJob?.eventId)).toBe(eventId);
     expect(persisted.map((entry) => [entry.ciNorm, entry.enabled])).toEqual([['123456', true], ['789000', false]]);
   });
 
-  it('[MX-05][PAD-EDT-P0-001][E2E] guarda edición del staging con carnet normalizado y habilitación indicada', async () => {
+  it('[MX-05][PAD-EDT-P0-001][E2E] crea y edita una fila de staging con carnet normalizado y habilitación indicada', async () => {
     const eventId = await createEvent();
     await uploadPadronPdf(ctx.httpServer, ctx.adminToken, eventId, pdf(['123456 si']));
-    const staging = await request(ctx.httpServer).get(`/api/v1/voting/events/${eventId}/padron/staging`).auth(ctx.adminToken, { type: 'bearer' });
-    expect(staging.status).toBe(200);
+    const added = await request(ctx.httpServer)
+      .post(`/api/v1/voting/events/${eventId}/padron/staging`)
+      .auth(ctx.adminToken, { type: 'bearer' })
+      .send({ ci: 'AB-123', enabled: true });
+    expect(added.status).toBe(201);
+    expect(added.body).toMatchObject({ ci: 'AB123', enabled: true, sourceKind: 'MANUAL' });
 
     const edited = await request(ctx.httpServer)
-      .patch(`/api/v1/voting/events/${eventId}/padron/staging/${staging.body.data[0].id}`)
+      .patch(`/api/v1/voting/events/${eventId}/padron/staging/${added.body.id}`)
       .auth(ctx.adminToken, { type: 'bearer' })
       .send({ ci: 'AB-123', enabled: false });
     expect(edited.status).toBe(200);
     expect(edited.body).toMatchObject({ ci: 'AB123', enabled: false });
 
-    const persisted = await ctx.conn.collection('padron_staging_entries').findOne({ _id: new Types.ObjectId(staging.body.data[0].id) });
+    const persisted = await ctx.conn.collection('padron_staging_entries').findOne({ _id: new Types.ObjectId(added.body.id) });
     expect(persisted).toMatchObject({ ciNorm: 'AB123', enabled: false });
   });
 
@@ -81,7 +88,12 @@ describe('MX-05 Backend Results — E2E focal de padrón', () => {
 
     const version = await ctx.conn.collection('padron_versions').findOne({ _id: new Types.ObjectId(confirmed.body.padronVersionId), isCurrent: true });
     const certificate = await ctx.conn.collection('padron_certificates').findOne({ padronVersionId: new Types.ObjectId(confirmed.body.padronVersionId) });
+    const summary = await request(ctx.httpServer)
+      .get(`/api/v1/voting/events/${eventId}/padron/summary`)
+      .auth(ctx.adminToken, { type: 'bearer' });
     expect(version).toMatchObject({ totals: { validCount: 2 } });
     expect(certificate).toBeTruthy();
+    expect(summary.status).toBe(200);
+    expect(summary.body.currentVersion).toMatchObject({ padronVersionId: confirmed.body.padronVersionId, totals: { validCount: 2 }, certificate: { exists: true } });
   });
 });

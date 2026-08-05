@@ -121,18 +121,22 @@ describe('MX-09 kiosk QR focal acceptance coverage', () => {
     expect(cancelled.status).toBe(400);
   });
 
-  // it('[MX-09][KIO-QR-P0-002][ACEPTACION] no entrega QR cuando la ventana de votación está inactiva', async () => {
-  //   const eventId = await configuredEvent();
-  //   const created = await kiosk(eventId);
-  //   const active = await request(ctx.httpServer).get(`/api/v1/voting/events/${eventId}/presential-sessions/current`).set('x-kiosk-token', created.kioskAccessToken);
-  //   expect(active.status).toBe(200);
-  //   expect(active.body.session.qrValue).toMatch(/^pqs\./);
-  //   await ctx.conn.collection('voting_events').updateOne({ _id: new Types.ObjectId(eventId) }, { $set: { votingEnd: new Date(Date.now() - 1_000) } });
-  //   const inactive = await request(ctx.httpServer).get(`/api/v1/voting/events/${eventId}/presential-sessions/current`).set('x-kiosk-token', created.kioskAccessToken);
-  //   expect(inactive.status).toBe(200);
-  //   expect(inactive.body.isEventActive).toBe(false);
-  //   expect(inactive.body.session).toBeNull();
-  // });
+  it('[MX-09][KIO-QR-P0-002][ACEPTACION] informa ventana inactiva aunque conserve el estado de sesión actual', async () => {
+    const eventId = await configuredEvent();
+    const created = await kiosk(eventId);
+    const active = await request(ctx.httpServer).get(`/api/v1/voting/events/${eventId}/presential-sessions/current`).set('x-kiosk-token', created.kioskAccessToken);
+    expect(active.status).toBe(200);
+    expect(active.body.session.qrValue).toMatch(/^pqs\./);
+    await ctx.conn.collection('voting_events').updateOne({ _id: new Types.ObjectId(eventId) }, { $set: { votingEnd: new Date(Date.now() - 1_000) } });
+    const inactive = await request(ctx.httpServer).get(`/api/v1/voting/events/${eventId}/presential-sessions/current`).set('x-kiosk-token', created.kioskAccessToken);
+    expect(inactive.status).toBe(200);
+    expect(inactive.body.isEventActive).toBe(false);
+    expect(inactive.body.session).toEqual(expect.objectContaining({
+      id: created.currentSession.id,
+      status: 'READY',
+      qrValue: expect.stringMatching(/^pqs\./),
+    }));
+  });
 
   it('[MX-09][KIO-QR-P1-003][ACEPTACION] permite token o sesión administrativa y rechaza token ausente e inválido', async () => {
     const eventId = await configuredEvent();

@@ -36,4 +36,13 @@ describe('MX-07 mobile vote focal integration coverage', () => {
     expect(writer.castVote).toHaveBeenCalledWith(eventId, 'BLANK', 'n-1');
     expect(writer.castVote.mock.results[0].value).resolves.toMatchObject({ receipt: { status: 'success' }, event: { eventName: 'Voted' } });
   });
+
+  it('[MX-07][VOT-ERR-P0-002][INTEGRACION] conserva una operación enviada para reconciliarla sin segundo castVote', async () => {
+    writer.castVote.mockResolvedValueOnce({ receipt: { status: 'pending' }, event: null, transactionHash: '0xcontrolled' });
+
+    await service.emitVote('blank', 'proof-controlled');
+
+    expect(writer.castVote).toHaveBeenCalledTimes(1);
+    expect(writer.castVote).toHaveBeenCalledWith(eventId, 'BLANK', 'n-1');
+  });
 });

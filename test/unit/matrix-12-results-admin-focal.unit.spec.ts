@@ -3,6 +3,9 @@ import { ResultsService } from '@/modules/results/services/results.service';
 import { ResultsPeriodGuard } from '@/modules/elections/guards/results-period.guard';
 import { PreliminaryResultsGuard } from '@/modules/elections/guards/preliminary-results.guard';
 import { ClientResultsService } from '@/modules/contracts/services/client-results.service';
+import { ClientReportsService } from '@/modules/contracts/services/client-reports.service';
+import { ResultsController } from '@/modules/results/controllers/results.controller';
+import { CACHE_TTL_METADATA } from '@nestjs/cache-manager';
 import { ForbiddenException } from '@nestjs/common';
 
 const aggregateResult = (value: unknown) => ({
@@ -43,21 +46,33 @@ describe('MX-12 Backend Results — unidad focal', () => {
     expect(getVotesPath('council')).toBe('votes.deputies');
   });
 
-  it('[MX-12][RES-ACC-P0-001][UNITARIA] aplica periodos final y preliminar sobre la configuración activa real', async () => {
-    const now = Date.now();
-    const config = {
-      getActiveConfigs: jest.fn().mockResolvedValue([{
-        id: 'e-1', resultsStartDate: new Date(now - 1_000),
-        votingStartDate: new Date(now - 2_000), votingEndDate: new Date(now + 1_000),
-      }]),
-    };
-    const finalGuard = new ResultsPeriodGuard(config as never);
-    const liveGuard = new PreliminaryResultsGuard(config as never);
-    const context = { switchToHttp: () => ({ getRequest: () => ({ query: { electionId: 'e-1' }, headers: {} }) }) } as never;
+  it('[MX-12][RES-ACC-P0-001][UNITARIA] aplica configuración, tipo y periodos final y preliminar sobre la elección activa', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-02-01T12:00:00.000Z'));
+    try {
+      const active = {
+        id: 'e-1', resultsStartDate: new Date('2026-02-01T11:00:00.000Z'),
+        votingStartDate: new Date('2026-02-01T10:00:00.000Z'), votingEndDate: new Date('2026-02-01T14:00:00.000Z'),
+      };
+      const config = { getActiveConfigs: jest.fn().mockResolvedValue([active]) };
+      const finalGuard = new ResultsPeriodGuard(config as never);
+      const liveGuard = new PreliminaryResultsGuard(config as never);
+      const context = (electionId: string) => ({ switchToHttp: () => ({ getRequest: () => ({ query: { electionId }, headers: {} }) }) }) as never;
 
-    await expect(finalGuard.canActivate(context)).resolves.toBe(true);
-    await expect(liveGuard.canActivate(context)).resolves.toBe(true);
-    expect(config.getActiveConfigs).toHaveBeenCalledTimes(2);
+      await expect(finalGuard.canActivate(context('e-1'))).resolves.toBe(true);
+      await expect(liveGuard.canActivate(context('e-1'))).resolves.toBe(true);
+      await expect(finalGuard.canActivate(context('missing'))).rejects.toBeInstanceOf(ForbiddenException);
+      expect((service as any).getConfigTypeForElectionType('council')).toBe('municipal');
+      expect((service as any).getConfigTypeForElectionType('unsupported')).toBeUndefined();
+
+      const withoutConfig = new ResultsPeriodGuard({ getActiveConfigs: jest.fn().mockResolvedValue([]) } as never);
+      await expect(withoutConfig.canActivate(context('e-1'))).rejects.toBeInstanceOf(ForbiddenException);
+
+      const outsideFinal = new ResultsPeriodGuard({ getActiveConfigs: jest.fn().mockResolvedValue([{ ...active, resultsStartDate: new Date('2026-02-01T13:00:00.000Z') }]) } as never);
+      await expect(outsideFinal.canActivate(context('e-1'))).rejects.toBeInstanceOf(ForbiddenException);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('[MX-12][RES-ACC-P0-002][UNITARIA] fuerza territorio contractual y rechaza subfiltro fuera de alcance', async () => {
@@ -195,6 +210,25 @@ describe('MX-12 Backend Results — unidad focal', () => {
     expect(final).toContain('CONSENSUAL');
   });
 
+  it('[MX-12][RES-CON-P1-003][UNITARIA] conserva consultas repetidas como lecturas idempotentes sin mutar actas', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-02-01T12:00:00.000Z'));
+    try {
+      ballotModel.aggregate.mockReturnValue(aggregateResult([{ results: [{ partyId: 'A', totalVotes: 4, departmentsCovered: 1 }], summary: { validVotes: 4, blankVotes: 0, nullVotes: 0, tablesProcessed: ['T-1'] } }]));
+      const electionId = new Types.ObjectId().toString();
+
+      const first = await service.getQuickCount(electionId, 'final', 'presidential');
+      const replay = await service.getQuickCount(electionId, 'final', 'presidential');
+
+      expect(replay).toEqual(first);
+      expect(ballotModel.aggregate).toHaveBeenCalledTimes(2);
+      expect((ballotModel as any).create).toBeUndefined();
+      expect((ballotModel as any).updateOne).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('[MX-12][RES-UPD-P1-002][UNITARIA] cachea el total de mesas sin cambiar la clave de filtros', async () => {
     const tables = { aggregate: jest.fn().mockReturnValue({ allowDiskUse: () => ({ option: () => ({ exec: () => Promise.resolve([{ n: 7 }]) }) }) }) };
     (service as any).electoralTableModel = tables;
@@ -203,6 +237,10 @@ describe('MX-12 Backend Results — unidad focal', () => {
     await expect((service as any).getTotalTablesCount(filters)).resolves.toBe(7);
     await expect((service as any).getTotalTablesCount({ ...filters })).resolves.toBe(7);
     expect(tables.aggregate).toHaveBeenCalledTimes(1);
+    expect(Reflect.getMetadata(CACHE_TTL_METADATA, ResultsController.prototype.getLiveQuickCount)).toBe(15_000);
+    expect(Reflect.getMetadata(CACHE_TTL_METADATA, ResultsController.prototype.getLiveByLocation)).toBe(30_000);
+    expect(Reflect.getMetadata(CACHE_TTL_METADATA, ResultsController.prototype.getResultsByLocation)).toBe(60_000);
+    expect(Reflect.getMetadata(CACHE_TTL_METADATA, ResultsController.prototype.getHeatMapData)).toBe(120_000);
   });
 
   it('[MX-12][RES-SEC-P0-001][UNITARIA] exige usuario, elección y contrato activo en el consumidor territorial', async () => {
@@ -221,5 +259,174 @@ describe('MX-12 Backend Results — unidad focal', () => {
 
     expect(result.lastUpdate).toBeInstanceOf(Date);
     expect(result.summary).toMatchObject({ validVotes: 0, totalVotes: 0 });
+  });
+
+  it('[MX-12][RES-ACC-P1-003][UNITARIA] entrega vacío estable para elección válida sin datos y normaliza parámetros de elección inválidos', async () => {
+    ballotModel.aggregate.mockReturnValue(aggregateResult([{ results: [], summary: { validVotes: 0, blankVotes: 0, nullVotes: 0, tablesProcessed: [] } }]));
+    const electionId = new Types.ObjectId().toString();
+
+    const empty = await service.getQuickCount(electionId, 'final', 'presidential');
+    const malformed = (service as any).parseSingleElectionId('not-an-id');
+    const multiple = (service as any).parseSingleElectionId(`${electionId},${new Types.ObjectId().toString()}`);
+
+    expect(empty).toMatchObject({ results: [], summary: { validVotes: 0, totalVotes: 0 } });
+    expect(malformed).toBeUndefined();
+    expect(multiple).toBeUndefined();
+  });
+
+  it('[MX-12][RES-CAT-P1-002][UNITARIA] mantiene independientes los totales principales y secundarios de las actas', async () => {
+    ballotModel.aggregate
+      .mockReturnValueOnce(aggregateResult([{ results: [{ partyId: 'P', totalVotes: 7 }], summary: { validVotes: 7, blankVotes: 0, nullVotes: 0, totalTables: ['T-1'] } }]))
+      .mockReturnValueOnce(aggregateResult([{ results: [{ partyId: 'S', totalVotes: 3 }], summary: { validVotes: 3, blankVotes: 1, nullVotes: 0, totalTables: ['T-2'] } }]));
+
+    const electionId = new Types.ObjectId().toString();
+    const primary = await service.getResultsByLocation({ electionId, electionType: 'municipal', mode: 'final' });
+    const secondary = await service.getResultsByLocation({ electionId, electionType: 'council', mode: 'final' });
+
+    expect(primary.results).toEqual([expect.objectContaining({ partyId: 'P', totalVotes: 7, percentage: '100.00' })]);
+    expect(secondary.results).toEqual([expect.objectContaining({ partyId: 'S', totalVotes: 3, percentage: '100.00' })]);
+    expect((service as any).getVotesPath('municipal')).toBe('votes.parties');
+    expect((service as any).getVotesPath('council')).toBe('votes.deputies');
+  });
+
+  it('[MX-12][RES-TER-P1-003][UNITARIA] agrega heat map por dimensión soportada y conserva porcentajes recibidos', async () => {
+    ballotModel.aggregate
+      .mockReturnValueOnce(aggregateResult([{ location: 'La Paz', locationType: 'department', validVotes: 3, partyPercentages: { A: 66.67 } }]))
+      .mockReturnValueOnce(aggregateResult([{ location: 'Murillo', locationType: 'province', validVotes: 2, partyPercentages: { A: 50 } }]))
+      .mockReturnValueOnce(aggregateResult([{ location: 'La Paz', locationType: 'municipality', validVotes: 0, partyPercentages: {} }]));
+    const electionId = new Types.ObjectId().toString();
+
+    const byDepartment = await service.getHeatMapData({ electionId, electionType: 'presidential', locationType: 'department' });
+    const byProvince = await service.getHeatMapData({ electionId, electionType: 'presidential', locationType: 'province' });
+    const byMunicipality = await service.getHeatMapData({ electionId, electionType: 'presidential', locationType: 'municipality' });
+    const pipelines = ballotModel.aggregate.mock.calls.map(([pipeline]) => JSON.stringify(pipeline));
+
+    expect(byDepartment.data).toEqual([expect.objectContaining({ location: 'La Paz', partyPercentages: { A: 66.67 } })]);
+    expect(byProvince.data).toEqual([expect.objectContaining({ location: 'Murillo', partyPercentages: { A: 50 } })]);
+    expect(byMunicipality.data).toEqual([expect.objectContaining({ location: 'La Paz', partyPercentages: {} })]);
+    expect(pipelines).toEqual(expect.arrayContaining([expect.stringContaining('$location.department'), expect.stringContaining('$location.province'), expect.stringContaining('$location.municipality')]));
+  });
+
+  it('[MX-12][RES-MES-P0-005][UNITARIA] filtra detalle de mesa por tableCode y conserva acta, caso efectivo y versión informativa', async () => {
+    ballotModel.aggregate
+      .mockReturnValueOnce(aggregateResult([{ total: 1 }]))
+      .mockReturnValueOnce(aggregateResult([{ _id: 'ballot-winning', tableCode: 'T-9', version: 2, image: 'image://fixture', createdAt: new Date('2026-01-01T00:00:00.000Z') }]));
+    const electionId = new Types.ObjectId().toString();
+
+    const detail = await service.getCountedBallots({ electionId, electionType: 'presidential', tableCode: 'T-9', mode: 'final', page: 1, limit: 10 });
+    const pipeline = JSON.stringify(ballotModel.aggregate.mock.calls[1][0]);
+
+    expect(detail).toMatchObject({ total: 1, data: [expect.objectContaining({ tableCode: 'T-9', version: 2, image: 'image://fixture' })] });
+    expect(pipeline).toContain('"tableCode":"T-9"');
+    expect(pipeline).toContain('winningBallotId');
+    expect(pipeline).toContain('"version":1');
+  });
+
+  it('[MX-12][RES-ACT-P0-001][UNITARIA] proyecta acta contabilizada autorizada con imagen y rechaza territorio contractual ajeno', async () => {
+    ballotModel.aggregate
+      .mockReturnValueOnce(aggregateResult([{ total: 1 }]))
+      .mockReturnValueOnce(aggregateResult([{ _id: 'ballot-1', tableCode: 'T-1', votes: { parties: { validVotes: 1 } }, image: 'image://authorized', createdAt: new Date('2026-01-01T00:00:00.000Z') }]));
+    const electionId = new Types.ObjectId().toString();
+    const counted = await service.getCountedBallots({ electionId, electionType: 'presidential', tableCode: 'T-1', mode: 'final' });
+    const results = { getResultsByLocation: jest.fn() };
+    const client = new ClientResultsService(
+      { getMyContract: jest.fn().mockResolvedValue({ hasContract: true, contract: { active: true, municipalityId: 'm-1', municipalityName: 'Cochabamba' } }) } as never,
+      results as never, { collection: jest.fn() } as never,
+    );
+
+    await expect(client.getResultsRestrictedToMyContract({ electionId, electionType: 'municipal', municipality: 'Ajeno' }, 'u-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(counted.data[0]).toMatchObject({ _id: 'ballot-1', tableCode: 'T-1', image: 'image://authorized', votes: { parties: { validVotes: 1 } } });
+    expect(results.getResultsByLocation).not.toHaveBeenCalled();
+  });
+
+  it('[MX-12][RES-ACT-P0-002][UNITARIA] distingue versiones informativas de winningBallotId para una mesa válida', async () => {
+    const electionId = new Types.ObjectId().toString();
+    const pipeline = JSON.stringify(await (service as any).attestedEffectiveBallotsPipeline({ tableCode: 'T-2' }, electionId, 'final', 'presidential'));
+
+    expect(pipeline).toContain('"tableCode":"T-2"');
+    expect(pipeline).toContain('winningBallotId');
+    expect(pipeline).toContain('"version":-1');
+    expect(pipeline).toContain('"valuable":true');
+  });
+
+  it('[MX-12][RES-FIL-P1-001][UNITARIA] consume búsqueda por mesa y elección única sin aceptar listas o identificadores inválidos', async () => {
+    const electionId = new Types.ObjectId().toString();
+    const match = await (service as any).buildLocationMatch({ tableCode: 'T-44', department: 'La Paz' });
+
+    expect((service as any).parseSingleElectionId(electionId)).toBe(electionId);
+    expect((service as any).parseSingleElectionId(`${electionId},${new Types.ObjectId().toString()}`)).toBeUndefined();
+    expect((service as any).parseSingleElectionId('invalido')).toBeUndefined();
+    expect(match).toEqual({ 'location.department': 'La Paz', tableCode: 'T-44' });
+  });
+
+  it('[MX-12][RES-REP-P1-001][UNITARIA] agrupa actividad por delegado, ubicación y mesa dentro del contrato existente', async () => {
+    const contractId = new Types.ObjectId().toString();
+    const electionId = new Types.ObjectId().toString();
+    const delegateId = new Types.ObjectId();
+    const contract = { _id: new Types.ObjectId(contractId), departmentName: 'La Paz' };
+    const delegates = [{ dni: '111', name: 'Ana', userId: delegateId, active: true }];
+    const reports = new ClientReportsService(
+      { findById: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(contract) }) } as never,
+      { find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(delegates) }) } as never,
+      {} as never, {} as never, {} as never,
+    );
+    jest.spyOn(reports as any, 'getContractAttestations').mockResolvedValue([{ dni: '111', userId: delegateId, tableCode: 'T-1', support: true, createdAt: new Date('2026-01-02T00:00:00.000Z'), location: { electoralLocationName: 'Recinto', department: 'La Paz' } }]);
+
+    const byDelegate = await reports.getDelegateActivityReport({ contractId, electionId, groupBy: 'delegate' });
+    const byLocation = await reports.getDelegateActivityReport({ contractId, electionId, groupBy: 'location' });
+    const byTable = await reports.getDelegateActivityReport({ contractId, electionId, groupBy: 'table' });
+
+    expect(byDelegate).toMatchObject({ groupBy: 'delegate', activeDelegates: 1, data: [expect.objectContaining({ dni: '111', support: 1 })] });
+    expect(byLocation).toMatchObject({ groupBy: 'location', totalLocations: 1, data: [expect.objectContaining({ location: 'Recinto', tablesCount: 1 })] });
+    expect(byTable).toMatchObject({ groupBy: 'table', totalTables: 1, data: [expect.objectContaining({ tableCode: 'T-1', totalAttestations: 1 })] });
+  });
+
+  it('[MX-12][RES-REP-P1-002][UNITARIA] calcula métricas del contrato con atestiguamientos limitados a su alcance', async () => {
+    const contractId = new Types.ObjectId().toString();
+    const electionId = new Types.ObjectId().toString();
+    const delegateId = new Types.ObjectId();
+    const reports = new ClientReportsService(
+      { findById: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(contractId), clientRole: 'MAYOR', municipalityName: 'Cochabamba' }) }) } as never,
+      { countDocuments: jest.fn().mockResolvedValue(3), find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([{ userId: delegateId }]) }) } as never,
+      {} as never, {} as never, {} as never,
+    );
+    jest.spyOn(reports as any, 'getContractAttestations').mockResolvedValue([
+      { userId: delegateId, tableCode: 'T-1', location: { electoralLocationName: 'A' } },
+      { userId: delegateId, tableCode: 'T-1', location: { electoralLocationName: 'A' } },
+    ]);
+
+    const summary = await reports.getExecutiveSummary({ contractId, electionId });
+
+    expect(summary).toMatchObject({ contract: { territory: { municipalityName: 'Cochabamba' } }, summary: { totalDelegatesAuthorized: 3, activeDelegates: 1, totalAttestations: 2, uniqueTablesAttested: 1, uniqueLocationsAttested: 1, participationRate: '33.33%', avgAttestationsPerDelegate: '2.00' } });
+  });
+
+  it('[MX-12][RES-REP-P1-003][UNITARIA] entrega resumen y detalle de auditoría filtrado al alcance del contrato', async () => {
+    const contractId = new Types.ObjectId().toString();
+    const electionId = new Types.ObjectId().toString();
+    const ballotId = new Types.ObjectId();
+    const reports = new ClientReportsService(
+      { findById: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(contractId), departmentName: 'La Paz' }) }) } as never,
+      { find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([{ userId: new Types.ObjectId() }]) }) } as never,
+      {} as never, {} as never,
+      { find: jest.fn().mockReturnValue({ lean: jest.fn().mockReturnValue({ exec: jest.fn().mockResolvedValue([{ ballotId, status: 'MATCH', comparedAt: new Date('2026-01-03T00:00:00.000Z') }]) }) }) } as never,
+    );
+    jest.spyOn(reports as any, 'getContractAttestations').mockResolvedValue([
+      { ballotId, tableCode: 'T-1', tableNumber: '1', delegateName: 'Ana', delegateDni: '111', version: 2, location: { department: 'La Paz', electoralLocationName: 'Recinto' } },
+      { ballotId: new Types.ObjectId(), tableCode: 'T-2', location: { department: 'Otro', electoralLocationName: 'Fuera' } },
+    ]);
+
+    const audit = await reports.getAuditMatchReport({ contractId, electionId, department: 'La Paz', tableCode: 'T-1' });
+
+    expect(audit).toMatchObject({ total: 1, sinObservaciones: 1, observados: 0, details: [expect.objectContaining({ tableCode: 'T-1', comparisonStatus: 'MATCH', auditoria: 'Sin Obs', version: 2 })] });
+  });
+
+  it('[MX-12][RES-SEC-P0-002][UNITARIA] serializa el resumen de resultados sin credenciales ni datos personales', async () => {
+    ballotModel.aggregate.mockReturnValue(aggregateResult([{ results: [{ partyId: 'A', totalVotes: 2, locationsCovered: 1 }], summary: { validVotes: 2, blankVotes: 0, nullVotes: 0, tablesProcessed: ['T-1'] } }]));
+
+    const response = await service.getQuickCount(new Types.ObjectId().toString(), 'final', 'presidential');
+    const serialized = JSON.stringify(response);
+
+    expect(response).toEqual(expect.objectContaining({ results: [expect.objectContaining({ partyId: 'A', totalVotes: 2, percentage: '100.00' })], summary: expect.objectContaining({ validVotes: 2, totalVotes: 2 }), lastUpdate: expect.any(Date) }));
+    expect(serialized).not.toMatch(/dni|token|password|credential/i);
   });
 });

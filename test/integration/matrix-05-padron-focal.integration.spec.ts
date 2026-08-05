@@ -21,7 +21,7 @@ function createHarness() {
     comparison: { exists: jest.fn(), findOne: jest.fn(), updateOne: jest.fn() },
     job: { findOne: jest.fn(), findById: jest.fn(), create: jest.fn(), updateOne: jest.fn(), updateMany: jest.fn() },
     staging: { find: jest.fn(), findOne: jest.fn(), exists: jest.fn(), create: jest.fn(), insertMany: jest.fn(), countDocuments: jest.fn(), updateOne: jest.fn(), updateMany: jest.fn(), findOneAndDelete: jest.fn(), deleteMany: jest.fn() },
-    certificate: { findOne: jest.fn(), create: jest.fn(), updateOne: jest.fn() },
+    certificate: { findOne: jest.fn(), create: jest.fn(), updateOne: jest.fn(), findById: jest.fn(), deleteMany: jest.fn() },
     session: { insertOne: jest.fn() },
   };
   const access = {
@@ -36,16 +36,18 @@ function createHarness() {
     getCreateLeadHours: jest.fn().mockReturnValue(12),
     getOfficialPublicationLeadHours: jest.fn().mockReturnValue(6),
   };
+  const issuer = { getDidsByDnis: jest.fn().mockResolvedValue([]), issueCredential: jest.fn() };
+  const voteWritter = { addNewVoters: jest.fn() };
+  const notifications = { notifyConvocationIfEligible: jest.fn(), notifyPadronAvailabilityEnabledForUser: jest.fn() };
   const service = new PadronService(
     models.version as never, models.entry as never, models.comparison as never,
     models.job as never, models.staging as never, models.certificate as never,
-    models.session as never, access as never, { buildPdf: jest.fn() } as never,
+    models.session as never, access as never, { buildPdf: jest.fn(() => Buffer.from('%PDF-1.4\n')) } as never,
     { validateSourceFile: jest.fn(), getSourceType: jest.fn(), parseDocument: jest.fn() } as never,
-    { analyzeDocument: jest.fn() } as never, { notifyConvocationIfEligible: jest.fn(), notifyPadronAvailabilityEnabledForUser: jest.fn() } as never,
-    { getDidsByDnis: jest.fn().mockResolvedValue([]), issueCredential: jest.fn() } as never,
-    { addNewVoters: jest.fn() } as never,
+    { analyzeDocument: jest.fn() } as never, notifications as never,
+    issuer as never, voteWritter as never,
   );
-  return { service, event, models, access, requester: { sub: new Types.ObjectId().toString(), role: 'ADMIN' } };
+  return { service, event, models, access, issuer, voteWritter, notifications, requester: { sub: new Types.ObjectId().toString(), role: 'ADMIN' } };
 }
 
 describe('MX-05 Backend Results — integración focal de padrón', () => {
@@ -134,5 +136,97 @@ describe('MX-05 Backend Results — integración focal de padrón', () => {
 
     await expect(h.service.addPadronStagingEntry(String(h.event._id), { ci: '123456', enabled: true }, h.requester)).rejects.toThrow(BadRequestException);
     expect(h.models.staging.create).not.toHaveBeenCalled();
+  });
+
+  it('[MX-05][PAD-STA-P0-001][INTEGRACION] permite una mutación estructural del staging durante la ventana FULL y recalcula su resumen', async () => {
+    const h = createHarness();
+    const importJobId = new Types.ObjectId();
+    const importJob = { _id: importJobId, eventId: h.event._id, tenantId: h.event.tenantId, status: 'PARSED', isActiveDraft: true, importErrors: [] };
+    const createdId = new Types.ObjectId();
+    const created = {
+      _id: createdId, importJobId, eventId: h.event._id, tenantId: h.event.tenantId,
+      ciNorm: '123456', enabled: true, sourceKind: 'MANUAL',
+      toObject: () => ({ _id: createdId, importJobId, eventId: h.event._id, tenantId: h.event.tenantId, ciNorm: '123456', enabled: true, sourceKind: 'MANUAL' }),
+    };
+    h.models.job.findOne.mockReturnValue(sortedLean(importJob));
+    h.models.staging.exists.mockResolvedValue(false);
+    h.models.staging.create.mockResolvedValue(created);
+    h.models.job.findById.mockReturnValue(lean(importJob));
+    h.models.staging.find.mockReturnValue(lean([{ _id: created._id, ciNorm: '123456', enabled: true }]));
+    h.issuer.getDidsByDnis.mockResolvedValue([{ dni: '123456' }]);
+
+    const result = await h.service.addPadronStagingEntry(String(h.event._id), { ci: '123.456', enabled: true }, h.requester);
+
+    expect(h.access.canFullyEditEvent).toHaveBeenCalledWith(h.event);
+    expect(h.models.staging.create).toHaveBeenCalledWith(expect.objectContaining({ importJobId, ciNorm: '123456', enabled: true, sourceKind: 'MANUAL' }));
+    expect(h.models.job.updateOne).toHaveBeenCalledWith({ _id: importJobId }, expect.objectContaining({ $set: expect.objectContaining({ status: 'PARSED', summary: expect.objectContaining({ stagingCount: 1, enabledCount: 1 }) }) }));
+    expect(result).toMatchObject({ id: String(created._id), ci: '123456', enabled: true, sourceKind: 'MANUAL' });
+  });
+
+  it('[MX-05][PAD-STA-P1-002][INTEGRACION] habilita un votante vigente en modo limitado y rechaza crear uno nuevo', async () => {
+    const h = createHarness();
+    const event = { ...h.event, state: 'OFFICIALLY_PUBLISHED', publicationConfirmed: true, allowPostPublicationPadronEnable: true };
+    const versionId = new Types.ObjectId();
+    const voterId = new Types.ObjectId();
+    const voter = { _id: voterId, carnetNorm: '123456', enabled: false, save: jest.fn().mockResolvedValue(undefined) };
+    h.access.getEventOrThrow.mockResolvedValue(event);
+    h.access.canFullyEditEvent.mockReturnValue(false);
+    h.access.canModifyPadronDuringVoting.mockReturnValue(true);
+    h.access.canEnableExistingPadronEntriesPostPublication.mockReturnValue(true);
+    h.models.version.findOne.mockResolvedValue({ _id: versionId, isCurrent: true });
+    h.models.entry.findOne.mockResolvedValue(voter);
+    h.issuer.getDidsByDnis.mockResolvedValue([{ dni: '123456' }]);
+    h.issuer.issueCredential.mockResolvedValue({ '123456': { credentialData: 'session-token' } });
+    h.voteWritter.addNewVoters.mockResolvedValue(['nullifier']);
+
+    const enabled = await h.service.enableCurrentPadronVoter(String(event._id), String(voterId), h.requester);
+    await expect(h.service.addCurrentPadronVoter(String(event._id), { carnet: 'NEW-999', enabled: true }, h.requester)).rejects.toThrow('Después de la publicación oficial no se permite agregar nuevos votantes al padrón vigente');
+
+    expect(enabled).toEqual({ id: String(voterId), padronVersionId: String(versionId), carnetNorm: '123456', enabled: true, mode: 'VOTING_LIMITED' });
+    expect(voter.save).toHaveBeenCalledTimes(1);
+    expect(h.models.session.insertOne).toHaveBeenCalledWith(expect.objectContaining({ eventId: event._id, dni: '123456', sessionToken: 'session-token' }));
+    expect(h.models.certificate.deleteMany).toHaveBeenCalledWith({ padronVersionId: versionId });
+    expect(h.notifications.notifyPadronAvailabilityEnabledForUser).toHaveBeenCalledWith(event, '123456', 'ENABLED_DURING_VOTING');
+  });
+
+  it('[MX-05][PAD-CON-P1-001][INTEGRACION] serializa confirmaciones concurrentes y materializa una sola versión vigente', async () => {
+    const h = createHarness();
+    const importJobId = new Types.ObjectId();
+    const versionId = new Types.ObjectId();
+    const importJob = {
+      _id: importJobId, eventId: h.event._id, tenantId: h.event.tenantId, status: 'PARSED', isActiveDraft: true,
+      sourceType: 'PDF', originalFileName: 'padron.pdf', originalFileMimeType: 'application/pdf', originalFileSha256: 'sha', parserProvider: 'test', parserModel: null, importErrors: [],
+    };
+    let activeDraft = true;
+    const remaining = { _id: new Types.ObjectId(), ciNorm: '123456', enabled: true };
+    h.models.job.findOne.mockImplementation(() => sortedLean(activeDraft ? importJob : null));
+    h.models.job.findById.mockReturnValue(lean(importJob));
+    h.models.job.updateOne.mockImplementation(async (_filter: unknown, update: any) => {
+      if (update?.$set?.isActiveDraft === false) activeDraft = false;
+      return { acknowledged: true };
+    });
+    h.models.staging.find.mockImplementation((_filter: unknown, projection?: unknown) => projection ? lean([remaining]) : sortedLean([remaining]));
+    h.issuer.getDidsByDnis.mockResolvedValue([{ dni: '123456' }]);
+    h.models.version.findOne.mockReturnValue(lean(null));
+    h.models.version.create.mockResolvedValue({ _id: versionId, sourceType: 'PDF_IMPORT', totals: { validCount: 1, duplicateCount: 0, invalidCount: 0 } });
+    h.models.certificate.findOne.mockResolvedValue(null);
+    h.models.entry.find.mockReturnValue(sortedLean([{ carnetNorm: '123456', enabled: true }]));
+    h.models.certificate.create.mockResolvedValue({
+      _id: new Types.ObjectId(), eventId: h.event._id, tenantId: h.event.tenantId, padronVersionId: versionId,
+      generatedAt: new Date(), generationMode: 'ON_CONFIRMATION', fileName: 'constancia.pdf', mimeType: 'application/pdf', fileSha256: 'sha', fileSize: 1,
+      sourceType: 'PDF_IMPORT', totalCount: 1, enabledCount: 1, disabledCount: 0, storageKind: 'INLINE_BASE64',
+    });
+
+    const results = await Promise.allSettled([
+      h.service.confirmPadronStaging(String(h.event._id), h.requester),
+      h.service.confirmPadronStaging(String(h.event._id), h.requester),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(h.models.version.updateMany).toHaveBeenCalledTimes(1);
+    expect(h.models.version.create).toHaveBeenCalledTimes(1);
+    expect(h.models.entry.insertMany).toHaveBeenCalledWith([expect.objectContaining({ padronVersionId: versionId, carnetNorm: '123456', enabled: true })], { ordered: false });
+    expect(h.models.job.updateOne).toHaveBeenCalledWith({ _id: importJobId }, expect.objectContaining({ $set: expect.objectContaining({ confirmedPadronVersionId: versionId, status: 'CONFIRMED', isActiveDraft: false }) }));
   });
 });

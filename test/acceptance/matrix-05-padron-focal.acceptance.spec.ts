@@ -3,7 +3,7 @@ jest.mock('@/modules/institutional-voting/services/institutional-voting.service'
   InstitutionalVotingService: class InstitutionalVotingService {},
 }));
 
-import { CanActivate, ExecutionContext, INestApplication, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, CanActivate, ExecutionContext, INestApplication, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
@@ -76,12 +76,12 @@ describe('MX-05 Backend Results — aceptación focal de padrón', () => {
     });
     voting.getPadronSummary.mockResolvedValue({ eventId: 'event-1', currentVersion: null, activeDraft: null });
     voting.listCurrentPadronVoters.mockResolvedValue({ data: [{ carnet: '123456', enabled: true }], total: 1, page: 1, limit: 50 });
-    voting.listPadronStaging.mockResolvedValue({ importJob: { importJobId: 'job-1', status: 'PARSED' }, data: [{ ci: '123456', enabled: true }], total: 1, page: 1, limit: 50 });
+    voting.listPadronStaging.mockResolvedValue({ importJob: { importJobId: 'job-1', status: 'PARSED' }, data: [{ ci: '123456', enabled: true }, { ci: '999999', enabled: false }], total: 2, page: 1, limit: 50 });
     voting.uploadPadronFile.mockResolvedValue({ importJobId: 'job-1', status: 'PARSED', summary: { stagingCount: 1 }, errors: [] });
     voting.getPadronImport.mockResolvedValue({ importJobId: 'job-1', status: 'PARSED', summary: { stagingCount: 1 }, errors: [] });
     voting.confirmPadronStaging.mockResolvedValue({ state: 'CONFIRMED', padronVersionId: 'version-1', totals: { validCount: 1 }, certificate: { exists: true } });
     voting.importPadron.mockResolvedValue({ padronVersionId: 'version-legacy', totals: { validCount: 1, duplicateCount: 0, invalidCount: 0 } });
-    voting.downloadPadronCsv.mockResolvedValue({ fileName: 'padron-version-1.csv', csvContent: 'carnet,habilitado\n123456,si\n', padronVersionId: 'version-1' });
+    voting.downloadPadronCsv.mockResolvedValue({ fileName: 'padron-version-1.csv', csvContent: '\uFEFFcarnet,habilitado\n123456,si\n', padronVersionId: 'version-1' });
     voting.checkEligibility.mockResolvedValue({ status: 'ELIGIBLE', normalizedCarnet: '123456', referenceVersion: 'version-1' });
     voting.checkPublicEligibilityAcrossEvents.mockResolvedValue({ carnet: '123456', events: [{ eventId: 'event-1', status: 'ELIGIBLE', eligible: true }] });
   });
@@ -107,14 +107,18 @@ describe('MX-05 Backend Results — aceptación focal de padrón', () => {
 
   it('[MX-05][PAD-LST-P1-002][ACEPTACION] entrega staging ordenable, totales y el import activo', async () => {
     const response = await request(httpServer()).get('/api/v1/voting/events/event-1/padron/staging?page=1&limit=50').set(admin).expect(200);
-    expect(response.body).toMatchObject({ importJob: { importJobId: 'job-1', status: 'PARSED' }, total: 1, data: [{ ci: '123456' }] });
+    expect(response.body).toMatchObject({ importJob: { importJobId: 'job-1', status: 'PARSED' }, total: 2, data: [{ ci: '123456' }, { ci: '999999' }] });
+    expect(response.body.data.map((row: { ci: string }) => row.ci)).toEqual(['123456', '999999']);
     expect(voting.listPadronStaging).toHaveBeenCalledWith('event-1', expect.any(Object), 1, 50);
   });
 
   it('[MX-05][PAD-UPL-P0-001][ACEPTACION] rechaza multipart sin archivo y acepta PDF permitido en el endpoint de análisis', async () => {
     await request(httpServer()).post('/api/v1/voting/events/event-1/padron/imports').set(admin).expect(400);
+    voting.uploadPadronFile.mockRejectedValueOnce(new BadRequestException('Formato de archivo no permitido'));
+    await request(httpServer()).post('/api/v1/voting/events/event-1/padron/imports').set(admin).attach('file', Buffer.from('texto plano'), 'padron.txt').expect(400);
     await request(httpServer()).post('/api/v1/voting/events/event-1/padron/imports').set(admin).attach('file', Buffer.from('%PDF-1.4\n123456 si\n'), 'padron.pdf').expect(201);
-    expect(voting.uploadPadronFile).toHaveBeenCalledWith('event-1', expect.objectContaining({ originalname: 'padron.pdf', mimetype: 'application/pdf' }), expect.any(Object));
+    expect(voting.uploadPadronFile).toHaveBeenNthCalledWith(1, 'event-1', expect.objectContaining({ originalname: 'padron.txt', mimetype: 'text/plain' }), expect.any(Object));
+    expect(voting.uploadPadronFile).toHaveBeenNthCalledWith(2, 'event-1', expect.objectContaining({ originalname: 'padron.pdf', mimetype: 'application/pdf' }), expect.any(Object));
   });
 
   it('[MX-05][PAD-PRC-P0-001][ACEPTACION] devuelve resumen, registros y observaciones consumibles por la pantalla', async () => {
@@ -142,9 +146,10 @@ describe('MX-05 Backend Results — aceptación focal de padrón', () => {
   });
 
   it('[MX-05][PAD-RPL-P1-001][ACEPTACION] entrega el último staging vinculado al import job activo', async () => {
-    voting.listPadronStaging.mockResolvedValueOnce({ importJob: { importJobId: 'job-new', status: 'PARSED' }, data: [{ ci: '999999', enabled: false }], total: 1, page: 1, limit: 50 });
-    const response = await request(httpServer()).get('/api/v1/voting/events/event-1/padron/staging').set(admin).expect(200);
-    expect(response.body).toMatchObject({ importJob: { importJobId: 'job-new' }, data: [{ ci: '999999', enabled: false }] });
+    voting.uploadPadronFile.mockResolvedValueOnce({ importJobId: 'job-new', status: 'PARSED', summary: { stagingCount: 1 }, errors: [] });
+    const response = await request(httpServer()).post('/api/v1/voting/events/event-1/padron/imports').set(admin).attach('file', Buffer.from('%PDF-1.4\n999999 no\n'), 'padron-reemplazo.pdf').expect(201);
+    expect(response.body).toMatchObject({ importJobId: 'job-new', status: 'PARSED', summary: { stagingCount: 1 } });
+    expect(voting.uploadPadronFile).toHaveBeenCalledWith('event-1', expect.objectContaining({ originalname: 'padron-reemplazo.pdf' }), expect.any(Object));
   });
 
   it('[MX-05][PAD-CSV-P1-001][ACEPTACION] conserva los totales legacy en la respuesta multipart CSV', async () => {
@@ -156,7 +161,7 @@ describe('MX-05 Backend Results — aceptación focal de padrón', () => {
   it('[MX-05][PAD-DWN-P1-001][ACEPTACION] descarga CSV con carnet normalizado y estado de habilitación', async () => {
     const response = await request(httpServer()).get('/api/v1/voting/events/event-1/padron/download').set(admin).expect(200);
     expect(response.headers['content-disposition']).toContain('padron-version-1.csv');
-    expect(response.text).toContain('123456,si');
+    expect(response.text).toBe('\uFEFFcarnet,habilitado\n123456,si\n');
     expect(voting.downloadPadronCsv).toHaveBeenCalledWith('event-1', expect.any(Object), undefined);
   });
 

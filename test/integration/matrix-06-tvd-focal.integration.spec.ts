@@ -3,8 +3,19 @@ import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { getAddress } from 'viem';
 
+jest.mock('@/modules/payments/utils/payment-status.mapper', () => {
+  const actual = jest.requireActual<
+    typeof import('@/modules/payments/utils/payment-status.mapper')
+  >('@/modules/payments/utils/payment-status.mapper');
+  return {
+    ...actual,
+    mapRedEnlaceStatus: jest.fn((input) => actual.mapRedEnlaceStatus(input)),
+  };
+});
+
 import { LoggerService } from '@/core/services/logger.service';
 import { PaymentTransactionsService } from '@/modules/payments/services/payment-transactions.service';
+import { mapRedEnlaceStatus } from '@/modules/payments/utils/payment-status.mapper';
 import { TvdAccreditationWorkerService } from '@/modules/tvd/services/tvd-accreditation-worker.service';
 import { TvdManualAssignmentsService } from '@/modules/tvd/services/tvd-manual-assignments.service';
 import { TvdQrAccreditationsService } from '@/modules/tvd/services/tvd-qr-accreditations.service';
@@ -17,6 +28,8 @@ import {
   expectNoMx06ExternalWrites,
   prepareMx06TestOnlyEnvironment,
 } from '../utils/mx06-test-only-guard';
+
+const observedMapRedEnlaceStatus = jest.mocked(mapRedEnlaceStatus);
 
 const wallet = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const eventId = new Types.ObjectId();
@@ -176,6 +189,91 @@ describe('MX-06 TVD focal integration coverage', () => {
   it('[MX-06][TVD-QR-P0-001][INTEGRACION] guarda monto, wallet y referencia congelados antes de generar QR', async () => { const h = paymentHarness(); await h.service.createQrPayment(qr, admin, 'qr-1'); expect(h.model.create).toHaveBeenCalledWith(expect.objectContaining({ amountMinor: '1050', targetWallet: wallet, targetAssignmentId: assignmentId })); expect(h.provider.generateQr).toHaveBeenCalledWith(expect.objectContaining({ amountMinor: '1050', currency: 'BOB' })); });
   it('[MX-06][TVD-QR-P0-003][INTEGRACION] impide generar QR cuando falta la clave de idempotencia', async () => { const h = paymentHarness(); await expect(h.service.createQrPayment(qr, admin)).rejects.toMatchObject({ response: expect.objectContaining({ code: 'PAYMENT_IDEMPOTENCY_KEY_REQUIRED' }) }); expect(h.provider.generateQr).not.toHaveBeenCalled(); });
   it('[MX-06][TVD-QR-P0-004][INTEGRACION] devuelve el registro existente para una repetición equivalente', async () => { const h = paymentHarness({ status: 'QR_ACTIVE', idempotencyRequestHash: require('crypto').createHash('sha256').update(JSON.stringify({ tenantId: String(tenantId), userId: String(userId), amountMinor: '1050', currency: 'BOB', description: 'Recarga MX-06' })).digest('hex'), providerReference: 'ATC-1', qrImage: 'base64' }); h.model.findOne.mockReturnValue(lean(h.payment)); const result = await h.service.createQrPayment(qr, admin, 'qr-4'); expect(result.status).toBe('QR_ACTIVE'); expect(h.model.create).not.toHaveBeenCalled(); });
+  it('[MX-06][TVD-QR-P0-006][INTEGRACION] confirma callback congelado y reutiliza una única acreditación QR_PAYMENT', async () => {
+    const h = paymentHarness({
+      status: 'QR_ACTIVE',
+      providerReference: 'ATC-1',
+      targetAssignmentId: assignmentId,
+      targetWallet: wallet,
+      tvdQuote: { fiatAmountMinor: '1050', fiatCurrency: 'BOB', tokenAmount: '5' },
+    });
+    const confirmed = {
+      ...h.payment,
+      status: 'PAYMENT_CONFIRMED',
+      providerStatus: 'SUCCESS',
+      confirmationSource: 'WEBHOOK',
+    };
+    h.model.findOne.mockReturnValueOnce(queryResult(h.payment));
+    h.model.findOneAndUpdate.mockReturnValue(queryResult(confirmed));
+    h.model.findById.mockResolvedValue(confirmed);
+    h.accreditations.createOrReuseForConfirmedPayment
+      .mockResolvedValueOnce({ accreditationId: new Types.ObjectId(), sourceType: 'QR_PAYMENT', status: 'PENDING', reused: false });
+
+    const callback = {
+      providerReference: 'ATC-1',
+      providerStatus: 'SUCCESS',
+      responseCode: '00',
+      amountMinor: '1050',
+      currency: 'BOB' as const,
+    };
+    observedMapRedEnlaceStatus.mockClear();
+    const first = await h.service.applyWebhookConfirmation(callback);
+
+    expect(observedMapRedEnlaceStatus).toHaveBeenCalledTimes(1);
+    expect(observedMapRedEnlaceStatus).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'WEBHOOK',
+      providerStatus: 'SUCCESS',
+      responseCode: '00',
+    }));
+    expect(observedMapRedEnlaceStatus.mock.results[0]?.value).toMatchObject({ status: 'PAYMENT_CONFIRMED' });
+    expect(h.model.updateOne).toHaveBeenCalledWith(
+      { _id: paymentId },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          tokenAccreditationStatus: 'PENDING',
+          tokenAccreditationId: expect.anything(),
+          tokenAccreditationErrorCode: null,
+        }),
+      }),
+    );
+    expect(h.model.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(h.accreditations.createOrReuseForConfirmedPayment).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject({ status: 'PAYMENT_CONFIRMED' });
+
+    h.model.findOne.mockReturnValue(queryResult(confirmed));
+    h.accreditations.createOrReuseForConfirmedPayment.mockResolvedValueOnce({
+      accreditationId: new Types.ObjectId(), sourceType: 'QR_PAYMENT', status: 'PENDING', reused: true,
+    });
+    const replay = await h.service.applyWebhookConfirmation(callback);
+
+    expect(replay).toMatchObject({ status: 'PAYMENT_CONFIRMED' });
+    expect(h.model.findOne).toHaveBeenCalledWith({
+      provider: 'RED_ENLACE',
+      providerReference: 'ATC-1',
+    });
+    expect(h.model.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: paymentId }),
+      expect.objectContaining({ $set: expect.objectContaining({ status: 'PAYMENT_CONFIRMED', providerStatus: 'SUCCESS', confirmationSource: 'WEBHOOK' }) }),
+      { new: true },
+    );
+    expect(h.model.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(h.accreditations.createOrReuseForConfirmedPayment).toHaveBeenCalledTimes(2);
+    expect(h.accreditations.createOrReuseForConfirmedPayment).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ _id: paymentId, amountMinor: '1050', currency: 'BOB' }),
+      { source: 'WEBHOOK' },
+    );
+    expect(h.accreditations.createOrReuseForConfirmedPayment).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ _id: paymentId, amountMinor: '1050', currency: 'BOB' }),
+      { source: 'WEBHOOK' },
+    );
+    expect(h.accreditations.createOrReuseForConfirmedPayment.mock.results).toHaveLength(2);
+    expect(h.accreditations.createOrReuseForConfirmedPayment.mock.results[0].value).resolves.toMatchObject({ sourceType: 'QR_PAYMENT', status: 'PENDING', reused: false });
+    expect(h.accreditations.createOrReuseForConfirmedPayment.mock.results[1].value).resolves.toMatchObject({ sourceType: 'QR_PAYMENT', status: 'PENDING', reused: true });
+    expect(first).not.toHaveProperty('creditedBalance');
+    expect(replay).not.toHaveProperty('creditedBalance');
+  });
   it('[MX-06][TVD-QR-P0-007][INTEGRACION] envía confirmación tardía a conciliación sin acreditar saldo', async () => {
     const h = paymentHarness({ status: 'EXPIRED', providerReference: 'ATC-1' });
     const reconciliationPendingPayment = {

@@ -117,6 +117,24 @@ describe('MX-14 Backend Results — unitarias focales', () => {
     expect(response).toEqual(expect.objectContaining({ total: 1, data: [expect.objectContaining({ _id: 'log' })] }));
   });
 
+  it('[MX-14][NOT-PUB-P1-002][INTEGRACION] persiste contenido institucional y log seguro sin tokens ni cabeceras', async () => {
+    const firebase = makeFirebase();
+    const inbox: Array<Record<string, unknown>> = [];
+    const logs: Array<Record<string, unknown>> = [];
+    const service = new TopicMessagingService(
+      firebase as never,
+      { create: jest.fn(async (row: Record<string, unknown>) => { logs.push(row); return row; }) } as never,
+      { find: jest.fn(() => ({ lean: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId(), dni: '123' }]) })) } as never,
+      { insertMany: jest.fn(async (rows: Array<Record<string, unknown>>) => { inbox.push(...rows); return rows; }) } as never,
+    );
+
+    await service.announceCountToLocation({ locationId: '507f1f77bcf86cd799439011', title: 'Noticia', body: 'Contenido' });
+
+    expect(inbox[0]).toEqual(expect.objectContaining({ title: 'Noticia', body: 'Contenido', status: 'NEW', topic: 'loc_507f1f77bcf86cd799439011' }));
+    expect(logs[0]).toEqual(expect.objectContaining({ status: 'SENT', messageId: 'mx14-message-id' }));
+    expect(JSON.stringify({ inbox, logs })).not.toMatch(/fcm.*token|authorization|private.?key/i);
+  });
+
   it('[MX-14][NOT-TOK-P0-002][UNITARIA] genera topic de recinto sanitizado y topic de usuario', async () => {
     const firebase = makeFirebase();
     const topic = new TopicMessagingService(firebase as never, { create: jest.fn().mockResolvedValue({}) } as never, { find: jest.fn(() => ({ lean: jest.fn().mockResolvedValue([]) })) } as never, { insertMany: jest.fn() } as never);
@@ -198,6 +216,21 @@ describe('MX-14 Backend Results — unitarias focales', () => {
     process.env.INTERNAL_PUSH_SECRET = previous;
   });
 
+  it('[MX-14][NOT-RCV-P0-001][INTEGRACION] entrega payload ordenable con title, body, type y createdAt', async () => {
+    const firebase = makeFirebase();
+    const stored: Array<Record<string, unknown>> = [];
+    const service = new TopicMessagingService(
+      firebase as never,
+      { create: jest.fn().mockResolvedValue({}) } as never,
+      { find: jest.fn(() => ({ lean: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId(), dni: '111' }]) })) } as never,
+      { insertMany: jest.fn(async (rows: Array<Record<string, unknown>>) => { stored.push(...rows.map((row) => ({ ...row, createdAt: new Date() }))); }) } as never,
+    );
+
+    await service.announceCountToLocation({ locationId: '507f1f77bcf86cd799439011' });
+
+    expect(stored[0]).toEqual(expect.objectContaining({ title: 'Inicio de conteo', body: expect.any(String), data: expect.objectContaining({ type: 'announce_count' }), createdAt: expect.any(Date) }));
+  });
+
   it('[MX-14][NOT-NAV-P0-001][UNITARIA] limita payload institucional a tipos y destinos reconocidos', async () => {
     const { service, firebase, padron } = makeInstitutionalService();
     const userId = new Types.ObjectId();
@@ -225,6 +258,34 @@ describe('MX-14 Backend Results — unitarias focales', () => {
     inbox.create.mockRejectedValue({ code: 11000 });
 
     await expect(service.notifyVoteRewardAvailableIfEligible('event-1', '123')).resolves.toEqual({ sent: 0, skipped: 'already_notified' });
+  });
+
+  it('[MX-14][NOT-DUP-P1-002][INTEGRACION] conserva SENT y FAILED ante fallo parcial sin detener destinatarios', async () => {
+    const { service, firebase, logs, padron } = makeInstitutionalService();
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    padron.getPadronUsersFromEvent.mockResolvedValue([
+      { _id: new Types.ObjectId(), dni: '111', active: true, enabled: true },
+      { _id: new Types.ObjectId(), dni: '222', active: true, enabled: true },
+    ]);
+    firebase.send.mockResolvedValueOnce('sent').mockRejectedValueOnce(new Error('single local failure'));
+
+    try {
+      const result = await service.notifyNewsToCurrentPadron(
+        { _id: new Types.ObjectId(), name: 'Evento' } as never,
+        { title: 'Aviso', body: 'Contenido' },
+      );
+
+      expect(result).toEqual({ sent: 1, failed: 1 });
+      expect(logs.insertMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ status: 'SENT' }),
+          expect.objectContaining({ status: 'FAILED' }),
+        ]),
+        { ordered: false },
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it('[MX-14][NOT-SEC-P0-001][UNITARIA] protege consulta por API key y no atribuye DNI a un claim inexistente', async () => {

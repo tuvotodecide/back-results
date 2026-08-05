@@ -127,21 +127,41 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:11
 
+      - name: MX-11 | Atestiguamiento, actas y evidencias | Backend Results | soporte
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:11:support
+
       - name: MX-12 | Resultados administrativos y reportes | Backend Results
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:12
+
+      - name: MX-12 | Resultados administrativos y reportes | Backend Results | soporte
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:12:support
 
       - name: MX-13 | Resultados públicos y landing de votaciones | Backend Results
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:13
 
+      - name: MX-13 | Soporte transversal fuera del conteo canónico | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:13:support
+
       - name: MX-14 | Noticias, notificaciones y device tokens | Backend Results
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:14
 
+      - name: MX-14 | Soporte transversal fuera del conteo canónico | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:14:support
+
       - name: MX-16 | Gestión Superadmin TVD y administración global | Backend Results
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:16
+
+      - name: MX-16 | Soporte transversal fuera del conteo canónico | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:16:support
 
       - name: Run module tests - Institutional voting residual outside MX-04, MX-05, MX-06, MX-07, MX-08 and MX-09
         if: ${{ !cancelled() }}

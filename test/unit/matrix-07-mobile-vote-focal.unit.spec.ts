@@ -110,4 +110,19 @@ describe('MX-07 mobile vote focal unit coverage', () => {
     expect(options.findById).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(writer.castVote.mock.calls)).not.toContain('ABC789');
   });
+
+  it('[MX-07][VOT-SEC-P0-002][UNITARIA] sanitiza fallos de proof y escritura sin exponer material sensible', async () => {
+    writer.castVote.mockRejectedValueOnce(new Error('writer rejected proof=full-proof nullifier=vote-nullifier-controlled'));
+
+    let caught: unknown;
+    try {
+      await emit.emitVote('blank', 'full-proof');
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(InternalServerErrorException);
+    expect((caught as Error).message).not.toContain('full-proof');
+    expect((caught as Error).message).not.toContain(nullifier);
+  });
 });

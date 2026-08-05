@@ -14,6 +14,16 @@
       "AUT-HTTP"
     ],
     "files": [
+      "test/unit/matrix-03-auth-admin.unit.spec.ts",
+      "test/acceptance/matrix-03-auth-admin.acceptance.spec.ts"
+    ]
+  },
+  "matrix_03_support": {
+    "name": "MX-03 | Autenticación, sesiones, roles y permisos | Regresiones históricas de soporte",
+    "flows": [
+      "MX-03_SUPPORT"
+    ],
+    "files": [
       "test/acceptance/auth-context.contract.spec.ts",
       "test/unit/access-approver.guard.unit.spec.ts",
       "test/unit/auth.service.tokens.unit.spec.ts",
@@ -148,6 +158,18 @@
       "ELE-HTTP"
     ],
     "files": [
+      "test/unit/matrix-04-election-configuration.unit.spec.ts",
+      "test/integration/matrix-04-election-configuration.integration.spec.ts",
+      "test/acceptance/matrix-04-election-configuration.acceptance.spec.ts",
+      "test/end-to-end/matrix-04-election-configuration.e2e.spec.ts"
+    ]
+  },
+  "matrix_04_support": {
+    "name": "MX-04 | Creación y configuración de votaciones | Regresiones históricas de soporte",
+    "flows": [
+      "MX-04_SUPPORT"
+    ],
+    "files": [
       "test/integration/institutional-voting/voting-configuration-api.spec.ts",
       "test/integration/institutional-voting/cancelled-voting-api.spec.ts",
       "test/unit/institutional-voting/access.service.unit.spec.ts",
@@ -180,20 +202,28 @@
       "PAD-SEC"
     ],
     "files": [
-      "test/acceptance/institutional-public.contract.spec.ts",
       "test/acceptance/matrix-05-padron-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-05-padron-focal.e2e.spec.ts",
+      "test/integration/matrix-05-padron-focal.integration.spec.ts",
+      "test/unit/matrix-05-padron-focal.unit.spec.ts"
+    ]
+  },
+  "matrix_05_support": {
+    "name": "MX-05 | Padrón, staging, elegibilidad y archivos | Regresiones históricas de soporte",
+    "flows": [
+      "MX-05_SUPPORT"
+    ],
+    "files": [
+      "test/acceptance/institutional-public.contract.spec.ts",
       "test/end-to-end/padron-pdf-staging.e2e.spec.ts",
       "test/end-to-end/padron-certificate.e2e.spec.ts",
-      "test/end-to-end/matrix-05-padron-focal.e2e.spec.ts",
       "test/integration/institutional-voting/padron-editing-rules.spec.ts",
       "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
-      "test/integration/matrix-05-padron-focal.integration.spec.ts",
       "test/unit/institutional-voting/padron-certificate-pdf.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-gemini-import.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-pdf-parser.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-users.service.unit.spec.ts",
-      "test/unit/institutional-voting/padron.service.unit.spec.ts",
-      "test/unit/matrix-05-padron-focal.unit.spec.ts"
+      "test/unit/institutional-voting/padron.service.unit.spec.ts"
     ]
   },
   "institutional-voting_remaining": {
@@ -276,43 +306,17 @@
       "TVD-UI"
     ],
     "files": [
-      "test/integration/red-enlace-webhook-route.spec.ts",
-      "test/unit/red-enlace-config.unit.spec.ts",
-      "test/unit/red-enlace-qr-http.provider.unit.spec.ts",
-      "test/unit/payment-reconciliation.service.unit.spec.ts",
-      "test/unit/payment-transactions.service.unit.spec.ts",
-      "test/unit/red-enlace-webhook.service.unit.spec.ts",
-      "test/unit/payment-provider-event.schema.unit.spec.ts",
-      "test/unit/tvd-accounting.service.unit.spec.ts",
-      "test/unit/tvd-admin-operations.service.unit.spec.ts",
-      "test/unit/tvd-blockchain.service.unit.spec.ts",
-      "test/unit/tvd-capacity.service.unit.spec.ts",
-      "test/unit/tvd-manual-assignments.service.unit.spec.ts",
-      "test/unit/tvd-operator-transaction-lock.service.unit.spec.ts",
-      "test/unit/tvd-qr-accreditations.service.unit.spec.ts",
-      "test/unit/tvd-quotes.service.unit.spec.ts",
-      "test/unit/tvd-receipt-validator.service.unit.spec.ts",
-      "test/unit/tvd-wallet-lookup.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-api.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-chain-verification.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-finalization.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-admin.controller.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-artifacts.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile-auth.controller.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile-zk-auth.guard.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile-zk-auth.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-mobile.controller.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-notification.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-preparation.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-reconciliation.worker.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request-state.service.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request.dto.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request.schema.unit.spec.ts",
-      "test/unit/institutional-voting/official-publication-request.service.unit.spec.ts",
-      "test/integration/institutional-voting/publication-results.spec.ts",
+      "test/unit/matrix-06-tvd-focal.unit.spec.ts",
       "test/integration/matrix-06-tvd-focal.integration.spec.ts",
       "test/acceptance/matrix-06-tvd-focal.acceptance.spec.ts",
       "test/end-to-end/matrix-06-tvd-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_06_support": {
+    "name": "MX-06 support",
+    "flows": ["MX-06-SUPPORT"],
+    "files": [
+      "test/integration/institutional-voting/publication-results.spec.ts", "test/integration/red-enlace-webhook-route.spec.ts", "test/unit/institutional-voting/official-publication-admin.controller.unit.spec.ts", "test/unit/institutional-voting/official-publication-api.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-artifacts.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-chain-verification.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-finalization.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-mobile-auth.controller.unit.spec.ts", "test/unit/institutional-voting/official-publication-mobile-zk-auth.guard.unit.spec.ts", "test/unit/institutional-voting/official-publication-mobile-zk-auth.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-mobile.controller.unit.spec.ts", "test/unit/institutional-voting/official-publication-notification.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-preparation.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-reconciliation.worker.unit.spec.ts", "test/unit/institutional-voting/official-publication-request-state.service.unit.spec.ts", "test/unit/institutional-voting/official-publication-request.dto.unit.spec.ts", "test/unit/institutional-voting/official-publication-request.schema.unit.spec.ts", "test/unit/institutional-voting/official-publication-request.service.unit.spec.ts", "test/unit/payment-provider-event.schema.unit.spec.ts", "test/unit/payment-reconciliation.service.unit.spec.ts", "test/unit/payment-transactions.service.unit.spec.ts", "test/unit/red-enlace-config.unit.spec.ts", "test/unit/red-enlace-qr-http.provider.unit.spec.ts", "test/unit/red-enlace-webhook.service.unit.spec.ts", "test/unit/tvd-accounting.service.unit.spec.ts", "test/unit/tvd-admin-operations.service.unit.spec.ts", "test/unit/tvd-blockchain.service.unit.spec.ts", "test/unit/tvd-capacity.service.unit.spec.ts", "test/unit/tvd-manual-assignments.service.unit.spec.ts", "test/unit/tvd-operator-transaction-lock.service.unit.spec.ts", "test/unit/tvd-qr-accreditations.service.unit.spec.ts", "test/unit/tvd-quotes.service.unit.spec.ts", "test/unit/tvd-receipt-validator.service.unit.spec.ts", "test/unit/tvd-wallet-lookup.service.unit.spec.ts"
     ]
   },
   "matrix_07": {
@@ -326,14 +330,22 @@
       "VOT-SEC"
     ],
     "files": [
-      "test/unit/institutional-voting/participation.service.unit.spec.ts",
-      "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
-      "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
-      "test/end-to-end/zk-vote.contract.e2e.spec.ts",
       "test/unit/matrix-07-mobile-vote-focal.unit.spec.ts",
       "test/integration/matrix-07-mobile-vote-focal.integration.spec.ts",
       "test/acceptance/matrix-07-mobile-vote-focal.acceptance.spec.ts",
       "test/end-to-end/matrix-07-mobile-vote-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_07_support": {
+    "name": "MX-07 | Emisión del voto móvil | soporte de regresión",
+    "flows": [
+      "MX-07-SUPPORT"
+    ],
+    "files": [
+      "test/unit/institutional-voting/participation.service.unit.spec.ts",
+      "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
+      "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
+      "test/end-to-end/zk-vote.contract.e2e.spec.ts"
     ]
   },
   "matrix_08": {
@@ -375,11 +387,19 @@
       "KIO-UX"
     ],
     "files": [
-      "test/integration/institutional-voting/presential-sessions.spec.ts",
       "test/unit/matrix-09-kiosk-qr-focal.unit.spec.ts",
       "test/integration/matrix-09-kiosk-qr-focal.integration.spec.ts",
       "test/acceptance/matrix-09-kiosk-qr-focal.acceptance.spec.ts",
       "test/end-to-end/matrix-09-kiosk-qr-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_09_support": {
+    "name": "MX-09 | Votación presencial mediante kiosco y QR | soporte de regresión",
+    "flows": [
+      "MX-09-SUPPORT"
+    ],
+    "files": [
+      "test/integration/institutional-voting/presential-sessions.spec.ts"
     ]
   },
   "matrix_10": {
@@ -419,6 +439,18 @@
       "SEC-DEL",
       "SEC-BLO",
       "TRA-P1"
+    ],
+    "files": [
+      "test/unit/matrix-10-canonical.unit.spec.ts",
+      "test/integration/matrix-10-canonical.integration.spec.ts",
+      "test/acceptance/matrix-10-canonical.acceptance.spec.ts",
+      "test/end-to-end/matrix-10-canonical.e2e.spec.ts"
+    ]
+  },
+  "matrix_10_support": {
+    "name": "MX-10 | Administración territorial, contratos y delegados | soporte de regresión",
+    "flows": [
+      "MX-10-SUPPORT"
     ],
     "files": [
       "test/unit/matrix-10-geography.unit.spec.ts",
@@ -462,17 +494,25 @@
       "ACC-BE"
     ],
     "files": [
+      "test/unit/matrix-11-attestation-backend-focal.unit.spec.ts",
+      "test/integration/matrix-11-attestation-backend-focal.integration.spec.ts",
+      "test/acceptance/matrix-11-attestation-backend-focal.acceptance.spec.ts",
+      "test/end-to-end/matrix-11-attestation-backend-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_11_support": {
+    "name": "MX-11 | Atestiguamiento, actas y evidencias | Backend Results | soporte",
+    "flows": [
+      "MX-11-SUPPORT"
+    ],
+    "files": [
       "test/end-to-end/observed-records.e2e.spec.ts",
       "test/end-to-end/worksheet.e2e.spec.ts",
       "test/unit/attestation.service.unit.spec.ts",
       "test/unit/attestation-resolver.service.unit.spec.ts",
       "test/unit/oracle-resolver.service.unit.spec.ts",
       "test/unit/client-reports.controller.unit.spec.ts",
-      "test/unit/client-reports.service.unit.spec.ts",
-      "test/unit/matrix-11-attestation-backend-focal.unit.spec.ts",
-      "test/integration/matrix-11-attestation-backend-focal.integration.spec.ts",
-      "test/acceptance/matrix-11-attestation-backend-focal.acceptance.spec.ts",
-      "test/end-to-end/matrix-11-attestation-backend-focal.e2e.spec.ts"
+      "test/unit/client-reports.service.unit.spec.ts"
     ]
   },
   "matrix_12": {
@@ -495,15 +535,23 @@
       "RES-UX"
     ],
     "files": [
-      "test/acceptance/results.acceptance.spec.ts",
-      "test/end-to-end/results.e2e.spec.ts",
-      "test/integration/results.service.int-spec.ts",
-      "test/unit/results.controller.unit.spec.ts",
-      "test/unit/results.service.unit.spec.ts",
       "test/unit/matrix-12-results-admin-focal.unit.spec.ts",
       "test/integration/matrix-12-results-admin-focal.integration.spec.ts",
       "test/acceptance/matrix-12-results-admin-focal.acceptance.spec.ts",
       "test/end-to-end/matrix-12-results-admin-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_12_support": {
+    "name": "MX-12 | Resultados administrativos y reportes | Backend Results | soporte",
+    "flows": [
+      "MX-12-SUPPORT"
+    ],
+    "files": [
+      "test/acceptance/results.acceptance.spec.ts",
+      "test/end-to-end/results.e2e.spec.ts",
+      "test/integration/results.service.int-spec.ts",
+      "test/unit/results.controller.unit.spec.ts",
+      "test/unit/results.service.unit.spec.ts"
     ]
   },
   "matrix_13": {
@@ -528,13 +576,21 @@
       "PUB-UX"
     ],
     "files": [
-      "test/unit/institutional-voting/voting-results-public.service.unit.spec.ts",
-      "test/unit/matrix-13-public-voting-events.unit.spec.ts",
-      "test/unit/matrix-13-public-results-routes.unit.spec.ts",
       "test/unit/matrix-13-public-results-focal.unit.spec.ts",
       "test/integration/matrix-13-public-results-focal.integration.spec.ts",
       "test/acceptance/matrix-13-public-results-focal.acceptance.spec.ts",
       "test/end-to-end/matrix-13-public-results-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_13_support": {
+    "name": "MX-13 | Soporte transversal fuera del conteo canónico | Backend Results",
+    "flows": [
+      "MX-13-SUPPORT"
+    ],
+    "files": [
+      "test/unit/institutional-voting/voting-results-public.service.unit.spec.ts",
+      "test/unit/matrix-13-public-voting-events.unit.spec.ts",
+      "test/unit/matrix-13-public-results-routes.unit.spec.ts"
     ]
   },
   "matrix_14": {
@@ -558,6 +614,14 @@
       "test/end-to-end/matrix-14-notifications-focal.e2e.spec.ts"
     ]
   },
+  "matrix_14_support": {
+    "name": "MX-14 | Soporte transversal fuera del conteo canónico | Backend Results",
+    "flows": [
+      "MX-14-SUPPORT"
+    ],
+    "files": [
+    ]
+  },
   "matrix_16": {
     "name": "MX-16 | Gestión Superadmin TVD y administración global | Backend Results",
     "flows": [
@@ -573,10 +637,19 @@
       "ADM-CON"
     ],
     "files": [
-      "test/unit/matrix-16-superadmin-focal.unit.spec.ts",
+      "test/unit/matrix-16-superadmin-canonical.unit.spec.ts",
       "test/integration/matrix-16-superadmin-focal.integration.spec.ts",
       "test/acceptance/matrix-16-superadmin-focal.acceptance.spec.ts",
       "test/end-to-end/matrix-16-superadmin-focal.e2e.spec.ts"
+    ]
+  },
+  "matrix_16_support": {
+    "name": "MX-16 | Soporte transversal fuera del conteo canónico | Backend Results",
+    "flows": [
+      "MX-16-SUPPORT"
+    ],
+    "files": [
+      "test/unit/matrix-16-superadmin-focal.unit.spec.ts"
     ]
   },
   "payments_remaining": {
