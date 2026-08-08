@@ -57,7 +57,7 @@ describe('MX-14 Backend Results — E2E focal', () => {
     apiKeyIsValid = true;
     firebaseSend = jest.fn().mockResolvedValueOnce('sent-1').mockRejectedValueOnce(new Error('simulated firebase failure'));
     const padronUsers = {
-      getPadronUsersFromEvent: jest.fn().mockResolvedValue([
+      getResolvedPadronUsersFomEvent: jest.fn().mockResolvedValue([
         { _id: new Types.ObjectId(), dni: '111', active: true, enabled: true },
         { _id: new Types.ObjectId(), dni: '222', active: true, enabled: true },
       ]),

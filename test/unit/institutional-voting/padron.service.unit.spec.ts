@@ -22,6 +22,7 @@ import { InstitutionalVotingNotificationsService } from '@/modules/institutional
 import { EnabledSession } from '@/modules/institutional-voting/schemas/enabled-session.shcema';
 import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
 import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
+import { User } from '@/modules/users/schemas/user.schema';
 
 describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | PadronService', () => {
   let service: PadronService;
@@ -32,6 +33,7 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
   let padronImportJobModel: any;
   let padronStagingEntryModel: any;
   let padronCertificateModel: any;
+  let userModel: any;
   let enabledSessionModel: any;
   let accessService: any;
   let padronCertificatePdfService: any;
@@ -92,6 +94,11 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
       updateOne: jest.fn(),
       findById: jest.fn(),
       deleteMany: jest.fn(),
+    };
+    userModel = {
+      find: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
     };
     enabledSessionModel = {
       insertOne: jest.fn(),
@@ -155,6 +162,7 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
         { provide: getModelToken(PadronImportJob.name), useValue: padronImportJobModel },
         { provide: getModelToken(PadronStagingEntry.name), useValue: padronStagingEntryModel },
         { provide: getModelToken(PadronCertificate.name), useValue: padronCertificateModel },
+        { provide: getModelToken(User.name), useValue: userModel },
         { provide: getModelToken(EnabledSession.name), useValue: enabledSessionModel },
         { provide: InstitutionalVotingAccessService, useValue: accessService },
         { provide: PadronCertificatePdfService, useValue: padronCertificatePdfService },
@@ -385,11 +393,11 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     );
   });
 
-  it('PAD-ROW-P0-002 / PAD-VAL-P0-001 | inhabilita automáticamente registros sin identidad aunque lleguen como enabled=true', async () => {
+  it('PAD-ROW-P0-002 / PAD-VAL-P0-001 | conserva el estado enabled recibido del parser sin verificación de identidad', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const importJobId = new Types.ObjectId();
     const registeredEntryId = new Types.ObjectId();
-    const unregisteredEntryId = new Types.ObjectId();
+    const secondEntryId = new Types.ObjectId();
     const file = {
       originalname: 'padron.pdf',
       mimetype: 'application/pdf',
@@ -432,9 +440,8 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
           duplicateCount: 0,
           invalidCount: 0,
           stagingCount: 2,
-          enabledCount: 1,
-          disabledCount: 1,
-          missingIdentityCount: 1,
+          enabledCount: 2,
+          disabledCount: 0,
         },
         errors: [],
         createdAt: new Date(),
@@ -454,29 +461,24 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     padronStagingEntryModel.find.mockReturnValue({
       lean: jest.fn().mockResolvedValue([
         { _id: registeredEntryId, ciNorm: '123456', enabled: true },
-        { _id: unregisteredEntryId, ciNorm: '789000', enabled: true },
+        { _id: secondEntryId, ciNorm: '789000', enabled: true },
       ]),
       sort: jest.fn().mockReturnValue({
         lean: jest.fn().mockResolvedValue([]),
       }),
     });
-    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '123456' }]);
     padronStagingEntryModel.countDocuments.mockResolvedValue(2);
 
     await service.uploadPadronPdf(String(baseEvent._id), file, requester);
 
-    expect(padronStagingEntryModel.updateMany).toHaveBeenCalledWith(
-      { _id: { $in: [unregisteredEntryId] }, importJobId },
-      { $set: { enabled: false } },
-    );
+    expect(padronStagingEntryModel.updateMany).not.toHaveBeenCalled();
     expect(padronImportJobModel.updateOne).toHaveBeenCalledWith(
       { _id: importJobId },
       expect.objectContaining({
         $set: expect.objectContaining({
           summary: expect.objectContaining({
-            enabledCount: 1,
-            disabledCount: 1,
-            missingIdentityCount: 1,
+            enabledCount: 2,
+            disabledCount: 0,
           }),
         }),
       }),
@@ -724,7 +726,6 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
         lean: jest.fn().mockResolvedValue([]),
       }),
     });
-    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '12345678' }]);
 
     await service.addPadronStagingEntry(
       String(baseEvent._id),
@@ -741,7 +742,6 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
             stagingCount: 1,
             enabledCount: 1,
             disabledCount: 0,
-            missingIdentityCount: 0,
           }),
         }),
       }),

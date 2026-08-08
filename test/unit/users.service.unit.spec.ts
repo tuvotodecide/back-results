@@ -4,6 +4,8 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
 import { UsersService } from '@/modules/users/services/users.service';
+import { IncentiveCampaignsService } from '@/modules/users/services/incentive-campaigns.service';
+import { HistoryService } from '@/modules/history/services/history.service';
 import { User } from '@/modules/users/schemas/user.schema';
 import { ElectoralTable } from '@/modules/geographic/schemas/electoral-table.schema';
 import { ElectoralLocation } from '@/modules/geographic/schemas/electoral-location.schema';
@@ -34,6 +36,16 @@ describe('UsersService', () => {
     get: jest.fn(),
   };
 
+  const incentiveService = {
+    giveIncentive: jest.fn(),
+    isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+    isUngrantableError: jest.fn().mockReturnValue(false),
+  };
+
+  const historyService = {
+    create: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -47,6 +59,8 @@ describe('UsersService', () => {
           useValue: locationModel,
         },
         { provide: ConfigService, useValue: configService },
+        { provide: IncentiveCampaignsService, useValue: incentiveService },
+        { provide: HistoryService, useValue: historyService },
       ],
     }).compile();
 

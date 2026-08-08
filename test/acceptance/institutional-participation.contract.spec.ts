@@ -8,6 +8,7 @@ import {
   teardownInstitutionalVotingContext,
   uploadPadronCsv,
 } from '../utils/institutional-voting.helpers';
+import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
 
 describe('Institutional participation HTTP contract', () => {
   let ctx: Awaited<ReturnType<typeof bootstrapInstitutionalVotingContext>>;
@@ -168,5 +169,27 @@ describe('Institutional participation HTTP contract', () => {
       .expect(403);
 
     expect(response.body).toEqual({ error: 'NOT_IN_ROLL' });
+  });
+
+  it('RR-P0-03-001 El registro de participación dispara la notificación de recompensas', async () => {
+    const notificationsService = ctx.moduleRef.get(InstitutionalVotingNotificationsService);
+    const notifySpy = jest
+      .spyOn(notificationsService, 'notifyVoteRewardAvailableIfEligible')
+      .mockResolvedValue({ sent: 1 });
+
+    const rewardEventId = await createActivePublishedEvent();
+    const carnet = '123456';
+
+    try {
+      await request(ctx.httpServer)
+        .post(`/api/v1/voting/events/${rewardEventId}/participations`)
+        .set('Idempotency-Key', 'reward-notification-key')
+        .send({ carnet })
+        .expect(201);
+
+      expect(notifySpy).toHaveBeenCalledWith(rewardEventId, carnet);
+    } finally {
+      notifySpy.mockRestore();
+    }
   });
 });

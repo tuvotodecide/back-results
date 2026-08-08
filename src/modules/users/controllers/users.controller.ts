@@ -18,7 +18,11 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { UsersService } from '../services/users.service';
-import { RegisterUserByDniDto, UserResponseDto } from '../dto/users.dto';
+import {
+  RegisterUserByDniDto,
+  RewardNewUserQueryDto,
+  UserResponseDto,
+} from '../dto/users.dto';
 import {
   UpdateVotePlaceDto,
   VotePlaceResponseDto,
@@ -69,6 +73,15 @@ export class UsersController {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  @Post('reward-new-user')
+  @UseGuards(ZkAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Recompensar nuevo registro de usuario' })
+  @ApiResponse({ status: 201, description: 'Recompensa otorgada' })
+  async rewardNewUser(@Query() query: RewardNewUserQueryDto) {
+    await this.usersService.rewardNewUser(query.recipient);
   }
 
   @Get(':dni')

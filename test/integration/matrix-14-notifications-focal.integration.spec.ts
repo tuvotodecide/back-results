@@ -26,7 +26,7 @@ function makeNotificationFlow() {
     find: jest.fn(() => ({ lean: jest.fn().mockResolvedValue([]) })),
     exists: jest.fn().mockResolvedValue(null),
   };
-  const padron = { getPadronUsersFromEvent: jest.fn(), getUsersByCarnets: jest.fn() };
+  const padron = { getResolvedPadronUsersFomEvent: jest.fn(), getUsersByCarnets: jest.fn() };
   const service = new InstitutionalVotingNotificationsService(
     { messaging: firebase.messaging } as never, inbox as never, logs as never,
     { updateOne: jest.fn().mockResolvedValue({}) } as never, { find: jest.fn() } as never,
@@ -61,7 +61,7 @@ describe('MX-14 Backend Results — integraciones focales', () => {
     const { service, firebase, inboxRows, logRows, padron } = makeNotificationFlow();
     const first = new Types.ObjectId();
     const second = new Types.ObjectId();
-    padron.getPadronUsersFromEvent.mockResolvedValue([{ _id: first, dni: '111', active: true, enabled: true }, { _id: second, dni: '222', active: true, enabled: true }]);
+    padron.getResolvedPadronUsersFomEvent.mockResolvedValue([{ _id: first, dni: '111', active: true, enabled: true }, { _id: second, dni: '222', active: true, enabled: true }]);
     firebase.send.mockResolvedValueOnce('sent-1').mockRejectedValueOnce(new Error('simulated provider failure'));
     const event = { _id: new Types.ObjectId(), name: 'Elección', state: 'READY_FOR_REVIEW', convocationNotifiedAt: null };
 
@@ -86,7 +86,7 @@ describe('MX-14 Backend Results — integraciones focales', () => {
 
   it('[MX-14][NOT-SND-P0-001][INTEGRACION] conserva éxitos y FAILED sanitizado al fallar un destinatario', async () => {
     const { service, firebase, logRows, padron } = makeNotificationFlow();
-    padron.getPadronUsersFromEvent.mockResolvedValue([{ _id: new Types.ObjectId(), dni: '111', active: true, enabled: true }, { _id: new Types.ObjectId(), dni: '222', active: true, enabled: true }]);
+    padron.getResolvedPadronUsersFomEvent.mockResolvedValue([{ _id: new Types.ObjectId(), dni: '111', active: true, enabled: true }, { _id: new Types.ObjectId(), dni: '222', active: true, enabled: true }]);
     firebase.send.mockResolvedValueOnce('ok').mockRejectedValueOnce(new Error('provider failure without credentials'));
 
     await service.notifyNewsToCurrentPadron({ _id: new Types.ObjectId(), name: 'Evento' } as never, { title: 'Aviso', body: 'Mensaje' });
@@ -108,7 +108,7 @@ describe('MX-14 Backend Results — integraciones focales', () => {
   it('[MX-14][NOT-DUP-P0-001][INTEGRACION] repite resultados o recordatorios sin segundo envío cuando ya existen marcas', async () => {
     const { service, firebase, padron } = makeNotificationFlow();
     const event = { _id: new Types.ObjectId(), name: 'Evento', resultsNotifiedAt: new Date() };
-    padron.getPadronUsersFromEvent.mockResolvedValue([{ _id: new Types.ObjectId(), dni: '111', active: true, enabled: true }]);
+    padron.getResolvedPadronUsersFomEvent.mockResolvedValue([{ _id: new Types.ObjectId(), dni: '111', active: true, enabled: true }]);
 
     await expect(service.notifyResultsAvailableIfEligible(event as never)).resolves.toEqual({ sent: 0, skipped: 'already_notified' });
     expect(firebase.send).not.toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe('MX-14 Backend Results — integraciones focales', () => {
 
   it('[MX-14][NOT-DUP-P1-002][INTEGRACION] registra conteos SENT/FAILED y no detiene el flujo por un fallo', async () => {
     const { service, firebase, logRows, padron } = makeNotificationFlow();
-    padron.getPadronUsersFromEvent.mockResolvedValue([{ _id: new Types.ObjectId(), dni: '111', active: true, enabled: true }, { _id: new Types.ObjectId(), dni: '222', active: true, enabled: true }]);
+    padron.getResolvedPadronUsersFomEvent.mockResolvedValue([{ _id: new Types.ObjectId(), dni: '111', active: true, enabled: true }, { _id: new Types.ObjectId(), dni: '222', active: true, enabled: true }]);
     firebase.send.mockResolvedValueOnce('ok').mockRejectedValueOnce(new Error('single failure'));
 
     const result = await service.notifyNewsToCurrentPadron({ _id: new Types.ObjectId(), name: 'Evento' } as never, { title: 'A', body: 'B' });

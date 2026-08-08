@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
+import { Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
 import { HttpService } from "@nestjs/axios";
 import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "crypto";
@@ -44,14 +44,17 @@ export class IssuerService {
   }
 
   async issueCredential(dids: {dni: string, did: string}[], eventId: string, nullifiers: string[]) {
-    if(dids.length === 0 || dids.length !== nullifiers.length) {
-      throw new InternalServerErrorException(`DIDs and nullifiers arrays must be of the same non-zero length`);
+    const credentialData: Record<string, { credentialData: string }> = {};
+    if(dids.length === 0) {
+      return credentialData;
+    }
+    if(dids.length > nullifiers.length) {
+      throw new InternalServerErrorException(`There shouln't be fewer nullifiers than dids`);
     }
 
     const url = `${this.baseUrl}/v2/identities/${this.issuerDid}/credentials`;
 
     const promises: Promise<void>[] = [];
-    const credentialData: Record<string, { credentialData: string }> = {};
     for (const user of dids) {
       const body = {
         credentialSchema: this.credSchema,
@@ -111,7 +114,7 @@ export class IssuerService {
 
       return response.data.records;
     } catch (error: any) {
-      console.error('Error fetching DIDs for DNIs:', error.response?.data || error.message);
+      Logger.error('Error fetching DIDs for DNIs:' + error.response?.data || error.message);
       throw new InternalServerErrorException(`Error fetching DIDs for given DNIs`);
     }
   }

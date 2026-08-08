@@ -23,9 +23,16 @@ import { JwtAuthGuard } from "@/core/guards/jwt-auth.guard";
 import { APP_GUARD } from "@nestjs/core";
 import request from "supertest";
 import { getMockOpenSeaMetadata } from "../utils/testing-data";
+import { IncentiveCampaignsService } from "@/modules/users/services/incentive-campaigns.service";
 
 var mockZkAuthGuard = {
   canActivate: jest.fn().mockResolvedValue(true),
+};
+
+const mockIncentiveCampaignsService = {
+  giveIncentive: jest.fn(),
+  isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+  isUngrantableError: jest.fn().mockReturnValue(false),
 };
 
 // Avoid loading the real zk-auth module (pulls ESM deps) during tests
@@ -114,7 +121,10 @@ describe('High scale participation tests', () => {
       providers: [
         { provide: APP_GUARD, useClass: JwtAuthGuard },
       ]
-    }).compile();
+    })
+      .overrideProvider(IncentiveCampaignsService)
+      .useValue(mockIncentiveCampaignsService)
+      .compile();
 
     app = moduleRef.createNestApplication();
     await app.init();

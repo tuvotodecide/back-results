@@ -11,6 +11,7 @@ import { VoteContractCalls, VoteContractReads, VoteContractUtils } from "@/api/v
 import { randomBytes } from 'crypto';
 import { buildPoseidon } from 'circomlibjs';
 import { MerkletreeService } from '@/modules/merkletree/services/merkletree.service';
+import { CreditsContractCalls } from "@/api/electoralCredits";
 
 export type PreparedVotePublication = {
   secrets: string[];
@@ -29,6 +30,7 @@ export type PreparedVotePublication = {
 export class VoteWritterService {
   private readonly chain: string;
   private readonly pk: string;
+  private readonly electoralCreditsContract: string;
   private smartAccountClient?: SmartAccountClient = undefined;
   private publicClient: any = undefined;
   private readonly RECEIPT_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
@@ -40,6 +42,7 @@ export class VoteWritterService {
   ) {
     this.chain = this.configService.get<string>('app.blockchain.chain')!;
     this.pk = this.configService.get<string>('app.blockchain.privateKey')!;
+    this.electoralCreditsContract = this.configService.get<string>('app.contracts.electoralCredits.address')!;
     this.getAccount();
   }
 
@@ -101,6 +104,7 @@ export class VoteWritterService {
         block = await this.publicClient.getBlock({ blockNumber: receipt.blockNumber });
         break;
       } catch (error) {
+        console.log('Fail get block in index: ' + i);
         if (i >= 2) {
           throw error;
         }
@@ -109,7 +113,7 @@ export class VoteWritterService {
     }
 
     const date = new Date(Number(block.timestamp) * 1000);
-    return {returnData, receipt, date: date.toLocaleString()};
+    return {returnData, txHash, receipt, date: date.toISOString()};
   }
 
   async waitForReceiptWithFallback(txHash: `0x${string}`) {
@@ -254,7 +258,6 @@ export class VoteWritterService {
     secret: string,
   ) {
     const voteNullfier = await VoteContractUtils.getVoteHash(eventId, secret);
-    const expectedVoteId = VoteContractUtils.idToHex(eventId);
     const callData = VoteContractCalls.castVote(
       this.chain,
       eventId,
@@ -262,28 +265,7 @@ export class VoteWritterService {
       voteNullfier,
     );
 
-    await this.executeOperation(
-      callData,
-      async (chainId, eventName, fromBlock) => {
-        const events = await VoteContractReads.getVotedEvents(chainId, fromBlock);
-        const matchingEvent = (Array.isArray(events) ? events : []).find((event: any) => {
-          if (String(event?.eventName || eventName) !== eventName) {
-            return false;
-          }
-          if (event?.args?.voteId === undefined || event?.args?.voteId === null) {
-            return false;
-          }
-          return BigInt(event.args.voteId) === expectedVoteId;
-        });
-
-        if (!matchingEvent) {
-          throw new Error(`Expected Voted event for vote ${eventId} was not found`);
-        }
-
-        return matchingEvent;
-      },
-      'Voted',
-    );
+    return this.executeOperation(callData, undefined, undefined);
   }
 
   async disableVote(eventId: string) {
@@ -319,6 +301,11 @@ export class VoteWritterService {
       recipient
     );
     await this.executeOperation(callData, undefined, undefined);
+  }
+
+  async liquidateVote(eventId: string) {
+    const callData = CreditsContractCalls.liquidate(this.electoralCreditsContract, eventId);
+    return this.executeOperation(callData, undefined, undefined);
   }
 
   // Builds a fixed-depth Poseidon Merkle tree matching MerkleProof(levels) in

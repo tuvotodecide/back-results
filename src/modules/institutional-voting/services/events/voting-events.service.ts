@@ -135,6 +135,7 @@ export class VotingEventsService {
       name: dto.name,
       objective: dto.objective,
       isReferendum: Boolean(dto.isReferendum),
+      isOpenVoting: Boolean(dto.isOpenVoting),
       votingStart,
       votingEnd,
       resultsPublishAt,
@@ -596,6 +597,7 @@ export class VotingEventsService {
       name: event.name,
       objective: event.objective,
       isReferendum: Boolean(event.isReferendum),
+      isOpenVoting: Boolean(event.isOpenVoting),
       state: event.state,
       votingStart: event.votingStart ?? null,
       votingEnd: event.votingEnd ?? null,
@@ -1209,12 +1211,6 @@ export class VotingEventsService {
       });
     }
 
-    const removedUnregistered =
-      await this.padronService.removeUnregisteredStagingEntriesForOfficialPublication(
-        eventId,
-        requester,
-      );
-
     const readiness = await this.evaluateReviewReadiness(event);
     if (!readiness.isReady) {
       throw new BadRequestException({
@@ -1230,17 +1226,11 @@ export class VotingEventsService {
       certificateMode: 'ON_CONFIRMATION',
     });
 
-    const convotatedUsers = (await this.padronUsersService.getPadronUsersFromEvent(event, {
+    const convotatedUsers = (await this.padronUsersService.getUnresolverPadronUsersFomEvent(event, {
       includeDisabled: false,
     })).map((user) => user.dni);
 
     const dids = await this.issuerService.getDidsByDnis(convotatedUsers);
-    if (dids.length !== convotatedUsers.length) {
-      throw new BadRequestException({
-        message: 'No se pueden emitir credenciales para todos los usuarios convocados',
-      });
-    }
-
     const publicationInstitution =
       await this.accessService.resolveOfficialPublicationInstitution(event, requester);
     const preparedVote = await this.voteWritterService.prepareCreateVote(
@@ -1260,19 +1250,22 @@ export class VotingEventsService {
       event,
       preparedVote,
     );
-    const credentialData = await this.issuerService.issueCredential(
-      dids,
-      event._id.toString(),
-      nullifiers,
-    );
 
-    await this.enabledSessionModel.insertMany(
-      convotatedUsers.map((user) => ({
-        eventId: event._id,
-        dni: user,
-        sessionToken: credentialData[user].credentialData,
-      }))
-    );
+    if (dids.length > 0) {
+      const credentialData = await this.issuerService.issueCredential(
+        dids,
+        event._id.toString(),
+        nullifiers,
+      );
+
+      await this.enabledSessionModel.insertMany(
+        dids.map((user) => ({
+          eventId: event._id,
+          dni: user.did,
+          sessionToken: credentialData[user.dni].credentialData,
+        }))
+      );
+    }
 
     event.state = 'OFFICIALLY_PUBLISHED';
     if (typeof event.publicEligibilityEnabled !== 'boolean') {
@@ -1289,7 +1282,7 @@ export class VotingEventsService {
 
     return {
       ...this.mapPublicationStateResponse(event),
-      removedUnregisteredCount: removedUnregistered.removedCount,
+      removedUnregisteredCount: 0,
     };
   }
 

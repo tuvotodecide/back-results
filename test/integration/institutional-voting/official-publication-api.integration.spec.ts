@@ -1,7 +1,23 @@
+jest.mock('@iden3/js-iden3-auth', () => ({
+  auth: {
+    createAuthorizationRequest: jest.fn(() => ({ id: 'official-publication-auth-request' })),
+    Verifier: {
+      newVerifier: jest.fn(async () => ({
+        fullVerify: jest.fn(async () => ({ from: 'did:iden3:test' })),
+      })),
+    },
+  },
+  resolver: {
+    EthStateResolver: jest.fn(),
+  },
+}));
+
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
+import { OfficialPublicationMobileZkAuthGuard } from '@/modules/institutional-voting/auth/official-publication-mobile-zk-auth.guard';
+import { OfficialPublicationMobileRateLimitGuard } from '@/modules/institutional-voting/auth/official-publication-mobile-rate-limit.guard';
 import { OfficialPublicationAdminController } from '@/modules/institutional-voting/controllers/official-publication-admin.controller';
 import { OfficialPublicationMobileController } from '@/modules/institutional-voting/controllers/official-publication-mobile.controller';
 import { OfficialPublicationApiService } from '@/modules/institutional-voting/services/publication/official-publication-api.service';
@@ -60,6 +76,15 @@ describe('Official publication API routes (integration)', () => {
           return true;
         },
       })
+      .overrideGuard(OfficialPublicationMobileZkAuthGuard)
+      .useValue({
+        canActivate: (context: any) => {
+          context.switchToHttp().getRequest().user = { sub: 'admin-1' };
+          return true;
+        },
+      })
+      .overrideGuard(OfficialPublicationMobileRateLimitGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     app = moduleRef.createNestApplication();

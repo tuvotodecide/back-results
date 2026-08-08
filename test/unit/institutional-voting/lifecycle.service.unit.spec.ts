@@ -4,11 +4,15 @@ import { Types } from 'mongoose';
 import { VotingEvent } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { InstitutionalVotingLifecycleService } from '@/modules/institutional-voting/services/events/institutional-voting-lifecycle.service';
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
+import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
+import { HistoryService } from '@/modules/history/services/history.service';
 
 describe('InstitutionalVotingLifecycleService (unit)', () => {
   let service: InstitutionalVotingLifecycleService;
   let votingEventModel: any;
   let notificationsService: any;
+  let voteWritterService: any;
+  let historyService: any;
 
   beforeEach(async () => {
     votingEventModel = {
@@ -20,6 +24,12 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       sendOfficialPublicationReminder: jest.fn().mockResolvedValue({ sent: 1 }),
       notifyResultsAvailableIfEligible: jest.fn().mockResolvedValue({ sent: 0 }),
     };
+    voteWritterService = {
+      liquidateVote: jest.fn().mockResolvedValue({ txHash: '0xabc', date: new Date() }),
+    };
+    historyService = {
+      create: jest.fn().mockResolvedValue(undefined),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -29,6 +39,8 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
           provide: InstitutionalVotingNotificationsService,
           useValue: notificationsService,
         },
+        { provide: VoteWritterService, useValue: voteWritterService },
+        { provide: HistoryService, useValue: historyService },
       ],
     }).compile();
 
@@ -67,7 +79,10 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       limit: jest.fn().mockResolvedValue([]),
     };
     mockEmptyVotingReminderQueries();
-    votingEventModel.find.mockReturnValueOnce(remindableQuery).mockReturnValueOnce(publishableQuery);
+    votingEventModel.find
+      .mockReturnValueOnce(remindableQuery)
+      .mockReturnValueOnce(publishableQuery)
+      .mockResolvedValueOnce([]);
 
     await service.processLifecycle();
 
@@ -98,7 +113,10 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       limit: jest.fn().mockResolvedValue([]),
     };
     mockEmptyVotingReminderQueries();
-    votingEventModel.find.mockReturnValueOnce(remindableQuery).mockReturnValueOnce(publishableQuery);
+    votingEventModel.find
+      .mockReturnValueOnce(remindableQuery)
+      .mockReturnValueOnce(publishableQuery)
+      .mockResolvedValueOnce([]);
 
     await service.processLifecycle();
 
@@ -191,7 +209,10 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
     jest.useFakeTimers().setSystemTime(now);
 
     mockEmptyVotingReminderQueries();
-    votingEventModel.find.mockReturnValueOnce(emptyFindQuery()).mockReturnValueOnce(emptyFindQuery());
+    votingEventModel.find
+      .mockReturnValueOnce(emptyFindQuery())
+      .mockReturnValueOnce(emptyFindQuery())
+      .mockResolvedValueOnce([]);
 
     await service.processLifecycle();
 

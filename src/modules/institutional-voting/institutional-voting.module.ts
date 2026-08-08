@@ -104,6 +104,8 @@ import { OfficialPublicationUserOperationService } from './services/publication/
 import { OfficialPublicationMobileZkAuthGuard } from './auth/official-publication-mobile-zk-auth.guard';
 import { OfficialPublicationMobileZkAuthService } from './auth/official-publication-mobile-zk-auth.service';
 import { OfficialPublicationMobileRateLimitGuard } from './auth/official-publication-mobile-rate-limit.guard';
+import { HistoryModule } from '../history/history.module';
+import { CreditsReaderService } from './services/core/credits-reader.service';
 
 @Module({
   imports: [
@@ -138,6 +140,7 @@ import { OfficialPublicationMobileRateLimitGuard } from './auth/official-publica
     FirebaseModule,
     MerkletreeModule,
     TvdModule,
+    HistoryModule
   ],
   controllers: [
     InstitutionalVotingPublicController,
@@ -157,6 +160,7 @@ import { OfficialPublicationMobileRateLimitGuard } from './auth/official-publica
     PadronGeminiImportService,
     VoteReaderService,
     VoteWritterService,
+    CreditsReaderService,
     EmitVoteService,
     VotingEventsService,
     InstitutionalVotingLifecycleService,

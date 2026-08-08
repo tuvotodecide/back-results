@@ -7,6 +7,9 @@ import {
   VotingEventDocument,
 } from '../../schemas/voting-event.schema';
 import { InstitutionalVotingNotificationsService } from '../notifications/institutional-voting-notifications.service';
+import { VoteWritterService } from '../core/vote-writter.service';
+import { HistoryService } from '@/modules/history/services/history.service';
+import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
 
 @Injectable()
 export class InstitutionalVotingLifecycleService {
@@ -23,6 +26,8 @@ export class InstitutionalVotingLifecycleService {
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
+    private readonly voteWritterService: VoteWritterService,
+    private readonly historyService: HistoryService,
   ) {}
 
   @Cron('*/1 * * * *')
@@ -84,6 +89,8 @@ export class InstitutionalVotingLifecycleService {
         resultsNotifiedAt: { $exists: false },
       })
       .limit(50);
+
+    await this.processVoteLiquidation();
 
     for (const event of publishable) {
       if (event.state !== 'RESULTS_PUBLISHED') {
@@ -170,5 +177,45 @@ export class InstitutionalVotingLifecycleService {
     }
 
     return results;
+  }
+
+  async processVoteLiquidation() {
+    const now = new Date();
+
+    const endedElections = await this.votingEventModel.find(
+      {
+        state: { $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED', 'CLOSED', 'RESULTS_PUBLISHED'] },
+        isLiquidated: false,
+        votingEnd: { $lte: now },
+      }
+    );
+
+    const promises = endedElections.map(async item => {
+      const voteId = item._id.toString();
+      try {
+        const {txHash, date} = await this.voteWritterService.liquidateVote(voteId);
+        await this.historyService.create({
+          txHash,
+          operationName: HistoryOperationKey.electionLiquidated,
+          type: HistoryType.AUTOMATED,
+          registerDate: date,
+          electionId: voteId,
+        });
+        return item;
+      } catch (error) {
+        this.logger.error(`Error liquidating election ${voteId}: ` + error);
+        throw error;
+      }
+    });
+
+    const successElections = (await Promise.allSettled(promises))
+      .filter(result => result.status === 'fulfilled')
+      .map(result => result.value);
+
+    await this.votingEventModel.updateMany({
+      _id: { $in: successElections.map(i => i._id) }
+    }, {
+      $set: { isLiquidated: true }
+    });
   }
 }

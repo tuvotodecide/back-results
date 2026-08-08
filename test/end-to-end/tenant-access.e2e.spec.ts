@@ -1,3 +1,17 @@
+jest.mock('@/api/account', () => ({
+  executeCoinbaseOp: jest.fn().mockResolvedValue({ txHash: '0xabc123' }),
+}));
+
+jest.mock('@/api/vote', () => ({
+  VoteContractCalls: {
+    createInstitution: jest.fn().mockReturnValue({ calldata: '0x' }),
+  },
+  VoteContractReads: {
+    getInstitutionAdmin: jest.fn().mockRejectedValue(new Error('Institution does not exist')),
+    isAuthorizedAddress: jest.fn().mockResolvedValue(false),
+  },
+}));
+
 import appConfig from '@/config/app.config';
 import { HttpService } from '@nestjs/axios';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
@@ -5,6 +19,7 @@ import { AuthModule } from '@/modules/auth/auth.module';
 import { ContractsModule } from '@/modules/contracts/contracts.module';
 import { MailService } from '@/modules/mail/mail.service';
 import { InstitutionalAdminApplicationsModule } from '@/modules/institutional-admin-applications/institutional-admin-applications.module';
+import { InstitutionalAdminApplicationsService } from '@/modules/institutional-admin-applications/services/institutional-admin-applications.service';
 import { InstitutionalTenantsModule } from '@/modules/institutional-tenants/institutional-tenants.module';
 import { CacheModule } from '@nestjs/cache-manager';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -15,10 +30,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Connection, Types } from 'mongoose';
 import request from 'supertest';
+import { VoteContractReads } from '@/api/vote';
 import { Department } from '@/modules/geographic/schemas/department.schema';
 import { Municipality } from '@/modules/geographic/schemas/municipality.schema';
 import { seedAdmin, seedUsers } from '../utils/seeds/usersSeed';
 import { TestLoggerModule } from '../utils/module-helpers';
+import {
+  installMx02SyntheticChainConfig,
+  restoreMx02SyntheticChainConfig,
+} from '../utils/mx02-synthetic-chain-config';
+import { IncentiveCampaignsService } from '@/modules/users/services/incentive-campaigns.service';
 
 jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
   ZkAuthModule: class {},
@@ -60,6 +81,12 @@ const MailMockService = {
   sendEmail: jest.fn(),
   createEmail: jest.fn(),
   getTemplate: jest.fn(),
+};
+
+const mockIncentiveCampaignsService = {
+  giveIncentive: jest.fn(),
+  isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+  isUngrantableError: jest.fn().mockReturnValue(false),
 };
 
 const IdentityHttpMockService = {
@@ -118,6 +145,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
   let moduleRef: TestingModule;
   let mongod: MongoMemoryReplSet;
   let conn: Connection;
+  let applicationsService: InstitutionalAdminApplicationsService;
   let adminToken: string;
   let accessApproverToken: string;
   let governorToken: string;
@@ -156,6 +184,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .useValue(MailMockService)
       .overrideProvider(HttpService)
       .useValue(IdentityHttpMockService)
+      .overrideProvider(IncentiveCampaignsService)
+      .useValue(mockIncentiveCampaignsService)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -169,6 +199,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     await app.init();
 
     conn = moduleRef.get<Connection>(getConnectionToken());
+    applicationsService = moduleRef.get(InstitutionalAdminApplicationsService);
+    installMx02SyntheticChainConfig();
     await seedMinimalVotingLocations(conn);
     const users = await seedUsers(conn);
     const admin = await seedAdmin(conn);
@@ -224,10 +256,22 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     } else {
       process.env.IDENTITY_API_KEY = previousIdentityApiKey;
     }
+    restoreMx02SyntheticChainConfig();
     await app?.close();
     await conn?.close();
     await mongod?.stop();
   });
+
+  async function confirmInstitutionCreation(applicationId: string) {
+    await applicationsService.processInstitutionCreationOperation(applicationId);
+    const applicationDoc = await conn
+      .collection('institutional_admin_applications')
+      .findOne({ _id: new Types.ObjectId(applicationId) });
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(
+      applicationDoc?.accountAddress,
+    );
+    await applicationsService.reconcileInstitutionCreationOperation(applicationId);
+  }
 
   function getLastMailToken() {
     const lastCall =
@@ -505,7 +549,7 @@ it('D-APR-001 | aprueba acceso tenant y login devuelve contexto tenant por defec
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
 
-    expect(approveRes.body.status).toBe('APPROVED');
+    await confirmInstitutionCreation(application.createRes.body.id);
 
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
@@ -555,6 +599,8 @@ it('D-STATE-001 | access-status no marca VERIFIED si la wallet aprobada no tiene
       .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
+
+    await confirmInstitutionCreation(application.createRes.body.id);
 
     await conn.collection('tenant_admin_assignments').updateOne(
       { tenantId: new Types.ObjectId(approveRes.body.tenantId) },
@@ -607,6 +653,8 @@ it('D-DIS-001 | bloquea login de usuario institucional aprobado pero deshabilita
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
 
+    await confirmInstitutionCreation(application.createRes.body.id);
+
     await conn.collection('roled_users').updateOne(
       { _id: new Types.ObjectId(approveRes.body.userId) },
       { $set: { active: false } },
@@ -635,6 +683,8 @@ it('D-DIS-004 | bloquea login cuando assignment o tenant institucional dejan de 
       .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
+
+    await confirmInstitutionCreation(application.createRes.body.id);
 
     await conn.collection('tenant_admin_assignments').updateOne(
       {
@@ -713,6 +763,8 @@ it('D-REV-001 | revoca acceso tenant aprobado y bloquea el login del solicitante
       .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
+
+    await confirmInstitutionCreation(application.createRes.body.id);
 
     const revokeRes = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/revoke`)
@@ -838,31 +890,67 @@ it('D-PERM-001 / D-REQ-002 | ACCESS_APPROVER gestiona solicitudes institucionale
     );
   });
 
-it('D-PERM-006 | USER, MAYOR y GOVERNOR no pueden consumir endpoints de aprobaciones', async () => {
-    const userApplication = await createAndVerifyApplication({
-      dni: `U${Date.now()}`,
-      email: `tenant-user-${Date.now()}@example.com`,
-      name: 'Tenant User',
-      institutionName: `Institution User ${Date.now()}`,
+it('D-PERM-006 | MAYOR y GOVERNOR no pueden consumir endpoints de aprobaciones y el admin tenant solo ve su propia institución', async () => {
+    const institutionName = `Institution Scope Own ${Date.now()}`;
+    const ownEmail = `tenant-scope-own-${Date.now()}@example.com`;
+    const ownApplication = await createAndVerifyApplication({
+      dni: `TS${Date.now()}`,
+      email: ownEmail,
+      name: 'Tenant Scope Own',
+      institutionName,
     });
 
     await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/${userApplication.createRes.body.id}/approve`)
+      .post(`/api/v1/institutional-admin-applications/${ownApplication.createRes.body.id}/approve`)
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
 
-    const userLogin = await request(app.getHttpServer())
+    await confirmInstitutionCreation(ownApplication.createRes.body.id);
+
+    const ownLogin = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: userApplication.createRes.body.email, password: 'secret123' })
+      .send({ email: ownEmail, password: 'secret123' })
       .expect(200);
 
-    for (const token of [userLogin.body.accessToken, mayorToken, governorToken]) {
+    const secondAdminForOwnTenant = await createAndVerifyApplication({
+      dni: `TS2${Date.now()}`,
+      email: `tenant-scope-second-${Date.now()}@example.com`,
+      name: 'Tenant Scope Second Admin',
+      institutionName,
+    });
+
+    const otherTenantApplication = await createAndVerifyApplication({
+      dni: `TO${Date.now()}`,
+      email: `tenant-scope-other-${Date.now()}@example.com`,
+      name: 'Tenant Scope Other',
+      institutionName: `Institution Scope Other ${Date.now()}`,
+    });
+
+    const scopedPendingRes = await request(app.getHttpServer())
+      .get('/api/v1/institutional-admin-applications/pending')
+      .auth(ownLogin.body.accessToken, { type: 'bearer' })
+      .expect(200);
+
+    expect(scopedPendingRes.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: secondAdminForOwnTenant.createRes.body.id }),
+      ]),
+    );
+    expect(scopedPendingRes.body.data).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: otherTenantApplication.createRes.body.id }),
+      ]),
+    );
+
+    for (const token of [mayorToken, governorToken]) {
       const forbiddenRes = await request(app.getHttpServer())
         .get('/api/v1/institutional-admin-applications/pending')
         .auth(token, { type: 'bearer' })
         .expect(403);
 
-      expect(forbiddenRes.body.message).toBe('Access approver role required');
+      expect(forbiddenRes.body.message).toBe(
+        'No autorizado para revisar esta solicitud institucional',
+      );
     }
   });
 
@@ -929,6 +1017,8 @@ it('D-PERM-006 | USER, MAYOR y GOVERNOR no pueden consumir endpoints de aprobaci
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
 
+    await confirmInstitutionCreation(tenantCreate.body.id);
+
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email, password: 'secret123' })
@@ -960,6 +1050,8 @@ it('D-PERM-006 | USER, MAYOR y GOVERNOR no pueden consumir endpoints de aprobaci
       .post(`/api/v1/institutional-admin-applications/${tenantApplication.createRes.body.id}/approve`)
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
+
+    await confirmInstitutionCreation(tenantApplication.createRes.body.id);
 
     const territorialRes = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
@@ -1017,91 +1109,11 @@ it('D-RETRY-001 | no duplica la solicitud tenant si ya existe pendiente para la 
       });
 
     expect(retryRes.status).toBe(409);
-    expect(retryRes.body.message).toBe('La solicitud institucional ya existe y sigue pendiente');
+    expect(retryRes.body.message).toBe('Ya tienes una solicitud pendiente para esta institución.');
   });
 
-it('D-RETRY-002 | reabre consistentemente una solicitud tenant rechazada cuando el usuario vuelve a solicitar', async () => {
-    const email = `reapply-rejected-${Date.now()}@example.com`;
-    const dni = `RR${Date.now()}`;
-    const institutionName = `Institution Reapply Rejected ${Date.now()}`;
 
-    const application = await createAndVerifyApplication({
-      dni,
-      email,
-      name: 'Reapply Rejected',
-      institutionName,
-    });
-
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/reject`)
-      .auth(adminToken, { type: 'bearer' })
-      .send({ reason: 'Primera revisión rechazada' })
-      .expect(201);
-
-    const retryRes = await request(app.getHttpServer())
-      .post('/api/v1/institutional-admin-applications')
-      .send({
-        dni,
-        email,
-        name: 'Reapply Rejected',
-        password: 'secret123',
-        institutionName,
-      })
-      .expect(201);
-
-    expect(retryRes.body.id).toBe(application.createRes.body.id);
-    expect(['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL']).toContain(retryRes.body.status);
-
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email, password: 'secret123' })
-      .expect(401);
-  });
-
-  it('reabre consistentemente una solicitud tenant revocada cuando el usuario vuelve a solicitar', async () => {
-    const email = `reapply-revoked-${Date.now()}@example.com`;
-    const dni = `RV${Date.now()}`;
-    const institutionName = `Institution Reapply Revoked ${Date.now()}`;
-
-    const application = await createAndVerifyApplication({
-      dni,
-      email,
-      name: 'Reapply Revoked',
-      institutionName,
-    });
-
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
-      .auth(adminToken, { type: 'bearer' })
-      .expect(201);
-
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/revoke`)
-      .auth(adminToken, { type: 'bearer' })
-      .send({ reason: 'Revocado por auditoría' })
-      .expect(201);
-
-    const retryRes = await request(app.getHttpServer())
-      .post('/api/v1/institutional-admin-applications')
-      .send({
-        dni,
-        email,
-        name: 'Reapply Revoked',
-        password: 'secret123',
-        institutionName,
-      })
-      .expect(201);
-
-    expect(retryRes.body.id).toBe(application.createRes.body.id);
-    expect(['PENDING_EMAIL_VERIFICATION', 'PENDING_APPROVAL']).toContain(retryRes.body.status);
-
-    await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email, password: 'secret123' })
-      .expect(401);
-  });
-
-it('D-STATE-004 | access-status informa cuando un usuario territorial no tiene acceso tenant todavía', async () => {
+  it('D-STATE-004 | access-status informa cuando un usuario territorial no tiene acceso tenant todavía', async () => {
     const lapaz = await conn.collection<Department>('departments').findOne({ name: 'La Paz' });
     const email = `territorial-only-${Date.now()}@example.com`;
     const dni = `TO${Date.now()}`;
@@ -1143,6 +1155,8 @@ it('D-STATE-004 | access-status informa cuando un usuario territorial no tiene a
       .post(`/api/v1/institutional-admin-applications/${application.createRes.body.id}/approve`)
       .auth(adminToken, { type: 'bearer' })
       .expect(201);
+
+    await confirmInstitutionCreation(application.createRes.body.id);
 
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')

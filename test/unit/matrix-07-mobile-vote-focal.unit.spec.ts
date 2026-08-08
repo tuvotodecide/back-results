@@ -17,6 +17,9 @@ describe('MX-07 mobile vote focal unit coverage', () => {
   let writer: { castVote: jest.Mock };
   let zk: { zkRequestCallback: jest.Mock };
   let options: { findById: jest.Mock };
+  let history: { create: jest.Mock };
+  let voteReader: { isDniInMerkleTree: jest.Mock };
+  let issuer: { getDidsByDnis: jest.Mock; issueCredential: jest.Mock };
 
   const proof = (scopes: unknown[] = [
     { id: 1, vp: { verifiableCredential: { credentialSubject: { eventId } } } },
@@ -27,11 +30,17 @@ describe('MX-07 mobile vote focal unit coverage', () => {
     writer = { castVote: jest.fn().mockResolvedValue({ receipt: { status: 'success' }, event: 'Voted' }) };
     zk = { zkRequestCallback: jest.fn().mockResolvedValue(proof()) };
     options = { findById: jest.fn().mockReturnValue(resolved({ name: 'Frente Azul' })) };
+    history = { create: jest.fn().mockResolvedValue(undefined) };
+    voteReader = { isDniInMerkleTree: jest.fn() };
+    issuer = { getDidsByDnis: jest.fn(), issueCredential: jest.fn() };
     emit = new EmitVoteService(
       { findOne: jest.fn() } as never,
       options as never,
       zk as never,
       writer as never,
+      history as never,
+      voteReader as never,
+      issuer as never,
     );
   });
 

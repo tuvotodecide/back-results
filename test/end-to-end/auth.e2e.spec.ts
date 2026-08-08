@@ -32,6 +32,7 @@ import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import Papa from 'papaparse';
 import { seedElectionConfigWith } from '../utils/seeds/electionsSeed';
 import path from 'path';
+import { IncentiveCampaignsService } from '@/modules/users/services/incentive-campaigns.service';
 
 // Avoid loading the real zk-auth module (pulls ESM deps) during tests
 jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
@@ -48,6 +49,12 @@ const MailMockService = {
   sendEmail: jest.fn(),
   createEmail: jest.fn(),
   getTemplate: jest.fn(),
+};
+
+const mockIncentiveCampaignsService = {
+  giveIncentive: jest.fn(),
+  isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+  isUngrantableError: jest.fn().mockReturnValue(false),
 };
 
 jest.setTimeout(180000);
@@ -92,6 +99,8 @@ describe('Auth E2E testing + contracts and delegates', () => {
     })
       .overrideProvider(MailService)
       .useValue(MailMockService)
+      .overrideProvider(IncentiveCampaignsService)
+      .useValue(mockIncentiveCampaignsService)
       .compile();
 
     app = moduleRef.createNestApplication();

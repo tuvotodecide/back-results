@@ -34,6 +34,11 @@ export class CreateVotingEventDto {
   @IsBoolean()
   isReferendum?: boolean;
 
+  @ApiProperty({ required: false, default: false })
+  @IsOptional()
+  @IsBoolean()
+  isOpenVoting?: boolean;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsDateString()

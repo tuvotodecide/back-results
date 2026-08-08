@@ -115,7 +115,7 @@ export class OfficialPublicationFinalizationService {
         );
       }
 
-      if (!credentialData) {
+      if (!credentialData) {        
         const loaded = await this.artifactsService.loadArtifactPayload(request.requestId);
         credentialData = loaded.payload.credentialData;
       }

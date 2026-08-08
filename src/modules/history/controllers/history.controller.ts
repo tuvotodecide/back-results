@@ -7,7 +7,7 @@ import { JwtOrApiKeyGuard } from '@/core/guards/jwt-or-api-key.guard';
 
 @Public()
 @UseGuards(JwtOrApiKeyGuard)
-@Controller('history')
+@Controller('api/v1/history')
 export class HistoryController {
   constructor(private readonly historyService: HistoryService) {}
 

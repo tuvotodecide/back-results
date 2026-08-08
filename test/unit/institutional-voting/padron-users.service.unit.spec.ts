@@ -6,7 +6,6 @@ import { PadronVersion } from '@/modules/institutional-voting/schemas/padron-ver
 import { PadronEntry } from '@/modules/institutional-voting/schemas/padron-entry.schema';
 import { ComparisonReport } from '@/modules/institutional-voting/schemas/comparison-report.schema';
 import { User } from '@/modules/users/schemas/user.schema';
-import { IssuerService } from '@/modules/institutional-voting/services/core/issuer.service';
 
 describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | PadronUsersService', () => {
   it('PAD-ROW-P0-002 / PAD-SEC-P0-001 | resuelve solo votantes registrados sin crear usuarios por DNI del padrón', async () => {
@@ -52,22 +51,16 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
           provide: getModelToken(User.name),
           useValue: userModel,
         },
-        {
-          provide: IssuerService,
-          useValue: {
-            getDidsByDnis: jest.fn().mockResolvedValue([{ dni: '11111' }]),
-          },
-        },
       ],
     }).compile();
 
     const service = moduleRef.get(PadronUsersService);
 
-    const result = await service.getPadronUsersFromEvent({ _id: eventId } as any);
+    const result = await service.getResolvedPadronUsersFomEvent({ _id: eventId } as any);
 
     expect(userModel.bulkWrite).not.toHaveBeenCalled();
     expect(userModel.find).toHaveBeenCalledWith(
-      { dni: { $in: ['11111'] }, active: true },
+      { dni: { $in: ['11111', '22222'] }, active: true },
       { _id: 1, dni: 1, active: 1 },
     );
     expect(result).toEqual([{ _id: userId, dni: '11111', active: true, enabled: true }]);

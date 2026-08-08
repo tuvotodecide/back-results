@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { createHash } from 'crypto';
@@ -64,10 +65,6 @@ export class OfficialPublicationPreparationService {
     const publicationInstitution =
       await this.accessService.resolveOfficialPublicationInstitution(event, requester);
 
-    await this.padronService.removeUnregisteredStagingEntriesForOfficialPublication(
-      eventId,
-      requester,
-    );
     await this.padronService.materializeActiveDraftVersion(eventId, requester, {
       comparisonStatus: 'OK',
       deactivateDraft: false,
@@ -86,7 +83,7 @@ export class OfficialPublicationPreparationService {
     }
 
     const convotatedUsers = (
-      await this.padronUsersService.getPadronUsersFromEvent(event, {
+      await this.padronUsersService.getUnresolverPadronUsersFomEvent(event, {
         includeDisabled: false,
       })
     ).map((user) => String(user.dni));
@@ -108,13 +105,6 @@ export class OfficialPublicationPreparationService {
     }
 
     const dids = await this.issuerService.getDidsByDnis(convotatedUsers);
-    if (dids.length !== convotatedUsers.length) {
-      throw new BadRequestException({
-        code: 'OFFICIAL_PUBLICATION_DID_MISSING',
-        message: 'No se pueden emitir credenciales para todos los usuarios convocados',
-      });
-    }
-
     const options = activeOptions.map((option) => String(option.name));
     const preparedVote = await this.voteWritterService.prepareCreateVote(
       event,

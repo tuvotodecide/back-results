@@ -81,7 +81,7 @@ describe('HistoryController (integration)', () => {
   }
 
   async function createHistory(overrides: Record<string, any> = {}) {
-    return authedPost('/history').send(buildPayload(overrides));
+    return authedPost('/api/v1/history').send(buildPayload(overrides));
   }
 
   describe('POST /history', () => {
@@ -97,7 +97,7 @@ describe('HistoryController (integration)', () => {
         electionId,
       });
 
-      const res = await authedPost('/history').send(payload);
+      const res = await authedPost('/api/v1/history').send(payload);
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
@@ -128,7 +128,7 @@ describe('HistoryController (integration)', () => {
       const electionId = new Types.ObjectId().toString();
       const payload = buildPayload({ roledUserId, institutionId, electionId });
 
-      const res = await authedPost('/history').send(payload);
+      const res = await authedPost('/api/v1/history').send(payload);
       expect(res.status).toBe(201);
 
       const stored: any = await conn
@@ -142,13 +142,13 @@ describe('HistoryController (integration)', () => {
 
     it('responde 400 si los campos string están vacíos', async () => {
       const payload = buildPayload({ operationName: '' });
-      const res = await authedPost('/history').send(payload);
+      const res = await authedPost('/api/v1/history').send(payload);
 
       expect(res.status).toBe(400);
     });
 
     it('responde 400 si faltan campos requeridos', async () => {
-      const res = await authedPost('/history').send({ txHash: '0x1' });
+      const res = await authedPost('/api/v1/history').send({ txHash: '0x1' });
 
       expect(res.status).toBe(400);
     });
@@ -156,7 +156,7 @@ describe('HistoryController (integration)', () => {
     it('responde 400 si roledUserId no es un ObjectId válido', async () => {
       const payload = buildPayload({ roledUserId: 'not-an-id' });
 
-      const res = await authedPost('/history').send(payload);
+      const res = await authedPost('/api/v1/history').send(payload);
 
       expect(res.status).toBe(400);
     });
@@ -167,7 +167,7 @@ describe('HistoryController (integration)', () => {
       const created = await createHistory();
       const id = created.body.data._id;
 
-      const res = await authedGet(`/history/${id}`);
+      const res = await authedGet(`/api/v1/history/${id}`);
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -177,7 +177,7 @@ describe('HistoryController (integration)', () => {
     it('responde 404 cuando el registro no existe', async () => {
       const missingId = new Types.ObjectId().toString();
 
-      const res = await authedGet(`/history/${missingId}`);
+      const res = await authedGet(`/api/v1/history/${missingId}`);
 
       expect(res.status).toBe(404);
     });
@@ -189,7 +189,7 @@ describe('HistoryController (integration)', () => {
         await createHistory({ txHash: `0xpage${i}` });
       }
 
-      const page1 = await authedGet('/history').query({ page: 1, limit: 10 });
+      const page1 = await authedGet('/api/v1/history').query({ page: 1, limit: 10 });
 
       expect(page1.status).toBe(200);
       expect(page1.body.data.items).toHaveLength(10);
@@ -198,7 +198,7 @@ describe('HistoryController (integration)', () => {
       expect(page1.body.data.page).toBe(1);
       expect(page1.body.data.limit).toBe(10);
 
-      const page2 = await authedGet('/history').query({ page: 2, limit: 10 });
+      const page2 = await authedGet('/api/v1/history').query({ page: 2, limit: 10 });
 
       expect(page2.status).toBe(200);
       expect(page2.body.data.items).toHaveLength(5);
@@ -209,7 +209,7 @@ describe('HistoryController (integration)', () => {
       await createHistory({ txHash: '0xmulti', type: HistoryType.MULTISIG });
       await createHistory({ txHash: '0xowner', type: HistoryType.OWNER });
 
-      const res = await authedGet('/history').query({ type: HistoryType.OWNER });
+      const res = await authedGet('/api/v1/history').query({ type: HistoryType.OWNER });
 
       expect(res.status).toBe(200);
       expect(res.body.data.items).toHaveLength(1);
@@ -226,11 +226,11 @@ describe('HistoryController (integration)', () => {
         operationName: HistoryOperationKey.createElection,
       });
 
-      const byTxHash = await authedGet('/history').query({ txHash: '0xfoo' });
+      const byTxHash = await authedGet('/api/v1/history').query({ txHash: '0xfoo' });
       expect(byTxHash.body.data.items).toHaveLength(1);
       expect(byTxHash.body.data.items[0].txHash).toBe('0xfoo');
 
-      const byName = await authedGet('/history').query({ operationName: HistoryOperationKey.setBurnBps });
+      const byName = await authedGet('/api/v1/history').query({ operationName: HistoryOperationKey.setBurnBps });
       expect(byName.body.data.items).toHaveLength(1);
       expect(byName.body.data.items[0].operationName).toBe(HistoryOperationKey.setBurnBps);
     });
@@ -248,7 +248,7 @@ describe('HistoryController (integration)', () => {
       });
       await createHistory({ txHash: '0xunrelated' });
 
-      const res = await authedGet('/history').query({ roledUserId, institutionId, electionId });
+      const res = await authedGet('/api/v1/history').query({ roledUserId, institutionId, electionId });
 
       expect(res.status).toBe(200);
       expect(res.body.data.items).toHaveLength(1);
@@ -265,7 +265,7 @@ describe('HistoryController (integration)', () => {
         registerDate: new Date('2026-06-01T00:00:00.000Z').toISOString(),
       });
 
-      const res = await authedGet('/history').query({
+      const res = await authedGet('/api/v1/history').query({
         registerDateFrom: '2025-01-01T00:00:00.000Z',
         registerDateTo: '2026-12-31T23:59:59.000Z',
       });
@@ -276,7 +276,7 @@ describe('HistoryController (integration)', () => {
     });
 
     it('responde 400 si se envía un query param desconocido', async () => {
-      const res = await authedGet('/history').query({ unknownParam: 'x' });
+      const res = await authedGet('/api/v1/history').query({ unknownParam: 'x' });
 
       expect(res.status).toBe(400);
     });
@@ -284,7 +284,7 @@ describe('HistoryController (integration)', () => {
 
   describe('GET /history/contracts', () => {
     it('responde {success, data} con las direcciones de contratos configuradas', async () => {
-      const res = await authedGet('/history/contracts');
+      const res = await authedGet('/api/v1/history/contracts');
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -305,33 +305,33 @@ describe('HistoryController (integration)', () => {
 
   describe('autenticación (JWT o API key)', () => {
     it('responde 401 si no se envía JWT ni API key', async () => {
-      const res = await request(httpServer).get('/history/contracts');
+      const res = await request(httpServer).get('/api/v1/history/contracts');
       expect(res.status).toBe(401);
     });
 
     it('responde 401 si el JWT es inválido y no se envía API key', async () => {
       const res = await request(httpServer)
-        .get('/history/contracts')
+        .get('/api/v1/history/contracts')
         .set('Authorization', 'Bearer invalid-token');
       expect(res.status).toBe(401);
     });
 
     it('permite acceso solo con API key válida', async () => {
       const res = await request(httpServer)
-        .get('/history/contracts')
+        .get('/api/v1/history/contracts')
         .set('x-api-key', apiKey);
       expect(res.status).toBe(200);
     });
 
     it('responde 401 si la API key es inválida y no se envía JWT', async () => {
       const res = await request(httpServer)
-        .get('/history/contracts')
+        .get('/api/v1/history/contracts')
         .set('x-api-key', 'wrong-key');
       expect(res.status).toBe(401);
     });
 
     it('permite acceso solo con JWT válido', async () => {
-      const res = await authedGet('/history/contracts');
+      const res = await authedGet('/api/v1/history/contracts');
       expect(res.status).toBe(200);
     });
   });

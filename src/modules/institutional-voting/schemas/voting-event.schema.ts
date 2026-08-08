@@ -28,6 +28,9 @@ export class VotingEvent {
   @Prop({ type: Boolean, default: false })
   isReferendum?: boolean;
 
+  @Prop({ type: Boolean, default: false })
+  isOpenVoting?: boolean;
+
   @Prop({ type: Date, required: false })
   votingStart?: Date;
 
@@ -120,6 +123,9 @@ export class VotingEvent {
 
   @Prop({ type: Date, required: false })
   presentialKioskLastUsedAt?: Date;
+
+  @Prop({ type: Boolean, default: false })
+  isLiquidated?: boolean;
 }
 
 export const VotingEventSchema = SchemaFactory.createForClass(VotingEvent);

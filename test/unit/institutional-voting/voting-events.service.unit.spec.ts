@@ -189,7 +189,7 @@ describe('VotingEventsService (unit)', () => {
       }),
     };
     padronUsersService = {
-      getPadronUsersFromEvent: jest.fn(),
+      getUnresolverPadronUsersFomEvent: jest.fn(),
     };
     issuerService = {
       issueCredential: jest.fn(),
@@ -595,7 +595,7 @@ describe('VotingEventsService (unit)', () => {
     padronVersionModel.findOne.mockReturnValue({
       lean: jest.fn().mockResolvedValue(currentPadron),
     });
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([{ dni: '111' }]);
+    padronUsersService.getUnresolverPadronUsersFomEvent.mockResolvedValue([{ dni: '111' }]);
     issuerService.issueCredential.mockResolvedValue({
       '111': { credentialData: 'credential-111' },
     });
@@ -638,89 +638,6 @@ describe('VotingEventsService (unit)', () => {
     expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
     expect(notificationsService.notifyOfficialPublicationConfirmed).toHaveBeenCalledWith(event);
     expect(result.state).toBe('OFFICIALLY_PUBLISHED');
-  });
-
-  it('elimina no registrados antes de confirmar la publicación oficial', async () => {
-    const importJobId = new Types.ObjectId();
-    const event = {
-      _id: new Types.ObjectId(),
-      tenantId: new Types.ObjectId(),
-      state: 'READY_FOR_REVIEW',
-      name: 'Eleccion 2026',
-      objective: 'Elegir directiva',
-      votingStart: new Date(Date.now() + 48 * 60 * 60 * 1000),
-      votingEnd: new Date(Date.now() + 49 * 60 * 60 * 1000),
-      resultsPublishAt: new Date(Date.now() + 50 * 60 * 60 * 1000),
-      publishDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
-      convocationNotifiedAt: new Date(),
-      save: jest.fn().mockResolvedValue(undefined),
-    };
-
-    accessService.getEventOrThrow.mockResolvedValue(event);
-    eventRoleModel.find.mockReturnValue({
-      lean: jest.fn().mockResolvedValue([{ name: 'Presidente' }]),
-    });
-    votingOptionModel.find.mockReturnValue({
-      lean: jest.fn().mockResolvedValue([{ name: 'Frente Azul', active: true, candidates: [{ roleName: 'Presidente' }] }]),
-    });
-    padronVersionModel.findOne.mockReturnValue({
-      lean: jest.fn().mockResolvedValue(null),
-    });
-    padronImportJobModel.findOne
-      .mockReturnValueOnce({
-        sort: jest.fn().mockReturnValue({
-          lean: jest.fn().mockResolvedValue({
-            _id: importJobId,
-            summary: {
-              stagingCount: 2,
-              invalidCount: 0,
-              duplicateCount: 0,
-              enabledCount: 1,
-              disabledCount: 1,
-              missingIdentityCount: 1,
-            },
-          }),
-        }),
-      })
-      .mockReturnValueOnce({
-        sort: jest.fn().mockReturnValue({
-          lean: jest.fn().mockResolvedValue({
-            _id: importJobId,
-            summary: {
-              stagingCount: 1,
-              invalidCount: 0,
-              duplicateCount: 0,
-              enabledCount: 1,
-              disabledCount: 0,
-              missingIdentityCount: 0,
-            },
-          }),
-        }),
-      });
-    padronService.removeUnregisteredStagingEntriesForOfficialPublication.mockResolvedValue({
-      removedCount: 1,
-      remainingCount: 2,
-    });
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([{ dni: '111' }]);
-    issuerService.getDidsByDnis.mockResolvedValue([{ dni: '111' }]);
-    issuerService.issueCredential.mockResolvedValue({
-      '111': { credentialData: 'credential-111' },
-    });
-    enabledSessionModel.insertMany.mockResolvedValue([]);
-    notificationsService.notifyOfficialPublicationConfirmed.mockResolvedValue({ sent: 1 });
-
-    const result = await service.confirmOfficialPublication(String(event._id), {}, { sub: 'admin-1' });
-
-    expect(padronService.removeUnregisteredStagingEntriesForOfficialPublication).toHaveBeenCalledWith(
-      String(event._id),
-      { sub: 'admin-1' },
-    );
-    expect(padronService.materializeActiveDraftVersion).toHaveBeenCalledTimes(1);
-    expect(notificationsService.notifyConvocationIfEligible).not.toHaveBeenCalled();
-    expect(result).toEqual(expect.objectContaining({
-      state: 'OFFICIALLY_PUBLISHED',
-      removedUnregisteredCount: 1,
-    }));
   });
 
   it('bloquea publicación oficial si todos los registros siguen no registrados', async () => {

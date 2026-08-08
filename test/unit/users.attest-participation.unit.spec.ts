@@ -22,6 +22,23 @@ jest.mock('@/abi/participation.json', () => [
   { type: 'function', name: 'safeMint' },
 ]);
 
+jest.mock('viem/accounts', () => ({
+  privateKeyToAccount: jest.fn(() => ({ address: '0xAccount' })),
+}));
+
+jest.mock('viem/account-abstraction', () => ({
+  entryPoint07Address: '0xEntryPoint',
+  toCoinbaseSmartAccount: jest.fn(),
+}));
+
+jest.mock('permissionless/clients/pimlico', () => ({
+  createPimlicoClient: jest.fn(),
+}));
+
+jest.mock('permissionless', () => ({
+  createSmartAccountClient: jest.fn(),
+}));
+
 import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Types } from 'mongoose';
@@ -32,6 +49,8 @@ describe('UsersService attestParticipationNft (unit)', () => {
   let electoralTableModel: any;
   let electoralLocationModel: any;
   let configService: any;
+  let incentiveService: any;
+  let historyService: any;
   let service: UsersService;
 
   const userId = new Types.ObjectId('650000000000000000000001');
@@ -61,6 +80,15 @@ describe('UsersService attestParticipationNft (unit)', () => {
       }),
     } as unknown as ConfigService;
 
+    incentiveService = {
+      giveIncentive: jest.fn(),
+      isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+      isUngrantableError: jest.fn().mockReturnValue(false),
+    };
+    historyService = {
+      create: jest.fn(),
+    };
+
     userModel.findOneAndUpdate.mockReturnValue({
       orFail: jest.fn().mockReturnValue({
         exec: jest.fn().mockResolvedValue({ _id: userId, dni: '123456' }),
@@ -72,6 +100,8 @@ describe('UsersService attestParticipationNft (unit)', () => {
       electoralTableModel,
       electoralLocationModel,
       configService,
+      incentiveService,
+      historyService,
     );
   });
 

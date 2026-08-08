@@ -55,7 +55,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     };
     padronUsersService = {
-      getPadronUsersFromEvent: jest.fn(),
+      getResolvedPadronUsersFomEvent: jest.fn(),
       getUsersByCarnets: jest.fn(),
     };
     firebaseMessaging = {
@@ -105,14 +105,14 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       state: 'READY_FOR_REVIEW',
       convocationNotifiedAt: null,
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '1234567', active: true, enabled: true },
       { _id: userB, dni: '7654321', active: true, enabled: false },
     ]);
 
     const result = await service.notifyConvocationIfEligible(event as any);
 
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).toHaveBeenCalledWith(event, {
       includeDisabled: false,
     });
     expect(notificationLogModel.find).toHaveBeenCalledWith(
@@ -178,7 +178,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       state: 'READY_FOR_REVIEW',
       convocationNotifiedAt: new Date('2026-01-01T00:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '1000001', active: true, enabled: true },
       { _id: userB, dni: '1000002', active: true, enabled: false },
       { _id: userC, dni: '1000003', active: true, enabled: true },
@@ -229,7 +229,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       state: 'READY_FOR_REVIEW',
       convocationNotifiedAt: new Date('2026-01-01T00:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '2000001', active: true, enabled: true },
     ]);
     notificationLogModel.find.mockReturnValue({
@@ -265,13 +265,13 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       state: 'READY_FOR_REVIEW',
       convocationNotifiedAt: new Date('2026-01-01T00:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '3000001', active: true, enabled: false },
     ]);
 
     const result = await service.notifyConvocationIfEligible(event as any);
 
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).toHaveBeenCalledWith(event, {
       includeDisabled: false,
     });
     expect(notificationLogModel.find).not.toHaveBeenCalled();
@@ -397,13 +397,13 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       name: 'Eleccion cancelada',
       state: 'CANCELLED',
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '4000001', active: true, enabled: true },
     ]);
 
     const result = await service.notifyVotingCancelledToCurrentPadron(event as any);
 
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).toHaveBeenCalledWith(event, {
       includeDisabled: true,
     });
     expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
@@ -488,14 +488,14 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       votingEnd: new Date('2026-07-10T18:00:00.000Z'),
       resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userVoted, dni: '6000001', active: true, enabled: true },
       { _id: userNotVoted, dni: '6000002', active: true, enabled: true },
     ]);
 
     const result = await service.notifyResultsAvailableIfEligible(event as any);
 
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).toHaveBeenCalledWith(event, {
       includeDisabled: false,
     });
     expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
@@ -572,14 +572,14 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       state: 'RESULTS_PUBLISHED',
       resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: enabledUser, dni: '6000003', active: true, enabled: true },
       { _id: disabledUser, dni: '6000004', active: true, enabled: false },
     ]);
 
     const result = await service.notifyResultsAvailableIfEligible(event as any);
 
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).toHaveBeenCalledWith(event, {
       includeDisabled: false,
     });
     expect(firebaseMessaging.send).toHaveBeenCalledTimes(1);
@@ -610,7 +610,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       state: 'RESULTS_PUBLISHED',
       resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([]);
 
     const result = await service.notifyResultsAvailableIfEligible(event as any);
 
@@ -628,7 +628,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       state: 'RESULTS_PUBLISHED',
       resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '6000005', active: true, enabled: true },
     ]);
 
@@ -652,7 +652,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     const result = await service.notifyResultsAvailableIfEligible(event as any);
 
     expect(result).toEqual({ sent: 0, skipped: 'already_notified' });
-    expect(padronUsersService.getPadronUsersFromEvent).not.toHaveBeenCalled();
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).not.toHaveBeenCalled();
     expect(firebaseMessaging.send).not.toHaveBeenCalled();
     expect(votingEventModel.updateOne).not.toHaveBeenCalled();
   });
@@ -724,7 +724,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       votingEnd: new Date('2026-07-10T18:00:00.000Z'),
       resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '5000001', active: true, enabled: true },
     ]);
 
@@ -738,7 +738,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       'data.phase': 'START',
       'data.offsetMinutes': '60',
     });
-    expect(padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledWith(event, {
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).toHaveBeenCalledWith(event, {
       includeDisabled: false,
     });
     expect(firebaseMessaging.send).toHaveBeenCalledWith(
@@ -789,7 +789,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       votingEnd: new Date('2026-07-10T18:00:00.000Z'),
       resultsPublishAt: new Date('2026-07-10T19:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: userA, dni: '5000002', active: true, enabled: true },
     ]);
 
@@ -830,7 +830,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
         votingStart: new Date('2026-07-10T14:00:00.000Z'),
         votingEnd: new Date('2026-07-10T18:00:00.000Z'),
       };
-      padronUsersService.getPadronUsersFromEvent.mockResolvedValue([
+      padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([
         { _id: userA, dni: '5000099', active: true, enabled: true },
       ]);
 
@@ -870,7 +870,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     const result = await service.notifyVotingReminderIfEligible(event as any, 'START', 15);
 
     expect(result).toEqual({ sent: 0, skipped: 'already_sent' });
-    expect(padronUsersService.getPadronUsersFromEvent).not.toHaveBeenCalled();
+    expect(padronUsersService.getResolvedPadronUsersFomEvent).not.toHaveBeenCalled();
     expect(firebaseMessaging.send).not.toHaveBeenCalled();
     expect(userNotificationModel.insertMany).not.toHaveBeenCalled();
   });
@@ -902,7 +902,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
       votingStart: new Date('2026-07-10T14:00:00.000Z'),
       votingEnd: new Date('2026-07-10T18:00:00.000Z'),
     };
-    padronUsersService.getPadronUsersFromEvent.mockResolvedValue([]);
+    padronUsersService.getResolvedPadronUsersFomEvent.mockResolvedValue([]);
 
     const result = await service.notifyVotingReminderIfEligible(event as any, 'START', 60);
 

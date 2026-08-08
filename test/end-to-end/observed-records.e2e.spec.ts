@@ -18,9 +18,16 @@ import { BallotService } from '@/modules/ballot/services/ballot.service';
 import { AttestationModule } from '@/modules/attestation/attestation.module';
 import { BallotModule } from '@/modules/ballot/ballot.module';
 import { Ballot } from '@/modules/ballot/schemas/ballot.schema';
+import { IncentiveCampaignsService } from '@/modules/users/services/incentive-campaigns.service';
 
 const mockZkAuthGuard = {
   canActivate: jest.fn().mockResolvedValue(true),
+};
+
+const mockIncentiveCampaignsService = {
+  giveIncentive: jest.fn(),
+  isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+  isUngrantableError: jest.fn().mockReturnValue(false),
 };
 
 // Avoid loading the real zk-auth module (pulls ESM deps) during tests
@@ -58,7 +65,10 @@ describe('Observed Records End-to-End Tests', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [...getBaseTestingModuleImports(mongoUri), AttestationModule, BallotModule],
       providers: [...getBaseTestingModuleProviders()],
-    }).compile();
+    })
+      .overrideProvider(IncentiveCampaignsService)
+      .useValue(mockIncentiveCampaignsService)
+      .compile();
 
     app = moduleRef.createNestApplication();
     await app.init();

@@ -28,7 +28,7 @@ function makeInstitutionalService() {
   };
   const events = { updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }) };
   const padron = {
-    getPadronUsersFromEvent: jest.fn(),
+    getResolvedPadronUsersFomEvent: jest.fn(),
     getUsersByCarnets: jest.fn(),
   };
   const service = new InstitutionalVotingNotificationsService(
@@ -148,7 +148,7 @@ describe('MX-14 Backend Results — unitarias focales', () => {
   it('[MX-14][NOT-GEN-P0-001][UNITARIA] selecciona padrón habilitado, payload público y marca convocatoria solo con envíos', async () => {
     const { service, firebase, padron, events } = makeInstitutionalService();
     const enabled = new Types.ObjectId();
-    padron.getPadronUsersFromEvent.mockResolvedValue([
+    padron.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: enabled, dni: '111', active: true, enabled: true },
       { _id: new Types.ObjectId(), dni: '222', active: true, enabled: false },
     ]);
@@ -234,7 +234,7 @@ describe('MX-14 Backend Results — unitarias focales', () => {
   it('[MX-14][NOT-NAV-P0-001][UNITARIA] limita payload institucional a tipos y destinos reconocidos', async () => {
     const { service, firebase, padron } = makeInstitutionalService();
     const userId = new Types.ObjectId();
-    padron.getPadronUsersFromEvent.mockResolvedValue([{ _id: userId, dni: '123', active: true, enabled: true }]);
+    padron.getResolvedPadronUsersFomEvent.mockResolvedValue([{ _id: userId, dni: '123', active: true, enabled: true }]);
     const event = { _id: new Types.ObjectId(), name: 'Elección', state: 'READY' };
 
     await service.notifyNewsToCurrentPadron(event as never, { title: 'Noticia', body: 'Contenido', link: 'https://example.test/news' });
@@ -263,7 +263,7 @@ describe('MX-14 Backend Results — unitarias focales', () => {
   it('[MX-14][NOT-DUP-P1-002][INTEGRACION] conserva SENT y FAILED ante fallo parcial sin detener destinatarios', async () => {
     const { service, firebase, logs, padron } = makeInstitutionalService();
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    padron.getPadronUsersFromEvent.mockResolvedValue([
+    padron.getResolvedPadronUsersFomEvent.mockResolvedValue([
       { _id: new Types.ObjectId(), dni: '111', active: true, enabled: true },
       { _id: new Types.ObjectId(), dni: '222', active: true, enabled: true },
     ]);
