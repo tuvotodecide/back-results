@@ -28,6 +28,7 @@ function createPadronHarness() {
     job: { findOne: jest.fn(), findById: jest.fn(), create: jest.fn(), updateOne: jest.fn(), updateMany: jest.fn() },
     staging: { find: jest.fn(), findOne: jest.fn(), exists: jest.fn(), create: jest.fn(), insertMany: jest.fn(), countDocuments: jest.fn(), updateOne: jest.fn(), updateMany: jest.fn(), findOneAndDelete: jest.fn(), deleteMany: jest.fn() },
     certificate: { findOne: jest.fn(), create: jest.fn(), updateOne: jest.fn(), findById: jest.fn(), deleteMany: jest.fn() },
+    user: { find: jest.fn() },
     session: { insertOne: jest.fn() },
   };
   const access = {
@@ -46,7 +47,7 @@ function createPadronHarness() {
   const service = new PadronService(
     models.version as never, models.entry as never, models.comparison as never,
     models.job as never, models.staging as never, models.certificate as never,
-    models.session as never, access as never, { buildPdf: jest.fn(() => Buffer.from('%PDF-1.4\n')) } as never,
+    models.user as never, models.session as never, access as never, { buildPdf: jest.fn(() => Buffer.from('%PDF-1.4\n')) } as never,
     { validateSourceFile: jest.fn(), getSourceType: jest.fn(), parseDocument: jest.fn() } as never,
     { analyzeDocument: jest.fn() } as never, { notifyConvocationIfEligible: jest.fn(), notifyPadronAvailabilityEnabledForUser: jest.fn() } as never,
     issuer as never, { addNewVoters: jest.fn() } as never,

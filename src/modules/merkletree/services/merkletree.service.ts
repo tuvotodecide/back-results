@@ -196,4 +196,27 @@ export class MerkletreeService implements OnModuleInit {
 
     return { pathElements, pathIndices };
   }
+
+  async isValueInTree(electionId: Types.ObjectId, value: string, root: bigint): Promise<boolean> {
+    const leaf = this.stringToFieldElement(value);
+
+    let pathElements: string[];
+    let pathIndices: ('0' | '1')[];
+    try {
+      ({ pathElements, pathIndices } = await this.findElementsAndIndicesByLeaf(electionId, leaf));
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        return false;
+      }
+      throw error;
+    }
+
+    let node = leaf;
+    for (let i = 0; i < pathElements.length; i++) {
+      const sibling = BigInt(pathElements[i]);
+      node = pathIndices[i] === '1' ? this.hash2(sibling, node) : this.hash2(node, sibling);
+    }
+
+    return node === root;
+  }
 }

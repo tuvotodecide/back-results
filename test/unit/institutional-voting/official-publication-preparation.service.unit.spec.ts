@@ -72,7 +72,7 @@ describe('OfficialPublicationPreparationService', () => {
         materializeActiveDraftVersion: jest.fn().mockResolvedValue(undefined),
       },
       padronUsersService: {
-        getPadronUsersFromEvent: jest
+        getUnresolverPadronUsersFomEvent: jest
           .fn()
           .mockResolvedValue([{ dni: '1001' }, { dni: '1002' }]),
       },
@@ -134,7 +134,7 @@ describe('OfficialPublicationPreparationService', () => {
     const result = await service.prepareOfficialPublication(String(eventId), requester);
 
     expect(result.request.status).toBe('PENDING_APPROVAL');
-    expect(deps.padronUsersService.getPadronUsersFromEvent).toHaveBeenCalledTimes(1);
+    expect(deps.padronUsersService.getUnresolverPadronUsersFomEvent).toHaveBeenCalledTimes(1);
     expect(deps.voteWritterService.prepareCreateVote).toHaveBeenCalledWith(
       event,
       String(applicationId),
@@ -184,13 +184,13 @@ describe('OfficialPublicationPreparationService', () => {
     const result = await service.prepareOfficialPublication(String(eventId), requester);
 
     expect(result.request).toBe(active);
-    expect(deps.padronUsersService.getPadronUsersFromEvent).not.toHaveBeenCalled();
+    expect(deps.padronUsersService.getUnresolverPadronUsersFomEvent).not.toHaveBeenCalled();
     expect(deps.voteWritterService.prepareCreateVote).not.toHaveBeenCalled();
   });
 
   it('falla sin votantes y no crea solicitud colgada', async () => {
     const { service, deps } = setup();
-    deps.padronUsersService.getPadronUsersFromEvent.mockResolvedValueOnce([]);
+    deps.padronUsersService.getUnresolverPadronUsersFomEvent.mockResolvedValueOnce([]);
 
     await expect(
       service.prepareOfficialPublication(String(eventId), requester),

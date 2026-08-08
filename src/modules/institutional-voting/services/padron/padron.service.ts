@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -48,6 +49,7 @@ import { InstitutionalVotingNotificationsService } from '../notifications/instit
 import { IssuerService } from '../core/issuer.service';
 import { EnabledSession, EnabledSessionDocument } from '../../schemas/enabled-session.shcema';
 import { VoteWritterService } from '../core/vote-writter.service';
+import { User, UserDocument } from '@/modules/users/schemas/user.schema';
 
 const ENABLED_HEADER = 'habilitado';
 
@@ -78,6 +80,8 @@ export class PadronService {
     private readonly padronStagingEntryModel: Model<PadronStagingEntryDocument>,
     @InjectModel(PadronCertificate.name)
     private readonly padronCertificateModel: Model<PadronCertificateDocument>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
     @InjectModel(EnabledSession.name)
     private readonly enabledSessionModel: Model<EnabledSessionDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
@@ -245,6 +249,158 @@ export class PadronService {
     return this.uploadPadronFile(eventId, file, requester);
   }
 
+  async setAllUsersToPadron(eventId: string, requester: any) {
+    const event = await this.accessService.getEventOrThrow(eventId);
+    await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
+    await this.assertStructuralEditableState(event, 'importar el padrón');
+
+    if (!requester?.sub) {
+      throw new ForbiddenException('Usuario no identificado');
+    }
+
+    const existingParsedImportJob = await this.padronImportJobModel.exists({
+      eventId: event._id,
+      status: 'PARSED',
+    });
+
+    if (existingParsedImportJob) {
+      throw new BadRequestException('El padrón ya está cargado');
+    }
+
+    const usersForPadron = await this.userModel.find({ active: true }).lean();
+    await this.padronImportJobModel.updateMany(
+      { eventId: event._id, isActiveDraft: true },
+      { $set: { isActiveDraft: false } },
+    );
+
+    const sha256 = createHash('sha256')
+      .update(usersForPadron.map((user) => user.dni).join(','))
+      .digest('hex');
+
+    const importJob = await this.padronImportJobModel.create({
+      eventId: event._id,
+      tenantId: event.tenantId,
+      createdBy: new Types.ObjectId(requester.sub),
+      sourceType: 'SYSTEM',
+      status: 'PROCESSING',
+      isActiveDraft: true,
+      originalFileName: 'usuarios-activos.json',
+      originalFileMimeType: 'application/json',
+      originalFileSize: usersForPadron.length,
+      originalFileSha256: sha256,
+      parserProvider: 'system-users',
+      parserUsedFallback: false,
+      summary: {
+        parsedCount: 0,
+        validCount: 0,
+        duplicateCount: 0,
+        invalidCount: 0,
+        stagingCount: 0,
+        enabledCount: 0,
+        disabledCount: 0,
+        missingIdentityCount: 0,
+      },
+    });
+
+    try {
+      const seen = new Set<string>();
+      const entries: { ciNorm: string; sourceRow: number }[] = [];
+      const importErrors: PadronImportError[] = [];
+      let sourceRow = 0;
+
+      for (const user of usersForPadron) {
+        sourceRow++;
+        const ciNorm = normalizeCarnet(user.dni);
+
+        if (!ciNorm) {
+          importErrors.push({
+            code: 'INVALID_CI',
+            message: 'No se pudo normalizar el CI',
+            rowIndex: sourceRow,
+            rawValue: user.dni ?? null,
+          });
+          continue;
+        }
+
+        if (seen.has(ciNorm)) {
+          importErrors.push({
+            code: 'DUPLICATE_CI',
+            message: 'CI duplicado entre los usuarios activos',
+            rowIndex: sourceRow,
+            rawValue: user.dni ?? null,
+          });
+          continue;
+        }
+
+        seen.add(ciNorm);
+        entries.push({ ciNorm, sourceRow });
+      }
+
+      if (entries.length) {
+        const importJobId = this.toObjectId(importJob._id);
+        const eventObjectId = this.toObjectId(event._id);
+        const tenantObjectId = this.toObjectId(event.tenantId);
+
+        await this.padronStagingEntryModel.insertMany(
+          entries.map((entry) => ({
+            importJobId,
+            eventId: eventObjectId,
+            tenantId: tenantObjectId,
+            ciNorm: entry.ciNorm,
+            enabled: true,
+            sourceKind: 'PARSED',
+            sourceRow: entry.sourceRow,
+            createdBy: new Types.ObjectId(requester.sub),
+            lastEditedBy: new Types.ObjectId(requester.sub),
+          })),
+          { ordered: false },
+        );
+      }
+
+      await this.padronImportJobModel.updateOne(
+        { _id: importJob._id },
+        {
+          $set: {
+            status: this.resolveImportJobStatus(entries.length, importErrors.length),
+            processedAt: new Date(),
+            importErrors,
+            summary: {
+              parsedCount: usersForPadron.length,
+              validCount: entries.length,
+              duplicateCount: importErrors.filter((error) => error.code === 'DUPLICATE_CI').length,
+              invalidCount: importErrors.filter((error) => error.code === 'INVALID_CI').length,
+              stagingCount: entries.length,
+              enabledCount: entries.length,
+              disabledCount: 0,
+              missingIdentityCount: 0,
+            },
+          },
+        },
+      );
+
+      await this.refreshImportJobSummary(importJob._id);
+    } catch (error: any) {
+      Logger.error(error);
+      await this.padronImportJobModel.updateOne(
+        { _id: importJob._id },
+        {
+          $set: {
+            status: 'FAILED',
+            processedAt: new Date(),
+            importErrors: [
+              {
+                code: 'IMPORT_ERROR',
+                message: String(error?.message ?? error ?? 'Error importando usuarios al padrón'),
+              },
+            ],
+          },
+        },
+      );
+    }
+
+    return this.getPadronImport(eventId, String(importJob._id), requester);
+  }
+
   async analyzePadronWithGemini(eventId: string, file: any, requester: any) {
     const event = await this.accessService.getEventOrThrow(eventId);
     await this.accessService.assertTenantWriteAccess(event.tenantId, requester);
@@ -316,14 +472,10 @@ export class PadronService {
     ]);
 
     const data = rows.map((row) => this.mapStagingEntry(row));
-    const dids = await this.issuerService.getDidsByDnis(data.map((entry) => entry.ci));
 
     return {
       importJob: this.mapImportJob(importJob, total),
-      data: data.map((entry) => ({
-        ...entry,
-        hasIdentity: dids.some((did) => did.dni === entry.ci),
-      })),
+      data,
       page: safePage,
       limit: safeLimit,
       total,
@@ -1731,41 +1883,7 @@ export class PadronService {
 
     const stagingCount = entries.length;
     const currentErrorCount = Array.isArray(job.importErrors) ? job.importErrors.length : 0;
-    const dids =
-      stagingCount > 0
-        ? await this.issuerService.getDidsByDnis(
-            entries
-              .map((entry) => String(entry.ciNorm ?? '').trim())
-              .filter((ci) => ci.length > 0),
-          )
-        : [];
-    const didSet = new Set(
-      dids
-        .map((did) => String(did?.dni ?? '').trim())
-        .filter((dni) => dni.length > 0),
-    );
-    const missingIdentityEntries = entries.filter(
-      (entry) => !didSet.has(String(entry.ciNorm ?? '').trim()),
-    );
-    const missingIdentityCount = missingIdentityEntries.length;
-    const enabledMissingIdentityIds = missingIdentityEntries
-      .filter((entry) => entry.enabled !== false)
-      .map((entry) => entry._id)
-      .filter(Boolean);
-    if (enabledMissingIdentityIds.length > 0) {
-      await this.padronStagingEntryModel.updateMany(
-        { _id: { $in: enabledMissingIdentityIds }, importJobId },
-        { $set: { enabled: false } },
-      );
-    }
-    const normalizedEntries = entries.map((entry) => {
-      const ciNorm = String(entry.ciNorm ?? '').trim();
-      return {
-        ...entry,
-        enabled: didSet.has(ciNorm) && entry.enabled !== false,
-      };
-    });
-    const enabledCount = normalizedEntries.filter((entry) => entry.enabled).length;
+    const enabledCount = entries.filter((entry) => entry.enabled).length;
     const disabledCount = stagingCount - enabledCount;
     const recalculatedStatus = this.resolveImportJobStatus(stagingCount, currentErrorCount);
 
@@ -1782,7 +1900,6 @@ export class PadronService {
             stagingCount,
             enabledCount,
             disabledCount,
-            missingIdentityCount,
           },
         },
       },

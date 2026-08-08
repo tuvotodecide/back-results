@@ -7,12 +7,18 @@ import { ComparisonReport, ComparisonReportDocument } from "../../schemas/compar
 import { User, UserDocument } from "@/modules/users/schemas/user.schema";
 import { normalizeCarnet } from "../../utils/carnet-normalizer";
 import { VotingEventDocument } from "../../schemas/voting-event.schema";
-import { IssuerService } from "./issuer.service";
 
 export type PadronResolvedUser = {
   _id: Types.ObjectId;
   dni: string;
   active: boolean;
+  enabled: boolean;
+};
+
+export type PadronUser = {
+  _id?: Types.ObjectId;
+  dni: string;
+  active?: boolean;
   enabled: boolean;
 };
 
@@ -27,19 +33,21 @@ export class PadronUsersService {
     private readonly comparisonReportModel: Model<ComparisonReportDocument>,
     @InjectModel(User.name)
     private readonly userModel: Model<UserDocument>,
-    private readonly issuerService: IssuerService,
   ) {}
 
-  async getPadronUsersFromEvent(
+  private async getPadronUsersFromEvent(
     event: VotingEventDocument,
     options: { includeDisabled?: boolean } = {},
-  ): Promise<PadronResolvedUser[]> {
+  ): Promise<{
+    carnetList: string[],
+    entryMap: Map<string, boolean>,
+  }> {
     const includeDisabled = options.includeDisabled === true;
     const currentVersion = await this.padronVersionModel
       .findOne({ eventId: event._id, isCurrent: true })
       .lean();
     if (!currentVersion) {
-      return [];
+      return { carnetList: [], entryMap: new Map<string, boolean>() };
     }
 
     const reportOk = await this.comparisonReportModel.exists({
@@ -47,7 +55,7 @@ export class PadronUsersService {
       status: 'OK',
     });
     if (!reportOk) {
-      return [];
+      return { carnetList: [], entryMap: new Map<string, boolean>() };
     }
 
     const entries = await this.padronEntryModel
@@ -60,7 +68,7 @@ export class PadronUsersService {
       )
       .lean();
     if (!entries.length) {
-      return [];
+      return { carnetList: [], entryMap: new Map<string, boolean>() };
     }
 
     const entryMap = new Map<string, boolean>();
@@ -76,31 +84,50 @@ export class PadronUsersService {
       }
     });
 
-    const carnetList = Array.from(entryMap.keys());
-    if (!carnetList.length) {
-      return [];
-    }
+    return {
+      carnetList: Array.from(entryMap.keys()),
+      entryMap,
+    };
+  }
 
-    const dids = await this.issuerService.getDidsByDnis(carnetList);
-    const registeredDniSet = new Set(
-      dids
-        .map((did) => String(did?.dni ?? '').trim())
-        .filter((dni) => dni.length > 0),
-    );
-    const registeredCarnetList = carnetList.filter((dni) => registeredDniSet.has(dni));
-    if (!registeredCarnetList.length) {
-      return [];
-    }
-
+  async getResolvedPadronUsersFomEvent(
+    event: VotingEventDocument,
+    options: { includeDisabled?: boolean } = {},
+  ) {
+    const {carnetList, entryMap} = await this.getPadronUsersFromEvent(event, options);
     const recipients = await this.userModel
-      .find({ dni: { $in: registeredCarnetList }, active: true }, { _id: 1, dni: 1, active: 1 })
+      .find({ dni: { $in: carnetList }, active: true }, { _id: 1, dni: 1, active: 1 })
       .lean();
-
 
     return recipients.map((recipient) => ({
       ...recipient,
       enabled: Boolean(entryMap.get(recipient.dni)),
     }));
+  }
+
+  async getUnresolverPadronUsersFomEvent(
+    event: VotingEventDocument,
+    options: { includeDisabled?: boolean } = {},
+  ) {
+    const {carnetList, entryMap} = await this.getPadronUsersFromEvent(event, options);
+    const recipients = await this.userModel
+      .find({ dni: { $in: carnetList }, active: true }, { _id: 1, dni: 1, active: 1 })
+      .lean();
+
+    return carnetList.map((dni) => {
+      const recipient = recipients.find(r => r.dni === dni);
+
+      const data: PadronUser = {
+        dni,
+        enabled: Boolean(entryMap.get(dni)),
+      }
+      if (recipient) {
+        data._id = recipient._id;
+        data.active = recipient.active;
+      }
+
+      return data;
+    })
   }
 
   async getUsersByCarnets(

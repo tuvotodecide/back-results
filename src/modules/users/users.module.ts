@@ -8,6 +8,8 @@ import { ElectoralLocation, ElectoralLocationSchema } from '../geographic/schema
 import { NotificationLog, NotificationLogSchema } from '../notifications/schemas/notification-log.schema';
 import { UserNotification, UserNotificationSchema } from '../notifications/schemas/user-notification.schema';
 import { ZkAuthModule } from '../zk-auth/zk-auth.module';
+import { IncentiveCampaignsService } from './services/incentive-campaigns.service';
+import { HistoryModule } from '../history/history.module';
 
 @Module({
   imports: [
@@ -19,8 +21,9 @@ import { ZkAuthModule } from '../zk-auth/zk-auth.module';
       { name: UserNotification.name, schema: UserNotificationSchema },
     ]),
     ZkAuthModule,
+    HistoryModule,
   ],
-  providers: [UsersService],
+  providers: [UsersService, IncentiveCampaignsService],
   controllers: [UsersController],
   exports: [UsersService],
 })

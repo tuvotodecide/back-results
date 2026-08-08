@@ -26,9 +26,16 @@ import { Province } from "@/modules/geographic/schemas/province.schema";
 import { login } from "../utils/location-helpers";
 import { APP_GUARD } from "@nestjs/core";
 import { JwtAuthGuard } from "@/core/guards/jwt-auth.guard";
+import { IncentiveCampaignsService } from "@/modules/users/services/incentive-campaigns.service";
 
 var mockZkAuthGuard = {
   canActivate: jest.fn().mockResolvedValue(true),
+};
+
+const mockIncentiveCampaignsService = {
+  giveIncentive: jest.fn(),
+  isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+  isUngrantableError: jest.fn().mockReturnValue(false),
 };
 
 // Avoid loading the real zk-auth module (pulls ESM deps) during tests
@@ -85,7 +92,10 @@ describe('Delegates pariticipation end-to-end tests', () => {
       providers: [
         { provide: APP_GUARD, useClass: JwtAuthGuard },
       ]
-    }).compile();
+    })
+      .overrideProvider(IncentiveCampaignsService)
+      .useValue(mockIncentiveCampaignsService)
+      .compile();
 
     app = moduleRef.createNestApplication();
     await app.init();

@@ -21,9 +21,16 @@ import { Worksheet } from '@/modules/worksheet/schemas/worksheet.schema';
 import { CompareWorksheetDto, WorksheetVotesDto } from '@/modules/worksheet/dto/worksheet.dto';
 import { OpenSeaMetadata } from '@/modules/ballot/dto/ballot.dto';
 import { BadRequestException } from '@nestjs/common';
+import { IncentiveCampaignsService } from '@/modules/users/services/incentive-campaigns.service';
 
 const mockZkAuthGuard = {
   canActivate: jest.fn().mockResolvedValue(true),
+};
+
+const mockIncentiveCampaignsService = {
+  giveIncentive: jest.fn(),
+  isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+  isUngrantableError: jest.fn().mockReturnValue(false),
 };
 
 // Avoid loading the real zk-auth module (pulls ESM deps) during tests
@@ -62,7 +69,10 @@ describe('Worksheet End-to-End Tests', () => {
     const moduleRef = await Test.createTestingModule({
       imports: [...getBaseTestingModuleImports(mongoUri), AuthModule, WorksheetModule],
       providers: [...getBaseTestingModuleProviders()],
-    }).compile();
+    })
+      .overrideProvider(IncentiveCampaignsService)
+      .useValue(mockIncentiveCampaignsService)
+      .compile();
 
     app = moduleRef.createNestApplication();
     await app.init();

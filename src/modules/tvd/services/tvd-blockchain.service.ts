@@ -809,6 +809,7 @@ export class TvdBlockchainService {
         args,
       });
     } catch (error) {
+      console.log(error);
       if (this.isInstitutionMissingError(error)) {
         throw new TvdBlockchainError('TVD_INSTITUTION_NOT_REGISTERED', error);
       }
@@ -912,7 +913,7 @@ export class TvdBlockchainService {
     try {
       return await operation();
     } catch (error) {
-      Logger.error(error);
+      Logger.error((error as any).message);
       throw new TvdBlockchainError(errorCode, error);
     }
   }

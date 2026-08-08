@@ -6,7 +6,10 @@ import { EnabledSession, EnabledSessionDocument } from "../../schemas/enabled-se
 import { Model, Types } from "mongoose";
 import { VoteWritterService } from "../core/vote-writter.service";
 import { VotingOption, VotingOptionDocument } from "../../schemas/voting-option.schema";
-import { VoteContractUtils } from "@/api/vote";
+import { HistoryService } from "@/modules/history/services/history.service";
+import { HistoryOperationKey, HistoryType } from "@/modules/history/dto/create-history.dto";
+import { VoteReaderService } from "../core/vote-reader.service";
+import { IssuerService } from "../core/issuer.service";
 
 @Injectable()
 export class EmitVoteService {
@@ -17,6 +20,9 @@ export class EmitVoteService {
     private readonly votingOptionModel: Model<VotingOptionDocument>,
     private readonly zkAuthService: ZkAuthService,
     private readonly voteWritterService: VoteWritterService,
+    private readonly historyService: HistoryService,
+    private readonly voteReaderService: VoteReaderService,
+    private readonly issuerService: IssuerService,
   ) {}
 
   async getVoteVc(eventId: string, dni: string): Promise<{ vc: string }> {
@@ -25,11 +31,44 @@ export class EmitVoteService {
       eventId: eventObjectId,
       dni,
     }).exec();
-    if (!session) {
+    if (session?.sessionToken) {
+      return { vc: session.sessionToken };
+    }
+
+    const isInVote = await this.voteReaderService.isDniInMerkleTree(eventId, dni);
+    if (!isInVote) {
       throw new NotFoundException('No enabled session found for this user and event');
     }
-    return { vc: session.sessionToken };
+
+    const dids = await this.issuerService.getDidsByDnis([dni]);
+    if (dids.length !== 1) {
+      throw new NotFoundException({
+        message: 'User not registered in app',
+      });
+    }
+
+    const nullifiers = await this.voteWritterService.addNewVoters(1);
+    const credentialData = await this.issuerService.issueCredential(
+      dids,
+      eventId,
+      nullifiers,
+    );
+
+    if (!credentialData[dni]?.credentialData) {
+      throw new NotFoundException({
+        message: 'Failed to fin user VC',
+      });
+    }
+
+    await this.enabledSessionModel.updateOne(
+      { eventId: eventObjectId, dni },
+      { $set: { sessionToken: credentialData[dni].credentialData } },
+      { upsert: true },
+    );
+
+    return { vc: credentialData[dni].credentialData }
   }
+  
 
   async emitVote(
     optionId: string,
@@ -43,17 +82,32 @@ export class EmitVoteService {
       throw new BadRequestException('data not found in ZK proof');
     }
 
-    try {      
+    try {
+      let receipt: {
+        returnData: any;
+        txHash: `0x${string}`;
+        receipt: any;
+        date: string;
+      };
+
       if (optionId === 'blank') {
-        await this.voteWritterService.castVote(eventId, 'BLANK', nullifier);
+        receipt = await this.voteWritterService.castVote(eventId, 'BLANK', nullifier);
       } else {
         const option = await this.votingOptionModel.findById(optionId).exec();
         if (!option) {
           throw new NotFoundException('Voting option not found');
         }
 
-        await this.voteWritterService.castVote(eventId, option.name, nullifier);
+        receipt = await this.voteWritterService.castVote(eventId, option.name, nullifier);
       }
+
+      await this.historyService.create({
+        txHash: receipt.txHash,
+        operationName: HistoryOperationKey.castVote,
+        type: HistoryType.AUTOMATED,
+        registerDate: receipt.date,
+        electionId: eventId
+      });
     } catch (error: any) {
       if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;

@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ConfigService } from '@nestjs/config';
@@ -19,11 +20,14 @@ import {
   AttestParticipationResponseDto,
 } from '../dto/attest-participation.dto';
 
-import { encodeFunctionData } from 'viem';
+import { encodeFunctionData, Hex } from 'viem';
 import participationAbi from '@/abi/participation.json';
 import { availableNetworks } from '@/api/params';
 import { executeOperation } from '@/api/account';
 import { normalizeCarnet } from '@/modules/institutional-voting/utils/carnet-normalizer';
+import { IncentiveCampaignsService } from './incentive-campaigns.service';
+import { HistoryService } from '@/modules/history/services/history.service';
+import { HistoryOperationKey, HistoryType } from '@/modules/history/dto/create-history.dto';
 
 @Injectable()
 export class UsersService {
@@ -34,7 +38,31 @@ export class UsersService {
     @InjectModel(ElectoralLocation.name)
     private electoralLocationModel: Model<ElectoralLocation>,
     private readonly configService: ConfigService,
+    private readonly incentiveService: IncentiveCampaignsService,
+    private readonly historyService: HistoryService,
   ) {}
+
+  async rewardNewUser(recipient: Hex) {
+    try {
+      const receipt = await this.incentiveService.giveIncentive(recipient);
+      await this.historyService.create({
+        txHash: receipt.txHash,
+        operationName: HistoryOperationKey.grantIncentive,
+        type: HistoryType.AUTOMATED,
+        registerDate: receipt.date,
+      });
+    } catch (error) {
+      if (
+        this.incentiveService.isAlreadyReceivedError(error) ||
+        this.incentiveService.isUngrantableError(error)
+      ) {
+        Logger.log('[IncetiveRewards] reward user rejected: ' + error);
+      } else {
+        Logger.error('[IncetiveRewards] reward user failed: ' + error);
+        throw new InternalServerErrorException();
+      }
+    }
+  }
 
   async findByDni(dni: string): Promise<UserDocument> {
     const normalizedDni = this.normalizeDni(dni);

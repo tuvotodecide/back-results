@@ -42,6 +42,7 @@ describe('InstitutionalVotingService reward notification after participation', (
       {} as any,
       {} as any,
       notificationsService as any,
+      {} as any,
     );
 
     return { service, participationService, notificationsService };

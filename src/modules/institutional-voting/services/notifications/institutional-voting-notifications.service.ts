@@ -142,7 +142,7 @@ export class InstitutionalVotingNotificationsService {
     };
 
     const recipients = (
-      await this.padronUsersService.getPadronUsersFromEvent(event, {
+      await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
         includeDisabled: false,
       })
     ).filter((recipient) => recipient.enabled !== false);
@@ -501,10 +501,10 @@ export class InstitutionalVotingNotificationsService {
     );
     const copy = this.buildVotingReminderCopy(event.name, phase, offsetMinutes, reminderTime);
     const recipients = (
-      await this.padronUsersService.getPadronUsersFromEvent(event, {
+      await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
         includeDisabled: false,
       })
-    ).filter((recipient) => recipient.enabled !== false);
+    ).filter((recipient) => recipient.enabled !== false && !!recipient._id);
 
     return this.notifyRecipients(
       {
@@ -605,7 +605,7 @@ export class InstitutionalVotingNotificationsService {
     payload: NotificationPayload,
     additionalPerUserDniData: Record<string, Record<string, string>> = {},
   ) {
-    const recipients = await this.padronUsersService.getPadronUsersFromEvent(event, {
+    const recipients = await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
       includeDisabled: true,
     });
 
@@ -617,7 +617,7 @@ export class InstitutionalVotingNotificationsService {
     payload: NotificationPayload,
   ) {
     const recipients = (
-      await this.padronUsersService.getPadronUsersFromEvent(event, {
+      await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
         includeDisabled: false,
       })
     ).filter((recipient) => recipient.enabled !== false);

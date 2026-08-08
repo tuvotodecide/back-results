@@ -652,6 +652,37 @@
       "test/unit/matrix-16-superadmin-focal.unit.spec.ts"
     ]
   },
+  "matrix_ea": {
+    "name": "MX-EA | Votaciones abiertas",
+    "flows": [
+      "EA-P0"
+    ],
+    "files": [
+      "test/end-to-end/matrix-ea.e2e.spec.ts"
+    ]
+  },
+  "matrix_rdv": {
+    "name": "MX-RDV | Registro después de votación",
+    "flows": [
+      "PAD-ROW-P0-002 / PAD-VAL-P0-001",
+      "RDV-P0"
+    ],
+    "files": [
+      "test/unit/institutional-voting/padron.service.unit.spec.ts",
+      "test/integration/institutional-voting/official-publication-services.integration.spec.ts",
+      "test/unit/institutional-voting/emit-vote.service.unit.spec.ts"
+    ],
+    "testNamePattern": "PAD-ROW-P0-002 / PAD-VAL-P0-001 \\| conserva el estado enabled recibido del parser sin verificación de identidad|RDV-P0"
+  },
+  "matrix_rr": {
+    "name": "MX-RR | Recompensas",
+    "flows": [
+      "RR-P0"
+    ],
+    "files": [
+      "test/integration/institutional-voting/public-claim-reward.spec.ts"
+    ]
+  },
   "payments_remaining": {
     "name": "QR payments and Red Enlace residual outside MX-06",
     "flows": [

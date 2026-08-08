@@ -29,6 +29,7 @@ import { LoggerService } from '@/core/services/logger.service';
 import { ContractsModule } from '@/modules/contracts/contracts.module';
 import { mongoLocationFeatures } from '../utils/mongo';
 import { AttestationModule } from '@/modules/attestation/attestation.module';
+import { IncentiveCampaignsService } from '@/modules/users/services/incentive-campaigns.service';
 
 jest.setTimeout(80_000);
 
@@ -42,6 +43,12 @@ jest.mock('@/core/guards/zk-auth.guard', () => ({
     canActivate: jest.fn().mockResolvedValue(true),
   })),
 }));
+
+const mockIncentiveCampaignsService = {
+  giveIncentive: jest.fn(),
+  isAlreadyReceivedError: jest.fn().mockReturnValue(false),
+  isUngrantableError: jest.fn().mockReturnValue(false),
+};
 
 describe('Results E2E (role filtering)', () => {
 	const resultsByLocationUrl = '/api/v1/client-results/by-location';
@@ -111,6 +118,8 @@ describe('Results E2E (role filtering)', () => {
 				createEmail: jest.fn(),
 				getTemplate: jest.fn(),
 			})
+			.overrideProvider(IncentiveCampaignsService)
+			.useValue(mockIncentiveCampaignsService)
 			.compile();
 
 		app = moduleRef.createNestApplication();

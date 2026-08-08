@@ -170,6 +170,18 @@ export class InstitutionalVotingAdminController {
     return this.tvdCapacity.getEventCapacity(eventId, req.user);
   }
 
+  @Get(':eventId/credits-usage')
+  @ApiOperation({
+    summary: 'Consultar uso de créditos on-chain del evento',
+    description:
+      'Retorna el estado de créditos/TVD de la elección en el contrato ElectoralCredits (balance, bloqueado, pendiente, quemado, consumido, reembolsado).',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiResponse({ status: 200, description: 'Uso de créditos on-chain del evento.' })
+  getEventCreditsUsage(@Param('eventId') eventId: string) {
+    return this.institutionalVotingService.getEventCreditsUsage(eventId);
+  }
+
   @Post(':eventId/ready-for-review')
   @ApiOperation({
     summary: 'Marcar evento como READY_FOR_REVIEW',
@@ -495,6 +507,18 @@ export class InstitutionalVotingAdminController {
     }
 
     return this.institutionalVotingService.analyzePadronWithGemini(eventId, file, req.user);
+  }
+
+  @Post(':eventId/padron/imports/users')
+  @ApiOperation({
+    summary: 'Cargar todos los usuarios activos como padrón',
+    description:
+      'Crea un staging editable a partir de todos los usuarios activos del sistema, habilitados por defecto.',
+  })
+  @ApiParam({ name: 'eventId', description: 'ID del evento.' })
+  @ApiResponse({ status: 201, description: 'Staging creado a partir de los usuarios activos.' })
+  setAllUsersToPadron(@Param('eventId') eventId: string, @Req() req: any) {
+    return this.institutionalVotingService.setAllUsersToPadron(eventId, req.user);
   }
 
   @Post(':eventId/padron/imports/pdf')

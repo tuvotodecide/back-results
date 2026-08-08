@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { CreateVotingEventDto } from '../dto/create-voting-event.dto';
 import { MaterializePadronCertificateDto } from '../dto/materialize-padron-certificate.dto';
 import { ConfirmOfficialPublicationDto } from '../dto/official-publication.dto';
@@ -30,9 +30,9 @@ import { ParticipationService } from './participation/participation.service';
 import { PresentialSessionsService } from './presential/presential-sessions.service';
 import { VotingResultsService } from './results/voting-results.service';
 import { AuthorizationResponseMessage } from '@iden3/js-iden3-auth/dist/types/types-sdk';
-import { ZkAuthService } from '@/modules/zk-auth/services/zk-auth.service';
 import { EmitVoteService } from './participation/emit-vote.service';
 import { InstitutionalVotingNotificationsService } from './notifications/institutional-voting-notifications.service';
+import { CreditsReaderService } from './core/credits-reader.service';
 
 @Injectable()
 export class InstitutionalVotingService {
@@ -47,6 +47,7 @@ export class InstitutionalVotingService {
     private readonly votingResultsService: VotingResultsService,
     private readonly emitVoteService: EmitVoteService,
     private readonly notificationsService: InstitutionalVotingNotificationsService,
+    private readonly creditsReader: CreditsReaderService,
   ) {}
 
   createEvent(dto: CreateVotingEventDto, requester: any) {
@@ -173,6 +174,10 @@ export class InstitutionalVotingService {
 
   analyzePadronWithGemini(eventId: string, file: any, requester: any) {
     return this.padronService.analyzePadronWithGemini(eventId, file, requester);
+  }
+
+  setAllUsersToPadron(eventId: string, requester: any) {
+    return this.padronService.setAllUsersToPadron(eventId, requester);
   }
 
   getPadronImport(eventId: string, importJobId: string, requester: any) {
@@ -312,6 +317,10 @@ export class InstitutionalVotingService {
 
   setPublicEligibility(eventId: string, enabled: boolean, requester: any) {
     return this.votingEventsService.setPublicEligibility(eventId, enabled, requester);
+  }
+
+  async getEventCreditsUsage(eventId: string) {
+    return this.creditsReader.getElection(eventId);
   }
 
   checkEligibility(eventId: string, carnet: string) {

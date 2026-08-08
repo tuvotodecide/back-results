@@ -39,7 +39,6 @@ function discoverSpecFiles(dir, base = dir) {
 
 function checkMapping() {
   const files = allFiles();
-  const duplicates = files.filter((file, index) => files.indexOf(file) !== index);
   const missing = files.filter((file) => !existsSync(join(rootDir, file)));
   const discovered = [
     ...discoverSpecFiles(join(rootDir, 'src')),
@@ -47,11 +46,6 @@ function checkMapping() {
   ].sort();
   const unassigned = discovered.filter((file) => !files.includes(file));
   const stale = files.filter((file) => !discovered.includes(file));
-
-  if (duplicates.length > 0) {
-    console.error('Duplicate test files in module map:');
-    for (const file of [...new Set(duplicates)]) console.error(`- ${file}`);
-  }
 
   if (missing.length > 0) {
     console.error('Missing test files in module map:');
@@ -68,14 +62,14 @@ function checkMapping() {
     for (const file of stale) console.error(`- ${file}`);
   }
 
-  if (duplicates.length > 0 || missing.length > 0 || unassigned.length > 0 || stale.length > 0) {
+  if (missing.length > 0 || unassigned.length > 0 || stale.length > 0) {
     process.exit(1);
   }
 
-  console.log(`Module map OK: ${files.length} unique test files assigned.`);
+  console.log(`Module map OK: ${files.length} test files assigned.`);
 }
 
-function runJest(files) {
+function runJest(files, testNamePattern) {
   if (files.length === 0) {
     console.error('No test files configured for this module.');
     process.exit(1);
@@ -89,6 +83,7 @@ function runJest(files) {
     '--testRegex',
     '.*(\\.spec\\.ts|\\.test\\.ts|-spec\\.ts)$',
     '--runInBand',
+    ...(testNamePattern ? ['--testNamePattern', testNamePattern] : []),
     '--runTestsByPath',
     ...files,
     ...extraArgs,
@@ -133,4 +128,4 @@ if (!entry) {
 
 checkMapping();
 console.log(`Running ${entry.name}: ${entry.files.length} test files`);
-runJest(entry.files);
+runJest(entry.files, entry.testNamePattern);

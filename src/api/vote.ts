@@ -197,7 +197,7 @@ function getVoteReadContract(chainId: string) {
 
 async function rewardByVote(chainId: string) {
   const vote = getVoteReadContract(chainId);
-  const reward = await vote.read.rewardByVote();
+  const reward = await vote.read.tvdPerVote();
 
   if(typeof reward === 'bigint') {
     return BigInt(formatEther(reward));
@@ -234,13 +234,27 @@ async function getVotedEvents(chainId: string, fromBlock: number | bigint) {
     transport: http(availableNetworks[chainId].bundler),
   });
 
-  return publicClient.getContractEvents({
-    address: voteContract,
-    abi: votingContractAbi,
-    eventName: 'Voted',
-    fromBlock: BigInt(fromBlock),
-    toBlock: 'latest',
-  });
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await publicClient.getContractEvents({
+        address: voteContract,
+        abi: votingContractAbi,
+        eventName: 'Voted',
+        fromBlock: BigInt(fromBlock),
+        toBlock: BigInt(fromBlock),
+      });
+    } catch (error) {
+      console.log('Fail get event in index: ' + i);
+      if (i >= 2) {
+        throw error;
+      }
+      await sleep(i * 2 * 1000);
+    }
+  }
+}
+
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const VoteContractUtils = {

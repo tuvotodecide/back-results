@@ -23,6 +23,9 @@ describe('MX-07 mobile vote focal integration coverage', () => {
       { findById: jest.fn().mockReturnValue(exec({ name: 'Opción válida' })) } as never,
       { zkRequestCallback: jest.fn().mockResolvedValue(proof) } as never,
       writer as never,
+      { create: jest.fn().mockResolvedValue(undefined) } as never,
+      { isDniInMerkleTree: jest.fn() } as never,
+      { getDidsByDnis: jest.fn(), issueCredential: jest.fn() } as never,
     );
   });
 
