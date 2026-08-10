@@ -90,7 +90,9 @@ export class InstitutionalAccessRecoveryRequestsService {
   async createRequest(dto: CreateInstitutionalAccessRecoveryRequestDto) {
     const tenantId = this.toObjectIdOrBadRequest(dto.institutionId, 'institutionId invalido');
     const fullName = this.normalizeHumanText(dto.fullName);
+    const phoneNumber = this.normalizePhone(dto.phoneNumber);
     const newEmail = dto.newEmail.trim().toLowerCase();
+    const supervisorPhoneNumber = this.normalizePhone(dto.supervisorPhoneNumber);
 
     const tenant = await this.tenantModel.findById(tenantId).lean();
     if (!tenant || tenant.active !== true) {
@@ -101,6 +103,7 @@ export class InstitutionalAccessRecoveryRequestsService {
     await this.assertNoPendingDuplicate(tenantId, newEmail);
 
     const candidate = await this.resolveCandidate(tenantId, fullName);
+    this.assertCandidateResolved(candidate);
     if (candidate.user?.email?.trim().toLowerCase() === newEmail) {
       throw new ConflictException({
         code: 'EMAIL_SAME_AS_CURRENT',
@@ -111,12 +114,13 @@ export class InstitutionalAccessRecoveryRequestsService {
     let request: InstitutionalAccessRecoveryRequestDocument;
     try {
       request = await this.recoveryRequestModel.create({
+        requestType: 'ACCESS_RECOVERY',
         tenantId,
         institutionName: tenant.name,
         fullName,
-        phoneNumber: null,
+        phoneNumber,
         newEmail,
-        supervisorPhoneNumber: null,
+        supervisorPhoneNumber,
         status: 'PENDING',
         requestedAt: new Date(),
         candidateUserId: candidate.user?._id ?? null,
@@ -389,6 +393,9 @@ export class InstitutionalAccessRecoveryRequestsService {
     if (request.status !== 'PENDING') {
       throw new ConflictException('La solicitud de recuperacion ya fue resuelta');
     }
+    if ((request.requestType ?? 'ACCESS_RECOVERY') !== 'ACCESS_RECOVERY') {
+      throw new ConflictException('La solicitud no corresponde a recuperacion de acceso');
+    }
 
     const [tenant, user, assignment, emailOwner] = await Promise.all([
       this.tenantModel.findById(request.tenantId).session(session).lean(),
@@ -634,6 +641,17 @@ export class InstitutionalAccessRecoveryRequestsService {
           : false,
       );
 
+    // `institutionalRole: 'PRIMARY'` is the canonical source for the
+    // institutional principal. Prefer that assignment when a duplicated name
+    // also belongs to a secondary administrator, without making the number of
+    // administrators in the tenant an ambiguity criterion.
+    const primaryMatches = matches.filter(
+      (entry) => entry.assignment.institutionalRole === 'PRIMARY',
+    );
+    if (primaryMatches.length === 1) {
+      return { ...primaryMatches[0], warnings: [] as string[] };
+    }
+
     if (matches.length === 1) {
       return { ...matches[0], warnings: [] as string[] };
     }
@@ -747,6 +765,30 @@ export class InstitutionalAccessRecoveryRequestsService {
       throw new BadRequestException('Valor invalido');
     }
     return value;
+  }
+
+  private normalizePhone(input: string): string {
+    const value = input.trim().replace(/\s+/g, ' ');
+    if (!/^[0-9+\-\s()]{6,32}$/.test(value)) {
+      throw new BadRequestException('Telefono invalido');
+    }
+    return value;
+  }
+
+  private assertCandidateResolved(candidate: RecoveryCandidate) {
+    if (candidate.user && candidate.assignment && candidate.warnings.length === 0) {
+      return;
+    }
+
+    const isAmbiguous = candidate.warnings.includes('AMBIGUOUS_CANDIDATE');
+    throw new BadRequestException({
+      code: isAmbiguous
+        ? 'RECOVERY_CANDIDATE_AMBIGUOUS'
+        : 'RECOVERY_CANDIDATE_NOT_VALIDATED',
+      message: isAmbiguous
+        ? 'No pudimos validar los datos ingresados. Revisa la información e inténtalo nuevamente.'
+        : 'No pudimos validar los datos ingresados. Verifica que tu nombre completo coincida con el registrado para esta institución.',
+    });
   }
 
   private normalizeEmail(input: string): string {

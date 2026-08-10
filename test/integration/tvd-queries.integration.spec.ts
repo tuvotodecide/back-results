@@ -439,6 +439,109 @@ describe('TVD query endpoints (integration)', () => {
     expect(JSON.stringify(res.body)).not.toContain('serializedTransaction');
   });
 
+  it('TVD-CONTEXT-I-001/002/003 | resuelve summary e historial por tenant solicitado y rechaza tenants ajenos', async () => {
+    const assignmentBForUserA = await assignmentModel.create({
+      tenantId: seed.tenantB._id,
+      userId: seed.userA._id,
+      status: 'APPROVED',
+      active: true,
+      institutionalRole: 'SECONDARY',
+      accountAddress: walletB,
+      accountAddressNormalized: walletB.toLowerCase(),
+      walletVerifiedAt: new Date(),
+      walletVerificationSource: 'TEST',
+    });
+    const paymentBForUserA = await paymentModel.create({
+      tenantId: seed.tenantB._id,
+      requestedByUserId: seed.userA._id,
+      targetAssignmentId: assignmentBForUserA._id,
+      targetWallet: walletB,
+      targetWalletNormalized: walletB.toLowerCase(),
+      provider: 'RED_ENLACE',
+      merchantReference: '100000003',
+      amountMinor: '2000',
+      currency: 'BOB',
+      status: 'PAYMENT_CONFIRMED',
+    });
+    const tenantC = await tenantModel.create({
+      name: 'Tenant C',
+      nameNorm: 'tenant-c',
+      active: true,
+    });
+
+    currentUser = { sub: String(seed.userA._id), role: 'USER', active: true };
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/summary')
+      .set('Authorization', 'Bearer institutional')
+      .expect(400);
+
+    const summaryA = await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/summary')
+      .set('Authorization', 'Bearer institutional')
+      .query({ tenantId: String(seed.tenantA._id) })
+      .expect(200);
+    expect(summaryA.body).toMatchObject({
+      tenantId: String(seed.tenantA._id),
+      assignmentId: String(seed.assignmentA._id),
+      wallet: walletA,
+    });
+
+    const summaryB = await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/summary')
+      .set('Authorization', 'Bearer institutional')
+      .query({ tenantId: String(seed.tenantB._id) })
+      .expect(200);
+    expect(summaryB.body).toMatchObject({
+      tenantId: String(seed.tenantB._id),
+      assignmentId: String(assignmentBForUserA._id),
+      wallet: walletB,
+    });
+    expect(blockchain.getLiquidBalance).toHaveBeenCalledWith(walletB);
+
+    const historyA = await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/payments')
+      .set('Authorization', 'Bearer institutional')
+      .query({ tenantId: String(seed.tenantA._id) })
+      .expect(200);
+    expect(historyA.body.items.map((item: any) => item.paymentId)).toContain(
+      String(seed.paymentA._id),
+    );
+    expect(historyA.body.items.map((item: any) => item.paymentId)).not.toContain(
+      String(paymentBForUserA._id),
+    );
+
+    const historyB = await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/payments')
+      .set('Authorization', 'Bearer institutional')
+      .query({ tenantId: String(seed.tenantB._id) })
+      .expect(200);
+    expect(historyB.body.items.map((item: any) => item.paymentId)).toContain(
+      String(paymentBForUserA._id),
+    );
+    expect(historyB.body.items.map((item: any) => item.paymentId)).not.toContain(
+      String(seed.paymentA._id),
+    );
+
+    const paymentBDetail = await request(app.getHttpServer())
+      .get(`/api/v1/tvd/me/payments/${paymentBForUserA._id}`)
+      .set('Authorization', 'Bearer institutional')
+      .query({ tenantId: String(seed.tenantB._id) })
+      .expect(200);
+    expect(paymentBDetail.body).toMatchObject({
+      paymentId: String(paymentBForUserA._id),
+      merchantReference: '100000003',
+    });
+
+    await request(app.getHttpServer())
+      .get('/api/v1/tvd/me/summary')
+      .set('Authorization', 'Bearer institutional')
+      .query({ tenantId: String(tenantC._id) })
+      .expect(403);
+
+    await paymentModel.deleteOne({ _id: paymentBForUserA._id });
+    await assignmentModel.deleteOne({ _id: assignmentBForUserA._id });
+  });
+
   it('TVD-QUERY-POS-I-002/003 | POSITIVO | INTEGRACION | historial y detalle institucional estan aislados por tenant', async () => {
     const list = await request(app.getHttpServer())
       .get('/api/v1/tvd/me/accreditations')

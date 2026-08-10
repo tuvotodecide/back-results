@@ -39,8 +39,8 @@ export class TvdMeController {
   ) {}
 
   @Get('summary')
-  getSummary(@Req() req: any) {
-    return this.tvdQueries.getMySummary(req.user);
+  getSummary(@Query('tenantId') tenantId: string | undefined, @Req() req: any) {
+    return this.tvdQueries.getMySummary(req.user, tenantId);
   }
 
   @Get('accreditations')
@@ -65,8 +65,12 @@ export class TvdMeController {
   }
 
   @Get('payments/:paymentId')
-  getPayment(@Param('paymentId') paymentId: string, @Req() req: any) {
-    return this.tvdQueries.getMyPayment(paymentId, req.user);
+  getPayment(
+    @Param('paymentId') paymentId: string,
+    @Query('tenantId') tenantId: string | undefined,
+    @Req() req: any,
+  ) {
+    return this.tvdQueries.getMyPayment(paymentId, req.user, tenantId);
   }
 
   @Get('quote')
@@ -74,7 +78,7 @@ export class TvdMeController {
     @Query() query: TvdMyQuoteQueryDto,
     @Req() req: AuthenticatedTvdRequest,
   ) {
-    await this.tvdQueries.resolveMyInstitutionalWallet(req.user);
+    await this.tvdQueries.resolveMyInstitutionalWallet(req.user, query.tenantId);
     return this.tvdQuotes.createInstitutionalQuote(query);
   }
 
@@ -83,6 +87,10 @@ export class TvdMeController {
     @Body() dto: TvdEstimatedCapacityRequestDto,
     @Req() req: AuthenticatedTvdRequest,
   ) {
-    return this.tvdCapacity.estimateCapacity(dto.estimatedParticipants, req.user);
+    return this.tvdCapacity.estimateCapacity(
+      dto.estimatedParticipants,
+      req.user,
+      dto.tenantId,
+    );
   }
 }

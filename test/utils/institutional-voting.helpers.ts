@@ -33,6 +33,19 @@ jest.mock('@/modules/zk-auth/zk-auth.module', () => ({
   ZkAuthModule: class {},
 }));
 
+jest.mock('ethers', () => {
+  const actual = jest.requireActual('ethers');
+  return {
+    ...actual,
+    ethers: {
+      ...actual.ethers,
+      JsonRpcProvider: class {
+        destroy() {}
+      },
+    },
+  };
+});
+
 jest.mock('@/core/guards/zk-auth.guard', () => ({
   ZkAuthGuard: jest.fn().mockImplementation(() => ({
     canActivate: jest.fn().mockResolvedValue(true),
@@ -65,6 +78,10 @@ jest.mock('@/modules/institutional-admin-applications/auth/institutional-mobile-
     getContextByApiKey: jest.fn().mockResolvedValue(null),
     hashApiKey: jest.fn((apiKey: string) => `mock-hash-${apiKey}`),
   })),
+}));
+
+jest.mock('@/modules/institutional-admin-applications/services/institutional-mobile-authorization-reconciliation.worker', () => ({
+  InstitutionalMobileAuthorizationReconciliationWorker: class {},
 }));
 
 jest.mock('@/modules/institutional-voting/auth/official-publication-mobile-zk-auth.guard', () => ({

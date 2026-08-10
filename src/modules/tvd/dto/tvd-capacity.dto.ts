@@ -1,10 +1,18 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsString, Matches } from 'class-validator';
+import { IsMongoId, IsOptional, IsString, Matches } from 'class-validator';
 
 const POSITIVE_INTEGER_REGEX = /^[1-9]\d*$/;
 
 export class TvdEstimatedCapacityRequestDto {
+  @ApiPropertyOptional({
+    description:
+      'Institución activa para resolver la wallet y el saldo institucional. Es obligatoria cuando el usuario tiene más de una asignación activa.',
+  })
+  @IsOptional()
+  @IsMongoId()
+  tenantId?: string;
+
   @ApiProperty({
     description:
       'Cantidad estimada de participantes ingresada por el administrador institucional. Es informativa y no reemplaza el conteo real del padrón.',

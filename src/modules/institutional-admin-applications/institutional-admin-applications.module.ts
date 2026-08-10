@@ -39,6 +39,8 @@ import { InstitutionalPublicRateLimitGuard } from './guards/institutional-public
 import { InstitutionalMobileZkAuthGuard } from './auth/institutional-mobile-zk-auth.guard';
 import { InstitutionalMobileZkAuthService } from './auth/institutional-mobile-zk-auth.service';
 import { OfficialPublicationMobileRateLimitGuard } from '../institutional-voting/auth/official-publication-mobile-rate-limit.guard';
+import { InstitutionalVotingModule } from '../institutional-voting/institutional-voting.module';
+import { InstitutionalMobileAuthorizationReconciliationWorker } from './services/institutional-mobile-authorization-reconciliation.worker';
 
 @Module({
   imports: [
@@ -62,6 +64,7 @@ import { OfficialPublicationMobileRateLimitGuard } from '../institutional-voting
     MailModule,
     InstitutionalAuditModule,
     HistoryModule,
+    InstitutionalVotingModule,
   ],
   controllers: [InstitutionalAdminApplicationsController, InstitutionalMobileAuthController],
   providers: [
@@ -71,6 +74,7 @@ import { OfficialPublicationMobileRateLimitGuard } from '../institutional-voting
     InstitutionalMobileZkAuthGuard,
     InstitutionalMobileZkAuthService,
     OfficialPublicationMobileRateLimitGuard,
+    InstitutionalMobileAuthorizationReconciliationWorker,
   ],
   exports: [InstitutionalAdminApplicationsService],
 })

@@ -6,9 +6,12 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+const phonePattern = /^[0-9+\-\s()]{6,32}$/;
 
 export class CreateInstitutionalAccessRecoveryRequestDto {
   @ApiProperty()
@@ -23,12 +26,22 @@ export class CreateInstitutionalAccessRecoveryRequestDto {
   fullName: string;
 
   @ApiProperty()
+  @IsString()
+  @Matches(phonePattern)
+  phoneNumber: string;
+
+  @ApiProperty()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   @IsEmail()
   @MaxLength(180)
   newEmail: string;
+
+  @ApiProperty()
+  @IsString()
+  @Matches(phonePattern)
+  supervisorPhoneNumber: string;
 }
 
 export class CreateAdminEmailChangeRequestDto {

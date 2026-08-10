@@ -176,6 +176,18 @@ export default registerAs('app', () => ({
       process.env.OFFICIAL_PUBLICATION_ENTRY_POINT_VERSION || '0.6',
   },
 
+  institutionalAuthorization: {
+    reconciliationEnabled:
+      process.env.INSTITUTIONAL_AUTHORIZATION_RECONCILIATION_ENABLED || 'true',
+    reconciliationIntervalMs:
+      process.env.INSTITUTIONAL_AUTHORIZATION_RECONCILIATION_INTERVAL_MS || '10000',
+    reconciliationBatchSize:
+      process.env.INSTITUTIONAL_AUTHORIZATION_RECONCILIATION_BATCH_SIZE || '10',
+    maxRetries: process.env.INSTITUTIONAL_AUTHORIZATION_MAX_RETRIES || '5',
+    entryPointAddress:
+      process.env.INSTITUTIONAL_AUTHORIZATION_ENTRY_POINT_ADDRESS || '',
+  },
+
   contracts: {
     tvdToken: {
       address: process.env.TVD_TOKEN_ADDRESS || '',

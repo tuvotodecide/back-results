@@ -26,13 +26,19 @@ export class OfficialPublicationNotificationOutbox {
   deduplicationKey!: string;
 
   @Prop({ required: true, trim: true, default: 'OFFICIAL_PUBLICATION_REQUEST' })
-  type!: 'OFFICIAL_PUBLICATION_REQUEST';
+  type!: 'OFFICIAL_PUBLICATION_REQUEST' | 'MOBILE_AUTHORIZATION_REQUESTED';
 
-  @Prop({ required: true, trim: true, index: true })
-  requestId!: string;
+  @Prop({ required: false, trim: true, index: true })
+  requestId?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'VotingEvent', required: true, index: true })
-  eventId!: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'VotingEvent', required: false, index: true })
+  eventId?: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'InstitutionalAdminApplication', required: false, index: true })
+  applicationId?: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'InstitutionalTenant', required: false, index: true })
+  tenantId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: true, index: true })
   recipientUserId!: Types.ObjectId;
@@ -46,8 +52,8 @@ export class OfficialPublicationNotificationOutbox {
   @Prop({ required: true, trim: true })
   recipientTopic!: string;
 
-  @Prop({ required: true, trim: true, lowercase: true })
-  smartAccountAddress!: string;
+  @Prop({ required: false, trim: true, lowercase: true })
+  smartAccountAddress?: string;
 
   @Prop({ required: true, trim: true })
   title!: string;

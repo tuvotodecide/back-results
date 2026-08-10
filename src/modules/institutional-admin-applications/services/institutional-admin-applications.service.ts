@@ -15,6 +15,7 @@ import { randomBytes } from 'crypto';
 import { ClientSession, Model, Types } from 'mongoose';
 import bcrypt from 'bcrypt';
 import { Hex, isAddress } from 'viem';
+import { entryPoint07Address } from 'viem/account-abstraction';
 import { InstitutionalEmailOutboxService } from '@/modules/mail/institutional-email-outbox.service';
 import { InstitutionalAuditService } from '@/modules/institutional-audit/services/institutional-audit.service';
 import { HistoryService } from '@/modules/history/services/history.service';
@@ -47,6 +48,9 @@ import {
   InstitutionalAdminInvitation,
   InstitutionalAdminInvitationDocument,
 } from '../schemas/institutional-admin-invitation.schema';
+import { OfficialPublicationNotificationService } from '@/modules/institutional-voting/services/publication/official-publication-notification.service';
+import { OfficialPublicationUserOperationService } from '@/modules/institutional-voting/services/publication/official-publication-user-operation.service';
+import { OfficialPublicationChainVerificationService } from '@/modules/institutional-voting/services/publication/official-publication-chain-verification.service';
 
 type IdentityHasDniResponse = {
   ok: boolean;
@@ -90,6 +94,9 @@ export class InstitutionalAdminApplicationsService {
     private readonly httpService: HttpService,
     private readonly auditService: InstitutionalAuditService,
     private readonly historyService: HistoryService,
+    private readonly notificationService: OfficialPublicationNotificationService,
+    private readonly userOperationService: OfficialPublicationUserOperationService,
+    private readonly chainVerificationService: OfficialPublicationChainVerificationService,
   ) {
     this.chain = this.configService.get<string>('app.blockchain.chain')!;
     this.pk = this.configService.get<string>('app.blockchain.privateKey')!;
@@ -653,6 +660,9 @@ export class InstitutionalAdminApplicationsService {
             : null,
         };
       });
+      if (response?.status === 'PENDING_MOBILE_AUTHORIZATION') {
+        await this.notificationService.enqueueForInstitutionalAuthorization(response.id);
+      }
       if (
         response?.status === 'PENDING_CHAIN_CONFIRMATION' &&
         response?.chainStatus === 'PENDING_SEND'
@@ -700,10 +710,6 @@ export class InstitutionalAdminApplicationsService {
 
     if (usesMobileAuthorization) {
       if (app.mobileAuthorizationUserOpHash) {
-        const reconciled = await this.reconcileMobileAuthorizationOperation(applicationId);
-        if (reconciled?.reconciled) {
-          return reconciled.request;
-        }
         await this.processMobileAuthorizationRetry(applicationId);
       }
       const refreshed = await this.getApplicationOrThrow(applicationId);
@@ -1883,6 +1889,20 @@ export class InstitutionalAdminApplicationsService {
     return new Date(Date.now() + 1000 * 60 * boundedAttempt);
   }
 
+  private maxMobileAuthorizationRetryAttempts() {
+    return Math.max(
+      1,
+      Number(this.configService.get<string>('app.institutionalAuthorization.maxRetries') || 5),
+    );
+  }
+
+  private requiredMobileAuthorizationConfirmations() {
+    return Math.max(
+      1,
+      Number(this.configService.get<string>('app.officialPublication.requiredConfirmations') || 1),
+    );
+  }
+
   private toSafeChainError(error: any): string {
     if (this.isRecoverableChainError(error)) {
       return 'No pudimos completar la creación en la red. El sistema volverá a intentar.';
@@ -2734,6 +2754,7 @@ export class InstitutionalAdminApplicationsService {
     const notification = await this.recordMobileAuthorizationNotice(created, tenant, requester);
     created.mobileAuthorizationNotificationId = notification?._id ?? null;
     await created.save();
+    await this.notificationService.enqueueForInstitutionalAuthorization(String(created._id));
     return this.toMobileAuthorizationResponse(created, tenant, primary, created.status);
   }
 
@@ -2862,15 +2883,11 @@ export class InstitutionalAdminApplicationsService {
   async reconcileMobileAuthorizationOperation(applicationId: string) {
     const app = await this.getApplicationOrThrow(applicationId);
     const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
-    const stableInstitutionId = this.requireStableInstitutionId(app);
-    const targetWallet = this.normalizeAccountAddress(app.accountAddress);
-    const confirmed = await this.isMobileAuthorizationConfirmedOnNetwork(app, stableInstitutionId, targetWallet);
-    if (!confirmed) {
-      return { reconciled: false, request: this.toMobileAuthorizationResponse(app, tenant, primary, app.status) };
-    }
-    await this.completeMobileAuthorizationFromNetwork(app);
+    await this.processMobileAuthorizationRetry(applicationId);
     const refreshed = await this.getApplicationOrThrow(applicationId);
-    return { reconciled: true, request: this.toMobileAuthorizationResponse(refreshed, tenant, primary, refreshed.status) };
+    const reconciled = ['APPROVED', 'REVOKED'].includes(String(refreshed.status)) &&
+      refreshed.chainStatus === 'CONFIRMED';
+    return { reconciled, request: this.toMobileAuthorizationResponse(refreshed, tenant, primary, refreshed.status) };
   }
 
   async processMobileAuthorizationRetry(applicationId: string) {
@@ -2891,6 +2908,29 @@ export class InstitutionalAdminApplicationsService {
     );
     if (!app) return { processed: false, reason: 'NO_CLAIMABLE_OPERATION' };
     try {
+      const userOperation = await this.verifyMobileAuthorizationUserOperation(app);
+      if (userOperation.status === 'PENDING') {
+        const attempts = (app.chainAttempts ?? 0) + 1;
+        await this.applicationModel.updateOne(
+          { _id: app._id },
+          { $set: {
+            status: 'PENDING_CHAIN_CONFIRMATION', chainStatus: 'SENT', chainAttempts: attempts,
+            chainNextRetryAt: this.calculateNextChainRetryAt(attempts),
+            chainLastError: userOperation.code, chainLockedAt: null, chainLockedUntil: null,
+          } },
+        );
+        return { processed: true, status: 'PENDING', attempts };
+      }
+      if (userOperation.status !== 'CONFIRMED') {
+        await this.applicationModel.updateOne(
+          { _id: app._id },
+          { $set: {
+            status: 'CHAIN_FAILED', chainStatus: 'FAILED', chainLastError: userOperation.code,
+            chainNextRetryAt: null, chainLockedAt: null, chainLockedUntil: null,
+          } },
+        );
+        return { processed: true, status: 'FAILED', reason: userOperation.code };
+      }
       const stableInstitutionId = this.requireStableInstitutionId(app);
       const targetWallet = this.normalizeAccountAddress(app.accountAddress);
       const confirmed = await this.isMobileAuthorizationConfirmedOnNetwork(app, stableInstitutionId, targetWallet);
@@ -2898,16 +2938,112 @@ export class InstitutionalAdminApplicationsService {
         await this.completeMobileAuthorizationFromNetwork(app);
         return { processed: true, status: 'CONFIRMED', reusedNetworkState: true };
       }
-      await this.applicationModel.updateOne({ _id: app._id }, { $set: { status: 'PENDING_CHAIN_CONFIRMATION', chainStatus: 'SENT', chainLockedAt: null, chainLockedUntil: null } });
+      const attempts = (app.chainAttempts ?? 0) + 1;
+      await this.applicationModel.updateOne({ _id: app._id }, {
+        $set: {
+          status: 'PENDING_CHAIN_CONFIRMATION',
+          chainStatus: 'SENT',
+          chainAttempts: attempts,
+          chainNextRetryAt: this.calculateNextChainRetryAt(attempts),
+          chainLockedAt: null,
+          chainLockedUntil: null,
+        },
+      });
       return { processed: true, status: 'PENDING' };
     } catch (error) {
       const attempts = (app.chainAttempts ?? 0) + 1;
+      const retryable = attempts < this.maxMobileAuthorizationRetryAttempts();
       await this.applicationModel.updateOne(
         { _id: app._id },
-        { $set: { status: 'CHAIN_RETRY_PENDING', chainStatus: 'RETRY_PENDING', chainAttempts: attempts, chainNextRetryAt: this.calculateNextChainRetryAt(attempts), chainLastError: this.toSafeChainError(error), chainLockedAt: null, chainLockedUntil: null } },
+        { $set: {
+          status: retryable ? 'CHAIN_RETRY_PENDING' : 'CHAIN_FAILED',
+          chainStatus: retryable ? 'RETRY_PENDING' : 'FAILED',
+          chainAttempts: attempts,
+          chainNextRetryAt: retryable ? this.calculateNextChainRetryAt(attempts) : null,
+          chainLastError: this.toSafeChainError(error),
+          chainLockedAt: null,
+          chainLockedUntil: null,
+        } },
       );
-      return { processed: true, status: 'RETRY_PENDING', attempts };
+      return { processed: true, status: retryable ? 'RETRY_PENDING' : 'FAILED', attempts };
     }
+  }
+
+  private async verifyMobileAuthorizationUserOperation(app: InstitutionalAdminApplicationDocument) {
+    const userOpHash = String(app.mobileAuthorizationUserOpHash || '').trim();
+    if (!/^0x[a-f0-9]{64}$/i.test(userOpHash)) return { status: 'FAILED', code: 'INSTITUTIONAL_USER_OP_HASH_INVALID' } as const;
+    const [lookup, receipt] = await Promise.all([
+      this.userOperationService.getUserOperationByHash(userOpHash),
+      this.userOperationService.getUserOperationReceipt(userOpHash),
+    ]);
+    if (!receipt) return { status: 'PENDING', code: 'INSTITUTIONAL_USER_OPERATION_PENDING' } as const;
+    const receiptStatus = receipt.receipt?.status;
+    if (!receipt.success || !(receiptStatus === 'success' || receiptStatus === '0x1' || receiptStatus === 1 || receiptStatus === 1n)) {
+      return { status: 'FAILED', code: 'INSTITUTIONAL_USER_OPERATION_REVERTED' } as const;
+    }
+    if (String(receipt.userOpHash || '').toLowerCase() !== userOpHash.toLowerCase()) {
+      return { status: 'FAILED', code: 'INSTITUTIONAL_USER_OPERATION_RECEIPT_MISMATCH' } as const;
+    }
+    const { primary } = await this.resolveMobileAuthorizationContext(app);
+    const expectedSender = String(primary.accountAddress || '').toLowerCase();
+    const senders = [lookup?.userOperation?.sender, receipt.sender]
+      .map((value) => String(value || '').toLowerCase())
+      .filter(Boolean);
+    if (!senders.length || senders.some((sender) => sender !== expectedSender)) {
+      return { status: 'FAILED', code: 'INSTITUTIONAL_USER_OPERATION_SENDER_MISMATCH' } as const;
+    }
+    const expectedEntryPoint = String(
+      this.configService.get<string>('app.institutionalAuthorization.entryPointAddress') || entryPoint07Address,
+    ).toLowerCase();
+    const entryPoints = [lookup?.entryPoint, receipt.entryPoint]
+      .map((value) => String(value || '').toLowerCase())
+      .filter(Boolean);
+    if (entryPoints.some((entryPoint) => entryPoint !== expectedEntryPoint)) {
+      return { status: 'FAILED', code: 'INSTITUTIONAL_USER_OPERATION_ENTRY_POINT_MISMATCH' } as const;
+    }
+    const receiptBlock = BigInt(receipt.receipt?.blockNumber);
+    const currentBlock = await this.userOperationService.getBlockNumber();
+    const confirmations = currentBlock >= receiptBlock ? Number(currentBlock - receiptBlock + 1n) : 0;
+    if (confirmations < this.requiredMobileAuthorizationConfirmations()) {
+      return { status: 'PENDING', code: 'INSTITUTIONAL_USER_OPERATION_CONFIRMATIONS_PENDING' } as const;
+    }
+    const stableInstitutionId = this.requireStableInstitutionId(app);
+    const targetWallet = this.normalizeAccountAddress(app.accountAddress);
+    const action = this.resolveMobileAuthorizationAction(app);
+    const call = action === 'REMOVE_AUTHORIZED_ADDRESS'
+      ? VoteContractCalls.removeAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex)
+      : action === 'CHANGE_INSTITUTION_ADMIN'
+        ? VoteContractCalls.changeInstitutionAdmin(this.chain, stableInstitutionId, targetWallet as Hex)
+        : VoteContractCalls.addAuthorizedAddress(this.chain, stableInstitutionId, targetWallet as Hex);
+    const calls = this.chainVerificationService.decodeSmartAccountCalls(
+      String(lookup?.userOperation?.callData || ''),
+    );
+    if (
+      !calls ||
+      calls.length !== 1 ||
+      String(calls[0].to).toLowerCase() !== String(call.to).toLowerCase() ||
+      BigInt(calls[0].value) !== BigInt(call.value || 0) ||
+      String(calls[0].data).toLowerCase() !== String(call.data || '').toLowerCase()
+    ) {
+      return { status: 'FAILED', code: 'INSTITUTIONAL_USER_OPERATION_CALL_MISMATCH' } as const;
+    }
+    return { status: 'CONFIRMED', code: 'INSTITUTIONAL_USER_OPERATION_CONFIRMED' } as const;
+  }
+
+  async findMobileAuthorizationReconciliationBatch(limit: number, now = new Date()) {
+    return this.applicationModel
+      .find({
+        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING', 'RECONCILIATION_PENDING'] },
+        mobileAuthorizationUserOpHash: { $exists: true, $ne: null },
+        $or: [
+          { chainNextRetryAt: { $exists: false } },
+          { chainNextRetryAt: null },
+          { chainNextRetryAt: { $lte: now } },
+        ],
+      })
+      .sort({ chainNextRetryAt: 1, createdAt: 1 })
+      .limit(limit)
+      .lean();
   }
 
   private async recordMobileAuthorizationNotice(
@@ -2950,13 +3086,14 @@ export class InstitutionalAdminApplicationsService {
         $setOnInsert: {
           type: 'generic',
           topic: `user_${String(primary.userId)}`,
-          title: 'Autorización institucional pendiente',
+          title: 'Autorización pendiente',
           body: isTransfer
-            ? `Autoriza desde tu teléfono la transferencia del rol principal de ${tenant.name} a ${app.name}.`
+            ? `Revisa esta solicitud de ${tenant.name}.`
             : isRemoval
-            ? `Autoriza desde tu teléfono la eliminación del acceso de ${app.name} a ${tenant.name}.`
-            : `Autoriza desde tu teléfono el acceso de ${app.name} a ${tenant.name}.`,
+            ? `Revisa esta solicitud de ${tenant.name}.`
+            : `Revisa esta solicitud de ${tenant.name}.`,
           data: {
+            type: 'MOBILE_AUTHORIZATION_REQUESTED',
             event: 'MOBILE_AUTHORIZATION_REQUESTED',
             applicationId: String(app._id),
             tenantId: String(tenant._id),
@@ -2965,7 +3102,7 @@ export class InstitutionalAdminApplicationsService {
             requesterId: requester?.sub ? String(requester.sub) : null,
             deduplicationKey,
           },
-          status: 'SENT',
+          status: 'PENDING',
         },
       },
       { upsert: true, returnDocument: 'after' },

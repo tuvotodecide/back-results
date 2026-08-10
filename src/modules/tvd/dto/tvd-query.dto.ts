@@ -21,6 +21,10 @@ import {
 
 export class TvdAccreditationListQueryDto {
   @IsOptional()
+  @IsMongoId()
+  tenantId?: string;
+
+  @IsOptional()
   @IsEnum(tokenAccreditationStatuses)
   status?: TokenAccreditationStatus;
 
@@ -51,10 +55,6 @@ export class TvdAccreditationListQueryDto {
 }
 
 export class TvdAdminAccreditationListQueryDto extends TvdAccreditationListQueryDto {
-  @IsOptional()
-  @IsMongoId()
-  tenantId?: string;
-
   @IsOptional()
   @IsMongoId()
   assignmentId?: string;

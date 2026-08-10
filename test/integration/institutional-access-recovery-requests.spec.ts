@@ -189,12 +189,16 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     return { seeded, beforeUser, beforeAssignments, oldLogin, newEmail, afterUser, afterAssignments };
   }
 
-  function createRecovery(tenantId: Types.ObjectId, newEmail = 'new@example.com') {
+  function createRecovery(
+    tenantId: Types.ObjectId,
+    newEmail = 'new@example.com',
+    fullName = 'Admin Recuperable',
+  ) {
     return request(app.getHttpServer())
       .post('/api/v1/institutional-access-recovery-requests')
       .send({
         institutionId: String(tenantId),
-        fullName: 'Admin Recuperable',
+        fullName,
         phoneNumber: '+591 70000001',
         newEmail,
         supervisorPhoneNumber: '+591 70000002',
@@ -216,7 +220,9 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     expect(list.body.data[0]).toMatchObject({
       institutionName: 'Universidad Demo',
       fullName: 'Admin Recuperable',
+      phoneNumber: '+591 70000001',
       newEmail: 'recover@example.com',
+      supervisorPhoneNumber: '+591 70000002',
       status: 'PENDING',
     });
     expect(list.body.data[0]).not.toHaveProperty('currentEmail');
@@ -227,6 +233,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     expect(detail.body).toMatchObject({
       candidateUserId: String(seeded.userId),
       candidateAssignmentId: String(seeded.assignmentId),
+      phoneNumber: '+591 70000001',
+      supervisorPhoneNumber: '+591 70000002',
       currentEmail: expect.stringContaining('old-'),
       accountAddress: '0x0000000000000000000000000000000000000801',
       institutionalRole: 'PRIMARY',
@@ -250,6 +258,80 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     await createRecovery(seeded.tenantId, 'correo-invalido').expect(400);
     await createRecovery(seeded.tenantId, '   ').expect(400);
     await createRecovery(seeded.tenantId, String(existingUser?.email)).expect(409);
+  });
+
+  it('no crea recuperaciones sin un administrador único validado', async () => {
+    const seeded = await seedAdminAssignment();
+
+    await createRecovery(
+      seeded.tenantId,
+      'sin-candidato@example.com',
+      'Nombre No Registrado',
+    ).expect(400);
+
+    expect(
+      await conn.collection('institutional_access_recovery_requests').countDocuments({}),
+    ).toBe(0);
+  });
+
+  it('resuelve y permite aprobar al PRIMARY con varios administradores del mismo tenant', async () => {
+    const principal = await seedAdminAssignment('PRIMARY');
+    const now = new Date();
+    const additionalAdmins = [
+      { name: 'Admin Recuperable', email: 'same-name-secondary@example.com' },
+      { name: 'María Pérez', email: 'maria@example.com' },
+      { name: 'Carlos Rojas', email: 'carlos@example.com' },
+    ].map((admin) => ({ ...admin, userId: new Types.ObjectId(), assignmentId: new Types.ObjectId() }));
+    await conn.collection('roled_users').insertMany(additionalAdmins.map((admin) => ({
+      _id: admin.userId,
+      dni: `dni-${String(admin.userId).slice(-6)}`,
+      email: admin.email,
+      name: admin.name,
+      password: 'hash',
+      role: 'USER',
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    })));
+    await conn.collection('tenant_admin_assignments').insertMany(additionalAdmins.map((admin, index) => ({
+      _id: admin.assignmentId,
+      tenantId: principal.tenantId,
+      userId: admin.userId,
+      accountAddress: `0x00000000000000000000000000000000000008${index + 2}`,
+      institutionalRole: 'SECONDARY',
+      status: 'APPROVED',
+      active: true,
+      requestedAt: now,
+      approvedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })));
+
+    const created = await createRecovery(principal.tenantId, 'principal-multiple@example.com').expect(201);
+    const pending = await conn.collection('institutional_access_recovery_requests').findOne({
+      _id: new Types.ObjectId(created.body.requestId),
+    });
+    expect(pending).toMatchObject({
+      status: 'PENDING',
+      candidateUserId: principal.userId,
+      candidateAssignmentId: principal.assignmentId,
+      institutionalRole: 'PRIMARY',
+      warnings: [],
+    });
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/approve`)
+      .send({
+        targetUserId: String(principal.userId),
+        targetAssignmentId: String(principal.assignmentId),
+      })
+      .expect(201);
+
+    expect(
+      await conn.collection('institutional_access_recovery_requests').findOne({
+        _id: new Types.ObjectId(created.body.requestId),
+      }),
+    ).toMatchObject({ status: 'APPROVED' });
   });
 
   it('aprueba recuperacion sobre PRIMARY conservando usuario tenant assignment wallet y rol', async () => {
@@ -599,6 +681,14 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     const beforeAssignments = await conn.collection('tenant_admin_assignments').find({ userId: seeded.userId }).toArray();
     const oldLogin = await login(seeded.email, seeded.password).expect(200);
     const created = await createEmailChange(oldLogin.body.accessToken, 'correo-nuevo@example.com').expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/approve`)
+      .send({
+        targetUserId: String(seeded.userId),
+        targetAssignmentId: String(seeded.assignmentId),
+      })
+      .expect(409);
 
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/email-change/approve`)

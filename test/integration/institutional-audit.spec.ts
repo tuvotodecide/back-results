@@ -1,6 +1,30 @@
+jest.mock('@/modules/institutional-voting/services/core/vote-writter.service', () => ({
+  VoteWritterService: class {},
+}));
+
+jest.mock('ethers', () => {
+  const actual = jest.requireActual('ethers');
+  return {
+    ...actual,
+    ethers: {
+      ...actual.ethers,
+      JsonRpcProvider: class {
+        destroy() {}
+      },
+    },
+  };
+});
+
+jest.mock('@/modules/institutional-admin-applications/services/institutional-mobile-authorization-reconciliation.worker', () => ({
+  InstitutionalMobileAuthorizationReconciliationWorker: class {},
+}));
+
 jest.mock('@iden3/js-iden3-auth', () => ({
   auth: {
-    createAuthorizationRequest: jest.fn(() => ({ id: 'institutional-auth-request' })),
+    createAuthorizationRequest: jest.fn(() => ({
+      id: 'institutional-auth-request',
+      body: { scope: [] },
+    })),
     Verifier: {
       newVerifier: jest.fn(async () => ({
         fullVerify: jest.fn(async () => ({ from: 'did:iden3:test' })),

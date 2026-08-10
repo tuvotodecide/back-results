@@ -149,8 +149,8 @@ export class TvdQueryService {
     private readonly configService: ConfigService,
   ) {}
 
-  async getMySummary(requester: Requester) {
-    const context = await this.resolveInstitutionalSummaryContext(requester);
+  async getMySummary(requester: Requester, tenantId?: string) {
+    const context = await this.resolveInstitutionalSummaryContext(requester, tenantId);
     const [balance, tokenSymbol] = await Promise.all([
       context.wallet ? this.readWalletTokenBalanceForSummary(context.wallet) : null,
       this.readTokenSymbolSafely(),
@@ -206,8 +206,8 @@ export class TvdQueryService {
     };
   }
 
-  async resolveMyInstitutionalWallet(requester: Requester) {
-    const context = await this.resolveInstitutionalContext(requester);
+  async resolveMyInstitutionalWallet(requester: Requester, tenantId?: string) {
+    const context = await this.resolveInstitutionalContext(requester, tenantId);
 
     return {
       tenantId: String(context.tenant._id),
@@ -222,7 +222,7 @@ export class TvdQueryService {
     query: TvdAccreditationListQueryDto,
     requester: Requester,
   ) {
-    const context = await this.resolveInstitutionalContext(requester);
+    const context = await this.resolveInstitutionalContext(requester, query.tenantId);
     return this.listAccreditations(
       {
         tenantId: context.tenant._id,
@@ -242,7 +242,7 @@ export class TvdQueryService {
   }
 
   async listMyPayments(query: any, requester: Requester) {
-    const context = await this.resolveInstitutionalContext(requester);
+    const context = await this.resolveInstitutionalContext(requester, query.tenantId);
     return this.listPayments(
       {
         tenantId: context.tenant._id,
@@ -252,8 +252,8 @@ export class TvdQueryService {
     );
   }
 
-  async getMyPayment(paymentId: string, requester: Requester) {
-    const context = await this.resolveInstitutionalContext(requester);
+  async getMyPayment(paymentId: string, requester: Requester, tenantId?: string) {
+    const context = await this.resolveInstitutionalContext(requester, tenantId);
     const payment = await this.findPaymentOrThrow(paymentId, {
       tenantId: context.tenant._id,
       targetAssignmentId: context.assignment._id,
@@ -869,8 +869,9 @@ export class TvdQueryService {
 
   private async resolveInstitutionalContext(
     requester: Requester,
+    tenantId?: string,
   ): Promise<InstitutionalContext> {
-    const context = await this.resolveInstitutionalSummaryContext(requester);
+    const context = await this.resolveInstitutionalSummaryContext(requester, tenantId);
     if (!context.wallet) {
       throw new BadRequestException({
         code: 'TVD_WALLET_NOT_VERIFIED',
@@ -887,6 +888,7 @@ export class TvdQueryService {
 
   private async resolveInstitutionalSummaryContext(
     requester: Requester,
+    tenantId?: string,
   ): Promise<InstitutionalSummaryContext> {
     if (!requester?.sub || !Types.ObjectId.isValid(String(requester.sub))) {
       throw new UnauthorizedException({
@@ -906,18 +908,38 @@ export class TvdQueryService {
       status: 'APPROVED',
       active: true,
     };
-    if (
-      requester.tenantId &&
-      Types.ObjectId.isValid(String(requester.tenantId))
-    ) {
-      assignmentFilter.tenantId = new Types.ObjectId(
-        String(requester.tenantId),
-      );
+    const requestedTenantId = tenantId ?? requester.tenantId;
+    let assignment: InstitutionalContextAssignment | null;
+
+    if (requestedTenantId) {
+      if (!Types.ObjectId.isValid(String(requestedTenantId))) {
+        throw new BadRequestException({
+          code: 'TVD_TENANT_INVALID',
+          message: 'tenantId invalido',
+        });
+      }
+      assignment = await this.assignmentModel
+        .findOne({
+          ...assignmentFilter,
+          tenantId: new Types.ObjectId(String(requestedTenantId)),
+        })
+        .lean();
+    } else {
+      const assignments = await this.assignmentModel.find(assignmentFilter).lean();
+      if (assignments.length === 0) {
+        throw new ForbiddenException({
+          code: 'TVD_ASSIGNMENT_NOT_FOUND',
+          message: 'No existe una asignación institucional activa para este usuario',
+        });
+      }
+      if (assignments.length > 1) {
+        throw new BadRequestException({
+          code: 'TVD_TENANT_REQUIRED',
+          message: 'tenantId requerido',
+        });
+      }
+      assignment = assignments[0] as InstitutionalContextAssignment;
     }
-    const assignment = await this.assignmentModel
-      .findOne(assignmentFilter)
-      .sort({ institutionalRole: 1, createdAt: 1 })
-      .lean();
     if (!assignment) {
       throw new ForbiddenException({
         code: 'TVD_ASSIGNMENT_NOT_FOUND',

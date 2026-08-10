@@ -65,17 +65,6 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     return summary.body.currentVersion.padronVersionId as string;
   }
 
-  function decodePdfBody(body: Buffer) {
-    const raw = body.toString('utf-8');
-
-    if (raw.startsWith('{"type":"Buffer"')) {
-      const parsed = JSON.parse(raw) as { type: string; data: number[] };
-      return Buffer.from(parsed.data);
-    }
-
-    return body;
-  }
-
   async function createConfiguredEvent() {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
@@ -620,9 +609,8 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     expect(download.headers['content-disposition']).toContain('attachment');
     expect(download.headers['content-disposition']).toContain(`padron-${padronVersionId}.pdf`);
     expect(Buffer.isBuffer(download.body)).toBe(true);
-    const pdfBody = decodePdfBody(download.body);
-    expect(pdfBody.length).toBeGreaterThan(0);
-    expect(pdfBody.toString('utf-8')).toContain('%PDF-1.4');
+    expect(download.body.length).toBeGreaterThan(0);
+    expect(download.body.subarray(0, 5).toString('utf-8')).toBe('%PDF-');
   });
 
   it('PAD-DWN-P1-001 / PAD-STA-P0-003 | descarga una versión específica del padrón PDF y bloquea la descarga antes de publicación', async () => {
@@ -661,7 +649,8 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     expect(download.status).toBe(200);
     expect(download.headers['content-type']).toContain('application/pdf');
     expect(download.headers['content-disposition']).toContain(`padron-${padronVersionId}.pdf`);
-    expect(decodePdfBody(download.body).length).toBeGreaterThan(0);
+    expect(download.body.length).toBeGreaterThan(0);
+    expect(download.body.subarray(0, 5).toString('utf-8')).toBe('%PDF-');
   });
 
   it('PAD-STA-P0-003 | expira por plazo y bloquea cambios de padrón en PUBLICATION_EXPIRED', async () => {

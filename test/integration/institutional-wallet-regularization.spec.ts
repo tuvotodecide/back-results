@@ -1,5 +1,43 @@
 import appConfig from '@/config/app.config';
 
+jest.mock('@iden3/js-iden3-auth', () => ({
+  auth: {
+    createAuthorizationRequest: jest.fn(() => ({ id: 'mx02-zk-request', body: { scope: [] } })),
+    Verifier: { newVerifier: jest.fn() },
+  },
+  resolver: { EthStateResolver: jest.fn() },
+}));
+
+jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
+  ZkAuthService: class {
+    getAuthRequest() { return { apiKey: 'mx02-zk', request: { body: { scope: [] } } }; }
+    getVoteRequest() { return { request: { body: { scope: [] } } }; }
+    getRewardRequest() { return { request: { body: { scope: [] } } }; }
+    async zkAuthCallback() { return { from: 'did:iden3:mx02' }; }
+    async zkRequestCallback() { return { from: 'did:iden3:mx02' }; }
+    async isApiKeyValid() { return true; }
+  },
+}));
+
+jest.mock('@/modules/zk-auth/zk-auth.module', () => {
+  const { Module } = jest.requireActual('@nestjs/common');
+  const { ZkAuthService } = require('@/modules/zk-auth/services/zk-auth.service');
+  class ZkAuthModule {}
+  Module({ providers: [ZkAuthService], exports: [ZkAuthService] })(ZkAuthModule);
+  return { ZkAuthModule };
+});
+
+jest.mock('@/modules/institutional-voting/auth/official-publication-mobile-zk-auth.service', () => ({
+  OfficialPublicationMobileZkAuthService: class {
+    async createAuthorizationRequest() { return { requestId: 'mx02-publication-zk', request: { body: { scope: [] } } }; }
+    async verifyAuthorizationResponse() { return { sub: 'mx02-publication-zk' }; }
+  },
+}));
+
+jest.mock('@/modules/institutional-voting/services/core/vote-writter.service', () => ({
+  VoteWritterService: class {},
+}));
+
 jest.mock('@/api/vote', () => ({
   VoteContractReads: {
     getInstitutionAdmin: jest.fn().mockResolvedValue('0x0000000000000000000000000000000000000000'),
@@ -18,6 +56,7 @@ import { InstitutionalVotingAccessService } from '@/modules/institutional-voting
 import { HttpService } from '@nestjs/axios';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { getConnectionToken, MongooseModule } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
@@ -57,6 +96,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     moduleRef = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({ isGlobal: true, load: [appConfig] }),
+        JwtModule.register({ global: true, secret: 'test-secret' }),
         MongooseModule.forRoot(mongod.getUri()),
         TestLoggerModule,
         InstitutionalTenantsModule,

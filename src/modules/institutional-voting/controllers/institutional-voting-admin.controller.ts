@@ -757,7 +757,7 @@ export class InstitutionalVotingAdminController {
   async downloadPadronCertificate(
     @Param('eventId') eventId: string,
     @Req() req: any,
-    @Res({ passthrough: true }) res: Response,
+    @Res() res: Response,
     @Query('padronVersionId') padronVersionId?: string,
   ) {
     const result = await this.institutionalVotingService.downloadPadronCertificate(
@@ -768,7 +768,7 @@ export class InstitutionalVotingAdminController {
 
     res.setHeader('Content-Type', result.mimeType);
     res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
-    return result.pdfBuffer;
+    return res.send(result.pdfBuffer);
   }
 
   @Patch(':eventId/schedule')
@@ -945,7 +945,7 @@ export class InstitutionalVotingAdminController {
   async downloadPadronPdf(
     @Param('eventId') eventId: string,
     @Req() req: any,
-    @Res({ passthrough: true }) res: Response,
+    @Res() res: Response,
     @Query('padronVersionId') padronVersionId?: string,
   ) {
     const result = await this.institutionalVotingService.downloadPadronPdf(
@@ -956,7 +956,7 @@ export class InstitutionalVotingAdminController {
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${result.fileName}"`);
-    return result.pdfBuffer;
+    return res.send(result.pdfBuffer);
   }
 
   @Get(':eventId/participation-analytics')

@@ -105,7 +105,9 @@ it('D-MAIL-001 | crea solicitud valida pendiente sin cambiar correo ni exponer c
     const result = await service.createRequest({
       institutionId: String(tenantId),
       fullName: ' Admin   Principal ',
+      phoneNumber: ' +591 70000001 ',
       newEmail: 'NEW@EXAMPLE.COM',
+      supervisorPhoneNumber: ' +591 70000002 ',
     });
 
     expect(result).toEqual({
@@ -117,7 +119,9 @@ it('D-MAIL-001 | crea solicitud valida pendiente sin cambiar correo ni exponer c
       expect.objectContaining({
         tenantId,
         fullName: 'Admin Principal',
+        phoneNumber: '+591 70000001',
         newEmail: 'new@example.com',
+        supervisorPhoneNumber: '+591 70000002',
         candidateUserId: userId,
         candidateAssignmentId: assignmentId,
         currentEmail: 'old@example.com',
@@ -129,6 +133,89 @@ it('D-MAIL-001 | crea solicitud valida pendiente sin cambiar correo ni exponer c
     expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
   });
 
+  it('prioriza PRIMARY con varios administradores, incluso si un SECONDARY comparte el nombre', async () => {
+    const tenantId = new Types.ObjectId('64c000000000000000000005');
+    const primaryUserId = new Types.ObjectId('64c000000000000000000006');
+    const primaryAssignmentId = new Types.ObjectId('64c000000000000000000007');
+    const sameNameSecondaryUserId = new Types.ObjectId('64c000000000000000000008');
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true, name: 'Tenant Uno' }));
+    roledUserModel.findOne.mockReturnValue(query(null));
+    recoveryRequestModel.findOne.mockReturnValue(query(null));
+    assignmentModel.find.mockReturnValue(query([
+      { _id: primaryAssignmentId, tenantId, userId: primaryUserId, institutionalRole: 'PRIMARY' },
+      { _id: new Types.ObjectId(), tenantId, userId: sameNameSecondaryUserId, institutionalRole: 'SECONDARY' },
+      { _id: new Types.ObjectId(), tenantId, userId: new Types.ObjectId(), institutionalRole: 'SECONDARY' },
+      { _id: new Types.ObjectId(), tenantId, userId: new Types.ObjectId(), institutionalRole: 'SECONDARY' },
+    ]));
+    roledUserModel.find.mockReturnValue(query([
+      { _id: primaryUserId, name: 'José Mendoza', email: 'principal@example.com' },
+      { _id: sameNameSecondaryUserId, name: 'José Mendoza', email: 'duplicado@example.com' },
+      { _id: new Types.ObjectId(), name: 'María Pérez', email: 'maria@example.com' },
+      { _id: new Types.ObjectId(), name: 'Carlos Rojas', email: 'carlos@example.com' },
+    ]));
+    recoveryRequestModel.create.mockResolvedValue({
+      _id: new Types.ObjectId('64c000000000000000000009'),
+      status: 'PENDING',
+      requestedAt: new Date('2026-08-10T00:00:00.000Z'),
+    });
+
+    const result = await service.createRequest({
+      institutionId: String(tenantId),
+      fullName: ' José   Mendoza ',
+      phoneNumber: '+591 70000001',
+      newEmail: 'principal-recuperado@example.com',
+      supervisorPhoneNumber: '+591 70000002',
+    });
+
+    expect(result.status).toBe('PENDING');
+    expect(recoveryRequestModel.create).toHaveBeenCalledWith(expect.objectContaining({
+      candidateUserId: primaryUserId,
+      candidateAssignmentId: primaryAssignmentId,
+      institutionalRole: 'PRIMARY',
+      warnings: [],
+    }));
+  });
+
+  it('permite un administrador adicional cuando su nombre es una coincidencia única', async () => {
+    const tenantId = new Types.ObjectId('64c00000000000000000000a');
+    const primaryUserId = new Types.ObjectId('64c00000000000000000000b');
+    const secondaryUserId = new Types.ObjectId('64c00000000000000000000c');
+    const secondaryAssignmentId = new Types.ObjectId('64c00000000000000000000d');
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true, name: 'Tenant Uno' }));
+    roledUserModel.findOne.mockReturnValue(query(null));
+    recoveryRequestModel.findOne.mockReturnValue(query(null));
+    assignmentModel.find.mockReturnValue(query([
+      { _id: new Types.ObjectId(), tenantId, userId: primaryUserId, institutionalRole: 'PRIMARY' },
+      { _id: secondaryAssignmentId, tenantId, userId: secondaryUserId, institutionalRole: 'SECONDARY' },
+      { _id: new Types.ObjectId(), tenantId, userId: new Types.ObjectId(), institutionalRole: 'SECONDARY' },
+    ]));
+    roledUserModel.find.mockReturnValue(query([
+      { _id: primaryUserId, name: 'José Mendoza', email: 'principal@example.com' },
+      { _id: secondaryUserId, name: 'Ana Flores', email: 'ana@example.com' },
+      { _id: new Types.ObjectId(), name: 'María Pérez', email: 'maria@example.com' },
+    ]));
+    recoveryRequestModel.create.mockResolvedValue({
+      _id: new Types.ObjectId('64c00000000000000000000e'),
+      status: 'PENDING',
+      requestedAt: new Date('2026-08-10T00:00:00.000Z'),
+    });
+
+    await service.createRequest({
+      institutionId: String(tenantId),
+      fullName: 'Ana Flores',
+      phoneNumber: '+591 70000001',
+      newEmail: 'ana-recuperada@example.com',
+      supervisorPhoneNumber: '+591 70000002',
+    });
+
+    expect(recoveryRequestModel.create).toHaveBeenCalledWith(expect.objectContaining({
+      candidateUserId: secondaryUserId,
+      candidateAssignmentId: secondaryAssignmentId,
+      institutionalRole: 'SECONDARY',
+      warnings: [],
+    }));
+  });
+
 it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y solicitud pendiente duplicada', async () => {
     const tenantId = new Types.ObjectId('64c000000000000000000010');
     tenantModel.findById.mockReturnValue(query(null));
@@ -136,7 +223,9 @@ it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y
       service.createRequest({
         institutionId: String(tenantId),
         fullName: 'Admin',
+        phoneNumber: '+591 70000001',
         newEmail: 'new@example.com',
+        supervisorPhoneNumber: '+591 70000002',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
@@ -146,7 +235,9 @@ it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y
       service.createRequest({
         institutionId: String(tenantId),
         fullName: 'Admin',
+        phoneNumber: '+591 70000001',
         newEmail: 'used@example.com',
+        supervisorPhoneNumber: '+591 70000002',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
@@ -156,12 +247,14 @@ it('D-MAIL-002 / D-MAIL-005 | rechaza institucion inexistente, email duplicado y
       service.createRequest({
         institutionId: String(tenantId),
         fullName: 'Admin',
+        phoneNumber: '+591 70000001',
         newEmail: 'new@example.com',
+        supervisorPhoneNumber: '+591 70000002',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-it('D-MAIL-006 | deja pendiente sin candidato cuando la coincidencia es ambigua o inexistente', async () => {
+it('D-MAIL-006 | bloquea una coincidencia ambigua sin persistir una solicitud imposible', async () => {
     const tenantId = new Types.ObjectId('64c000000000000000000020');
     const userA = new Types.ObjectId();
     const userB = new Types.ObjectId();
@@ -176,25 +269,34 @@ it('D-MAIL-006 | deja pendiente sin candidato cuando la coincidencia es ambigua 
       { _id: userA, name: 'Admin Repetido', email: 'a@example.com' },
       { _id: userB, name: 'Admin Repetido', email: 'b@example.com' },
     ]));
-    recoveryRequestModel.create.mockResolvedValue({
-      _id: new Types.ObjectId(),
-      status: 'PENDING',
-      requestedAt: new Date(),
-    });
-
-    await service.createRequest({
+    await expect(service.createRequest({
       institutionId: String(tenantId),
       fullName: 'Admin Repetido',
+      phoneNumber: '+591 70000001',
       newEmail: 'new@example.com',
-    });
+      supervisorPhoneNumber: '+591 70000002',
+    })).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(recoveryRequestModel.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        candidateUserId: null,
-        candidateAssignmentId: null,
-        warnings: ['AMBIGUOUS_CANDIDATE'],
-      }),
-    );
+    expect(recoveryRequestModel.create).not.toHaveBeenCalled();
+  });
+
+  it('bloquea una coincidencia inexistente sin persistir una solicitud imposible', async () => {
+    const tenantId = new Types.ObjectId('64c000000000000000000021');
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true, name: 'Tenant' }));
+    roledUserModel.findOne.mockReturnValue(query(null));
+    recoveryRequestModel.findOne.mockReturnValue(query(null));
+    assignmentModel.find.mockReturnValue(query([]));
+    roledUserModel.find.mockReturnValue(query([]));
+
+    await expect(service.createRequest({
+      institutionId: String(tenantId),
+      fullName: 'Nombre No Registrado',
+      phoneNumber: '+591 70000001',
+      newEmail: 'new@example.com',
+      supervisorPhoneNumber: '+591 70000002',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(recoveryRequestModel.create).not.toHaveBeenCalled();
   });
 
   it('[MX-02][D-MAIL-001][UNITARIA] normaliza y crea solicitud autenticada sin aceptar identidad ni wallet del cliente', async () => {

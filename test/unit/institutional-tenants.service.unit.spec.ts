@@ -112,6 +112,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       httpService,
       configService,
       auditService,
+      { enqueueForInstitutionalAuthorization: jest.fn().mockResolvedValue({ enqueued: true }) } as any,
     );
   });
 

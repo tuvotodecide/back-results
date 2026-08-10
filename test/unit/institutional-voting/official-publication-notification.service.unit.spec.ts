@@ -67,6 +67,8 @@ describe('OfficialPublicationNotificationService', () => {
           lean: jest.fn().mockResolvedValue(event),
         })),
       },
+      application: { findById: jest.fn() },
+      tenant: { findById: jest.fn() },
       roledUser: {
         findOne: jest.fn(() => ({
           lean: jest.fn().mockResolvedValue({
@@ -103,6 +105,8 @@ describe('OfficialPublicationNotificationService', () => {
       fb,
       models.outbox,
       models.event,
+      models.application,
+      models.tenant,
       models.roledUser,
       models.assignment,
       models.user,

@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { InstitutionalAuditModule } from '../institutional-audit/institutional-audit.module';
+import { InstitutionalVotingModule } from '../institutional-voting/institutional-voting.module';
 import { RoledUser, RoledUserSchema } from '../auth/schemas/roledUser.schema';
 import { InstitutionalTenantsController } from './controllers/institutional-tenants.controller';
 import { InstitutionalTenantAdminGuard } from './guards/institutional-tenant-admin.guard';
@@ -43,6 +44,7 @@ import {
       inject: [ConfigService],
     }),
     InstitutionalAuditModule,
+    InstitutionalVotingModule,
   ],
   controllers: [InstitutionalTenantsController],
   providers: [InstitutionalTenantsService, InstitutionalTenantAdminGuard],

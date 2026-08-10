@@ -36,69 +36,6 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     res.on('end', () => callback(null, Buffer.concat(data)));
   }
 
-  function decodeBinaryBody(body: any): Buffer {
-    const tryExtractBuffer = (value: string): Buffer | null => {
-      const normalized = value.trim().replace(/^\s*"/, '').replace(/"\s*$/, '');
-      const unescaped = normalized.replace(/\\"/g, '"');
-
-      for (const candidate of [normalized, unescaped]) {
-        const match = candidate.match(/"data"\s*:\s*\[([0-9,\s]+)\]/);
-        if (!match) continue;
-        const bytes = match[1]
-          .split(',')
-          .map(part => Number(part.trim()))
-          .filter(num => Number.isInteger(num) && num >= 0 && num <= 255);
-        if (bytes.length > 0) {
-          return Buffer.from(bytes);
-        }
-      }
-
-      return null;
-    };
-
-    if (Buffer.isBuffer(body)) {
-      const wrapped = tryExtractBuffer(body.toString('utf-8'));
-      return wrapped ?? body;
-    }
-    if (body?.type === 'Buffer' && Array.isArray(body.data)) {
-      return Buffer.from(body.data);
-    }
-    if (Array.isArray(body)) {
-      return Buffer.from(body);
-    }
-
-    const serialized =
-      typeof body === 'string'
-        ? body
-        : typeof body === 'object' && body !== null
-          ? JSON.stringify(body)
-          : String(body);
-
-    const extracted = tryExtractBuffer(serialized);
-    if (extracted) return extracted;
-
-    if (typeof serialized === 'string') {
-      if (extracted) return extracted;
-
-      try {
-        const parsed = JSON.parse(serialized);
-        if (Buffer.isBuffer(parsed)) return parsed;
-        if (parsed?.type === 'Buffer' && Array.isArray(parsed.data)) {
-          return Buffer.from(parsed.data);
-        }
-        if (typeof parsed === 'string') {
-          const reparsed = tryExtractBuffer(parsed);
-          if (reparsed) return reparsed;
-          return Buffer.from(parsed, 'utf-8');
-        }
-      } catch {}
-
-      return Buffer.from(serialized, 'utf-8');
-    }
-
-    throw new Error(`Respuesta binaria inválida: ${typeof body}`);
-  }
-
   async function createConfiguredEvent() {
     const created = await createInstitutionalEvent(
       ctx.httpServer,
@@ -186,7 +123,9 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     expect(download.headers['content-type']).toContain('application/pdf');
     expect(download.headers['content-disposition']).toContain(`padron-constancia-${padronVersionId}.pdf`);
 
-    const text = decodeBinaryBody(download.body).toString('utf-8');
+    expect(Buffer.isBuffer(download.body)).toBe(true);
+    expect(download.body.subarray(0, 5).toString('utf-8')).toBe('%PDF-');
+    const text = download.body.toString('utf-8');
     expect(text).toContain('CONSTANCIA DE PADRON CONFIRMADO');
     expect(text).toContain('Eleccion Directiva 2026');
     expect(text).toContain(padronVersionId);

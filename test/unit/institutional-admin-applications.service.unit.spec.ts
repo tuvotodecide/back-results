@@ -167,6 +167,9 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       httpService,
       auditService,
       historyService,
+      { enqueueForInstitutionalAuthorization: jest.fn().mockResolvedValue({ enqueued: true }) } as any,
+      { getUserOperationByHash: jest.fn(), getUserOperationReceipt: jest.fn() } as any,
+      { decodeSmartAccountCalls: jest.fn() } as any,
     );
   });
 

@@ -91,12 +91,13 @@ export class TvdCapacityService {
   async estimateCapacity(
     estimatedParticipantsInput: string,
     requester: TvdCapacityRequester,
+    tenantId?: string,
   ): Promise<TvdEstimatedCapacityResponseDto> {
     const estimatedParticipants = this.parsePositiveInteger(
       estimatedParticipantsInput,
       'estimatedParticipants',
     );
-    const balance = await this.resolveCurrentWalletBalance(requester);
+    const balance = await this.resolveCurrentWalletBalance(requester, tenantId);
     const calculation = this.calculateCapacity(estimatedParticipants, balance);
 
     return {
@@ -181,17 +182,20 @@ export class TvdCapacityService {
 
   private async resolveCurrentWalletBalance(
     requester: TvdCapacityRequester,
+    tenantId?: string,
   ): Promise<ResolvedTvdBalance> {
     return this.readCurrentWalletBalance(
-      await this.resolveCurrentWalletContext(requester),
+      await this.resolveCurrentWalletContext(requester, tenantId),
     );
   }
 
   private async resolveCurrentWalletContext(
     requester: TvdCapacityRequester,
+    tenantId?: string,
   ): Promise<ResolvedTvdWalletContext> {
     const walletContext = await this.tvdQueries.resolveMyInstitutionalWallet(
       requester,
+      tenantId,
     );
 
     return {

@@ -2,9 +2,33 @@ jest.mock('@/api/account', () => ({
   executeCoinbaseOp: jest.fn().mockResolvedValue({ txHash: '0xabc123' }),
 }));
 
+jest.mock('ethers', () => {
+  const actual = jest.requireActual('ethers');
+  return {
+    ...actual,
+    ethers: {
+      ...actual.ethers,
+      JsonRpcProvider: class {
+        destroy() {}
+      },
+    },
+  };
+});
+
+jest.mock('@/modules/institutional-voting/services/core/vote-writter.service', () => ({
+  VoteWritterService: class {},
+}));
+
+jest.mock('@/modules/institutional-admin-applications/services/institutional-mobile-authorization-reconciliation.worker', () => ({
+  InstitutionalMobileAuthorizationReconciliationWorker: class {},
+}));
+
 jest.mock('@iden3/js-iden3-auth', () => ({
   auth: {
-    createAuthorizationRequest: jest.fn(() => ({ id: 'institutional-auth-request' })),
+    createAuthorizationRequest: jest.fn(() => ({
+      id: 'institutional-auth-request',
+      body: { scope: [] },
+    })),
     Verifier: {
       newVerifier: jest.fn(async () => ({
         fullVerify: jest.fn(async () => ({
@@ -57,6 +81,8 @@ import { InstitutionalVotingAccessService } from '@/modules/institutional-voting
 import { TestLoggerModule } from '../utils/module-helpers';
 import { executeCoinbaseOp } from '@/api/account';
 import { VoteContractCalls, VoteContractReads } from '@/api/vote';
+import { OfficialPublicationUserOperationService } from '@/modules/institutional-voting/services/publication/official-publication-user-operation.service';
+import { OfficialPublicationChainVerificationService } from '@/modules/institutional-voting/services/publication/official-publication-chain-verification.service';
 import {
   installMx02SyntheticChainConfig,
   restoreMx02SyntheticChainConfig,
@@ -90,6 +116,16 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     sendEmail: jest.fn().mockResolvedValue(undefined),
     createEmail: jest.fn(),
     getTemplate: jest.fn(),
+  };
+
+  const userOperationService = {
+    getUserOperationByHash: jest.fn(),
+    getUserOperationReceipt: jest.fn(),
+    getBlockNumber: jest.fn(),
+  };
+
+  const chainVerificationService = {
+    decodeSmartAccountCalls: jest.fn(),
   };
 
   beforeAll(async () => {
@@ -127,6 +163,10 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .useValue(httpService)
       .overrideProvider(MailService)
       .useValue(mailService)
+      .overrideProvider(OfficialPublicationUserOperationService)
+      .useValue(userOperationService)
+      .overrideProvider(OfficialPublicationChainVerificationService)
+      .useValue(chainVerificationService)
       .overrideGuard(AccessApproverGuard)
       .useValue({ canActivate: jest.fn().mockReturnValue(true) })
       .overrideGuard(InstitutionalApplicationReviewGuard)
@@ -190,6 +230,13 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     (VoteContractCalls.changeInstitutionAdmin as jest.Mock).mockReturnValue({ to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523', value: 0n, data: '0x9abc' });
     (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValue(institutionNotFoundError());
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+    userOperationService.getUserOperationByHash.mockReset();
+    userOperationService.getUserOperationReceipt.mockReset();
+    userOperationService.getBlockNumber.mockReset();
+    chainVerificationService.decodeSmartAccountCalls.mockReset();
+    userOperationService.getUserOperationByHash.mockResolvedValue(null);
+    userOperationService.getUserOperationReceipt.mockResolvedValue(null);
+    userOperationService.getBlockNumber.mockResolvedValue(2n);
     httpService.axiosRef.post.mockResolvedValue({
       data: { registered: true, accountAddress: validAccountAddress },
     });
@@ -467,14 +514,20 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
   async function submitPrimaryTransferForConfirmation(suffix: string) {
     const transfer = await createPendingPrimaryTransferAuthorization(suffix);
     const deviceId = `qa-phone-transfer-${suffix}`;
+    const userOpHash = `0x${'8'.repeat(64)}`;
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
       .send({ deviceId })
       .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
-      .send({ deviceId, userOpHash: `0x${'8'.repeat(64)}` })
+      .send({ deviceId, userOpHash })
       .expect(200);
+    mockConfirmedMobileUserOperation({
+      userOpHash,
+      signerWallet: transfer.primaryWallet,
+      action: 'CHANGE_INSTITUTION_ADMIN',
+    });
     (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(transfer.targetWallet);
     await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
     return transfer;
@@ -526,6 +579,40 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     return `2001:db8:${applicationId.slice(0, 4)}:${applicationId.slice(4, 8)}:${applicationId.slice(8, 12)}:${applicationId.slice(12, 16)}:${applicationId.slice(16, 20)}:${applicationId.slice(20, 24)}`;
   }
 
+  function mockConfirmedMobileUserOperation(options: {
+    userOpHash: string;
+    signerWallet: string;
+    action: 'ADD_AUTHORIZED_ADDRESS' | 'REMOVE_AUTHORIZED_ADDRESS' | 'CHANGE_INSTITUTION_ADMIN';
+  }) {
+    const dataByAction = {
+      ADD_AUTHORIZED_ADDRESS: '0x1234',
+      REMOVE_AUTHORIZED_ADDRESS: '0x5678',
+      CHANGE_INSTITUTION_ADMIN: '0x9abc',
+    } as const;
+    const call = {
+      to: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
+      value: 0n,
+      data: dataByAction[options.action],
+    };
+    userOperationService.getUserOperationByHash.mockResolvedValue({
+      userOperation: { sender: options.signerWallet, callData: '0xmocked-mobile-user-operation' },
+    });
+    userOperationService.getUserOperationReceipt.mockResolvedValue({
+      userOpHash: options.userOpHash,
+      sender: options.signerWallet,
+      success: true,
+      txHash: `0x${'b'.repeat(64)}`,
+      receipt: {
+        transactionHash: `0x${'b'.repeat(64)}`,
+        status: '0x1',
+        blockNumber: '0x1',
+        logs: [],
+      },
+    });
+    userOperationService.getBlockNumber.mockResolvedValue(2n);
+    chainVerificationService.decodeSmartAccountCalls.mockReturnValue([call]);
+  }
+
   async function confirmPendingMobileAuthorization(targetId: string, deviceId = 'qa-phone-add') {
     const clientIp = mobileAuthorizationClientIp(targetId);
     await request(app.getHttpServer())
@@ -538,6 +625,20 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .set('x-forwarded-for', clientIp)
       .send({ deviceId, userOpHash: `0x${'a'.repeat(64)}` })
       .expect(200);
+    const application = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(targetId),
+    });
+    const primary = await conn.collection('tenant_admin_assignments').findOne({
+      tenantId: application?.tenantId,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    });
+    mockConfirmedMobileUserOperation({
+      userOpHash: `0x${'a'.repeat(64)}`,
+      signerWallet: String(primary?.accountAddress ?? validAccountAddress),
+      action: 'ADD_AUTHORIZED_ADDRESS',
+    });
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
     await applicationsService.reconcileMobileAuthorizationOperation(targetId);
   }
@@ -565,6 +666,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
 
   async function submitRemovalAuthorization(applicationId: string, deviceId: string) {
     const clientIp = mobileAuthorizationClientIp(applicationId);
+    const userOpHash = `0x${'5'.repeat(64)}`;
     const claim = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${applicationId}/claim`)
       .set('x-forwarded-for', clientIp)
@@ -573,8 +675,22 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${applicationId}/submission`)
       .set('x-forwarded-for', clientIp)
-      .send({ deviceId, userOpHash: `0x${'5'.repeat(64)}` })
+      .send({ deviceId, userOpHash })
       .expect(200);
+    const application = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(applicationId),
+    });
+    const primary = await conn.collection('tenant_admin_assignments').findOne({
+      tenantId: application?.tenantId,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    });
+    mockConfirmedMobileUserOperation({
+      userOpHash,
+      signerWallet: String(primary?.accountAddress ?? validAccountAddress),
+      action: 'REMOVE_AUTHORIZED_ADDRESS',
+    });
     return claim;
   }
 
@@ -2613,17 +2729,14 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalled();
   });
 
-  it('[MX-02][D-TRF-008][INTEGRACION] confirma la transferencia por getInstitutionAdmin sin reenviar la operación', async () => {
+  it('[MX-02][D-TRF-008][INTEGRACION] confirma la transferencia con receipt válido sin reenviar la operación', async () => {
     const transfer = await submitPrimaryTransferForConfirmation('confirm-chain');
 
-    expect(VoteContractReads.getInstitutionAdmin).toHaveBeenCalledWith(
-      expect.any(String),
-      transfer.stableInstitutionId,
-    );
+    expect(userOperationService.getUserOperationByHash).toHaveBeenCalledWith(`0x${'8'.repeat(64)}`);
+    expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(`0x${'8'.repeat(64)}`);
     expect(await conn.collection('institutional_admin_applications').findOne({
       _id: transfer.applicationId,
     })).toMatchObject({ status: 'APPROVED', chainStatus: 'CONFIRMED' });
-    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledTimes(1);
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
@@ -2662,6 +2775,7 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
 
   it('[MX-02][D-TRF-007][INTEGRACION] un error recuperable conserva la firma y agenda un reintento', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('retry');
+    const userOpHash = `0x${'9'.repeat(64)}`;
 
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
@@ -2669,10 +2783,10 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
-      .send({ deviceId: 'qa-phone-transfer-retry', userOpHash: `0x${'9'.repeat(64)}` })
+      .send({ deviceId: 'qa-phone-transfer-retry', userOpHash })
       .expect(200);
 
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValueOnce(new Error('rpc timeout'));
+    userOperationService.getUserOperationReceipt.mockRejectedValueOnce(new Error('bundler timeout'));
     const retry = await applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId));
     expect(retry).toMatchObject({ processed: true, status: 'RETRY_PENDING' });
     let stored = await conn.collection('institutional_admin_applications').findOne({
@@ -2681,14 +2795,15 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(stored).toMatchObject({
       status: 'CHAIN_RETRY_PENDING',
       chainStatus: 'RETRY_PENDING',
-      mobileAuthorizationUserOpHash: `0x${'9'.repeat(64)}`,
+      mobileAuthorizationUserOpHash: userOpHash,
     });
-    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledTimes(1);
+    expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(userOpHash);
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
   it('[MX-02][D-TRF-011][INTEGRACION] workers concurrentes confirman una única transferencia sin operaciones duplicadas', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('retry-concurrent');
+    const userOpHash = `0x${'a'.repeat(64)}`;
 
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
@@ -2698,17 +2813,22 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
       .send({
         deviceId: 'qa-phone-transfer-retry-concurrent',
-        userOpHash: `0x${'a'.repeat(64)}`,
+        userOpHash,
       })
       .expect(200);
 
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValueOnce(new Error('rpc timeout'));
+    userOperationService.getUserOperationReceipt.mockRejectedValueOnce(new Error('bundler timeout'));
     await applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId));
 
     await conn.collection('institutional_admin_applications').updateOne(
       { _id: transfer.applicationId },
       { $set: { chainNextRetryAt: new Date(Date.now() - 1000), chainLockedUntil: null } },
     );
+    mockConfirmedMobileUserOperation({
+      userOpHash,
+      signerWallet: transfer.primaryWallet,
+      action: 'CHANGE_INSTITUTION_ADMIN',
+    });
     (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(transfer.targetWallet);
     await Promise.allSettled([
       applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId)),
@@ -2724,7 +2844,7 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       active: true,
       status: 'APPROVED',
     })).toBe(1);
-    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledTimes(1);
+    expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(userOpHash);
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
@@ -2786,19 +2906,19 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
   });
 
-  it('[MX-02][D-SIGN-009][INTEGRACION] / [MX-02][D-SIGN-011][INTEGRACION] / [MX-02][D-SIGN-012][INTEGRACION] / [MX-02][D-SIGN-013][INTEGRACION] confirma por isAuthorizedAddress y reconcilia sin reenviar', async () => {
-    const { target, primaryApplication, targetApplication, stableInstitutionId, targetWallet } =
+  it('[MX-02][D-SIGN-009][INTEGRACION] / [MX-02][D-SIGN-011][INTEGRACION] / [MX-02][D-SIGN-012][INTEGRACION] / [MX-02][D-SIGN-013][INTEGRACION] confirma por receipt y reconcilia sin reenviar', async () => {
+    const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('sign-confirm');
+    const userOpHash = `0x${'3'.repeat(64)}`;
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/claim`)
       .send({ deviceId: 'qa-phone-confirm' })
       .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/submission`)
-      .send({ deviceId: 'qa-phone-confirm', userOpHash: `0x${'3'.repeat(64)}` })
+      .send({ deviceId: 'qa-phone-confirm', userOpHash })
       .expect(200);
 
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValueOnce(false);
     const pending = await applicationsService.reconcileMobileAuthorizationOperation(target.id);
     expect(pending.reconciled).toBe(false);
     expect(await conn.collection('tenant_admin_assignments').countDocuments({
@@ -2807,17 +2927,21 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       active: true,
     })).toBe(0);
 
+    await conn.collection('institutional_admin_applications').updateOne(
+      { _id: new Types.ObjectId(target.id) },
+      { $set: { chainNextRetryAt: new Date(Date.now() - 1000), chainLockedUntil: null } },
+    );
+    mockConfirmedMobileUserOperation({
+      userOpHash,
+      signerWallet: String(primaryApplication?.accountAddress),
+      action: 'ADD_AUTHORIZED_ADDRESS',
+    });
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
     const confirmed = await applicationsService.reconcileMobileAuthorizationOperation(target.id);
     const confirmedAgain = await applicationsService.reconcileMobileAuthorizationOperation(target.id);
     expect(confirmed.reconciled).toBe(true);
     expect(confirmedAgain.reconciled).toBe(true);
-    expect(VoteContractReads.isAuthorizedAddress).toHaveBeenCalledWith(
-      expect.any(String),
-      stableInstitutionId,
-      targetWallet,
-    );
-    expect(VoteContractCalls.addAuthorizedAddress).toHaveBeenCalledTimes(1);
+    expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(userOpHash);
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
 
     const stored = await conn.collection('institutional_admin_applications').findOne({
@@ -2833,19 +2957,20 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     })).toBe(1);
   });
 
-  it('[MX-02][D-SIGN-010][INTEGRACION] / [MX-02][D-RETRY-001][INTEGRACION] / [MX-02][D-RETRY-002][INTEGRACION] / [MX-02][D-RETRY-003][INTEGRACION] / [MX-02][D-RETRY-005][INTEGRACION] / [MX-02][D-RETRY-007][INTEGRACION] reintenta con claim, conserva firma y lee red antes de reenviar', async () => {
-    const { target, primaryApplication, targetApplication, targetWallet, stableInstitutionId } =
+  it('[MX-02][D-SIGN-010][INTEGRACION] / [MX-02][D-RETRY-001][INTEGRACION] / [MX-02][D-RETRY-002][INTEGRACION] / [MX-02][D-RETRY-003][INTEGRACION] / [MX-02][D-RETRY-005][INTEGRACION] / [MX-02][D-RETRY-007][INTEGRACION] reintenta la consulta de receipt sin reenviar', async () => {
+    const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('retry-flow');
+    const userOpHash = `0x${'4'.repeat(64)}`;
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/claim`)
       .send({ deviceId: 'qa-phone-retry' })
       .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/submission`)
-      .send({ deviceId: 'qa-phone-retry', userOpHash: `0x${'4'.repeat(64)}` })
+      .send({ deviceId: 'qa-phone-retry', userOpHash })
       .expect(200);
 
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockRejectedValueOnce(new Error('rpc timeout'));
+    userOperationService.getUserOperationReceipt.mockRejectedValueOnce(new Error('bundler timeout'));
     const retry = await applicationsService.processMobileAuthorizationRetry(target.id);
     expect(retry).toMatchObject({ processed: true, status: 'RETRY_PENDING' });
     let stored = await conn.collection('institutional_admin_applications').findOne({
@@ -2854,7 +2979,7 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(stored).toMatchObject({
       status: 'CHAIN_RETRY_PENDING',
       chainStatus: 'RETRY_PENDING',
-      mobileAuthorizationUserOpHash: `0x${'4'.repeat(64)}`,
+      mobileAuthorizationUserOpHash: userOpHash,
     });
     expect(stored?.chainAttempts).toBeGreaterThanOrEqual(2);
     expect(stored?.chainNextRetryAt).toBeInstanceOf(Date);
@@ -2863,18 +2988,18 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       { _id: new Types.ObjectId(target.id) },
       { $set: { chainNextRetryAt: new Date(Date.now() - 1000), chainLockedUntil: null } },
     );
+    mockConfirmedMobileUserOperation({
+      userOpHash,
+      signerWallet: String(primaryApplication?.accountAddress),
+      action: 'ADD_AUTHORIZED_ADDRESS',
+    });
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
     const workers = await Promise.allSettled([
       applicationsService.processMobileAuthorizationRetry(target.id),
       applicationsService.processMobileAuthorizationRetry(target.id),
     ]);
     expect(workers).toHaveLength(2);
-    expect(VoteContractReads.isAuthorizedAddress).toHaveBeenCalledWith(
-      expect.any(String),
-      stableInstitutionId,
-      targetWallet,
-    );
-    expect(VoteContractCalls.addAuthorizedAddress).toHaveBeenCalledTimes(1);
+    expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(userOpHash);
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
 
     stored = await conn.collection('institutional_admin_applications').findOne({
@@ -2939,14 +3064,14 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: true })).toBe(1);
   });
 
-  it('[MX-02][D-REV-004][INTEGRACION] revoca el acceso solo después de que el mock on-chain confirma la eliminación', async () => {
-    const { created, stableInstitutionId, targetWallet, targetAssignment } = await createRemovalAuthorization('confirmed');
+  it('[MX-02][D-REV-004][INTEGRACION] revoca el acceso solo después de un receipt válido de eliminación', async () => {
+    const { created, targetAssignment } = await createRemovalAuthorization('confirmed');
     await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-confirmed');
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
     const reconciled = await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
 
     expect(reconciled).toMatchObject({ reconciled: true });
-    expect(VoteContractReads.isAuthorizedAddress).toHaveBeenCalledWith(expect.any(String), stableInstitutionId, targetWallet);
+    expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(`0x${'5'.repeat(64)}`);
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: false, status: 'REVOKED' })).toBe(1);
   });
 
@@ -3022,6 +3147,7 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
   it('[MX-02][D-REV-006][INTEGRACION] / [MX-02][D-REV-007][INTEGRACION] error recuperable de eliminación conserva acceso y reintenta sin duplicar operación', async () => {
     const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('remove-retry');
+    const userOpHash = `0x${'6'.repeat(64)}`;
     await confirmPendingMobileAuthorization(target.id, 'qa-phone-remove-retry-add');
     (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockClear();
 
@@ -3042,10 +3168,10 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${created.body.applicationId}/submission`)
       .set('x-forwarded-for', mobileAuthorizationClientIp(created.body.applicationId))
-      .send({ deviceId: 'qa-phone-remove-retry', userOpHash: `0x${'6'.repeat(64)}` })
+      .send({ deviceId: 'qa-phone-remove-retry', userOpHash })
       .expect(200);
 
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockRejectedValueOnce(new Error('rpc timeout'));
+    userOperationService.getUserOperationReceipt.mockRejectedValueOnce(new Error('bundler timeout'));
     const retry = await applicationsService.processMobileAuthorizationRetry(created.body.applicationId);
     expect(retry).toMatchObject({ processed: true, status: 'RETRY_PENDING' });
     expect(await conn.collection('tenant_admin_assignments').countDocuments({
@@ -3053,16 +3179,21 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       active: true,
       status: 'APPROVED',
     })).toBe(1);
-    expect(VoteContractCalls.removeAuthorizedAddress).toHaveBeenCalledTimes(1);
+    expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(userOpHash);
 
     await conn.collection('institutional_admin_applications').updateOne(
       { _id: new Types.ObjectId(created.body.applicationId) },
       { $set: { chainNextRetryAt: new Date(Date.now() - 1000), chainLockedUntil: null } },
     );
+    mockConfirmedMobileUserOperation({
+      userOpHash,
+      signerWallet: String(primaryApplication?.accountAddress),
+      action: 'REMOVE_AUTHORIZED_ADDRESS',
+    });
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
     const confirmed = await applicationsService.processMobileAuthorizationRetry(created.body.applicationId);
     expect(confirmed).toMatchObject({ processed: true, status: 'CONFIRMED', reusedNetworkState: true });
-    expect(VoteContractCalls.removeAuthorizedAddress).toHaveBeenCalledTimes(1);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
     expect(await conn.collection('tenant_admin_assignments').countDocuments({
       _id: targetAssignment?._id,
       active: false,

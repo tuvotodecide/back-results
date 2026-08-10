@@ -20,8 +20,17 @@ import {
 import {
   OfficialPublicationRequestDocument,
 } from '../../schemas/official-publication-request.schema';
+import {
+  InstitutionalAdminApplication,
+  InstitutionalAdminApplicationDocument,
+} from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
+import {
+  InstitutionalTenant,
+  InstitutionalTenantDocument,
+} from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
 
 const NOTIFICATION_TYPE = 'OFFICIAL_PUBLICATION_REQUEST';
+const INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE = 'MOBILE_AUTHORIZATION_REQUESTED';
 const MAX_ATTEMPTS = 5;
 
 @Injectable()
@@ -34,6 +43,10 @@ export class OfficialPublicationNotificationService {
     private readonly outboxModel: Model<OfficialPublicationNotificationOutboxDocument>,
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
+    @InjectModel(InstitutionalAdminApplication.name)
+    private readonly applicationModel: Model<InstitutionalAdminApplicationDocument>,
+    @InjectModel(InstitutionalTenant.name)
+    private readonly tenantModel: Model<InstitutionalTenantDocument>,
     @InjectModel(RoledUser.name)
     private readonly roledUserModel: Model<RoledUserDocument>,
     @InjectModel(TenantAdminAssignment.name)
@@ -144,6 +157,57 @@ export class OfficialPublicationNotificationService {
     return { enqueued: true, notificationId, deduplicationKey, outbox };
   }
 
+  async enqueueForInstitutionalAuthorization(applicationId: string) {
+    if (!Types.ObjectId.isValid(applicationId)) {
+      return { enqueued: false, skipped: 'authorization_not_found' };
+    }
+    const application = await this.applicationModel.findById(applicationId).lean();
+    if (application?.status !== 'PENDING_MOBILE_AUTHORIZATION' || !application.tenantId) {
+      return { enqueued: false, skipped: 'not_pending_mobile_authorization' };
+    }
+    const tenant = await this.tenantModel.findById(application.tenantId).lean();
+    const signer = await this.resolveInstitutionalAuthorizationSigner(application);
+    if (!tenant || !signer?.userId || !signer.accountAddress) {
+      return { enqueued: false, skipped: 'primary_signer_not_found' };
+    }
+    const signerUser = await this.roledUserModel
+      .findOne({ _id: signer.userId, active: true }, { dni: 1 })
+      .lean();
+    if (!signerUser?.dni) return { enqueued: false, skipped: 'signer_not_found' };
+
+    const dni = this.normalizeDni(signerUser.dni);
+    const mobileUser = await this.findMobileUser(dni);
+    if (!mobileUser) return { enqueued: false, skipped: 'mobile_user_not_found' };
+
+    const notificationId = `iauth_${String(application._id)}`;
+    const deduplicationKey = `${INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE}:${String(application._id)}:${String(signer.userId)}`;
+    const topic = this.buildUserTopic(mobileUser._id);
+    const title = 'Autorización pendiente';
+    const body = `Revisa esta solicitud de ${tenant.name}.`;
+    const data = {
+      type: INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE,
+      applicationId: String(application._id),
+      action: String(application.mobileAuthorizationAction || 'ADD_AUTHORIZED_ADDRESS'),
+      deduplicationKey,
+    };
+
+    await this.ensureHistory({ deduplicationKey, mobileUser, dni, topic, title, body, data });
+    const outbox = await this.outboxModel.findOneAndUpdate(
+      { deduplicationKey },
+      { $setOnInsert: {
+        notificationId, deduplicationKey, type: INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE,
+        applicationId: application._id, tenantId: application.tenantId,
+        recipientUserId: signer.userId, recipientMobileUserId: mobileUser._id,
+        recipientIdentityId: dni, recipientTopic: topic,
+        smartAccountAddress: String(signer.accountAddress).toLowerCase(),
+        title, body, data, status: 'PENDING', attemptCount: 0, nextAttemptAt: new Date(),
+      } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    void this.processDueOutbox(1).catch(() => undefined);
+    return { enqueued: true, notificationId, deduplicationKey, outbox };
+  }
+
   async processDueOutbox(limit = 10) {
     const now = new Date();
     const candidates = await this.outboxModel
@@ -213,9 +277,14 @@ export class OfficialPublicationNotificationService {
         return { processed: true, status: 'SENT', skipped: 'already_sent' };
       }
 
-      const event = await this.votingEventModel.findById(item.eventId).lean();
-      if (!event || !this.isWindowOpen(event)) {
-        await this.markCancelled(item, 'PUBLICATION_WINDOW_CLOSED');
+      if (item.type !== INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE) {
+        const event = await this.votingEventModel.findById(item.eventId).lean();
+        if (!event || !this.isWindowOpen(event)) {
+          await this.markCancelled(item, 'PUBLICATION_WINDOW_CLOSED');
+          return { processed: true, status: 'CANCELLED' };
+        }
+      } else if (!(await this.isInstitutionalAuthorizationDeliverable(item))) {
+        await this.markCancelled(item, 'INSTITUTIONAL_AUTHORIZATION_NOT_DELIVERABLE');
         return { processed: true, status: 'CANCELLED' };
       }
 
@@ -377,6 +446,29 @@ export class OfficialPublicationNotificationService {
       eventName: String(params.event.name || ''),
       deduplicationKey: params.deduplicationKey,
     };
+  }
+
+  private async resolveInstitutionalAuthorizationSigner(application: any) {
+    const filter: Record<string, any> = {
+      tenantId: application.tenantId, institutionalRole: 'PRIMARY', active: true, status: 'APPROVED',
+    };
+    if (application.mobileAuthorizationAction === 'CHANGE_INSTITUTION_ADMIN') {
+      if (!application.approvedBy || !application.initiatedByAssignmentId || !application.initiatedByWallet) return null;
+      filter._id = application.initiatedByAssignmentId;
+      filter.userId = application.approvedBy;
+    }
+    const signer = await this.assignmentModel.findOne(filter).lean();
+    if (!signer?.accountAddress) return null;
+    if (application.initiatedByWallet && String(signer.accountAddress).toLowerCase() !== String(application.initiatedByWallet).toLowerCase()) return null;
+    return signer;
+  }
+
+  private async isInstitutionalAuthorizationDeliverable(item: any) {
+    if (!item.applicationId) return false;
+    const application = await this.applicationModel.findById(item.applicationId).lean();
+    if (application?.status !== 'PENDING_MOBILE_AUTHORIZATION') return false;
+    const signer = await this.resolveInstitutionalAuthorizationSigner(application);
+    return Boolean(signer && String(signer.userId) === String(item.recipientUserId));
   }
 
   private async findMobileUser(dni: string) {

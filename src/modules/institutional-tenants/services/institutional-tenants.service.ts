@@ -42,6 +42,7 @@ import {
   getTenantWalletVerificationState,
   normalizeTenantWalletAddress,
 } from '../utils/tenant-wallet-verification.util';
+import { OfficialPublicationNotificationService } from '@/modules/institutional-voting/services/publication/official-publication-notification.service';
 
 @Injectable()
 export class InstitutionalTenantsService {
@@ -59,6 +60,7 @@ export class InstitutionalTenantsService {
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly auditService: InstitutionalAuditService,
+    private readonly notificationService: OfficialPublicationNotificationService,
   ) {}
 
   async createTenant(dto: CreateInstitutionalTenantDto) {
@@ -298,6 +300,9 @@ export class InstitutionalTenantsService {
           session,
         );
       });
+      if (result?.applicationId) {
+        await this.notificationService.enqueueForInstitutionalAuthorization(result.applicationId);
+      }
       return result;
     } catch (error) {
       if (this.isPrimaryDuplicateError(error) || this.isTransactionConflict(error)) {
@@ -1324,9 +1329,10 @@ export class InstitutionalTenantsService {
         $setOnInsert: {
           type: 'generic',
           topic: `user_${String(primary.userId)}`,
-          title: 'Transferencia de rol principal pendiente',
-          body: `Autoriza desde tu teléfono la transferencia del rol principal de ${tenant.name} a ${app.name}.`,
+          title: 'Autorización pendiente',
+          body: `Revisa esta solicitud de ${tenant.name}.`,
           data: {
+            type: 'MOBILE_AUTHORIZATION_REQUESTED',
             event: 'MOBILE_AUTHORIZATION_REQUESTED',
             applicationId: String(app._id),
             tenantId: String(tenant._id),
@@ -1335,7 +1341,7 @@ export class InstitutionalTenantsService {
             requesterId: requester?.sub ? String(requester.sub) : null,
             deduplicationKey,
           },
-          status: 'SENT',
+          status: 'PENDING',
         },
       },
       { upsert: true, returnDocument: 'after', session },

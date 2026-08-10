@@ -1,10 +1,14 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsString, Matches } from 'class-validator';
+import { IsEnum, IsMongoId, IsOptional, IsString, Matches } from 'class-validator';
 import { TvdFiatCurrency, tvdCurrencies } from '../tvd.constants';
 
 const BOB_AMOUNT_REGEX = /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/;
 
 export class TvdMyQuoteQueryDto {
+  @IsOptional()
+  @IsMongoId()
+  tenantId?: string;
+
   @Transform(({ value }) => String(value ?? '').trim())
   @IsString()
   @Matches(BOB_AMOUNT_REGEX)

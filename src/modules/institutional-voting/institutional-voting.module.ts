@@ -191,8 +191,10 @@ import { CreditsReaderService } from './services/core/credits-reader.service';
     OfficialPublicationPreparationService,
     OfficialPublicationFinalizationService,
     OfficialPublicationNotificationService,
+    OfficialPublicationChainVerificationService,
     OfficialPublicationRequestService,
     OfficialPublicationRequestStateService,
+    OfficialPublicationUserOperationService,
   ],
 })
 export class InstitutionalVotingModule {}
