@@ -22,7 +22,7 @@ export class OfficialPublicationNotificationOutbox {
   @Prop({ required: true, unique: true, trim: true, index: true })
   notificationId!: string;
 
-  @Prop({ required: true, trim: true, index: true })
+  @Prop({ required: true, trim: true })
   deduplicationKey!: string;
 
   @Prop({ required: true, trim: true, default: 'OFFICIAL_PUBLICATION_REQUEST' })

@@ -474,7 +474,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .post('/api/v1/institutional-access-recovery-requests')
       .send({
         institutionId: primary.tenantId,
-        fullName: 'No Candidate',
+        fullName: 'Secondary recovery',
         phoneNumber: '72222222',
         newEmail: 'rejected-recovery@example.test',
         supervisorPhoneNumber: '73333333',
