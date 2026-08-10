@@ -197,7 +197,7 @@ it('D-MAIL-006 | deja pendiente sin candidato cuando la coincidencia es ambigua 
     );
   });
 
-  it('D-MAIL-001 | normaliza y crea solicitud autenticada sin aceptar identidad ni wallet del cliente', async () => {
+  it('[MX-02][D-MAIL-001][UNITARIA] normaliza y crea solicitud autenticada sin aceptar identidad ni wallet del cliente', async () => {
     const tenantId = new Types.ObjectId('64c000000000000000000080');
     const userId = new Types.ObjectId('64c000000000000000000081');
     const assignmentId = new Types.ObjectId('64c000000000000000000082');
@@ -272,7 +272,7 @@ it('D-MAIL-006 | deja pendiente sin candidato cuando la coincidencia es ambigua 
     expect(mailService.enqueueInstitutionalEmailChangeNotice).not.toHaveBeenCalled();
   });
 
-  it('D-MAIL-003 | aprueba conservando password wallet rol y usando aviso informativo', async () => {
+  it('[MX-02][D-MAIL-003][UNITARIA] aprueba conservando password wallet rol y usando aviso informativo', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000084');
     const tenantId = new Types.ObjectId('64c000000000000000000085');
     const userId = new Types.ObjectId('64c000000000000000000086');
@@ -349,6 +349,62 @@ it('D-MAIL-006 | deja pendiente sin candidato cuando la coincidencia es ambigua 
     expect(mailService.processPendingBatch).toHaveBeenCalledWith(1);
   });
 
+  it('[MX-02][D-MAIL-008][UNITARIA] conserva la contraseña y no genera reset al aprobar el cambio de correo', async () => {
+    const requestId = new Types.ObjectId();
+    const tenantId = new Types.ObjectId();
+    const userId = new Types.ObjectId();
+    const assignmentId = new Types.ObjectId();
+    const requestDoc = {
+      _id: requestId,
+      requestType: 'ADMIN_EMAIL_CHANGE',
+      tenantId,
+      newEmail: 'nuevo-seguro@example.com',
+      status: 'PENDING',
+      candidateUserId: userId,
+      candidateAssignmentId: assignmentId,
+      currentEmail: 'actual-seguro@example.com',
+      accountAddress: '0x0000000000000000000000000000000000000088',
+      institutionalRole: 'PRIMARY',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const userDoc = {
+      _id: userId,
+      email: 'actual-seguro@example.com',
+      name: 'Admin Seguro',
+      password: 'hash-conservado',
+      authVersion: 2,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    recoveryRequestModel.findById.mockReturnValue(sessionDocQuery(requestDoc));
+    tenantModel.findById.mockReturnValue(query({ _id: tenantId, active: true }));
+    roledUserModel.findById.mockReturnValue(sessionDocQuery(userDoc));
+    assignmentModel.findOne.mockReturnValue(query({
+      _id: assignmentId,
+      tenantId,
+      userId,
+      accountAddress: requestDoc.accountAddress,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    }));
+    roledUserModel.findOne.mockReturnValue(query(null));
+
+    await service.approveEmailChangeRequest(
+      String(requestId),
+      { reason: 'Cambio validado' },
+      { role: 'ADMIN', sub: String(new Types.ObjectId()) },
+    );
+
+    expect(userDoc).toMatchObject({
+      email: 'nuevo-seguro@example.com',
+      password: 'hash-conservado',
+      authVersion: 3,
+    });
+    expect(userDoc).not.toHaveProperty('passwordResetToken');
+    expect(mailService.enqueueInstitutionalPasswordResetEmail).not.toHaveBeenCalled();
+    expect(mailService.enqueueInstitutionalEmailChangeNotice).toHaveBeenCalledTimes(1);
+  });
+
 it('D-MAIL-012 | lista y detalla solo para ADMIN con campos administrativos seguros', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000030');
     const row = {
@@ -384,7 +440,7 @@ it('D-MAIL-012 | lista y detalla solo para ADMIN con campos administrativos segu
     expect(JSON.stringify(detail)).not.toContain('password');
   });
 
-it('D-MAIL-003 / D-MAIL-005 / D-MAIL-006 / D-MAIL-007 / D-MAIL-008 / D-MAIL-009 | aprueba conservando userId tenant assignment wallet rol y estado, y genera reset seguro', async () => {
+it('recuperación histórica conserva metadatos y genera reset seguro', async () => {
     const requestId = new Types.ObjectId('64c000000000000000000040');
     const tenantId = new Types.ObjectId('64c000000000000000000041');
     const userId = new Types.ObjectId('64c000000000000000000042');

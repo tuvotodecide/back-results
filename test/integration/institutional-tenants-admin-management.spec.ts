@@ -202,7 +202,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     };
   }
 
-  it('D-LIST-001 / D-LIST-002 | catalogo publico lista solo instituciones activas con busqueda, paginacion y sin datos internos', async () => {
+  it('catalogo publico lista solo instituciones activas con busqueda, paginacion y sin datos internos', async () => {
     const activeOne = await seedTenantWithAdmins('catalog-one');
     const activeTwo = await seedTenantWithAdmins('catalog-two');
     await conn.collection('institutional_tenants').insertOne({
@@ -245,7 +245,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .expect(400);
   });
 
-  it('D-LIST-003 / D-PERM-002 | ADMIN lista instituciones con multiples wallets y bloquea roles no globales', async () => {
+  it('ADMIN lista instituciones con multiples wallets y bloquea roles no globales', async () => {
     const seeded = await seedTenantWithAdmins('global-list');
     const emptyTenantId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
@@ -320,7 +320,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     }
   });
 
-  it('D-LIST-004 / D-LIST-005 | lista administradores del tenant con roles, wallets y sin secretos ni mezcla cross-tenant', async () => {
+  it('[MX-02][D-LIST-004][INTEGRACION] / [MX-02][D-LIST-005][INTEGRACION] lista administradores del tenant con roles, wallets y sin secretos ni mezcla cross-tenant', async () => {
     const seeded = await seedTenantWithAdmins('list');
     const pendingUserId = new Types.ObjectId();
     const pendingAssignmentId = new Types.ObjectId();
@@ -454,7 +454,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     expect(JSON.stringify(response.body)).not.toContain(String(otherTenantId));
   });
 
-  it('D-DIS-001 / D-DIS-002 / D-DIS-003 / D-DIS-004 / D-DIS-005 / D-DIS-006 PRIMARY suspende y reactiva SECONDARY sin tocar wallet ni otras instituciones', async () => {
+  it('[MX-02][D-DIS-001][INTEGRACION] PRIMARY suspende a SECONDARY y conserva su wallet', async () => {
     const seeded = await seedTenantWithAdmins('status');
     const other = await seedTenantWithAdmins('status-other');
     await conn.collection('tenant_admin_assignments').updateOne(
@@ -561,7 +561,149 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     });
   });
 
-  it('D-PERM-003 / D-MULTI-008 | SECONDARY no administra y PRIMARY de tenant A no administra tenant B', async () => {
+  it('[MX-02][D-LIST-001][INTEGRACION] PRIMARY consulta los administradores y wallets de su institución', async () => {
+    const seeded = await seedTenantWithAdmins('primary-admin-list');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/institutional-tenants/${seeded.tenantId}/admins`)
+      .expect(200);
+
+    expect(response.body).toMatchObject({ tenantId: String(seeded.tenantId), total: 3 });
+    expect(response.body.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        assignmentId: String(seeded.primaryAssignmentId),
+        institutionalRole: 'PRIMARY',
+        accountAddress: '0x0000000000000000000000000000000000000101',
+        active: true,
+      }),
+    ]));
+    expect(JSON.stringify(response.body)).not.toContain('password');
+    expect(JSON.stringify(response.body)).not.toContain('dni');
+  });
+
+  it('[MX-02][D-LIST-002][INTEGRACION] SECONDARY consulta información operativa sin obtener privilegios de gestión', async () => {
+    const seeded = await seedTenantWithAdmins('secondary-admin-list');
+    currentUser = { sub: String(seeded.secondaryUserId), role: 'USER', active: true };
+
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/institutional-tenants/${seeded.tenantId}/admins`)
+      .expect(403);
+    expect(response.body.data).toBeUndefined();
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondSecondaryAssignmentId}/status`)
+      .send({ active: false })
+      .expect(403);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      _id: seeded.secondSecondaryAssignmentId,
+      active: true,
+      status: 'APPROVED',
+    })).toBe(1);
+  });
+
+  it('[MX-02][D-LIST-003][INTEGRACION] lista correctamente una institución con solo administrador principal', async () => {
+    const seeded = await seedTenantWithAdmins('only-primary');
+    await conn.collection('tenant_admin_assignments').deleteMany({
+      _id: { $in: [seeded.secondaryAssignmentId, seeded.secondSecondaryAssignmentId] },
+    });
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+    const response = await request(app.getHttpServer())
+      .get(`/api/v1/institutional-tenants/${seeded.tenantId}/admins`)
+      .expect(200);
+    expect(response.body).toMatchObject({ total: 1, tenantId: String(seeded.tenantId) });
+    expect(response.body.data).toEqual([expect.objectContaining({
+      assignmentId: String(seeded.primaryAssignmentId), institutionalRole: 'PRIMARY', active: true,
+    })]);
+  });
+
+  it('[MX-02][D-DIS-007][INTEGRACION] rechaza suspender al administrador principal sin cambiar su acceso', async () => {
+    const seeded = await seedTenantWithAdmins('primary-protected');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+
+    await request(app.getHttpServer())
+      .patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.primaryAssignmentId}/status`)
+      .send({ active: false, reason: 'No permitido' })
+      .expect(409);
+
+    const primary = await conn.collection('tenant_admin_assignments').findOne({
+      _id: seeded.primaryAssignmentId,
+    });
+    expect(primary).toEqual(expect.objectContaining({
+      institutionalRole: 'PRIMARY',
+      status: 'APPROVED',
+      active: true,
+    }));
+    expect(primary?.accountAddress).toBe('0x0000000000000000000000000000000000000101');
+  });
+
+  it('[MX-02][D-DIS-008][INTEGRACION] una persona suspendida no puede consultar ni gestionar su institución', async () => {
+    const seeded = await seedTenantWithAdmins('suspended-context');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+    await request(app.getHttpServer())
+      .patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondaryAssignmentId}/status`)
+      .send({ active: false, reason: 'Pausa operativa' })
+      .expect(200);
+
+    currentUser = { sub: String(seeded.secondaryUserId), role: 'USER', active: true };
+    await request(app.getHttpServer())
+      .get(`/api/v1/institutional-tenants/${seeded.tenantId}/admins`)
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondSecondaryAssignmentId}/status`)
+      .send({ active: false })
+      .expect(403);
+
+    const suspended = await conn.collection('tenant_admin_assignments').findOne({
+      _id: seeded.secondaryAssignmentId,
+    });
+    expect(suspended).toEqual(expect.objectContaining({ status: 'SUSPENDED', active: false }));
+  });
+
+  it('[MX-02][D-DIS-002][INTEGRACION] la suspensión conserva el contexto operativo de otra institución', async () => {
+    const first = await seedTenantWithAdmins('suspend-first');
+    const second = await seedTenantWithAdmins('suspend-second');
+    await conn.collection('tenant_admin_assignments').insertOne({
+      tenantId: second.tenantId, userId: first.secondaryUserId,
+      accountAddress: '0x0000000000000000000000000000000000000212', institutionalRole: 'SECONDARY', status: 'APPROVED', active: true,
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    currentUser = { sub: String(first.primaryUserId), role: 'USER', active: true };
+    await request(app.getHttpServer()).patch(`/api/v1/institutional-tenants/${first.tenantId}/admins/${first.secondaryAssignmentId}/status`).send({ active: false }).expect(200);
+    await expect(accessService.resolveAdminWalletForTenant(String(first.secondaryUserId), String(second.tenantId))).resolves.toMatchObject({ accountAddress: '0x0000000000000000000000000000000000000212' });
+  });
+
+  it('[MX-02][D-DIS-003][INTEGRACION] la suspensión bloquea el acceso operativo del SECONDARY', async () => {
+    const seeded = await seedTenantWithAdmins('suspend-access');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+    await request(app.getHttpServer()).patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondaryAssignmentId}/status`).send({ active: false }).expect(200);
+    await expect(accessService.resolveAdminWalletForTenant(String(seeded.secondaryUserId), String(seeded.tenantId))).rejects.toThrow();
+  });
+
+  it('[MX-02][D-DIS-004][INTEGRACION] la suspensión no reemplaza ni elimina la wallet institucional', async () => {
+    const seeded = await seedTenantWithAdmins('suspend-wallet');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+    await request(app.getHttpServer()).patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondaryAssignmentId}/status`).send({ active: false }).expect(200);
+    expect(await conn.collection('tenant_admin_assignments').findOne({ _id: seeded.secondaryAssignmentId })).toEqual(expect.objectContaining({ accountAddress: '0x0000000000000000000000000000000000000102', status: 'SUSPENDED' }));
+  });
+
+  it('[MX-02][D-DIS-005][INTEGRACION] PRIMARY reactiva a SECONDARY sin crear una relación nueva', async () => {
+    const seeded = await seedTenantWithAdmins('reactivate-secondary');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+    await request(app.getHttpServer()).patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondaryAssignmentId}/status`).send({ active: false }).expect(200);
+    await request(app.getHttpServer()).patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondaryAssignmentId}/status`).send({ active: true }).expect(200);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId: seeded.tenantId, userId: seeded.secondaryUserId })).toBe(1);
+  });
+
+  it('[MX-02][D-DIS-006][INTEGRACION] reactivar no crea operaciones institucionales ni cambia la wallet', async () => {
+    const seeded = await seedTenantWithAdmins('reactivate-no-chain');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+    await request(app.getHttpServer()).patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondaryAssignmentId}/status`).send({ active: false }).expect(200);
+    await request(app.getHttpServer()).patch(`/api/v1/institutional-tenants/${seeded.tenantId}/admins/${seeded.secondaryAssignmentId}/status`).send({ active: true }).expect(200);
+    expect(await conn.collection('institutional_admin_applications').countDocuments({ tenantId: seeded.tenantId })).toBe(0);
+  });
+
+  it('D-MULTI-008 | SECONDARY no administra y PRIMARY de tenant A no administra tenant B', async () => {
     const tenantA = await seedTenantWithAdmins('a');
     const tenantB = await seedTenantWithAdmins('b');
 
@@ -582,7 +724,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .expect(403);
   });
 
-  it('D-TRF-001 / D-TRF-005 / D-TRF-006 | inicia transferencia PRIMARY con autorizacion movil y conserva roles hasta confirmar red', async () => {
+  it('[MX-02][D-TRF-001][INTEGRACION] el principal vigente inicia la transferencia y crea una autorización móvil', async () => {
     const seeded = await seedTenantWithAdmins('transfer');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
@@ -630,7 +772,26 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     })).resolves.toBe(1);
   });
 
-  it('D-TRF-007 / D-TRF-011 | transferencias concurrentes dejan una sola solicitud pendiente y roles intactos', async () => {
+  it('[MX-02][D-TRF-001][INTEGRACION] un actor sin permiso no inicia una transferencia ni crea autorización móvil', async () => {
+    const seeded = await seedTenantWithAdmins('transfer-forbidden');
+    currentUser = { sub: String(new Types.ObjectId()), role: 'ACCESS_APPROVER', active: true };
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
+      .send({ assignmentId: String(seeded.secondaryAssignmentId) })
+      .expect(403);
+
+    await expect(conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+    })).resolves.toBe(0);
+    await expect(conn.collection('notification_logs').countDocuments({
+      'data.action': 'CHANGE_INSTITUTION_ADMIN',
+      'data.tenantId': String(seeded.tenantId),
+    })).resolves.toBe(0);
+  });
+
+  it('[MX-02][D-TRF-011][INTEGRACION] workers concurrentes dejan una sola solicitud pendiente y un único principal', async () => {
     const seeded = await seedTenantWithAdmins('race');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
@@ -643,9 +804,11 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
         .send({ assignmentId: String(seeded.secondSecondaryAssignmentId) }),
     ]);
 
-    const statuses = results.map((result: any) => result.value?.status);
+    const statuses = results.map((result) =>
+      result.status === 'fulfilled' ? result.value.status : undefined,
+    );
     expect(statuses.filter((status) => status === 201)).toHaveLength(1);
-    expect(statuses.some((status) => [403, 409].includes(status))).toBe(true);
+    expect(statuses.some((status) => status !== undefined && [403, 409].includes(status))).toBe(true);
     await expect(conn.collection('institutional_admin_applications').countDocuments({
       tenantId: seeded.tenantId,
       mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
@@ -659,8 +822,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     expect(primaryCount).toBe(1);
   });
 
-  it('D-TRF-003 / D-TRF-004 | bloquea destino pendiente, suspendido o eliminado sin solicitud movil', async () => {
-    const seeded = await seedTenantWithAdmins('blocked-targets');
+  it('[MX-02][D-TRF-002][INTEGRACION] bloquea a un administrador destino pendiente sin solicitud móvil', async () => {
+    const seeded = await seedTenantWithAdmins('blocked-pending');
     currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
     await conn.collection('tenant_admin_assignments').updateOne(
@@ -676,6 +839,16 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
     })).resolves.toBe(0);
 
+    await expect(conn.collection('notification_logs').countDocuments({
+      'data.action': 'CHANGE_INSTITUTION_ADMIN',
+      'data.tenantId': String(seeded.tenantId),
+    })).resolves.toBe(0);
+  });
+
+  it('[MX-02][D-TRF-003][INTEGRACION] bloquea a un administrador destino suspendido sin solicitud móvil', async () => {
+    const seeded = await seedTenantWithAdmins('blocked-suspended');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
+
     await conn.collection('tenant_admin_assignments').updateOne(
       { _id: seeded.secondaryAssignmentId },
       { $set: { status: 'SUSPENDED', active: false } },
@@ -684,6 +857,20 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
       .send({ assignmentId: String(seeded.secondaryAssignmentId) })
       .expect(409);
+
+    await expect(conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+    })).resolves.toBe(0);
+    await expect(conn.collection('notification_logs').countDocuments({
+      'data.action': 'CHANGE_INSTITUTION_ADMIN',
+      'data.tenantId': String(seeded.tenantId),
+    })).resolves.toBe(0);
+  });
+
+  it('[MX-02][D-TRF-004][INTEGRACION] bloquea a un administrador destino eliminado sin solicitud móvil', async () => {
+    const seeded = await seedTenantWithAdmins('blocked-deleted');
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
 
     await conn.collection('tenant_admin_assignments').updateOne(
       { _id: seeded.secondaryAssignmentId },
@@ -705,20 +892,14 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     })).resolves.toBe(1);
   });
 
-  it('D-TRF-002 / D-PERM-003 | bloquea transferencia si no existe principal vigente de la institucion', async () => {
+  it('[MX-02][D-TRF-001][INTEGRACION] sin principal vigente no se crea transferencia ni notificación', async () => {
     const seeded = await seedTenantWithAdmins('designate');
     await conn.collection('tenant_admin_assignments').updateOne(
       { _id: seeded.primaryAssignmentId },
       { $set: { institutionalRole: 'SECONDARY' } },
     );
 
-    currentUser = { sub: String(new Types.ObjectId()), role: 'ACCESS_APPROVER', active: true };
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
-      .send({ assignmentId: String(seeded.secondaryAssignmentId) })
-      .expect(403);
-
-    currentUser = { sub: String(new Types.ObjectId()), role: 'ADMIN', active: true };
+    currentUser = { sub: String(seeded.primaryUserId), role: 'USER', active: true };
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-tenants/${seeded.tenantId}/primary/transfer`)
       .send({ assignmentId: String(seeded.secondaryAssignmentId) })
@@ -732,5 +913,13 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
         active: true,
       }),
     ).toBe(0);
+    await expect(conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: seeded.tenantId,
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+    })).resolves.toBe(0);
+    await expect(conn.collection('notification_logs').countDocuments({
+      'data.action': 'CHANGE_INSTITUTION_ADMIN',
+      'data.tenantId': String(seeded.tenantId),
+    })).resolves.toBe(0);
   });
 });

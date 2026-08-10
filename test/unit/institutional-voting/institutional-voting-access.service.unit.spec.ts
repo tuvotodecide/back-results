@@ -53,7 +53,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
     );
   });
 
-  it('usa stableInstitutionId como identidad contractual y no applicationId', async () => {
+  it('[MX-02][D-PERM-001][UNITARIA] autoriza una operación institucional con identidad estable y wallet activa', async () => {
     const result = await service.resolveOfficialPublicationInstitution(
       { _id: eventId, tenantId } as any,
       { sub: String(requesterId) },
@@ -90,7 +90,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
     });
   });
 
-  it('rechaza publicar sin asignacion institucional activa', async () => {
+  it('[MX-02][D-PERM-002][UNITARIA] rechaza editar sin asignacion institucional activa', async () => {
     assignmentModel.findOne.mockReturnValueOnce(leanResult(null));
 
     await expect(
@@ -101,7 +101,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('rechaza asignacion sin applicationId contractual', async () => {
+  it('[MX-02][D-PERM-003][UNITARIA] rechaza publicar sin vínculo institucional contractual', async () => {
     assignmentModel.findOne.mockReturnValueOnce(
       leanResult({
         _id: assignmentId,
@@ -119,7 +119,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('rechaza aplicacion institucional inexistente o no aprobada', async () => {
+  it('[MX-02][D-PERM-004][UNITARIA] rechaza operar TVD con aplicación inexistente o no aprobada', async () => {
     applicationModel.findOne.mockReturnValueOnce(leanResult(null));
 
     await expect(
@@ -130,7 +130,7 @@ describe('InstitutionalVotingAccessService official publication institution', ()
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('rechaza discrepancia entre wallet de asignacion y aplicacion', async () => {
+  it('[MX-02][D-PERM-005][UNITARIA] rechaza consultar operaciones con una wallet institucional inconsistente', async () => {
     applicationModel.findOne.mockReturnValueOnce(
       leanResult({
         _id: applicationId,
@@ -148,5 +148,29 @@ describe('InstitutionalVotingAccessService official publication institution', ()
         { sub: String(requesterId) },
       ),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('[MX-02][D-PERM-006][UNITARIA] bloquea modificar datos generales a quien no es ADMIN global', () => {
+    expect(() => service.assertGlobalAdminAccess({ role: 'USER' }, 'modificar datos generales')).toThrow(ForbiddenException);
+  });
+
+  it('[MX-02][D-PERM-007][UNITARIA] bloquea invitar administradores a quien no es ADMIN global', () => {
+    expect(() => service.assertGlobalAdminAccess({ role: 'USER' }, 'invitar administradores')).toThrow(ForbiddenException);
+  });
+
+  it('[MX-02][D-PERM-008][UNITARIA] bloquea aprobar solicitudes a quien no es ADMIN global', () => {
+    expect(() => service.assertGlobalAdminAccess({ role: 'USER' }, 'aprobar solicitudes')).toThrow(ForbiddenException);
+  });
+
+  it('[MX-02][D-PERM-009][UNITARIA] bloquea suspender administradores a quien no es ADMIN global', () => {
+    expect(() => service.assertGlobalAdminAccess({ role: 'USER' }, 'suspender administradores')).toThrow(ForbiddenException);
+  });
+
+  it('[MX-02][D-PERM-010][UNITARIA] bloquea eliminar administradores a quien no es ADMIN global', () => {
+    expect(() => service.assertGlobalAdminAccess({ role: 'USER' }, 'eliminar administradores')).toThrow(ForbiddenException);
+  });
+
+  it('[MX-02][D-PERM-011][UNITARIA] bloquea transferir el rol principal a quien no es ADMIN global', () => {
+    expect(() => service.assertGlobalAdminAccess({ role: 'USER' }, 'transferir el rol principal')).toThrow(ForbiddenException);
   });
 });

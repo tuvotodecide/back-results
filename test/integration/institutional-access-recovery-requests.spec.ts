@@ -173,6 +173,22 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .send({ newEmail, ...extra });
   }
 
+  async function approveEmailChangeFor(suffix: string) {
+    const seeded = await seedLoginReadyAdminAssignment('PRIMARY', 'secret123', `Universidad ${suffix}`);
+    const beforeUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+    const beforeAssignments = await conn.collection('tenant_admin_assignments').find({ userId: seeded.userId }).toArray();
+    const oldLogin = await login(seeded.email, seeded.password).expect(200);
+    const newEmail = `correo-${suffix}@example.com`;
+    const created = await createEmailChange(oldLogin.body.accessToken, newEmail).expect(201);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-access-recovery-requests/${created.body.requestId}/email-change/approve`)
+      .send({ reason: 'Aprobado por superadministrador' })
+      .expect(201);
+    const afterUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
+    const afterAssignments = await conn.collection('tenant_admin_assignments').find({ userId: seeded.userId }).toArray();
+    return { seeded, beforeUser, beforeAssignments, oldLogin, newEmail, afterUser, afterAssignments };
+  }
+
   function createRecovery(tenantId: Types.ObjectId, newEmail = 'new@example.com') {
     return request(app.getHttpServer())
       .post('/api/v1/institutional-access-recovery-requests')
@@ -497,7 +513,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     expect(JSON.stringify(outbox)).not.toContain(user?.passwordResetToken);
   });
 
-  it('D-MAIL-001 crea una sola solicitud autenticada sin aceptar datos arbitrarios ni cambiar correo', async () => {
+  it('[MX-02][D-MAIL-001][INTEGRACION] crea una sola solicitud autenticada sin cambiar correo ni aceptar datos arbitrarios', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     const signedIn = await login(seeded.email, seeded.password).expect(200);
 
@@ -545,7 +561,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     ).toBe(1);
   });
 
-  it('D-MAIL-002 rechaza correo ocupado, formato invalido y mismo correo sin persistencia ni avisos', async () => {
+  it('[MX-02][D-MAIL-002][INTEGRACION] rechaza correo ocupado, formato inválido y mismo correo sin persistencia ni avisos', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     await conn.collection('roled_users').insertOne({
       _id: new Types.ObjectId(),
@@ -577,7 +593,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     });
   });
 
-  it('D-MAIL-003 / D-MAIL-005 / D-MAIL-006 / D-MAIL-007 / D-MAIL-008 / D-MAIL-009 / D-MAIL-010 / D-MAIL-011 | aprueba cambiando solo correo, invalida token viejo y conserva invariantes', async () => {
+  it('[MX-02][D-MAIL-003][INTEGRACION] el superadministrador aprueba cambiando solo el correo y emite aviso informativo', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     const beforeUser = await conn.collection('roled_users').findOne({ _id: seeded.userId });
     const beforeAssignments = await conn.collection('tenant_admin_assignments').find({ userId: seeded.userId }).toArray();
@@ -645,7 +661,56 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     ).toBeTruthy();
   });
 
-  it('D-MAIL-004 rechaza sin modificar cuenta, sesiones, password, wallet ni relaciones', async () => {
+  it('[MX-02][D-MAIL-005][INTEGRACION] conserva el mismo identificador de usuario al aprobar el cambio', async () => {
+    const { beforeUser, afterUser } = await approveEmailChangeFor('same-user-id');
+    expect(String(afterUser?._id)).toBe(String(beforeUser?._id));
+  });
+
+  it('[MX-02][D-MAIL-006][INTEGRACION] conserva el CI o DNI al aprobar el cambio', async () => {
+    const { beforeUser, afterUser } = await approveEmailChangeFor('same-dni');
+    expect(afterUser?.dni).toBe(beforeUser?.dni);
+  });
+
+  it('[MX-02][D-MAIL-007][INTEGRACION] conserva la billetera institucional al aprobar el cambio', async () => {
+    const { beforeAssignments, afterAssignments } = await approveEmailChangeFor('same-wallet');
+    expect(afterAssignments[0]).toMatchObject({
+      _id: beforeAssignments[0]._id,
+      accountAddress: beforeAssignments[0].accountAddress,
+    });
+  });
+
+  it('[MX-02][D-MAIL-008][INTEGRACION] conserva la contraseña existente al aprobar el cambio', async () => {
+    const { beforeUser, afterUser } = await approveEmailChangeFor('same-password');
+    expect(afterUser?.password).toBe(beforeUser?.password);
+    expect(afterUser?.passwordResetToken).toBeUndefined();
+  });
+
+  it('[MX-02][D-MAIL-009][INTEGRACION] conserva rol y relación institucional al aprobar el cambio', async () => {
+    const { beforeUser, afterUser, beforeAssignments, afterAssignments } = await approveEmailChangeFor('same-role');
+    expect(afterUser?.role).toBe(beforeUser?.role);
+    expect(afterAssignments).toHaveLength(beforeAssignments.length);
+    expect(afterAssignments[0]).toMatchObject({
+      tenantId: beforeAssignments[0].tenantId,
+      institutionalRole: beforeAssignments[0].institutionalRole,
+      active: beforeAssignments[0].active,
+    });
+  });
+
+  it('[MX-02][D-MAIL-010][INTEGRACION] invalida la sesión anterior al aprobar el cambio', async () => {
+    const { oldLogin, afterUser } = await approveEmailChangeFor('invalidate-session');
+    await request(app.getHttpServer())
+      .get('/api/v1/auth/access-status')
+      .set('Authorization', `Bearer ${oldLogin.body.accessToken}`)
+      .expect(401);
+    expect(afterUser?.authVersion).toBe(1);
+  });
+
+  it('[MX-02][D-MAIL-011][INTEGRACION] bloquea el correo anterior después de aprobar el cambio', async () => {
+    const { seeded } = await approveEmailChangeFor('old-email-blocked');
+    await login(seeded.email, seeded.password).expect(403);
+  });
+
+  it('[MX-02][D-MAIL-004][INTEGRACION] rechaza sin modificar cuenta, sesiones, password, wallet ni relaciones', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     const oldLogin = await login(seeded.email, seeded.password).expect(200);
     const created = await createEmailChange(oldLogin.body.accessToken, 'rechazado@example.com').expect(201);
@@ -744,7 +809,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     ).toBe(1);
   });
 
-  it('D-MAIL-005 / D-MAIL-010 / D-MAIL-012 | bloquea actor no superadmin, resoluciones repetidas y correo ocupado al aprobar', async () => {
+  it('[MX-02][D-MAIL-012][INTEGRACION] bloquea actor no SUPERADMIN, repetición y correo ocupado sin persistencia parcial', async () => {
     const seeded = await seedLoginReadyAdminAssignment('PRIMARY');
     const oldLogin = await login(seeded.email, seeded.password).expect(200);
     const created = await createEmailChange(oldLogin.body.accessToken, 'decision@example.com').expect(201);

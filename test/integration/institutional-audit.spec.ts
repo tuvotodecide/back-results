@@ -405,7 +405,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     );
   });
 
-  it('D-AUDIT-004 | fallo de transferencia no deja evento de exito', async () => {
+  it('[MX-02][D-AUDIT-004][INTEGRACION] un fallo de transferencia no deja evento de éxito', async () => {
     const primary = await createAndApprovePrimary();
     const before = await conn
       .collection('institutional_audit_events')

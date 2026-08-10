@@ -175,7 +175,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     restoreMx02SyntheticChainConfig();
   });
 
-it('D-NEW-001 | createApplication crea usuario nuevo, solicitud pendiente de email y envia verificacion', async () => {
+it('[MX-02][D-NEW-001][UNITARIA] createApplication crea usuario nuevo, solicitud pendiente de email y envia verificacion', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.findOne.mockReturnValue(execResolved(null));
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -236,7 +236,31 @@ it('D-NEW-001 | createApplication crea usuario nuevo, solicitud pendiente de ema
     expect(mailService.sendEmail).toHaveBeenCalled();
   });
 
-  it('D-NEW-002 / D-RETRY-001 | createApplication rechaza solicitud pendiente duplicada', async () => {
+  it('[MX-02][D-NEW-005][UNITARIA] verifyEmail mantiene el acceso inactivo hasta validar el correo de la primera administradora', async () => {
+    const application = {
+      _id: appId,
+      status: 'PENDING_EMAIL_VERIFICATION',
+      verificationToken: 'verification-token',
+      verificationTokenExpiresAt: new Date(Date.now() + 60_000),
+      tenantId,
+      userId,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    applicationModel.findOne.mockResolvedValueOnce(application);
+
+    await expect(service.verifyEmail('verification-token')).resolves.toEqual({
+      id: appId.toString(),
+      status: 'PENDING_APPROVAL',
+      emailVerifiedAt: expect.any(Date),
+    });
+
+    expect(application.status).toBe('PENDING_APPROVAL');
+    expect(application.save).toHaveBeenCalledTimes(1);
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+  it('createApplication rechaza solicitud pendiente duplicada', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(
@@ -259,7 +283,7 @@ it('D-NEW-001 | createApplication crea usuario nuevo, solicitud pendiente de ema
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-it('D-NEW-003 | createApplication para institucion existente queda pendiente sin crear tenant, assignment ni on-chain', async () => {
+it('createApplication para institucion existente queda pendiente sin crear tenant, assignment ni on-chain', async () => {
     const existingTenant = {
       _id: tenantId,
       name: 'Institucion Activa',
@@ -320,7 +344,7 @@ it('D-NEW-003 | createApplication para institucion existente queda pendiente sin
     expect(httpService.axiosRef.post).toHaveBeenCalled();
   });
 
-it('D-NEW-004 | createApplication rechaza institucion existente inactiva o inexistente', async () => {
+it('createApplication rechaza institucion existente inactiva o inexistente', async () => {
     tenantModel.findById.mockResolvedValue(null);
 
     await expect(
@@ -409,7 +433,7 @@ it('D-NEW-004 | createApplication rechaza institucion existente inactiva o inexi
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-it('D-NEW-011 | createApplication rechaza wallet con formato invalido sin consultar Identity ni persistir', async () => {
+it('createApplication rechaza wallet con formato invalido sin consultar Identity ni persistir', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -431,7 +455,7 @@ it('D-NEW-011 | createApplication rechaza wallet con formato invalido sin consul
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-it('D-NEW-012 | createApplication rechaza persona no registrada sin crear usuario ni solicitud', async () => {
+it('[MX-02][D-NEW-002][UNITARIA] createApplication rechaza persona no registrada sin crear usuario ni solicitud', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -460,7 +484,7 @@ it('D-NEW-012 | createApplication rechaza persona no registrada sin crear usuari
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-it('D-NEW-013 | createApplication rechaza persona registrada sin billetera sin guardar billetera vacia', async () => {
+it('[MX-02][D-NEW-003][UNITARIA] createApplication rechaza persona registrada sin billetera sin guardar billetera vacia', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -489,7 +513,7 @@ it('D-NEW-013 | createApplication rechaza persona registrada sin billetera sin g
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-it('D-NEW-014 / D-REG-003 | createApplication falla cerrado ante timeout, 5xx o respuesta invalida de Identity', async () => {
+it('createApplication falla cerrado ante timeout, 5xx o respuesta invalida de Identity', async () => {
     const payload = {
       dni: '123456',
       email: 'admin@example.com',
@@ -542,7 +566,7 @@ it('D-NEW-014 / D-REG-003 | createApplication falla cerrado ante timeout, 5xx o 
     expect(applicationModel.create).not.toHaveBeenCalled();
   });
 
-it('D-NEW-006 / D-NEW-007 | createApplication consulta Identity antes de cualquier write', async () => {
+it('createApplication consulta Identity antes de cualquier write', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -607,7 +631,7 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
     );
   });
 
-  it('D-NEW-006 | approveApplication crea tenant/asignacion pendientes sin activar acceso', async () => {
+  it('[MX-02][D-NEW-006][UNITARIA] approveApplication crea tenant/asignacion pendientes sin activar acceso', async () => {
     const app: any = {
       _id: appId,
       status: 'PENDING_APPROVAL',

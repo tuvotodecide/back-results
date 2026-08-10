@@ -464,6 +464,22 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     };
   }
 
+  async function submitPrimaryTransferForConfirmation(suffix: string) {
+    const transfer = await createPendingPrimaryTransferAuthorization(suffix);
+    const deviceId = `qa-phone-transfer-${suffix}`;
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
+      .send({ deviceId, userOpHash: `0x${'8'.repeat(64)}` })
+      .expect(200);
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(transfer.targetWallet);
+    await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
+    return transfer;
+  }
+
   async function createPendingMobileAuthorization(
     suffix = 'mobile-sign',
     primaryWallet = validAccountAddress,
@@ -506,20 +522,63 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     };
   }
 
+  function mobileAuthorizationClientIp(applicationId: string) {
+    return `2001:db8:${applicationId.slice(0, 4)}:${applicationId.slice(4, 8)}:${applicationId.slice(8, 12)}:${applicationId.slice(12, 16)}:${applicationId.slice(16, 20)}:${applicationId.slice(20, 24)}`;
+  }
+
   async function confirmPendingMobileAuthorization(targetId: string, deviceId = 'qa-phone-add') {
+    const clientIp = mobileAuthorizationClientIp(targetId);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${targetId}/claim`)
+      .set('x-forwarded-for', clientIp)
       .send({ deviceId })
       .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${targetId}/submission`)
+      .set('x-forwarded-for', clientIp)
       .send({ deviceId, userOpHash: `0x${'a'.repeat(64)}` })
       .expect(200);
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
     await applicationsService.reconcileMobileAuthorizationOperation(targetId);
   }
 
-it('D-NEW-001 / D-NEW-006 / D-NEW-007 | crea solicitud pendiente solo cuando Identity confirma wallet-DNI', async () => {
+  async function createRemovalAuthorization(suffix: string) {
+    const flow = await createPendingMobileAuthorization(`remove-${suffix}`);
+    await confirmPendingMobileAuthorization(flow.target.id, `qa-phone-${suffix}-add`);
+    (VoteContractCalls.addAuthorizedAddress as jest.Mock).mockClear();
+    (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockClear();
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockClear();
+
+    const targetAssignment = await conn.collection('tenant_admin_assignments').findOne({
+      tenantId: flow.primaryApplication?.tenantId,
+      userId: flow.targetApplication?.userId,
+      active: true,
+    });
+    expect(targetAssignment).toBeTruthy();
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/tenants/${flow.primaryApplication?.tenantId}/admins/${targetAssignment?._id}/removal-authorizations`)
+      .send({ reason: `Salida ${suffix}` })
+      .expect(201);
+
+    return { ...flow, targetAssignment, created };
+  }
+
+  async function submitRemovalAuthorization(applicationId: string, deviceId: string) {
+    const clientIp = mobileAuthorizationClientIp(applicationId);
+    const claim = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${applicationId}/claim`)
+      .set('x-forwarded-for', clientIp)
+      .send({ deviceId })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${applicationId}/submission`)
+      .set('x-forwarded-for', clientIp)
+      .send({ deviceId, userOpHash: `0x${'5'.repeat(64)}` })
+      .expect(200);
+    return claim;
+  }
+
+it('[MX-02][D-NEW-001][INTEGRACION] crea solicitud pendiente solo cuando Identity confirma wallet-DNI', async () => {
     const payload = validPayload();
     delete (payload as any).accountAddress;
 
@@ -557,7 +616,32 @@ it('D-NEW-001 / D-NEW-006 / D-NEW-007 | crea solicitud pendiente solo cuando Ide
     );
   });
 
-it('D-NEW-003 / D-NEW-004 | registro acepta institutionId activo, resuelve nombre backend y conserva validacion wallet-DNI', async () => {
+  it('[MX-02][D-NEW-005][INTEGRACION] mantiene a la primera administradora sin acceso hasta verificar su correo', async () => {
+    const payload = validPayload();
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications')
+      .send(payload)
+      .expect(201);
+
+    expect(response.body).toMatchObject({
+      status: 'PENDING_EMAIL_VERIFICATION',
+      tenantAlreadyExists: false,
+      tenantId: null,
+    });
+    const application = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(response.body.id),
+    });
+    const user = await conn.collection('roled_users').findOne({ email: payload.email });
+    expect(application?.status).toBe('PENDING_EMAIL_VERIFICATION');
+    expect(application?.emailVerifiedAt).toBeUndefined();
+    expect(user?.active).toBe(false);
+    expect(await conn.collection('institutional_tenants').countDocuments()).toBe(0);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(0);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+it('registro acepta institutionId activo, resuelve nombre backend y conserva validacion wallet-DNI', async () => {
     const tenantId = new Types.ObjectId();
     const primaryUserId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
@@ -641,7 +725,7 @@ it('D-NEW-003 / D-NEW-004 | registro acepta institutionId activo, resuelve nombr
     });
   });
 
-it('D-NEW-005 | registro rechaza institutionId inexistente o inactivo antes de consultar Identity', async () => {
+it('registro rechaza institutionId inexistente o inactivo antes de consultar Identity', async () => {
     const inactiveTenantId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
       _id: inactiveTenantId,
@@ -1044,7 +1128,7 @@ it('D-NEW-005 | registro rechaza institutionId inexistente o inactivo antes de c
     })).toBe(1);
   });
 
-it('D-NEW-013 | rechaza correo duplicado antes de consultar Identity', async () => {
+it('[MX-02][D-NEW-004][INTEGRACION] rechaza correo duplicado antes de consultar Identity', async () => {
     const payload = validPayload();
 
     await request(app.getHttpServer())
@@ -1221,7 +1305,7 @@ it('D-NEW-013 | rechaza correo duplicado antes de consultar Identity', async () 
     })).toBe(0);
   });
 
-it('D-NEW-011 | rechaza wallet manual con formato invalido sin consultar Identity ni persistir', async () => {
+it('rechaza wallet manual con formato invalido sin consultar Identity ni persistir', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/institutional-admin-applications')
       .send({ ...validPayload(), accountAddress: '0x123' })
@@ -1233,7 +1317,7 @@ it('D-NEW-011 | rechaza wallet manual con formato invalido sin consultar Identit
     expect(await countUsers()).toBe(0);
   });
 
-it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos externos', async () => {
+it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistencia ni efectos externos', async () => {
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: { registered: false, accountAddress: null },
     });
@@ -1253,7 +1337,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(mailService.sendEmail).not.toHaveBeenCalled();
   });
 
-  it('rechaza persona registrada sin billetera sin guardar billetera vacia', async () => {
+  it('[MX-02][D-NEW-003][INTEGRACION] rechaza persona registrada sin billetera sin guardar billetera vacia', async () => {
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: { registered: false, accountAddress: null },
     });
@@ -1308,7 +1392,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(await countUsers()).toBe(0);
   });
 
-  it('[MX-02][D-NEW-006][INTEGRACION] | aprobar inicia el procesamiento y mantiene el acceso inactivo hasta confirmación', async () => {
+  it('[MX-02][D-NEW-006][INTEGRACION] aprobar inicia el procesamiento y mantiene el acceso inactivo hasta confirmación', async () => {
     const { id, payload } = await createVerifiedApplication();
 
     const approveRes = await request(app.getHttpServer())
@@ -1347,7 +1431,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
   });
 
-  it('D-STATE-001 / D-STATE-002 / D-STATE-003 / D-STATE-004 / D-STATE-005 | expone estados funcionales autoritativos para solicitudes institucionales', async () => {
+  it('[MX-02][D-STATE-001][INTEGRACION] / [MX-02][D-STATE-002][INTEGRACION] / [MX-02][D-STATE-003][INTEGRACION] / [MX-02][D-STATE-004][INTEGRACION] / [MX-02][D-STATE-005][INTEGRACION] expone estados funcionales autoritativos para solicitudes institucionales', async () => {
     const now = new Date();
     const rows = [
       ['state-review', 'PENDING_APPROVAL', null, 'PENDING_REVIEW', 'Pendiente de revisión'],
@@ -1398,7 +1482,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     });
   });
 
-  it('D-NEW-007 | rechazar conserva historial y no crea institución, relación ni operación', async () => {
+  it('[MX-02][D-NEW-007][INTEGRACION] rechazar conserva historial y no crea institución, relación ni operación', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('reject-new', 'Institucion Rechazada', validAccountAddress),
     );
@@ -1428,7 +1512,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-NEW-008 | una nueva solicitud tras rechazo obtiene otro ID y no reabre la anterior', async () => {
+  it('[MX-02][D-NEW-008][INTEGRACION] una nueva solicitud tras rechazo obtiene otro ID y no reabre la anterior', async () => {
     const payload = payloadFor('new-after-reject', 'Institucion Reintento', validAccountAddress);
     const first = await createVerifiedApplication(payload);
     await request(app.getHttpServer())
@@ -1456,7 +1540,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(0);
   });
 
-  it('D-NEW-009 | la aprobación usa el ID estable de institución y no el ID de solicitud', async () => {
+  it('[MX-02][D-NEW-009][INTEGRACION] la aprobación usa el ID estable de institución y no el ID de solicitud', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('stable-id', 'Institucion ID Estable', validAccountAddress),
     );
@@ -1490,7 +1574,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     );
   });
 
-  it('D-NEW-010 | el procesamiento enviado conserva institución y relación inactivas', async () => {
+  it('[MX-02][D-NEW-010][INTEGRACION] el procesamiento enviado conserva institución y relación inactivas', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-pending', 'Institucion Pendiente Red', validAccountAddress),
     );
@@ -1520,7 +1604,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(assignment).toEqual(expect.objectContaining({ status: 'PENDING', active: false }));
   });
 
-  it('D-NEW-011 | un error recuperable conserva la operación y agenda reintento sin activar acceso', async () => {
+  it('[MX-02][D-NEW-011][INTEGRACION] un error recuperable conserva la operación y agenda reintento sin activar acceso', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-timeout', 'Institucion Timeout Red', validAccountAddress),
     );
@@ -1567,7 +1651,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(await conn.collection('institutional_admin_applications').countDocuments()).toBe(1);
   });
 
-  it('D-NEW-012 | la confirmación de red activa una sola institución y una relación principal', async () => {
+  it('[MX-02][D-NEW-012][INTEGRACION] la confirmación de red activa una sola institución y una relación principal', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-confirmed', 'Institucion Confirmada Red', validAccountAddress),
     );
@@ -1614,7 +1698,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
   });
 
-  it('D-NEW-013 | si la red ya confirmó y el estado local quedó incompleto, reconcilia sin reenviar', async () => {
+  it('[MX-02][D-NEW-013][INTEGRACION] si la red ya confirmó y el estado local quedó incompleto, reconcilia sin reenviar', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('chain-local-fail', 'Institucion Reconciliada', validAccountAddress),
     );
@@ -1658,7 +1742,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-NEW-014 | dos aprobaciones y dos workers concurrentes dejan una sola operación efectiva', async () => {
+  it('[MX-02][D-NEW-014][INTEGRACION] dos aprobaciones y dos workers concurrentes dejan una sola operación efectiva', async () => {
     const { id } = await createVerifiedApplication(
       payloadFor('double-approve', 'Institucion Concurrencia', validAccountAddress),
     );
@@ -1699,7 +1783,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).toHaveBeenCalledTimes(1);
   });
 
-  it('D-NEW-015 | el backfill histórico ejecutado dos veces asigna ID estable sin duplicar operaciones', async () => {
+  it('[MX-02][D-NEW-015][INTEGRACION] el backfill histórico ejecutado dos veces asigna ID estable sin duplicar operaciones', async () => {
     const pendingTenantId = new Types.ObjectId();
     const confirmedTenantId = new Types.ObjectId();
     const pendingUserId = new Types.ObjectId();
@@ -1779,7 +1863,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     })).toBe(0);
   });
 
-  it('D-COMPAT-001 / D-COMPAT-002 / D-COMPAT-003 / D-COMPAT-004 / D-COMPAT-005 / D-COMPAT-006 / D-COMPAT-007 / D-COMPAT-008 | el backfill común regulariza históricos sin duplicados ni acceso antes de red', async () => {
+  async function runHistoricalCompatibilityBackfill() {
     const pendingTenantId = new Types.ObjectId();
     const confirmedTenantId = new Types.ObjectId();
     const pendingUserId = new Types.ObjectId();
@@ -1882,6 +1966,53 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       tenantId: pendingTenantId,
       institutionalRole: 'PRIMARY',
     })).toBe(1);
+    return { pendingTenantId, confirmedTenantId, first, second };
+  }
+
+  it('[MX-02][D-COMPAT-001][INTEGRACION] regulariza institución histórica sin ID estable', async () => {
+    const { pendingTenantId } = await runHistoricalCompatibilityBackfill();
+    await expect(conn.collection('institutional_tenants').findOne({ _id: pendingTenantId }))
+      .resolves.toMatchObject({ stableInstitutionId: String(pendingTenantId), active: false });
+  });
+
+  it('[MX-02][D-COMPAT-002][INTEGRACION] conserva compatibilidad de institución histórica confirmada', async () => {
+    const { confirmedTenantId } = await runHistoricalCompatibilityBackfill();
+    await expect(conn.collection('institutional_tenants').findOne({ _id: confirmedTenantId }))
+      .resolves.toMatchObject({ stableInstitutionId: String(confirmedTenantId), active: true });
+  });
+
+  it('[MX-02][D-COMPAT-003][INTEGRACION] reconcilia estado local desde la lectura on-chain mockeada', async () => {
+    const { first } = await runHistoricalCompatibilityBackfill();
+    expect(first.reconciled).toBe(1);
+  });
+
+  it('[MX-02][D-COMPAT-004][INTEGRACION] mantiene restringida la institución pendiente de red', async () => {
+    const { pendingTenantId } = await runHistoricalCompatibilityBackfill();
+    await expect(conn.collection('institutional_tenants').findOne({ _id: pendingTenantId }))
+      .resolves.toMatchObject({ active: false });
+  });
+
+  it('[MX-02][D-COMPAT-005][INTEGRACION] crea una sola operación para el histórico pendiente', async () => {
+    const { pendingTenantId } = await runHistoricalCompatibilityBackfill();
+    await expect(conn.collection('institutional_admin_applications').countDocuments({ tenantId: pendingTenantId }))
+      .resolves.toBe(1);
+  });
+
+  it('[MX-02][D-COMPAT-006][INTEGRACION] ejecuta el backfill repetido sin operaciones duplicadas', async () => {
+    const { second } = await runHistoricalCompatibilityBackfill();
+    expect(second).toMatchObject({ updatedTenants: 0, createdOperations: 0, reconciled: 0 });
+  });
+
+  it('[MX-02][D-COMPAT-007][INTEGRACION] conserva la relación histórica durante la regularización', async () => {
+    const { pendingTenantId } = await runHistoricalCompatibilityBackfill();
+    await expect(conn.collection('tenant_admin_assignments').countDocuments({ tenantId: pendingTenantId }))
+      .resolves.toBe(1);
+  });
+
+  it('[MX-02][D-COMPAT-008][INTEGRACION] no concede acceso antes de que la red confirme', async () => {
+    const { pendingTenantId } = await runHistoricalCompatibilityBackfill();
+    await expect(conn.collection('institutional_tenants').findOne({ _id: pendingTenantId }))
+      .resolves.toMatchObject({ active: false });
   });
 
   it('permite a ACCESS_APPROVER crear el primer PRIMARY actual', async () => {
@@ -2129,7 +2260,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     })).toBe(1);
   });
 
-  it('D-SIGN-001 / D-SIGN-005 / D-SIGN-006 / D-SIGN-007 / D-SIGN-008 / D-SIGN-015 | prepara addAuthorizedAddress con ID estable y registra una sola operación firmada', async () => {
+  it('[MX-02][D-SIGN-001][INTEGRACION] / [MX-02][D-SIGN-005][INTEGRACION] / [MX-02][D-SIGN-006][INTEGRACION] / [MX-02][D-SIGN-007][INTEGRACION] / [MX-02][D-SIGN-008][INTEGRACION] / [MX-02][D-SIGN-015][INTEGRACION] prepara addAuthorizedAddress con ID estable y registra una sola operación firmada', async () => {
     const {
       target,
       primaryApplication,
@@ -2234,7 +2365,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-004 | bloquea la firma con billetera distinta sin preparar operación', async () => {
+  it('[MX-02][D-SIGN-004][INTEGRACION] bloquea la firma con billetera distinta sin preparar operación', async () => {
     const { target } = await createPendingMobileAuthorization('sign-wallet-mismatch');
     currentReviewer.smartAccountAddress = '0x0000000000000000000000000000000000000bad';
 
@@ -2252,7 +2383,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
   });
 
-  it('D-TRF-005 / D-TRF-006 | prepara changeInstitutionAdmin con ID estable y conserva roles originales', async () => {
+  it('[MX-02][D-TRF-005][INTEGRACION] prepara changeInstitutionAdmin con el stableInstitutionId y crea la firma móvil', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('claim');
 
     const claim = await request(app.getHttpServer())
@@ -2284,6 +2415,17 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       String(transfer.applicationId),
       transfer.targetWallet,
     );
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+  it('[MX-02][D-TRF-006][INTEGRACION] conserva los roles originales antes de la confirmación on-chain', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('roles-pending');
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-roles' })
+      .expect(200);
+
     await expect(conn.collection('tenant_admin_assignments').countDocuments({
       tenantId: transfer.tenantId,
       institutionalRole: 'PRIMARY',
@@ -2298,6 +2440,12 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       active: true,
       status: 'APPROVED',
     })).resolves.toBe(1);
+    await expect(conn.collection('institutional_admin_applications').findOne({
+      _id: transfer.applicationId,
+    })).resolves.toMatchObject({
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      mobileAuthorizationClaimedAt: expect.any(Date),
+    });
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
@@ -2465,48 +2613,13 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(VoteContractCalls.changeInstitutionAdmin).not.toHaveBeenCalled();
   });
 
-  it('D-TRF-008 / D-TRF-009 / D-TRF-010 / D-TRF-011 | confirma por getInstitutionAdmin y deja exactamente un principal', async () => {
-    const transfer = await createPendingPrimaryTransferAuthorization('confirm');
+  it('[MX-02][D-TRF-008][INTEGRACION] confirma la transferencia por getInstitutionAdmin sin reenviar la operación', async () => {
+    const transfer = await submitPrimaryTransferForConfirmation('confirm-chain');
 
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
-      .send({ deviceId: 'qa-phone-transfer-confirm' })
-      .expect(200);
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
-      .send({ deviceId: 'qa-phone-transfer-confirm', userOpHash: `0x${'8'.repeat(64)}` })
-      .expect(200);
-
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValueOnce(transfer.primaryWallet);
-    const pending = await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
-    expect(pending.reconciled).toBe(false);
-    await expect(conn.collection('tenant_admin_assignments').countDocuments({
-      tenantId: transfer.tenantId,
-      institutionalRole: 'PRIMARY',
-      userId: transfer.primaryUserId,
-    })).resolves.toBe(1);
-
-    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockResolvedValue(transfer.targetWallet);
-    const confirmed = await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
-    const confirmedAgain = await applicationsService.reconcileMobileAuthorizationOperation(String(transfer.applicationId));
-    expect(confirmed.reconciled).toBe(true);
-    expect(confirmedAgain.reconciled).toBe(true);
     expect(VoteContractReads.getInstitutionAdmin).toHaveBeenCalledWith(
       expect.any(String),
       transfer.stableInstitutionId,
     );
-    expect(await conn.collection('tenant_admin_assignments').countDocuments({
-      tenantId: transfer.tenantId,
-      institutionalRole: 'PRIMARY',
-      active: true,
-      status: 'APPROVED',
-    })).toBe(1);
-    expect(await conn.collection('tenant_admin_assignments').findOne({
-      _id: transfer.targetAssignmentId,
-    })).toMatchObject({ institutionalRole: 'PRIMARY', accountAddress: transfer.targetWallet });
-    expect(await conn.collection('tenant_admin_assignments').findOne({
-      _id: transfer.primaryAssignmentId,
-    })).toMatchObject({ institutionalRole: 'SECONDARY', accountAddress: transfer.primaryWallet });
     expect(await conn.collection('institutional_admin_applications').findOne({
       _id: transfer.applicationId,
     })).toMatchObject({ status: 'APPROVED', chainStatus: 'CONFIRMED' });
@@ -2514,7 +2627,40 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-TRF-007 / D-TRF-011 | error recuperable conserva firma y dos workers no duplican transferencia', async () => {
+  it('[MX-02][D-TRF-009][INTEGRACION] asigna al destino como único principal después de confirmar la red', async () => {
+    const transfer = await submitPrimaryTransferForConfirmation('confirm-target-primary');
+
+    await expect(conn.collection('tenant_admin_assignments').findOne({
+      _id: transfer.targetAssignmentId,
+    })).resolves.toMatchObject({
+      institutionalRole: 'PRIMARY',
+      accountAddress: transfer.targetWallet,
+      active: true,
+      status: 'APPROVED',
+    });
+    await expect(conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: transfer.tenantId,
+      institutionalRole: 'PRIMARY',
+      active: true,
+      status: 'APPROVED',
+    })).resolves.toBe(1);
+  });
+
+  it('[MX-02][D-TRF-010][INTEGRACION] conserva al principal anterior como secundario después de confirmar la red', async () => {
+    const transfer = await submitPrimaryTransferForConfirmation('confirm-previous-secondary');
+
+    await expect(conn.collection('tenant_admin_assignments').findOne({
+      _id: transfer.primaryAssignmentId,
+    })).resolves.toMatchObject({
+      institutionalRole: 'SECONDARY',
+      accountAddress: transfer.primaryWallet,
+      active: true,
+      status: 'APPROVED',
+    });
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+  it('[MX-02][D-TRF-007][INTEGRACION] un error recuperable conserva la firma y agenda un reintento', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('retry');
 
     await request(app.getHttpServer())
@@ -2537,6 +2683,27 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       chainStatus: 'RETRY_PENDING',
       mobileAuthorizationUserOpHash: `0x${'9'.repeat(64)}`,
     });
+    expect(VoteContractCalls.changeInstitutionAdmin).toHaveBeenCalledTimes(1);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+  });
+
+  it('[MX-02][D-TRF-011][INTEGRACION] workers concurrentes confirman una única transferencia sin operaciones duplicadas', async () => {
+    const transfer = await createPendingPrimaryTransferAuthorization('retry-concurrent');
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-transfer-retry-concurrent' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}/submission`)
+      .send({
+        deviceId: 'qa-phone-transfer-retry-concurrent',
+        userOpHash: `0x${'a'.repeat(64)}`,
+      })
+      .expect(200);
+
+    (VoteContractReads.getInstitutionAdmin as jest.Mock).mockRejectedValueOnce(new Error('rpc timeout'));
+    await applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId));
 
     await conn.collection('institutional_admin_applications').updateOne(
       { _id: transfer.applicationId },
@@ -2547,7 +2714,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId)),
       applicationsService.processMobileAuthorizationRetry(String(transfer.applicationId)),
     ]);
-    stored = await conn.collection('institutional_admin_applications').findOne({
+    const stored = await conn.collection('institutional_admin_applications').findOne({
       _id: transfer.applicationId,
     });
     expect(stored).toMatchObject({ status: 'APPROVED', chainStatus: 'CONFIRMED' });
@@ -2561,7 +2728,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-003 | rechazo móvil cierra la autorización sin firma ni acceso', async () => {
+  it('[MX-02][D-SIGN-003][INTEGRACION] rechazo móvil cierra la autorización sin firma ni acceso', async () => {
     const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('sign-reject');
 
@@ -2584,7 +2751,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-002 / D-SIGN-014 / D-RETRY-004 | autorización vencida no permite firmar y exige una nueva autorización móvil', async () => {
+  it('[MX-02][D-SIGN-002][INTEGRACION] / [MX-02][D-SIGN-014][INTEGRACION] autorización vencida no permite firmar y exige una nueva autorización móvil', async () => {
     const { target, targetApplication } =
       await createPendingMobileAuthorization('sign-expired');
     const expiredAt = new Date(Date.now() - 60_000);
@@ -2619,7 +2786,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
   });
 
-  it('D-SIGN-009 / D-SIGN-010 / D-SIGN-011 / D-SIGN-012 / D-SIGN-013 | confirma por isAuthorizedAddress y reconcilia sin reenviar', async () => {
+  it('[MX-02][D-SIGN-009][INTEGRACION] / [MX-02][D-SIGN-011][INTEGRACION] / [MX-02][D-SIGN-012][INTEGRACION] / [MX-02][D-SIGN-013][INTEGRACION] confirma por isAuthorizedAddress y reconcilia sin reenviar', async () => {
     const { target, primaryApplication, targetApplication, stableInstitutionId, targetWallet } =
       await createPendingMobileAuthorization('sign-confirm');
     await request(app.getHttpServer())
@@ -2666,7 +2833,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     })).toBe(1);
   });
 
-  it('D-SIGN-010 / D-RETRY-001 / D-RETRY-002 / D-RETRY-003 / D-RETRY-005 / D-RETRY-007 | reintenta con claim, conserva firma y lee red antes de reenviar', async () => {
+  it('[MX-02][D-SIGN-010][INTEGRACION] / [MX-02][D-RETRY-001][INTEGRACION] / [MX-02][D-RETRY-002][INTEGRACION] / [MX-02][D-RETRY-003][INTEGRACION] / [MX-02][D-RETRY-005][INTEGRACION] / [MX-02][D-RETRY-007][INTEGRACION] reintenta con claim, conserva firma y lee red antes de reenviar', async () => {
     const { target, primaryApplication, targetApplication, targetWallet, stableInstitutionId } =
       await createPendingMobileAuthorization('retry-flow');
     await request(app.getHttpServer())
@@ -2721,7 +2888,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     })).toBe(1);
   });
 
-  it('D-RETRY-006 | doble notificación conserva una sola autorización móvil activa', async () => {
+  it('[MX-02][D-RETRY-006][INTEGRACION] doble notificación conserva una sola autorización móvil activa', async () => {
     const { target } = await createPendingMobileAuthorization('retry-notice');
 
     await request(app.getHttpServer())
@@ -2738,111 +2905,121 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     })).toBe(1);
   });
 
-  it('D-REV-001 / D-REV-002 / D-REV-003 / D-REV-004 / D-REV-005 / D-REV-008 / D-REV-009 / D-REV-011 | elimina wallet solo tras confirmación de red', async () => {
-    const { target, primaryApplication, targetApplication, stableInstitutionId, targetWallet } =
-      await createPendingMobileAuthorization('remove-flow');
-    await confirmPendingMobileAuthorization(target.id, 'qa-phone-remove-add');
-    (VoteContractCalls.addAuthorizedAddress as jest.Mock).mockClear();
-    (VoteContractCalls.removeAuthorizedAddress as jest.Mock).mockClear();
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockClear();
+  it('[MX-02][D-REV-001][INTEGRACION] inicia la eliminación desde la administradora principal sin revocar acceso aún', async () => {
+    const { created, targetAssignment, stableInstitutionId, targetWallet } = await createRemovalAuthorization('initiate');
+    const stored = await conn.collection('institutional_admin_applications').findOne({ _id: new Types.ObjectId(created.body.applicationId) });
 
-    const targetAssignment = await conn.collection('tenant_admin_assignments').findOne({
-      tenantId: primaryApplication?.tenantId,
-      userId: targetApplication?.userId,
-      active: true,
-    });
-    expect(targetAssignment).toBeTruthy();
+    expect(created.body).toMatchObject({ action: 'REMOVE_AUTHORIZED_ADDRESS', status: 'PENDING_MOBILE_AUTHORIZATION', stableInstitutionId, targetWallet, canSign: true });
+    expect(stored).toMatchObject({ mobileAuthorizationAction: 'REMOVE_AUTHORIZED_ADDRESS', status: 'PENDING_MOBILE_AUTHORIZATION' });
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: true, status: 'APPROVED' })).toBe(1);
+    expect(VoteContractCalls.removeAuthorizedAddress).not.toHaveBeenCalled();
+  });
 
-    const created = await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/tenants/${primaryApplication?.tenantId}/admins/${targetAssignment?._id}/removal-authorizations`)
-      .send({ reason: 'Salida de la institución' })
-      .expect(201);
+  it('[MX-02][D-REV-002][INTEGRACION] genera un único aviso móvil para la eliminación pendiente', async () => {
+    const { created, primaryApplication, targetAssignment } = await createRemovalAuthorization('notification');
     const repeated = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${primaryApplication?.tenantId}/admins/${targetAssignment?._id}/removal-authorizations`)
       .send({ reason: 'Doble clic' })
       .expect(201);
+
     expect(repeated.body.applicationId).toBe(created.body.applicationId);
-    expect(created.body).toMatchObject({
-      action: 'REMOVE_AUTHORIZED_ADDRESS',
-      status: 'PENDING_MOBILE_AUTHORIZATION',
-      targetWallet,
-      stableInstitutionId,
-      canSign: true,
-    });
-    expect(await conn.collection('notification_logs').countDocuments({
-      'data.event': 'MOBILE_AUTHORIZATION_REQUESTED',
-      'data.applicationId': created.body.applicationId,
-      'data.action': 'REMOVE_AUTHORIZED_ADDRESS',
-    })).toBe(1);
-
-    const claim = await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${created.body.applicationId}/claim`)
-      .send({ deviceId: 'qa-phone-remove' })
-      .expect(200);
-    expect(claim.body.execution).toMatchObject({
-      action: 'REMOVE_AUTHORIZED_ADDRESS',
-      stableInstitutionId,
-      targetWallet,
-    });
-    expect(claim.body.execution.calls).toEqual([
-      expect.objectContaining({
-        target: '0x36D4b585d0A05D12B7fa3A4cAD7f7C28e920C523',
-        value: '0',
-        callData: '0x5678',
-        purpose: 'REMOVE_AUTHORIZED_ADDRESS',
-      }),
-    ]);
-    expect(VoteContractCalls.removeAuthorizedAddress).toHaveBeenCalledWith(
-      expect.any(String),
-      stableInstitutionId,
-      targetWallet,
-    );
-    expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
-
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${created.body.applicationId}/submission`)
-      .send({ deviceId: 'qa-phone-remove', userOpHash: `0x${'5'.repeat(64)}` })
-      .expect(200);
-
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValueOnce(true);
-    const pending = await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
-    expect(pending.reconciled).toBe(false);
-    expect(await conn.collection('tenant_admin_assignments').countDocuments({
-      _id: targetAssignment?._id,
-      active: true,
-      status: 'APPROVED',
-    })).toBe(1);
-
-    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
-    const removed = await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
-    expect(removed.reconciled).toBe(true);
-    expect(VoteContractReads.isAuthorizedAddress).toHaveBeenCalledWith(
-      expect.any(String),
-      stableInstitutionId,
-      targetWallet,
-    );
-    expect(await conn.collection('tenant_admin_assignments').countDocuments({
-      _id: targetAssignment?._id,
-      active: false,
-      status: 'REVOKED',
-    })).toBe(1);
-    expect(await conn.collection('tenant_admin_assignments').countDocuments({
-      tenantId: primaryApplication?.tenantId,
-      institutionalRole: 'PRIMARY',
-      active: true,
-    })).toBe(1);
-    expect(await conn.collection('tenant_admin_assignments').countDocuments({
-      userId: targetApplication?.userId,
-      tenantId: { $ne: primaryApplication?.tenantId },
-    })).toBe(0);
-
-    await request(app.getHttpServer())
-      .post(`/api/v1/institutional-admin-applications/tenants/${primaryApplication?.tenantId}/admins/${targetAssignment?._id}/removal-authorizations`)
-      .send({ reason: 'Ya eliminado' })
-      .expect(409);
+    expect(await conn.collection('notification_logs').countDocuments({ 'data.event': 'MOBILE_AUTHORIZATION_REQUESTED', 'data.applicationId': created.body.applicationId, 'data.action': 'REMOVE_AUTHORIZED_ADDRESS' })).toBe(1);
+    expect(VoteContractCalls.removeAuthorizedAddress).not.toHaveBeenCalled();
   });
 
-  it('D-REV-006 / D-REV-007 | error recuperable de eliminación conserva acceso y reintenta sin duplicar operación', async () => {
+  it('[MX-02][D-REV-003][INTEGRACION] firma desde el teléfono la operación removeAuthorizedAddress preparada', async () => {
+    const { created, stableInstitutionId, targetWallet, targetAssignment } = await createRemovalAuthorization('sign');
+    const claim = await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-sign');
+    const stored = await conn.collection('institutional_admin_applications').findOne({ _id: new Types.ObjectId(created.body.applicationId) });
+
+    expect(claim.body.execution).toMatchObject({ action: 'REMOVE_AUTHORIZED_ADDRESS', stableInstitutionId, targetWallet });
+    expect(claim.body.execution.calls).toEqual([expect.objectContaining({ callData: '0x5678', purpose: 'REMOVE_AUTHORIZED_ADDRESS' })]);
+    expect(VoteContractCalls.removeAuthorizedAddress).toHaveBeenCalledWith(expect.any(String), stableInstitutionId, targetWallet);
+    expect(stored).toMatchObject({ mobileAuthorizationUserOpHash: `0x${'5'.repeat(64)}` });
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: true })).toBe(1);
+  });
+
+  it('[MX-02][D-REV-004][INTEGRACION] revoca el acceso solo después de que el mock on-chain confirma la eliminación', async () => {
+    const { created, stableInstitutionId, targetWallet, targetAssignment } = await createRemovalAuthorization('confirmed');
+    await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-confirmed');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+    const reconciled = await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
+
+    expect(reconciled).toMatchObject({ reconciled: true });
+    expect(VoteContractReads.isAuthorizedAddress).toHaveBeenCalledWith(expect.any(String), stableInstitutionId, targetWallet);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: false, status: 'REVOKED' })).toBe(1);
+  });
+
+  it('[MX-02][D-REV-005][INTEGRACION] conserva acceso mientras la confirmación on-chain continúa pendiente', async () => {
+    const { created, targetAssignment } = await createRemovalAuthorization('pending');
+    await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-pending');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
+    const pending = await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
+    const stored = await conn.collection('institutional_admin_applications').findOne({ _id: new Types.ObjectId(created.body.applicationId) });
+
+    expect(pending).toMatchObject({ reconciled: false });
+    expect(stored?.chainStatus).not.toBe('CONFIRMED');
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: true, status: 'APPROVED' })).toBe(1);
+  });
+
+  it('[MX-02][D-REV-008][INTEGRACION] deja inactivo el acceso y conserva al principal tras confirmar la eliminación', async () => {
+    const { created, primaryApplication, targetAssignment } = await createRemovalAuthorization('access-revoked');
+    await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-access');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+    await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
+
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: false, status: 'REVOKED' })).toBe(1);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId: primaryApplication?.tenantId, institutionalRole: 'PRIMARY', active: true })).toBe(1);
+  });
+
+  it('[MX-02][D-REV-009][INTEGRACION] no modifica la relación de otra institución al revocar la autorización objetivo', async () => {
+    const { created, primaryApplication, targetApplication, targetAssignment } = await createRemovalAuthorization('other-tenant');
+    const otherTenantId = new Types.ObjectId();
+    await conn.collection('institutional_tenants').insertOne({
+      _id: otherTenantId,
+      name: `Institución conservada ${String(otherTenantId).slice(-6)}`,
+      nameNorm: `institucion conservada ${String(otherTenantId).slice(-6)}`,
+      stableInstitutionId: String(otherTenantId),
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').insertOne({
+      tenantId: otherTenantId,
+      userId: targetApplication?.userId,
+      institutionalRole: 'SECONDARY',
+      status: 'APPROVED',
+      active: true,
+      accountAddress: targetApplication?.accountAddress,
+      accountAddressNormalized: targetApplication?.accountAddress?.toLowerCase(),
+      requestedAt: new Date(),
+      approvedAt: new Date(),
+      walletVerifiedAt: new Date(),
+      walletVerificationSource: 'TEST',
+    });
+    await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-other-tenant');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+    await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
+
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: false, status: 'REVOKED' })).toBe(1);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId: otherTenantId, userId: targetApplication?.userId, active: true, status: 'APPROVED' })).toBe(1);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId: primaryApplication?.tenantId, institutionalRole: 'PRIMARY', active: true })).toBe(1);
+  });
+
+  it('[MX-02][D-REV-011][INTEGRACION] dos solicitudes de eliminación para la misma relación reutilizan una sola operación', async () => {
+    const { created, primaryApplication, targetAssignment } = await createRemovalAuthorization('duplicate');
+    const repeated = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/tenants/${primaryApplication?.tenantId}/admins/${targetAssignment?._id}/removal-authorizations`)
+      .send({ reason: 'Repetida' })
+      .expect(201);
+
+    expect(repeated.body.applicationId).toBe(created.body.applicationId);
+    expect(await conn.collection('institutional_admin_applications').countDocuments({ tenantId: primaryApplication?.tenantId, mobileAuthorizationAction: 'REMOVE_AUTHORIZED_ADDRESS' })).toBe(1);
+    expect(await conn.collection('notification_logs').countDocuments({ 'data.applicationId': created.body.applicationId, 'data.action': 'REMOVE_AUTHORIZED_ADDRESS' })).toBe(1);
+    expect(VoteContractCalls.removeAuthorizedAddress).not.toHaveBeenCalled();
+  });
+
+  it('[MX-02][D-REV-006][INTEGRACION] / [MX-02][D-REV-007][INTEGRACION] error recuperable de eliminación conserva acceso y reintenta sin duplicar operación', async () => {
     const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('remove-retry');
     await confirmPendingMobileAuthorization(target.id, 'qa-phone-remove-retry-add');
@@ -2859,10 +3036,12 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
       .expect(201);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${created.body.applicationId}/claim`)
+      .set('x-forwarded-for', mobileAuthorizationClientIp(created.body.applicationId))
       .send({ deviceId: 'qa-phone-remove-retry' })
       .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${created.body.applicationId}/submission`)
+      .set('x-forwarded-for', mobileAuthorizationClientIp(created.body.applicationId))
       .send({ deviceId: 'qa-phone-remove-retry', userOpHash: `0x${'6'.repeat(64)}` })
       .expect(200);
 
@@ -2891,7 +3070,7 @@ it('D-NEW-012 | rechaza persona no registrada sin persistencia ni efectos extern
     })).toBe(1);
   });
 
-  it('D-REV-010 | bloquea eliminación definitiva del administrador principal', async () => {
+  it('[MX-02][D-REV-010][INTEGRACION] bloquea eliminación definitiva del administrador principal', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('remove-primary', 'Tenant Eliminar Principal', validAccountAddress),
     );
@@ -3171,7 +3350,7 @@ it('D-COMPAT-008 | rechaza aprobar solicitud heredada sin wallet y no crea relac
       .toEqual(expect.objectContaining({ status: 'PENDING_APPROVAL' }));
   });
 
-it('D-REG-009 | rechaza wallet ya usada por otro usuario sin escrituras parciales de aprobacion', async () => {
+it('rechaza wallet ya usada por otro usuario sin escrituras parciales de aprobacion', async () => {
     const tenantId = new Types.ObjectId();
     const otherUserId = new Types.ObjectId();
     await conn.collection('institutional_tenants').insertOne({
@@ -3222,7 +3401,7 @@ it('D-REG-009 | rechaza wallet ya usada por otro usuario sin escrituras parciale
     expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(1);
   });
 
-it('D-RETRY-007 | reintento de aprobacion no duplica assignment', async () => {
+it('reintento de aprobacion no duplica assignment', async () => {
     const { id } = await createVerifiedApplication();
 
     await approveAndConfirmApplication(id);

@@ -198,7 +198,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .send(body);
   }
 
-  it('D-REG-001 / D-REG-006 | resuelve wallet por Identity y crea una sola operación si la institución no existe en la red', async () => {
+  it('[MX-02][D-REG-001][INTEGRACION] / [MX-02][D-REG-002][INTEGRACION] / [MX-02][D-REG-006][INTEGRACION] resuelve wallet por Identity y crea una sola operación si la institución no existe en la red', async () => {
     const seeded = await seedLegacyAssignment({ role: 'PRIMARY' });
     currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
 
@@ -260,7 +260,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     );
   });
 
-  it('D-REG-003 / D-REG-005 | no persiste cuando Identity no encuentra persona o no responde', async () => {
+  it('[MX-02][D-REG-003][INTEGRACION] no persiste cuando Identity no encuentra una persona registrada', async () => {
     const rejected = await seedLegacyAssignment();
     currentUser = { sub: String(rejected.userId), role: 'USER', active: true };
     httpService.axiosRef.post.mockResolvedValueOnce({
@@ -273,19 +273,27 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       .collection('tenant_admin_assignments')
       .findOne({ _id: rejected.assignmentId });
     expect(stored?.accountAddress).toBeNull();
+    expect(await conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: rejected.tenantId,
+    })).toBe(0);
+  });
 
+  it('[MX-02][D-REG-004][INTEGRACION] no persiste cuando Identity no responde', async () => {
     const timeout = await seedLegacyAssignment();
     currentUser = { sub: String(timeout.userId), role: 'USER', active: true };
     httpService.axiosRef.post.mockRejectedValueOnce(new Error('timeout'));
 
     await regularize(timeout.tenantId, { dni: timeout.dni! }).expect(503);
-    stored = await conn
+    const stored = await conn
       .collection('tenant_admin_assignments')
       .findOne({ _id: timeout.assignmentId });
     expect(stored?.accountAddress).toBeNull();
+    expect(await conn.collection('institutional_admin_applications').countDocuments({
+      tenantId: timeout.tenantId,
+    })).toBe(0);
   });
 
-  it('D-REG-007 / D-REG-008 | si la institución ya existe en la red completa metadata sin crear operación nueva', async () => {
+  it('[MX-02][D-REG-005][INTEGRACION] si la institución ya existe en la red completa metadata sin crear operación nueva', async () => {
     const seeded = await seedLegacyAssignment({
       accountAddress: walletA,
       walletVerified: false,
@@ -325,7 +333,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     })).toBe(0);
   });
 
-  it('D-REG-009 / D-REG-010 | bloquea persona sin permiso, wallet manipulada, cuenta revocada y reemplazo de wallet', async () => {
+  it('[MX-02][D-REG-009][INTEGRACION] / [MX-02][D-REG-010][INTEGRACION] bloquea persona sin permiso, wallet manipulada, cuenta revocada y reemplazo de wallet', async () => {
     const owner = await seedLegacyAssignment({
       accountAddress: walletA.toUpperCase().replace('0X', '0x'),
     });
@@ -375,7 +383,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     expect(httpService.axiosRef.post).toHaveBeenCalled();
   });
 
-  it('D-REG-003 / D-REG-009 | bloquea formato invalido, relacion inexistente y usuario sin DNI interno', async () => {
+  it('bloquea formato invalido, relacion inexistente y usuario sin DNI interno', async () => {
     const invalidWallet = await seedLegacyAssignment();
     currentUser = { sub: String(invalidWallet.userId), role: 'USER', active: true };
     await regularize(invalidWallet.tenantId, {
@@ -396,7 +404,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     await regularize(noDni.tenantId, { dni: '12345678' }).expect(409);
   });
 
-  it('D-RETRY-007 | repetir regularización conserva ID estable y no duplica operación pendiente', async () => {
+  it('[MX-02][D-REG-007][INTEGRACION] / [MX-02][D-REG-008][INTEGRACION] repetir regularización conserva ID estable y no duplica operación pendiente', async () => {
     const seeded = await seedLegacyAssignment({ role: 'PRIMARY' });
     currentUser = { sub: String(seeded.userId), role: 'USER', active: true };
 
