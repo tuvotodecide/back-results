@@ -30,13 +30,21 @@ export class InstitutionalMobileAuthorizationReconciliationWorker
 
   async runOnce(options: { force?: boolean } = {}) {
     if (!options.force && !this.enabled()) return { processed: 0 };
+    const deliveryRows = await this.applications.findMobileAuthorizationDeliveryRetryBatch(
+      this.number('reconciliationBatchSize', 10),
+    );
     const rows = await this.applications.findMobileAuthorizationReconciliationBatch(
       this.number('reconciliationBatchSize', 10),
     );
     let processed = 0;
+    for (const row of deliveryRows) {
+      const result = await this.applications.retryMobileAuthorizationDelivery(String(row._id));
+      if (result.processed) processed += 1;
+    }
     for (const row of rows) {
       const result = await this.applications.processMobileAuthorizationRetry(String(row._id));
       if (result.processed) processed += 1;
+      if (result.reissuable) await this.applications.recoverFailedMobileAuthorization(String(row._id));
     }
     return { processed };
   }

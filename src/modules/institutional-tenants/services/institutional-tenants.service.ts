@@ -1486,6 +1486,7 @@ export class InstitutionalTenantsService {
     const functionalStatus = this.resolveAssignmentFunctionalStatus(assignment);
     return {
       assignmentId: String(assignment._id),
+      tenantId: String(assignment.tenantId),
       userId: String(assignment.userId),
       name: user?.name ?? null,
       email: user?.email ?? null,

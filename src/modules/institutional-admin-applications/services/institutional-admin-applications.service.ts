@@ -661,7 +661,7 @@ export class InstitutionalAdminApplicationsService {
         };
       });
       if (response?.status === 'PENDING_MOBILE_AUTHORIZATION') {
-        await this.notificationService.enqueueForInstitutionalAuthorization(response.id);
+        await this.enqueueMobileAuthorizationDelivery(response.id);
       }
       if (
         response?.status === 'PENDING_CHAIN_CONFIRMATION' &&
@@ -692,6 +692,11 @@ export class InstitutionalAdminApplicationsService {
       return this.toAuthorizationRetryResponse(app);
     }
 
+    if (app.status === 'PENDING_MOBILE_AUTHORIZATION') {
+      await this.enqueueMobileAuthorizationDelivery(applicationId);
+      return this.toAuthorizationRetryResponse(await this.getApplicationOrThrow(applicationId));
+    }
+
     if (
       ![
         'PENDING_CHAIN_CONFIRMATION',
@@ -709,11 +714,18 @@ export class InstitutionalAdminApplicationsService {
       app.mobileAuthorizationAction === 'CHANGE_INSTITUTION_ADMIN';
 
     if (usesMobileAuthorization) {
+      let reconciliation: any;
       if (app.mobileAuthorizationUserOpHash) {
-        await this.processMobileAuthorizationRetry(applicationId);
+        reconciliation = await this.processMobileAuthorizationRetry(applicationId);
       }
-      const refreshed = await this.getApplicationOrThrow(applicationId);
-      return this.toApplicationResponse(refreshed);
+      let refreshed = await this.getApplicationOrThrow(applicationId);
+      if (refreshed.status === 'CHAIN_FAILED' && reconciliation?.reissuable) {
+        const recovered = await this.recoverFailedMobileAuthorization(applicationId);
+        if (recovered.recovered) {
+          refreshed = await this.getApplicationOrThrow(applicationId);
+        }
+      }
+      return this.toAuthorizationRetryResponse(refreshed);
     }
 
     if (app.chainTxHash) {
@@ -2754,7 +2766,7 @@ export class InstitutionalAdminApplicationsService {
     const notification = await this.recordMobileAuthorizationNotice(created, tenant, requester);
     created.mobileAuthorizationNotificationId = notification?._id ?? null;
     await created.save();
-    await this.notificationService.enqueueForInstitutionalAuthorization(String(created._id));
+    await this.enqueueMobileAuthorizationDelivery(String(created._id));
     return this.toMobileAuthorizationResponse(created, tenant, primary, created.status);
   }
 
@@ -2896,7 +2908,7 @@ export class InstitutionalAdminApplicationsService {
     const app = await this.applicationModel.findOneAndUpdate(
       {
         _id: this.toObjectId(applicationId),
-        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING', 'RECONCILIATION_PENDING'] },
+        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING', 'RECONCILIATION_PENDING', 'CHAIN_FAILED'] },
         mobileAuthorizationUserOpHash: { $exists: true, $ne: null },
         $and: [
           { $or: [{ chainLockedUntil: { $exists: false } }, { chainLockedUntil: null }, { chainLockedUntil: { $lte: now } }] },
@@ -2929,7 +2941,7 @@ export class InstitutionalAdminApplicationsService {
             chainNextRetryAt: null, chainLockedAt: null, chainLockedUntil: null,
           } },
         );
-        return { processed: true, status: 'FAILED', reason: userOperation.code };
+        return { processed: true, status: 'FAILED', reason: userOperation.code, reissuable: true };
       }
       const stableInstitutionId = this.requireStableInstitutionId(app);
       const targetWallet = this.normalizeAccountAddress(app.accountAddress);
@@ -2965,7 +2977,7 @@ export class InstitutionalAdminApplicationsService {
           chainLockedUntil: null,
         } },
       );
-      return { processed: true, status: retryable ? 'RETRY_PENDING' : 'FAILED', attempts };
+      return { processed: true, status: retryable ? 'RETRY_PENDING' : 'FAILED', attempts, reissuable: false };
     }
   }
 
@@ -3033,17 +3045,162 @@ export class InstitutionalAdminApplicationsService {
   async findMobileAuthorizationReconciliationBatch(limit: number, now = new Date()) {
     return this.applicationModel
       .find({
-        status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING', 'RECONCILIATION_PENDING'] },
         mobileAuthorizationUserOpHash: { $exists: true, $ne: null },
-        $or: [
-          { chainNextRetryAt: { $exists: false } },
-          { chainNextRetryAt: null },
-          { chainNextRetryAt: { $lte: now } },
+        $and: [
+          {
+            $or: [
+              { status: { $in: ['PENDING_CHAIN_CONFIRMATION', 'CHAIN_RETRY_PENDING', 'RECONCILIATION_PENDING'] } },
+              { status: 'CHAIN_FAILED', chainLastError: { $in: this.reissuableMobileAuthorizationFailureCodes() } },
+            ],
+          },
+          {
+            $or: [
+              { chainNextRetryAt: { $exists: false } },
+              { chainNextRetryAt: null },
+              { chainNextRetryAt: { $lte: now } },
+            ],
+          },
         ],
       })
       .sort({ chainNextRetryAt: 1, createdAt: 1 })
       .limit(limit)
       .lean();
+  }
+
+  async findMobileAuthorizationDeliveryRetryBatch(limit: number, now = new Date()) {
+    return this.applicationModel
+      .find({
+        status: 'PENDING_MOBILE_AUTHORIZATION',
+        $and: [
+          {
+            $or: [
+              { mobileAuthorizationDeliveryLockedUntil: { $exists: false } },
+              { mobileAuthorizationDeliveryLockedUntil: null },
+              { mobileAuthorizationDeliveryLockedUntil: { $lte: now } },
+            ],
+          },
+          {
+            $or: [
+              { mobileAuthorizationDeliveryNextRetryAt: { $exists: false } },
+              { mobileAuthorizationDeliveryNextRetryAt: { $lte: now } },
+            ],
+          },
+        ],
+      })
+      .sort({ mobileAuthorizationDeliveryNextRetryAt: 1, createdAt: 1 })
+      .limit(limit)
+      .lean();
+  }
+
+  async retryMobileAuthorizationDelivery(applicationId: string) {
+    const now = new Date();
+    const lockUntil = new Date(now.getTime() + 60_000);
+    const app = await this.applicationModel.findOneAndUpdate(
+      {
+        _id: this.toObjectId(applicationId),
+        status: 'PENDING_MOBILE_AUTHORIZATION',
+        $and: [
+          {
+            $or: [
+              { mobileAuthorizationDeliveryLockedUntil: { $exists: false } },
+              { mobileAuthorizationDeliveryLockedUntil: null },
+              { mobileAuthorizationDeliveryLockedUntil: { $lte: now } },
+            ],
+          },
+          {
+            $or: [
+              { mobileAuthorizationDeliveryNextRetryAt: { $exists: false } },
+              { mobileAuthorizationDeliveryNextRetryAt: { $lte: now } },
+            ],
+          },
+        ],
+      },
+      { $set: { mobileAuthorizationDeliveryLockedUntil: lockUntil } },
+      { returnDocument: 'after' },
+    );
+    if (!app) return { processed: false, reason: 'NO_CLAIMABLE_DELIVERY' };
+    const result = await this.enqueueMobileAuthorizationDelivery(applicationId);
+    return { processed: true, ...result };
+  }
+
+  private async enqueueMobileAuthorizationDelivery(applicationId: string) {
+    const result = await this.notificationService.enqueueForInstitutionalAuthorization(applicationId);
+    const now = new Date();
+    const enqueued = Boolean(result?.enqueued);
+    const app = await this.applicationModel.findOneAndUpdate(
+      { _id: this.toObjectId(applicationId), status: 'PENDING_MOBILE_AUTHORIZATION' },
+      {
+        $inc: { mobileAuthorizationDeliveryAttempts: 1 },
+        $set: {
+          mobileAuthorizationDeliveryNextRetryAt: enqueued
+            ? null
+            : this.calculateNextMobileAuthorizationDeliveryRetryAt(now),
+          mobileAuthorizationDeliveryLastError: enqueued ? null : String(result?.skipped || 'MOBILE_DELIVERY_NOT_ENQUEUED'),
+          mobileAuthorizationDeliveryLockedUntil: null,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    return { ...result, attempts: app?.mobileAuthorizationDeliveryAttempts ?? null };
+  }
+
+  private calculateNextMobileAuthorizationDeliveryRetryAt(now = new Date()) {
+    return new Date(now.getTime() + 60_000);
+  }
+
+  async recoverFailedMobileAuthorization(applicationId: string) {
+    const reopened = await this.reopenMobileAuthorizationAfterVerifiedChainFailure(applicationId);
+    if (!reopened) return { recovered: false };
+    const delivery = await this.enqueueMobileAuthorizationDelivery(applicationId);
+    return { recovered: true, delivery };
+  }
+
+  private reissuableMobileAuthorizationFailureCodes() {
+    return [
+      'INSTITUTIONAL_USER_OP_HASH_INVALID',
+      'INSTITUTIONAL_USER_OPERATION_REVERTED',
+      'INSTITUTIONAL_USER_OPERATION_RECEIPT_MISMATCH',
+      'INSTITUTIONAL_USER_OPERATION_SENDER_MISMATCH',
+      'INSTITUTIONAL_USER_OPERATION_ENTRY_POINT_MISMATCH',
+      'INSTITUTIONAL_USER_OPERATION_CALL_MISMATCH',
+    ];
+  }
+
+  private async reopenMobileAuthorizationAfterVerifiedChainFailure(applicationId: string) {
+    const now = new Date();
+    return this.applicationModel.findOneAndUpdate(
+      {
+        _id: this.toObjectId(applicationId),
+        status: 'CHAIN_FAILED',
+        mobileAuthorizationUserOpHash: { $exists: true, $ne: null },
+      },
+      {
+        $set: {
+          status: 'PENDING_MOBILE_AUTHORIZATION',
+          mobileAuthorizationRequestedAt: now,
+          mobileAuthorizationExpiresAt: null,
+          mobileAuthorizationDeliveryNextRetryAt: now,
+          mobileAuthorizationDeliveryLastError: null,
+          mobileAuthorizationDeliveryLockedUntil: null,
+        },
+        $unset: {
+          chainStatus: '',
+          chainTxHash: '',
+          chainAttempts: '',
+          chainNextRetryAt: '',
+          chainLastError: '',
+          chainLockedAt: '',
+          chainLockedUntil: '',
+          chainConfirmedAt: '',
+          mobileAuthorizationDeviceId: '',
+          mobileAuthorizationClaimedAt: '',
+          mobileAuthorizationSignedAt: '',
+          mobileAuthorizationUserOpHash: '',
+          mobileAuthorizationTxHash: '',
+        },
+      },
+      { returnDocument: 'after' },
+    );
   }
 
   private async recordMobileAuthorizationNotice(
@@ -3537,6 +3694,10 @@ export class InstitutionalAdminApplicationsService {
       retryable = !hasTxHash;
       outcome = retryable ? 'RETRYABLE_FAILURE' : 'FINAL_FAILURE';
       message = row?.chainLastError ?? 'No fue posible completar la autorización.';
+    } else if (row?.status === 'PENDING_MOBILE_AUTHORIZATION') {
+      outcome = 'PENDING';
+      retryable = true;
+      message = 'La autorización está pendiente de firma en el teléfono del administrador principal.';
     } else if (['PENDING_CHAIN_CONFIRMATION', 'RECONCILIATION_PENDING'].includes(String(row?.status))) {
       outcome = 'PENDING';
       retryable = !hasTxHash || row?.status === 'RECONCILIATION_PENDING';

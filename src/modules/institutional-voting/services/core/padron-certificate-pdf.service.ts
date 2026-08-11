@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { escapePdfTextWinAnsi } from '../pdf/pdf-text-encoding';
 
 type PadronCertificatePdfEntry = {
   ci: string;
@@ -32,12 +33,12 @@ type BuildPadronListPdfParams = {
 export class PadronCertificatePdfService {
   buildPdf(params: BuildPadronCertificatePdfParams): Buffer {
     return this.buildSimplePdf([
-      'CONSTANCIA DE PADRON CONFIRMADO',
+      'CONSTANCIA DE PADRÓN CONFIRMADO',
       '',
-      `Eleccion: ${params.eventName}`,
+      `Elección: ${params.eventName}`,
       `Evento: ${params.eventId}`,
       `Generado: ${params.generatedAt.toISOString()}`,
-      `Version padron: ${params.padronVersionId}`,
+      `Versión padrón: ${params.padronVersionId}`,
       `Origen: ${params.sourceType}`,
       `Total registros: ${params.totalCount}`,
       `Total habilitados: ${params.enabledCount}`,
@@ -50,11 +51,11 @@ export class PadronCertificatePdfService {
 
   buildPadronListPdf(params: BuildPadronListPdfParams): Buffer {
     const lines = [
-      'PADRON DE VOTACION',
+      'PADRÓN DE VOTACIÓN',
       '',
-      `Eleccion: ${params.eventName}`,
+      `Elección: ${params.eventName}`,
       `Generado: ${params.generatedAt.toISOString()}`,
-      `Version padron: ${params.padronVersionId}`,
+      `Versión padrón: ${params.padronVersionId}`,
       `Estado: ${params.statusLabel}`,
       `Total registros: ${params.totalCount}`,
       `Total habilitados: ${params.enabledCount}`,
@@ -79,7 +80,9 @@ export class PadronCertificatePdfService {
         .map((id) => `${id} 0 R`)
         .join(' ')}] >> endobj`,
     );
-    objects.push('3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj');
+    objects.push(
+      '3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj',
+    );
 
     pages.forEach((pageLines, index) => {
       const pageObjectId = 4 + index * 2;
@@ -124,7 +127,7 @@ export class PadronCertificatePdfService {
   }
 
   private buildPageContent(lines: string[]) {
-    const escaped = lines.map((line) => this.escapePdfText(line));
+    const escaped = lines.map((line) => escapePdfTextWinAnsi(line));
     const lineHeight = 14;
     const startY = 800;
 
@@ -136,12 +139,5 @@ export class PadronCertificatePdfService {
     content += 'ET';
 
     return content;
-  }
-
-  private escapePdfText(value: string) {
-    return String(value)
-      .replace(/\\/g, '\\\\')
-      .replace(/\(/g, '\\(')
-      .replace(/\)/g, '\\)');
   }
 }

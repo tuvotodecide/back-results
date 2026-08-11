@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { deflateSync, inflateSync } from 'zlib';
 import { ParticipationReportData } from '../../dto/participation-analytics.dto';
+import { escapePdfTextWinAnsi } from '../pdf/pdf-text-encoding';
 
 type PdfPage = {
   content: string;
@@ -414,40 +415,10 @@ export class ParticipationReportPdfService {
   }
 
   private text(value: string, x: number, y: number, size = 10, font = 'F1') {
-    return `BT\n/${font} ${size} Tf\n1 0 0 1 ${x} ${y} Tm (${this.escapePdfText(value)}) Tj\nET`;
+    return `BT\n/${font} ${size} Tf\n1 0 0 1 ${x} ${y} Tm (${escapePdfTextWinAnsi(value)}) Tj\nET`;
   }
 
   private line(x1: number, y1: number, x2: number, y2: number) {
     return `${x1} ${y1} m ${x2} ${y2} l S`;
-  }
-
-  private escapePdfText(value: string) {
-    const winAnsiEscapes: Record<string, string> = {
-      á: '\\341',
-      é: '\\351',
-      í: '\\355',
-      ó: '\\363',
-      ú: '\\372',
-      Á: '\\301',
-      É: '\\311',
-      Í: '\\315',
-      Ó: '\\323',
-      Ú: '\\332',
-      ñ: '\\361',
-      Ñ: '\\321',
-      ü: '\\374',
-      Ü: '\\334',
-    };
-
-    return Array.from(String(value))
-      .map((char) => {
-        if (char === '\\') return '\\\\';
-        if (char === '(') return '\\(';
-        if (char === ')') return '\\)';
-        if (winAnsiEscapes[char]) return winAnsiEscapes[char];
-        const code = char.charCodeAt(0);
-        return code >= 0x20 && code <= 0x7e ? char : '';
-      })
-      .join('');
   }
 }

@@ -1611,6 +1611,97 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
     expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it('retryInstitutionCreationAuthorization mantiene inactiva la membresía mientras recupera la entrega móvil', async () => {
+    const app = {
+      _id: appId,
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      tenantId,
+      userId,
+      mobileAuthorizationAction: 'ADD_AUTHORIZED_ADDRESS',
+    };
+    jest.spyOn(service as any, 'getApplicationOrThrow').mockResolvedValue(app);
+    const enqueue = jest.spyOn(service as any, 'enqueueMobileAuthorizationDelivery')
+      .mockResolvedValue({ enqueued: false, skipped: 'mobile_user_not_found' });
+
+    await expect(service.retryInstitutionCreationAuthorization(appId.toString(), requester)).resolves.toMatchObject({
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      outcome: 'PENDING',
+      retryable: true,
+    });
+
+    expect(enqueue).toHaveBeenCalledWith(appId.toString());
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('retryInstitutionCreationAuthorization reabre CHAIN_FAILED sólo después de verificar el fallo de la operación previa', async () => {
+    const failed = {
+      _id: appId,
+      status: 'CHAIN_FAILED',
+      tenantId,
+      userId,
+      mobileAuthorizationAction: 'ADD_AUTHORIZED_ADDRESS',
+      mobileAuthorizationUserOpHash: `0x${'a'.repeat(64)}`,
+      chainTxHash: `0x${'b'.repeat(64)}`,
+    };
+    const pending = { ...failed, status: 'PENDING_MOBILE_AUTHORIZATION', mobileAuthorizationUserOpHash: null };
+    jest.spyOn(service as any, 'getApplicationOrThrow')
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce(pending);
+    const reconcile = jest.spyOn(service as any, 'processMobileAuthorizationRetry')
+      .mockResolvedValue({ processed: true, status: 'FAILED', reissuable: true });
+    const recover = jest.spyOn(service as any, 'recoverFailedMobileAuthorization')
+      .mockResolvedValue({ recovered: true, delivery: { enqueued: true } });
+
+    await expect(service.retryInstitutionCreationAuthorization(appId.toString(), requester)).resolves.toMatchObject({
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      outcome: 'PENDING',
+    });
+
+    expect(reconcile).toHaveBeenCalledWith(appId.toString());
+    expect(recover).toHaveBeenCalledWith(appId.toString());
+    expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it('completeMobileAuthorizationFromNetwork activa la membresía sólo tras la confirmación on-chain', async () => {
+    const fresh = {
+      _id: appId,
+      tenantId,
+      userId,
+      status: 'PENDING_CHAIN_CONFIRMATION',
+      chainStatus: 'SENT',
+      mobileAuthorizationAction: 'ADD_AUTHORIZED_ADDRESS',
+      accountAddress: validAccountAddress,
+      approvedAt: new Date(),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    jest.spyOn(service as any, 'getApplicationOrThrow').mockResolvedValue(fresh);
+    assignmentModel.updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    roledUserModel.updateOne.mockResolvedValue({ modifiedCount: 1 });
+    roledUserModel.findById.mockResolvedValue({
+      _id: userId,
+      role: 'USER',
+      active: true,
+      save: jest.fn().mockResolvedValue(undefined),
+    });
+    assignmentModel.exists.mockResolvedValue({ _id: new Types.ObjectId() });
+
+    await (service as any).completeMobileAuthorizationFromNetwork(fresh);
+
+    expect(assignmentModel.updateOne).toHaveBeenCalledWith(
+      { tenantId, userId },
+      expect.objectContaining({ $set: expect.objectContaining({ status: 'APPROVED', active: true }) }),
+      expect.objectContaining({ upsert: true, session }),
+    );
+    expect(roledUserModel.updateOne).toHaveBeenCalledWith(
+      { _id: userId },
+      { $set: { active: true } },
+      { session },
+    );
+    expect(fresh.status).toBe('APPROVED');
+    expect(fresh.chainStatus).toBe('CONFIRMED');
+  });
+
   it('revokeApplication propaga fallo de auditoria dentro de la transaccion', async () => {
     const app = {
       _id: appId,

@@ -141,12 +141,31 @@ describe('InstitutionalAdminApplicationsService receipt verification', () => {
     });
 
     await expect(service.processMobileAuthorizationRetry(applicationId)).resolves.toMatchObject({
-      processed: true, status: 'FAILED', reason: 'INSTITUTIONAL_USER_OPERATION_REVERTED',
+      processed: true, status: 'FAILED', reason: 'INSTITUTIONAL_USER_OPERATION_REVERTED', reissuable: true,
     });
     expect((service as any).completeMobileAuthorizationFromNetwork).not.toHaveBeenCalled();
     expect(updateOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       $set: expect.objectContaining({ status: 'CHAIN_FAILED', chainStatus: 'FAILED' }),
     }));
+  });
+
+  it('permite revisar de nuevo un CHAIN_FAILED antes de habilitar una nueva firma', async () => {
+    const updateOne = jest.fn().mockResolvedValue({});
+    const findOneAndUpdate = jest.fn().mockResolvedValue({
+      ...application(), status: 'CHAIN_FAILED', chainAttempts: 1,
+    });
+    (service as any).applicationModel = { findOneAndUpdate, updateOne };
+    userOperationService.getUserOperationReceipt.mockResolvedValue({
+      userOpHash, sender: signer, success: false, txHash: `0x${'b'.repeat(64)}`,
+      receipt: { transactionHash: `0x${'b'.repeat(64)}`, status: '0x0', blockNumber: '0x1', logs: [] },
+    });
+
+    await expect(service.processMobileAuthorizationRetry(applicationId)).resolves.toMatchObject({
+      processed: true, status: 'FAILED', reissuable: true,
+    });
+    expect(findOneAndUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      status: { $in: expect.arrayContaining(['CHAIN_FAILED']) },
+    }), expect.anything(), expect.anything());
   });
 
   it('bloquea un receipt exitoso si el calldata no corresponde a la autorización registrada', async () => {

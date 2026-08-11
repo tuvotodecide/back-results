@@ -193,6 +193,44 @@ describe('OfficialPublicationNotificationService', () => {
     expect(sendMock).not.toHaveBeenCalled();
   });
 
+  it('recupera una autorización institucional cuando el usuario móvil aparece después, sin duplicar el outbox', async () => {
+    const applicationId = new Types.ObjectId();
+    const application = {
+      _id: applicationId,
+      tenantId,
+      status: 'PENDING_MOBILE_AUTHORIZATION',
+      mobileAuthorizationAction: 'ADD_AUTHORIZED_ADDRESS',
+    };
+    models.application.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(application) });
+    models.tenant.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: tenantId, name: 'Tenant' }) });
+    models.assignment.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue({
+      _id: assignmentId,
+      userId: signerUserId,
+      accountAddress: request.smartAccountAddress,
+    }) });
+    models.user.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue({ _id: mobileUserId, dni: '123456' });
+
+    await expect(service.enqueueForInstitutionalAuthorization(String(applicationId))).resolves.toEqual({
+      enqueued: false,
+      skipped: 'mobile_user_not_found',
+    });
+    await expect(service.enqueueForInstitutionalAuthorization(String(applicationId))).resolves.toMatchObject({
+      enqueued: true,
+      deduplicationKey: `MOBILE_AUTHORIZATION_REQUESTED:${applicationId}:${signerUserId}`,
+    });
+    await expect(service.enqueueForInstitutionalAuthorization(String(applicationId))).resolves.toMatchObject({
+      enqueued: true,
+      deduplicationKey: `MOBILE_AUTHORIZATION_REQUESTED:${applicationId}:${signerUserId}`,
+    });
+
+    expect(models.outbox.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(models.outbox.findOneAndUpdate.mock.calls[0][0]).toEqual(
+      models.outbox.findOneAndUpdate.mock.calls[1][0],
+    );
+  });
+
   it('procesa el outbox enviando FCM al topic personal y registra log SENT', async () => {
     const item: any = {
       _id: new Types.ObjectId(),

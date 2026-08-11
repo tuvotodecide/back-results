@@ -286,6 +286,7 @@ describe('InstitutionalTenantsService (unit)', () => {
       data: [
         {
           assignmentId: String(assignmentId),
+          tenantId: String(tenantId),
           userId: String(userId),
           name: 'Admin Uno',
           email: 'admin@example.com',

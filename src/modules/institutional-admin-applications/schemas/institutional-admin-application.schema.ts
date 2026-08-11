@@ -153,6 +153,18 @@ export class InstitutionalAdminApplication {
   @Prop({ type: Date, required: false })
   mobileAuthorizationSignedAt?: Date | null;
 
+  @Prop({ type: Number, required: false, default: 0 })
+  mobileAuthorizationDeliveryAttempts?: number;
+
+  @Prop({ type: Date, required: false })
+  mobileAuthorizationDeliveryNextRetryAt?: Date | null;
+
+  @Prop({ type: String, required: false, trim: true })
+  mobileAuthorizationDeliveryLastError?: string | null;
+
+  @Prop({ type: Date, required: false })
+  mobileAuthorizationDeliveryLockedUntil?: Date | null;
+
   @Prop({ type: String, required: false, trim: true, lowercase: true })
   mobileAuthorizationUserOpHash?: string | null;
 
@@ -186,6 +198,7 @@ InstitutionalAdminApplicationSchema.index({ verificationToken: 1 });
 InstitutionalAdminApplicationSchema.index({ institutionNameNorm: 1 });
 InstitutionalAdminApplicationSchema.index({ chainStatus: 1, chainNextRetryAt: 1 });
 InstitutionalAdminApplicationSchema.index({ mobileAuthorizationUserOpHash: 1 });
+InstitutionalAdminApplicationSchema.index({ status: 1, mobileAuthorizationDeliveryNextRetryAt: 1 });
 InstitutionalAdminApplicationSchema.index(
   { tenantId: 1, mobileAuthorizationAction: 1, status: 1 },
   {

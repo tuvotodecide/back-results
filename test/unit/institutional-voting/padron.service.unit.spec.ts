@@ -1316,6 +1316,52 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     expect(result.pdfBuffer.toString('utf-8')).toContain('%PDF-1.4');
   });
 
+  it('PAD-DWN-P1-001 | conserva el listado y la etiqueta Unicode al descargar una versión histórica', async () => {
+    const requester = { sub: String(new Types.ObjectId()) };
+    const versionId = new Types.ObjectId();
+    accessService.getEventOrThrow.mockResolvedValue({
+      ...baseEvent,
+      name: 'Elección histórica 2025',
+      state: 'OFFICIALLY_PUBLISHED',
+      publicationConfirmed: true,
+    });
+    accessService.isOfficialPublicationConfirmed.mockReturnValue(true);
+    padronVersionModel.findOne.mockResolvedValue({
+      _id: versionId,
+      isCurrent: false,
+    });
+    padronEntryModel.find.mockReturnValue({
+      sort: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([
+          { carnetNorm: '123456', enabled: true },
+          { carnetNorm: '789000', enabled: false },
+        ]),
+      }),
+    });
+    padronCertificatePdfService.buildPadronListPdf = jest.fn(() =>
+      Buffer.from('%PDF-1.4\npadron-historico\n', 'utf-8'),
+    );
+
+    const result = await service.downloadPadronPdf(
+      String(baseEvent._id),
+      requester,
+      String(versionId),
+    );
+
+    expect(padronCertificatePdfService.buildPadronListPdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: 'Elección histórica 2025',
+        padronVersionId: String(versionId),
+        statusLabel: 'Versión histórica',
+        totalCount: 2,
+        enabledCount: 1,
+        disabledCount: 1,
+      }),
+    );
+    expect(result.fileName).toBe(`padron-${String(versionId)}.pdf`);
+    expect(result.isCurrent).toBe(false);
+  });
+
   it('PAD-DWN-P1-001 | descarga CSV vigente con BOM, header exacto y valores sanitizados', async () => {
     const requester = { sub: String(new Types.ObjectId()) };
     const versionId = new Types.ObjectId();
