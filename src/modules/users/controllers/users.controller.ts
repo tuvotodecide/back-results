@@ -76,6 +76,7 @@ export class UsersController {
   }
 
   @Post('reward-new-user')
+  @Public()
   @UseGuards(ZkAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Recompensar nuevo registro de usuario' })
