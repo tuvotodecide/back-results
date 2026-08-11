@@ -222,6 +222,7 @@
       "test/integration/institutional-voting/padron-editing-rules.spec.ts",
       "test/integration/institutional-voting/public-eligibility-across-events.spec.ts",
       "test/unit/institutional-voting/padron-certificate-pdf.service.unit.spec.ts",
+      "test/unit/institutional-voting/pdf-text-encoding.unit.spec.ts",
       "test/unit/institutional-voting/padron-gemini-import.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-pdf-parser.service.unit.spec.ts",
       "test/unit/institutional-voting/padron-users.service.unit.spec.ts",
