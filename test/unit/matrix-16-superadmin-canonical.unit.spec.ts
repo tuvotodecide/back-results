@@ -28,6 +28,17 @@ jest.mock(
   }),
 );
 
+jest.mock(
+  '../../src/modules/institutional-admin-applications/auth/institutional-invitation-mobile-zk-auth.guard',
+  () => ({
+    InstitutionalInvitationMobileZkAuthGuard: class InstitutionalInvitationMobileZkAuthGuardMock {
+      canActivate(): boolean {
+        return true;
+      }
+    },
+  }),
+);
+
 const {
   InstitutionalAdminApplicationsController,
 } = require('../../src/modules/institutional-admin-applications/controllers/institutional-admin-applications.controller');
