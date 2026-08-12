@@ -178,7 +178,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     restoreMx02SyntheticChainConfig();
   });
 
-it('[MX-02][D-NEW-001][UNITARIA] createApplication crea usuario nuevo, solicitud pendiente de email y envia verificacion', async () => {
+  it('[MX-02][D-NEW-001][UNITARIA] createApplication crea usuario nuevo, solicitud pendiente de email y envia verificacion', async () => {
     tenantModel.findOne.mockResolvedValue(null);
     roledUserModel.findOne.mockReturnValue(execResolved(null));
     applicationModel.findOne.mockReturnValue(sortResolved(null));
@@ -237,6 +237,139 @@ it('[MX-02][D-NEW-001][UNITARIA] createApplication crea usuario nuevo, solicitud
       }),
     );
     expect(mailService.sendEmail).toHaveBeenCalled();
+  });
+
+  it('[MX-02][D3][UNITARIA] crea una cuenta administrativa propia ligada a la invitación y nunca acepta datos institucionales del navegador', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000010');
+    const invitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '123456',
+      accountAddress: validAccountAddress,
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+      applicationId: undefined as Types.ObjectId | undefined,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const tenant = {
+      _id: tenantId,
+      name: 'Institución invitante',
+      nameNorm: 'institucion invitante',
+    };
+    invitationModel.findById.mockReturnValue(invitation);
+    tenantModel.findById.mockResolvedValue(tenant);
+    applicationModel.findOne.mockResolvedValue(null);
+    roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
+    roledUserModel.create.mockResolvedValue({ _id: userId, password: 'hashed-password' });
+    applicationModel.create.mockResolvedValue({
+      _id: appId,
+      status: 'PENDING_EMAIL_VERIFICATION',
+      email: 'invitado@example.com',
+      name: 'Persona invitada',
+      userId,
+    });
+
+    await expect(service.createApplication({
+      invitationId: invitationId.toString(),
+      dni: '123456',
+      name: 'Persona invitada',
+      email: 'INVITADO@example.com',
+      password: 'secret123',
+      institutionName: 'Institución manipulada',
+      institutionId: new Types.ObjectId().toString(),
+      accountAddress: validAccountAddress,
+    })).resolves.toEqual({
+      id: appId.toString(),
+      status: 'PENDING_EMAIL_VERIFICATION',
+      invitationId: invitationId.toString(),
+      tenantId: tenantId.toString(),
+      userId: userId.toString(),
+    });
+
+    expect(applicationModel.create).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      invitationId,
+      institutionName: 'Institución invitante',
+      institutionNameNorm: 'institucion invitante',
+      accountAddress: validAccountAddress,
+      status: 'PENDING_EMAIL_VERIFICATION',
+    }));
+    expect(applicationModel.create.mock.calls[0][0]).not.toMatchObject({
+      institutionName: 'Institución manipulada',
+    });
+    expect(invitation.applicationId).toEqual(appId);
+    expect(invitation.status).toBe('PENDING');
+    expect(mailService.sendEmail).toHaveBeenCalled();
+  });
+
+  it('[MX-02][D3][UNITARIA] la aceptación móvil devuelve acción funcional cuando falta cuenta administrativa y hasAdminAccount no es fijo', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000011');
+    const invitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '123456',
+      accountAddress: validAccountAddress,
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+    };
+    const tenant = { _id: tenantId, name: 'Institución invitante' };
+    const authUser = {
+      sub: userId.toString(),
+      invitationId: invitationId.toString(),
+      dni: '123456',
+      smartAccountAddress: validAccountAddress,
+      authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK' as const,
+    };
+    invitationModel.findById.mockReturnValue(invitation);
+    tenantModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(tenant) });
+    roledUserModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+
+    await expect(service.acceptInvitationFromMobile(invitationId.toString(), authUser))
+      .resolves.toEqual({
+        status: 'REQUIRES_ADMIN_ACCOUNT',
+        invitationId: invitationId.toString(),
+        tenant: { id: tenantId.toString(), name: 'Institución invitante' },
+      });
+    await expect(service.getMobileInvitationRequest(invitationId.toString(), authUser))
+      .resolves.toEqual(expect.objectContaining({ hasAdminAccount: false }));
+  });
+
+  it('[MX-02][D3][UNITARIA] al verificar el correo mantiene la solicitud para aprobación y consume la invitación asociada', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000012');
+    const application = {
+      _id: appId,
+      invitationId,
+      tenantId,
+      dni: '123456',
+      status: 'PENDING_EMAIL_VERIFICATION',
+      verificationToken: 'verification-token',
+      verificationTokenExpiresAt: new Date(Date.now() + 60_000),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const invitation = {
+      _id: invitationId,
+      applicationId: appId,
+      tenantId,
+      dni: '123456',
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    applicationModel.findOne.mockResolvedValue(application);
+    invitationModel.findById.mockReturnValue(invitation);
+
+    await expect(service.verifyEmail('verification-token')).resolves.toEqual({
+      id: appId.toString(),
+      status: 'PENDING_APPROVAL',
+      emailVerifiedAt: expect.any(Date),
+    });
+
+    expect(application.status).toBe('PENDING_APPROVAL');
+    expect(invitation.status).toBe('ACCEPTED');
+    expect(invitation.save).toHaveBeenCalledTimes(1);
   });
 
   it('[MX-02][D-NEW-005][UNITARIA] verifyEmail mantiene el acceso inactivo hasta validar el correo de la primera administradora', async () => {

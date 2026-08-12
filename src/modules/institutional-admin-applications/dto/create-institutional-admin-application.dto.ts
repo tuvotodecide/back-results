@@ -52,11 +52,19 @@ export class CreateInstitutionalAdminApplicationDto {
   institutionId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Identificador opaco de una invitación institucional pendiente. Cuando existe, la institución se resuelve exclusivamente desde la invitación.',
+  })
+  @IsOptional()
+  @IsMongoId()
+  invitationId?: string;
+
+  @ApiPropertyOptional({
     example: 'Colegio de Ingenieros',
     description:
       'Requerido solo para el flujo explícito de institución no listada. Si institutionId existe, el backend resuelve el nombre del tenant.',
   })
-  @ValidateIf((dto) => !dto.institutionId)
+  @ValidateIf((dto) => !dto.institutionId && !dto.invitationId)
   @IsString()
   @IsNotEmpty()
   @MinLength(3)

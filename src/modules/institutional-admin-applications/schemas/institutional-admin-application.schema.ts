@@ -174,6 +174,9 @@ export class InstitutionalAdminApplication {
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalTenant', required: false })
   tenantId?: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'InstitutionalAdminInvitation', required: false })
+  invitationId?: Types.ObjectId;
+
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: false })
   userId?: Types.ObjectId;
 
@@ -195,6 +198,7 @@ InstitutionalAdminApplicationSchema.index({ email: 1, status: 1 });
 InstitutionalAdminApplicationSchema.index({ dni: 1, status: 1 });
 InstitutionalAdminApplicationSchema.index({ accountAddress: 1, status: 1 });
 InstitutionalAdminApplicationSchema.index({ verificationToken: 1 });
+InstitutionalAdminApplicationSchema.index({ invitationId: 1 }, { unique: true, sparse: true });
 InstitutionalAdminApplicationSchema.index({ institutionNameNorm: 1 });
 InstitutionalAdminApplicationSchema.index({ chainStatus: 1, chainNextRetryAt: 1 });
 InstitutionalAdminApplicationSchema.index({ mobileAuthorizationUserOpHash: 1 });

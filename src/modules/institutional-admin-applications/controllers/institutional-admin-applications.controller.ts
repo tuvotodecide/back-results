@@ -210,6 +210,20 @@ export class InstitutionalAdminApplicationsController {
     );
   }
 
+  @Get('invitations/:invitationId/registration-context')
+  @Public()
+  @UseGuards(InstitutionalPublicRateLimitGuard)
+  @ApiOperation({
+    summary: 'Consultar el contexto público mínimo para registrar una invitación institucional',
+    description:
+      'Resuelve la institución desde una invitación pendiente sin aceptar tenant ni nombre desde el cliente.',
+  })
+  getInvitationRegistrationContext(@Param('invitationId') invitationId: string) {
+    return this.institutionalAdminApplicationsService.getInvitationRegistrationContext(
+      invitationId,
+    );
+  }
+
   @Post('mobile/invitations/:invitationId/accept')
   @Public()
   @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalInvitationMobileZkAuthGuard)

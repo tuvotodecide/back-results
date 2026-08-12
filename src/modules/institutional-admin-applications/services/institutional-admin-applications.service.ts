@@ -106,6 +106,9 @@ export class InstitutionalAdminApplicationsService {
   }
 
   async createApplication(dto: CreateInstitutionalAdminApplicationDto) {
+    if (dto.invitationId) {
+      return this.createInvitationRegistrationApplication(dto);
+    }
     const email = dto.email.trim().toLowerCase();
     const dni = dto.dni.trim();
     const selectedTenant = await this.resolveSelectedTenantForRegistration(dto.institutionId);
@@ -272,6 +275,169 @@ export class InstitutionalAdminApplicationsService {
     };
   }
 
+  /**
+   * Completa D3 sin aceptar tenant, wallet ni identidad desde el navegador.
+   * El invitationId es la única autoridad de asociación institucional.
+   */
+  private async createInvitationRegistrationApplication(
+    dto: CreateInstitutionalAdminApplicationDto,
+  ) {
+    if (!dto.invitationId || !Types.ObjectId.isValid(dto.invitationId)) {
+      throw new BadRequestException('invitationId inválido');
+    }
+
+    const invitation = await this.getInvitationOrThrow(dto.invitationId);
+    await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
+    const tenant = await this.tenantModel.findById(invitation.tenantId);
+    if (!tenant) {
+      throw new ConflictException('La institución de la invitación ya no está disponible.');
+    }
+
+    const dni = dto.dni.trim();
+    if (dni !== invitation.dni) {
+      throw new ForbiddenException('El CI o DNI no corresponde a la invitación.');
+    }
+
+    const resolvedWallet = await this.resolveWalletFromIdentityByDni(dni);
+    const invitationWallet = this.normalizeAccountAddress(invitation.accountAddress);
+    if (
+      this.normalizeAccountAddressForComparison(resolvedWallet.accountAddress) !==
+      this.normalizeAccountAddressForComparison(invitationWallet)
+    ) {
+      throw new ForbiddenException('La billetera no corresponde a la invitación.');
+    }
+    if (
+      dto.accountAddress &&
+      this.normalizeAccountAddressForComparison(this.normalizeAccountAddress(dto.accountAddress)) !==
+        this.normalizeAccountAddressForComparison(invitationWallet)
+    ) {
+      throw new BadRequestException({
+        code: 'IDENTITY_WALLET_MISMATCH',
+        message: 'La billetera enviada no corresponde a la invitación.',
+      });
+    }
+
+    const email = dto.email.trim().toLowerCase();
+    const existingInvitationApplication = await this.applicationModel.findOne({
+      invitationId: invitation._id,
+    });
+    if (existingInvitationApplication) {
+      return {
+        id: String(existingInvitationApplication._id),
+        status: existingInvitationApplication.status,
+        invitationId: String(invitation._id),
+        tenantId: String(invitation.tenantId),
+        userId: existingInvitationApplication.userId
+          ? String(existingInvitationApplication.userId)
+          : null,
+      };
+    }
+
+    const existingUser = await this.resolveUserByEmailOrDni(email, dni);
+    let user = existingUser;
+    if (!user) {
+      const password = this.requirePassword(
+        dto.password,
+        'password es requerido para crear la cuenta administrativa de la invitación',
+      );
+      try {
+        user = await this.roledUserModel.create({
+          dni,
+          email,
+          name: dto.name.trim(),
+          password: bcrypt.hashSync(password, 10),
+          role: 'USER',
+          active: false,
+        });
+      } catch (error) {
+        this.rethrowIdentityDuplicate(error);
+        throw error;
+      }
+    }
+
+    const shouldRequireEmailVerification =
+      !existingUser || Boolean(existingUser.verificationToken);
+    const verificationToken = shouldRequireEmailVerification
+      ? randomBytes(32).toString('hex')
+      : undefined;
+    const verificationTokenExpiresAt = shouldRequireEmailVerification
+      ? new Date(
+          Date.now() +
+            1000 * 60 * 60 *
+              this.configService.get<number>('app.mail.verificationTokenTTLHours', 24),
+        )
+      : undefined;
+
+    try {
+      const application = await this.applicationModel.create({
+        dni,
+        email,
+        passwordHash: this.resolveApplicationPasswordHash(user, dto.password),
+        name: dto.name.trim(),
+        institutionName: tenant.name,
+        institutionNameNorm: tenant.nameNorm,
+        accountAddress: invitationWallet,
+        status: shouldRequireEmailVerification
+          ? 'PENDING_EMAIL_VERIFICATION'
+          : 'PENDING_APPROVAL',
+        verificationToken,
+        verificationTokenExpiresAt,
+        emailVerifiedAt: shouldRequireEmailVerification ? undefined : new Date(),
+        tenantId: tenant._id,
+        invitationId: invitation._id,
+        userId: this.toObjectId(user._id),
+      });
+      invitation.applicationId = application._id;
+      await invitation.save();
+
+      if (shouldRequireEmailVerification && verificationToken) {
+        await this.sendVerificationEmail(
+          application._id,
+          application.email,
+          application.name,
+          verificationToken,
+        );
+      }
+
+      await this.auditService.record({
+        tenantId: tenant._id,
+        actor: null,
+        action: 'INSTITUTIONAL_APPLICATION_CREATED',
+        targetType: 'InstitutionalAdminApplication',
+        targetId: application._id,
+        targetUserId: application.userId ?? null,
+        applicationId: application._id,
+        newState: {
+          status: application.status,
+          invitationId: String(invitation._id),
+          tenantResolved: true,
+        },
+      });
+
+      return {
+        id: String(application._id),
+        status: application.status,
+        invitationId: String(invitation._id),
+        tenantId: String(tenant._id),
+        userId: String(user._id),
+      };
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        const existing = await this.applicationModel.findOne({ invitationId: invitation._id });
+        if (existing) {
+          return {
+            id: String(existing._id),
+            status: existing.status,
+            invitationId: String(invitation._id),
+            tenantId: String(invitation.tenantId),
+            userId: existing.userId ? String(existing.userId) : null,
+          };
+        }
+      }
+      throw error;
+    }
+  }
+
   async verifyEmail(token: string) {
     const app = await this.applicationModel.findOne({ verificationToken: token });
     if (!app) {
@@ -286,12 +452,30 @@ export class InstitutionalAdminApplicationsService {
       throw new BadRequestException('El token de verificación ha expirado');
     }
 
+    let invitation: InstitutionalAdminInvitationDocument | null = null;
+    if (app.invitationId) {
+      invitation = await this.getInvitationOrThrow(String(app.invitationId));
+      await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
+      if (
+        String(invitation.applicationId || '') !== String(app._id) ||
+        String(invitation.tenantId) !== String(app.tenantId) ||
+        invitation.dni !== app.dni
+      ) {
+        throw new ForbiddenException('La solicitud no corresponde a la invitación.');
+      }
+    }
+
     app.status = 'PENDING_APPROVAL';
     app.verificationToken = undefined;
     app.verificationTokenExpiresAt = undefined;
     app.emailVerifiedAt = new Date();
 
     await app.save();
+    if (invitation) {
+      invitation.status = 'ACCEPTED';
+      invitation.acceptedAt = new Date();
+      await invitation.save();
+    }
     await this.auditService.record({
       tenantId: app.tenantId ?? null,
       actor: null,
@@ -1429,14 +1613,20 @@ export class InstitutionalAdminApplicationsService {
   ) {
     const invitation = await this.getInvitationOrThrow(invitationId);
     this.assertMobileInvitationAuthUserMatches(invitation, authUser);
-    const user = await this.roledUserModel
-      .findOne({ _id: authUser?.sub, dni: invitation.dni }, { email: 1 })
-      .lean();
-    if (!user?.email) {
-      throw new ForbiddenException({
-        code: 'INSTITUTIONAL_INVITATION_ACCOUNT_NOT_FOUND',
-        message: 'La invitación requiere una cuenta registrada.',
-      });
+    const user = await this.findAdministrativeAccountByInvitation(
+      invitation.dni,
+      authUser?.sub,
+    );
+    if (!user) {
+      const tenant = await this.tenantModel.findById(invitation.tenantId).lean();
+      if (!tenant) {
+        throw new ConflictException('La institución de la invitación ya no está disponible.');
+      }
+      return {
+        status: 'REQUIRES_ADMIN_ACCOUNT',
+        invitationId: String(invitation._id),
+        tenant: { id: String(tenant._id), name: tenant.name },
+      };
     }
     return this.acceptInvitationForUser(
       invitationId,
@@ -1532,6 +1722,7 @@ export class InstitutionalAdminApplicationsService {
               status: 'PENDING_APPROVAL',
               emailVerifiedAt: now,
               tenantId: tenant._id,
+              invitationId: invitation._id,
               userId: user._id,
             },
           ],
@@ -1567,6 +1758,10 @@ export class InstitutionalAdminApplicationsService {
     if (!tenant) {
       throw new NotFoundException('Institución no encontrada');
     }
+    const adminAccount = await this.findAdministrativeAccountByInvitation(
+      invitation.dni,
+      authUser?.sub,
+    );
     return {
       invitationId: String(invitation._id),
       tenantId: String(invitation.tenantId),
@@ -1574,7 +1769,21 @@ export class InstitutionalAdminApplicationsService {
       dni: invitation.dni,
       status: invitation.status,
       expiresAt: invitation.expiresAt ?? null,
-      hasAdminAccount: true,
+      hasAdminAccount: Boolean(adminAccount),
+    };
+  }
+
+  async getInvitationRegistrationContext(invitationId: string) {
+    const invitation = await this.getInvitationOrThrow(invitationId);
+    await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
+    const tenant = await this.tenantModel.findById(invitation.tenantId).lean();
+    if (!tenant) {
+      throw new ConflictException('La institución de la invitación ya no está disponible.');
+    }
+    return {
+      invitationId: String(invitation._id),
+      tenant: { id: String(tenant._id), name: tenant.name },
+      status: 'REQUIRES_ADMIN_ACCOUNT',
     };
   }
 
@@ -2692,6 +2901,19 @@ export class InstitutionalAdminApplicationsService {
     }
 
     return matches[0];
+  }
+
+  private async findAdministrativeAccountByInvitation(
+    dni: string,
+    expectedUserId?: string,
+  ) {
+    if (!expectedUserId || !Types.ObjectId.isValid(String(expectedUserId))) {
+      return null;
+    }
+    const user = await this.roledUserModel
+      .findOne({ _id: new Types.ObjectId(String(expectedUserId)), dni })
+      .lean();
+    return user?.email && user?.password ? user : null;
   }
 
   private async resolveUserByDniOnly(dni: string, session?: ClientSession) {
