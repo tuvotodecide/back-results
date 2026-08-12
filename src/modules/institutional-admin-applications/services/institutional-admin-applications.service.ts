@@ -36,7 +36,10 @@ import {
 } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { InstitutionalAdminApplication, InstitutionalAdminApplicationDocument } from '../schemas/institutional-admin-application.schema';
-import { InstitutionalMobileRequestUser } from '../auth/institutional-mobile-auth.types';
+import {
+  InstitutionalInvitationMobileRequestUser,
+  InstitutionalMobileRequestUser,
+} from '../auth/institutional-mobile-auth.types';
 import { executeCoinbaseOp } from '@/api/account';
 import { VoteContractCalls, VoteContractReads } from '@/api/vote';
 import { availableNetworks } from '@/api/params';
@@ -1409,13 +1412,43 @@ export class InstitutionalAdminApplicationsService {
       reason: dto.reason?.trim() || null,
     });
 
-    await this.recordInvitationNotice(invitation, tenant, 'INVITATION_CREATED');
+    await this.notificationService.enqueueForInstitutionalInvitation(String(invitation._id));
     return this.toInvitationResponse(invitation);
   }
 
   async acceptInvitation(
     invitationId: string,
     dto: AcceptInstitutionalAdminInvitationDto,
+  ) {
+    return this.acceptInvitationForUser(invitationId, dto);
+  }
+
+  async acceptInvitationFromMobile(
+    invitationId: string,
+    authUser?: InstitutionalInvitationMobileRequestUser,
+  ) {
+    const invitation = await this.getInvitationOrThrow(invitationId);
+    this.assertMobileInvitationAuthUserMatches(invitation, authUser);
+    const user = await this.roledUserModel
+      .findOne({ _id: authUser?.sub, dni: invitation.dni }, { email: 1 })
+      .lean();
+    if (!user?.email) {
+      throw new ForbiddenException({
+        code: 'INSTITUTIONAL_INVITATION_ACCOUNT_NOT_FOUND',
+        message: 'La invitación requiere una cuenta registrada.',
+      });
+    }
+    return this.acceptInvitationForUser(
+      invitationId,
+      { token: invitation.invitationToken, email: user.email },
+      String(authUser?.sub),
+    );
+  }
+
+  private async acceptInvitationForUser(
+    invitationId: string,
+    dto: AcceptInstitutionalAdminInvitationDto,
+    expectedUserId?: string,
   ) {
     const session = await this.invitationModel.db.startSession();
     try {
@@ -1425,6 +1458,13 @@ export class InstitutionalAdminApplicationsService {
         await this.assertInvitationPendingAndCurrent(invitation, dto.token);
         const email = dto.email.trim().toLowerCase();
         let user = await this.resolveUserByEmailOrDni(email, invitation.dni, session);
+
+        if (expectedUserId && (!user?._id || String(user._id) !== expectedUserId)) {
+          throw new ForbiddenException({
+            code: 'INSTITUTIONAL_INVITATION_ACCOUNT_MISMATCH',
+            message: 'La cuenta autenticada no corresponde a la invitación.',
+          });
+        }
 
         if (!user) {
           const password = this.requirePassword(
@@ -1517,12 +1557,47 @@ export class InstitutionalAdminApplicationsService {
     }
   }
 
+  async getMobileInvitationRequest(
+    invitationId: string,
+    authUser?: InstitutionalInvitationMobileRequestUser,
+  ) {
+    const invitation = await this.getInvitationOrThrow(invitationId);
+    this.assertMobileInvitationAuthUserMatches(invitation, authUser);
+    const tenant = await this.tenantModel.findById(invitation.tenantId).lean();
+    if (!tenant) {
+      throw new NotFoundException('Institución no encontrada');
+    }
+    return {
+      invitationId: String(invitation._id),
+      tenantId: String(invitation.tenantId),
+      institutionName: tenant.name,
+      dni: invitation.dni,
+      status: invitation.status,
+      expiresAt: invitation.expiresAt ?? null,
+      hasAdminAccount: true,
+    };
+  }
+
   async rejectInvitation(invitationId: string, reason?: string) {
     const invitation = await this.getInvitationOrThrow(invitationId);
     await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
     invitation.status = 'REJECTED';
     invitation.rejectedAt = new Date();
     invitation.reason = reason?.trim() || null;
+    await invitation.save();
+    return this.toInvitationResponse(invitation);
+  }
+
+  async rejectInvitationFromMobile(
+    invitationId: string,
+    authUser?: InstitutionalInvitationMobileRequestUser,
+  ) {
+    const invitation = await this.getInvitationOrThrow(invitationId);
+    this.assertMobileInvitationAuthUserMatches(invitation, authUser);
+    await this.assertInvitationPendingAndCurrent(invitation, invitation.invitationToken);
+    invitation.status = 'REJECTED';
+    invitation.rejectedAt = new Date();
+    invitation.reason = 'Rechazada desde el teléfono';
     await invitation.save();
     return this.toInvitationResponse(invitation);
   }
@@ -1553,7 +1628,9 @@ export class InstitutionalAdminApplicationsService {
     invitation.noticeCount = (invitation.noticeCount ?? 0) + 1;
     invitation.lastNoticeAt = new Date();
     await invitation.save();
-    await this.recordInvitationNotice(invitation, tenant, 'INVITATION_RESENT');
+    await this.notificationService.enqueueForInstitutionalInvitation(String(invitation._id), {
+      deliveryAttempt: invitation.noticeCount,
+    });
     return this.toInvitationResponse(invitation);
   }
 
@@ -2625,27 +2702,6 @@ export class InstitutionalAdminApplicationsService {
     return query;
   }
 
-  private async recordInvitationNotice(
-    invitation: InstitutionalAdminInvitationDocument,
-    tenant: InstitutionalTenantDocument,
-    event: 'INVITATION_CREATED' | 'INVITATION_RESENT',
-  ) {
-    await this.notificationLogModel.create({
-      type: 'generic',
-      topic: `identity_${invitation.dni}`,
-      title: 'Invitación institucional',
-      body: `Tienes una invitación pendiente para administrar ${tenant.name}.`,
-      data: {
-        event,
-        invitationId: String(invitation._id),
-        tenantId: String(tenant._id),
-        dni: invitation.dni,
-        deduplicationKey: `${event}:${String(invitation._id)}:${invitation.noticeCount ?? 1}`,
-      },
-      status: 'SENT',
-    });
-  }
-
   async createRemovalAuthorization(
     tenantId: string,
     assignmentId: string,
@@ -3393,6 +3449,32 @@ export class InstitutionalAdminApplicationsService {
       });
     }
     this.assertMobileSignerWallet(String(primary.accountAddress), authUser.smartAccountAddress);
+  }
+
+  private assertMobileInvitationAuthUserMatches(
+    invitation: InstitutionalAdminInvitationDocument,
+    authUser?: InstitutionalInvitationMobileRequestUser,
+  ) {
+    if (
+      !authUser?.sub ||
+      !authUser?.invitationId ||
+      authUser.invitationId !== String(invitation._id) ||
+      authUser.dni !== invitation.dni
+    ) {
+      throw new UnauthorizedException({
+        code: 'INSTITUTIONAL_INVITATION_MOBILE_AUTH_REQUIRED',
+        message: 'La invitación requiere credencial móvil vigente.',
+      });
+    }
+    if (
+      !authUser.smartAccountAddress ||
+      authUser.smartAccountAddress.toLowerCase() !== String(invitation.accountAddress).toLowerCase()
+    ) {
+      throw new ForbiddenException({
+        code: 'INSTITUTIONAL_INVITATION_WALLET_MISMATCH',
+        message: 'La billetera del teléfono no corresponde a la invitación.',
+      });
+    }
   }
 
   private assertSameMobileDevice(app: InstitutionalAdminApplicationDocument, deviceId: string) {

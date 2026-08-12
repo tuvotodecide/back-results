@@ -22,6 +22,7 @@ import { InstitutionalMobileZkAuthService } from '@/modules/institutional-admin-
 
 describe('InstitutionalMobileZkAuthService', () => {
   const applicationId = new Types.ObjectId();
+  const invitationId = new Types.ObjectId();
   const tenantId = new Types.ObjectId();
   const signerUserId = new Types.ObjectId();
   const signerWallet = '0x270cf6f9377a6d2BBE97A3dC42A1Ce90D46363f8';
@@ -77,6 +78,7 @@ describe('InstitutionalMobileZkAuthService', () => {
         },
       } as any,
       modelReturning({ _id: applicationId, tenantId }) as any,
+      modelReturning({ _id: invitationId, tenantId, dni: '1234567', accountAddress: signerWallet, status: 'PENDING', expiresAt: new Date('2099-01-01') }) as any,
       modelReturning({ userId: signerUserId, accountAddress: signerWallet }) as any,
       modelReturning({ _id: signerUserId, dni: '1234567' }) as any,
     );
@@ -131,6 +133,22 @@ describe('InstitutionalMobileZkAuthService', () => {
     expect(cache.del).toHaveBeenCalledWith(
       `institutional-mobile-auth:pending:${sessionId}`,
     );
+  });
+
+  it('emite una solicitud acotada a la invitación sin transportar un token bearer', async () => {
+    const result = await service.createInvitationAuthRequest(String(invitationId));
+
+    expect((result.request as any).body.reason).toContain('institutional invitation');
+    expect(cache.set).toHaveBeenCalledWith(
+      expect.stringMatching(/^institutional-mobile-auth:pending:[a-f0-9]{64}$/),
+      expect.objectContaining({
+        kind: 'INVITATION',
+        invitationId: String(invitationId),
+        tenantId: String(tenantId),
+      }),
+      180000,
+    );
+    expect(JSON.stringify(result)).not.toContain('invitationToken');
   });
 
   it('fails clearly instead of using the official publication callback when institutional configuration is missing', async () => {

@@ -506,9 +506,17 @@ export class AuthService {
         .lean(),
     ]);
 
+    const userId = String(user._id);
+    const normalizedEmail = String(user.email || '').trim().toLowerCase();
+    const userApplications = applications.filter((application) => {
+      const applicationUserId = application.userId ? String(application.userId) : null;
+      if (applicationUserId) return applicationUserId === userId;
+      return Boolean(normalizedEmail) && String(application.email || '').trim().toLowerCase() === normalizedEmail;
+    });
+
     const tenantIds = new Set<string>();
     for (const membership of memberships) tenantIds.add(String(membership.tenantId));
-    for (const app of applications) {
+    for (const app of userApplications) {
       if (app.tenantId) tenantIds.add(String(app.tenantId));
     }
 
@@ -519,7 +527,23 @@ export class AuthService {
       : [];
     const tenantById = new Map(tenants.map((tenant) => [String(tenant._id), tenant]));
 
-    const tenantItems: AccessStatusDto['tenant']['items'] = memberships.map((membership) => {
+    type TenantAccessCandidate = {
+      item: AccessStatusDto['tenant']['items'][number];
+      updatedAt: number;
+      createdAt: number;
+      recordId: string;
+      activeApprovedMembership: boolean;
+    };
+    const timestamp = (value: unknown) => {
+      const parsed = value ? new Date(value as string | Date).getTime() : 0;
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const compareCandidates = (left: TenantAccessCandidate, right: TenantAccessCandidate) =>
+      right.updatedAt - left.updatedAt ||
+      right.createdAt - left.createdAt ||
+      right.recordId.localeCompare(left.recordId);
+
+    const membershipCandidates: TenantAccessCandidate[] = memberships.map((membership) => {
       const tenant = tenantById.get(String(membership.tenantId));
       const membershipStatus = membership.status ?? (membership.active ? 'APPROVED' : 'REVOKED');
       const effectiveStatus = tenant?.active === false
@@ -529,41 +553,70 @@ export class AuthService {
           : membershipStatus;
 
       return {
-        applicationId:
-          applications.find(
-            (app) =>
-              String(app.tenantId || '') === String(membership.tenantId) &&
-              String(app.userId || '') === String(user._id),
-          )?._id?.toString() ?? null,
-        membershipId: String(membership._id),
-        status: this.normalizeTenantAccessStatus(effectiveStatus),
-        tenantId: String(membership.tenantId),
-        tenantName: tenant?.name ?? null,
-        reason: membership.reason ?? null,
-        ...this.buildTenantWalletState(membership),
+        item: {
+          applicationId: membership.applicationId ? String(membership.applicationId) : null,
+          membershipId: String(membership._id),
+          status: this.normalizeTenantAccessStatus(effectiveStatus),
+          tenantId: String(membership.tenantId),
+          tenantName: tenant?.name ?? null,
+          reason: membership.reason ?? null,
+          ...this.buildTenantWalletState(membership),
+        },
+        updatedAt: timestamp((membership as any).updatedAt),
+        createdAt: timestamp((membership as any).createdAt),
+        recordId: String(membership._id),
+        activeApprovedMembership:
+          membership.active === true && this.normalizeTenantAccessStatus(effectiveStatus) === 'APPROVED',
       };
     });
 
-    for (const application of applications) {
+    const relatedApplicationIds = new Set(
+      memberships
+        .filter((membership) => membership.applicationId)
+        .map((membership) => String(membership.applicationId)),
+    );
+    const applicationCandidates: TenantAccessCandidate[] = [];
+    for (const application of userApplications) {
       const tenantId = application.tenantId ? String(application.tenantId) : null;
-      const alreadyIncluded = tenantItems.some(
-        (item) => item.applicationId === String(application._id),
-      );
+      const alreadyIncluded = relatedApplicationIds.has(String(application._id));
       if (alreadyIncluded) continue;
-      tenantItems.push({
-        applicationId: String(application._id),
-        membershipId: null,
-        status: this.normalizeTenantAccessStatus(application.status),
-        tenantId,
-        tenantName: tenantId
-          ? tenantById.get(tenantId)?.name ?? application.institutionName
-          : application.institutionName,
-        reason: application.reason ?? null,
+      applicationCandidates.push({
+        item: {
+          applicationId: String(application._id),
+          membershipId: null,
+          status: this.normalizeTenantAccessStatus(application.status),
+          tenantId,
+          tenantName: tenantId
+            ? tenantById.get(tenantId)?.name ?? application.institutionName
+            : application.institutionName,
+          reason: application.reason ?? null,
+        },
+        updatedAt: timestamp((application as any).updatedAt),
+        createdAt: timestamp((application as any).createdAt),
+        recordId: String(application._id),
+        activeApprovedMembership: false,
       });
     }
 
-    const latestTenantItem = tenantItems[0] ?? null;
-    const hasApprovedTenantAccess = tenantItems.some((item) => item.status === 'APPROVED');
+    const candidates = [...membershipCandidates, ...applicationCandidates];
+    const candidatesByTenant = new Map<string, TenantAccessCandidate[]>();
+    for (const candidate of candidates) {
+      const tenantKey = candidate.item.tenantId ?? `application:${candidate.item.applicationId}`;
+      candidatesByTenant.set(tenantKey, [...(candidatesByTenant.get(tenantKey) ?? []), candidate]);
+    }
+    const currentTenantCandidates = Array.from(candidatesByTenant.values())
+      .map((tenantCandidates) => {
+        const approvedMembership = tenantCandidates
+          .filter((candidate) => candidate.activeApprovedMembership)
+          .sort(compareCandidates)[0];
+        return approvedMembership ?? tenantCandidates.sort(compareCandidates)[0];
+      })
+      .filter((candidate): candidate is TenantAccessCandidate => Boolean(candidate))
+      .sort(compareCandidates);
+    const tenantItems = candidates.sort(compareCandidates).map((candidate) => candidate.item);
+    const currentTenantItems = currentTenantCandidates.map((candidate) => candidate.item);
+    const latestTenantItem = currentTenantItems[0] ?? null;
+    const hasApprovedTenantAccess = currentTenantItems.some((item) => item.status === 'APPROVED');
 
     const territorialStatus = this.resolveTerritorialStatus(user);
     const hasApprovedTerritorialAccess = this.hasApprovedTerritorialAccess(user);
@@ -572,9 +625,9 @@ export class AuthService {
       tenant: {
         hasApprovedAccess: hasApprovedTenantAccess,
         latestStatus: latestTenantItem?.status ?? null,
-        canRequest: !tenantItems.some((item) => item.status === 'PENDING'),
-        shouldSelectTenantContext: tenantItems.filter((item) => item.status === 'APPROVED').length > 1,
-        message: this.buildTenantStatusMessage(tenantItems),
+        canRequest: !currentTenantItems.some((item) => item.status === 'PENDING'),
+        shouldSelectTenantContext: currentTenantItems.filter((item) => item.status === 'APPROVED').length > 1,
+        message: this.buildTenantStatusMessage(currentTenantItems),
         items: tenantItems,
       },
       territorial: {

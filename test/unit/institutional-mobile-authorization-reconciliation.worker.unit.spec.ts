@@ -17,7 +17,11 @@ describe('InstitutionalMobileAuthorizationReconciliationWorker', () => {
       processMobileAuthorizationRetry: jest.fn().mockResolvedValue({ processed: true, status: 'PENDING' }),
       recoverFailedMobileAuthorization: jest.fn().mockResolvedValue({ recovered: false }),
     };
-    const worker = new InstitutionalMobileAuthorizationReconciliationWorker(applications as any, config as any);
+    const notificationService = {
+      reconcilePendingInstitutionalInvitationDeliveries: jest.fn().mockResolvedValue([]),
+      processDueOutbox: jest.fn().mockResolvedValue([]),
+    };
+    const worker = new InstitutionalMobileAuthorizationReconciliationWorker(applications as any, notificationService as any, config as any);
 
     await expect(worker.runOnce({ force: true })).resolves.toEqual({ processed: 2 });
     expect(applications.findMobileAuthorizationDeliveryRetryBatch).toHaveBeenCalledWith(10);
@@ -25,6 +29,7 @@ describe('InstitutionalMobileAuthorizationReconciliationWorker', () => {
     expect(applications.findMobileAuthorizationReconciliationBatch).toHaveBeenCalledWith(10);
     expect(applications.processMobileAuthorizationRetry).toHaveBeenCalledWith('application-1');
     expect(applications.recoverFailedMobileAuthorization).not.toHaveBeenCalled();
+    expect(notificationService.reconcilePendingInstitutionalInvitationDeliveries).toHaveBeenCalledWith(10);
   });
 
   it('no cuenta una solicitud que otro worker ya reclamó', async () => {
@@ -35,7 +40,11 @@ describe('InstitutionalMobileAuthorizationReconciliationWorker', () => {
       processMobileAuthorizationRetry: jest.fn().mockResolvedValue({ processed: false, reason: 'NO_CLAIMABLE_OPERATION' }),
       recoverFailedMobileAuthorization: jest.fn().mockResolvedValue({ recovered: false }),
     };
-    const worker = new InstitutionalMobileAuthorizationReconciliationWorker(applications as any, config as any);
+    const notificationService = {
+      reconcilePendingInstitutionalInvitationDeliveries: jest.fn().mockResolvedValue([]),
+      processDueOutbox: jest.fn().mockResolvedValue([]),
+    };
+    const worker = new InstitutionalMobileAuthorizationReconciliationWorker(applications as any, notificationService as any, config as any);
 
     await expect(worker.runOnce({ force: true })).resolves.toEqual({ processed: 0 });
   });
@@ -52,7 +61,11 @@ describe('InstitutionalMobileAuthorizationReconciliationWorker', () => {
       }),
       recoverFailedMobileAuthorization: jest.fn().mockResolvedValue({ recovered: true }),
     };
-    const worker = new InstitutionalMobileAuthorizationReconciliationWorker(applications as any, config as any);
+    const notificationService = {
+      reconcilePendingInstitutionalInvitationDeliveries: jest.fn().mockResolvedValue([]),
+      processDueOutbox: jest.fn().mockResolvedValue([]),
+    };
+    const worker = new InstitutionalMobileAuthorizationReconciliationWorker(applications as any, notificationService as any, config as any);
 
     await expect(worker.runOnce({ force: true })).resolves.toEqual({ processed: 1 });
     expect(applications.recoverFailedMobileAuthorization).toHaveBeenCalledWith('application-1');

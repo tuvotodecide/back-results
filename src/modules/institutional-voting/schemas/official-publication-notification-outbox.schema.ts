@@ -26,7 +26,10 @@ export class OfficialPublicationNotificationOutbox {
   deduplicationKey!: string;
 
   @Prop({ required: true, trim: true, default: 'OFFICIAL_PUBLICATION_REQUEST' })
-  type!: 'OFFICIAL_PUBLICATION_REQUEST' | 'MOBILE_AUTHORIZATION_REQUESTED';
+  type!:
+    | 'OFFICIAL_PUBLICATION_REQUEST'
+    | 'MOBILE_AUTHORIZATION_REQUESTED'
+    | 'INSTITUTIONAL_ADMIN_INVITATION';
 
   @Prop({ required: false, trim: true, index: true })
   requestId?: string;
@@ -37,8 +40,18 @@ export class OfficialPublicationNotificationOutbox {
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalAdminApplication', required: false, index: true })
   applicationId?: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'InstitutionalAdminInvitation', required: false, index: true })
+  invitationId?: Types.ObjectId;
+
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalTenant', required: false, index: true })
   tenantId?: Types.ObjectId;
+
+  /**
+   * User-requested delivery generation. This is intentionally separate from
+   * attemptCount, which tracks technical Firebase retries of one delivery.
+   */
+  @Prop({ required: false, min: 1, default: 1, index: true })
+  deliveryAttempt?: number;
 
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: true, index: true })
   recipientUserId!: Types.ObjectId;

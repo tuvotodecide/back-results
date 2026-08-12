@@ -29,6 +29,7 @@ import { CreateInstitutionalAdminInvitationDto } from '../dto/create-institution
 import { ReviewInstitutionalAdminApplicationDto } from '../dto/review-institutional-admin-application.dto';
 import { VerifyInstitutionalAdminApplicationDto } from '../dto/verify-institutional-admin-application.dto';
 import { InstitutionalMobileZkAuthGuard } from '../auth/institutional-mobile-zk-auth.guard';
+import { InstitutionalInvitationMobileZkAuthGuard } from '../auth/institutional-invitation-mobile-zk-auth.guard';
 import { InstitutionalApplicationReviewGuard } from '../guards/institutional-application-review.guard';
 import { InstitutionalPublicRateLimitGuard } from '../guards/institutional-public-rate-limit.guard';
 import { InstitutionalAdminApplicationsService } from '../services/institutional-admin-applications.service';
@@ -192,6 +193,50 @@ export class InstitutionalAdminApplicationsController {
       invitationId,
       req.user,
       dto.reason,
+    );
+  }
+
+  @Get('mobile/invitations/:invitationId')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalInvitationMobileZkAuthGuard)
+  @ApiOperation({ summary: 'Consultar una invitación institucional desde el teléfono' })
+  getMobileInvitation(
+    @Param('invitationId') invitationId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.getMobileInvitationRequest(
+      invitationId,
+      req.user,
+    );
+  }
+
+  @Post('mobile/invitations/:invitationId/accept')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalInvitationMobileZkAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Aceptar una invitación institucional desde el teléfono' })
+  acceptMobileInvitation(
+    @Param('invitationId') invitationId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.acceptInvitationFromMobile(
+      invitationId,
+      req.user,
+    );
+  }
+
+  @Post('mobile/invitations/:invitationId/reject')
+  @Public()
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalInvitationMobileZkAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Rechazar una invitación institucional desde el teléfono' })
+  rejectMobileInvitation(
+    @Param('invitationId') invitationId: string,
+    @Req() req: any,
+  ) {
+    return this.institutionalAdminApplicationsService.rejectInvitationFromMobile(
+      invitationId,
+      req.user,
     );
   }
 

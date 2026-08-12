@@ -25,12 +25,17 @@ import {
   InstitutionalAdminApplicationDocument,
 } from '@/modules/institutional-admin-applications/schemas/institutional-admin-application.schema';
 import {
+  InstitutionalAdminInvitation,
+  InstitutionalAdminInvitationDocument,
+} from '@/modules/institutional-admin-applications/schemas/institutional-admin-invitation.schema';
+import {
   InstitutionalTenant,
   InstitutionalTenantDocument,
 } from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
 
 const NOTIFICATION_TYPE = 'OFFICIAL_PUBLICATION_REQUEST';
 const INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE = 'MOBILE_AUTHORIZATION_REQUESTED';
+const INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE = 'INSTITUTIONAL_ADMIN_INVITATION';
 const MAX_ATTEMPTS = 5;
 
 @Injectable()
@@ -45,6 +50,8 @@ export class OfficialPublicationNotificationService {
     private readonly votingEventModel: Model<VotingEventDocument>,
     @InjectModel(InstitutionalAdminApplication.name)
     private readonly applicationModel: Model<InstitutionalAdminApplicationDocument>,
+    @InjectModel(InstitutionalAdminInvitation.name)
+    private readonly invitationModel: Model<InstitutionalAdminInvitationDocument>,
     @InjectModel(InstitutionalTenant.name)
     private readonly tenantModel: Model<InstitutionalTenantDocument>,
     @InjectModel(RoledUser.name)
@@ -208,6 +215,93 @@ export class OfficialPublicationNotificationService {
     return { enqueued: true, notificationId, deduplicationKey, outbox };
   }
 
+  async enqueueForInstitutionalInvitation(
+    invitationId: string,
+    options: { deliveryAttempt?: number } = {},
+  ) {
+    if (!Types.ObjectId.isValid(invitationId)) {
+      return { enqueued: false, skipped: 'invitation_not_found' };
+    }
+    const invitation = await this.invitationModel.findById(invitationId).lean();
+    if (
+      invitation?.status !== 'PENDING' ||
+      !invitation.tenantId ||
+      new Date(invitation.expiresAt).getTime() <= Date.now()
+    ) {
+      return { enqueued: false, skipped: 'invitation_not_pending' };
+    }
+    const [tenant, invitedUser] = await Promise.all([
+      this.tenantModel.findById(invitation.tenantId).lean(),
+      this.roledUserModel.findOne({ dni: invitation.dni }, { _id: 1, dni: 1 }).lean(),
+    ]);
+    if (!tenant || !invitedUser?._id || !invitedUser.dni) {
+      return { enqueued: false, skipped: 'invited_user_not_found' };
+    }
+    const dni = this.normalizeDni(invitedUser.dni);
+    const mobileUser = await this.findMobileUser(dni, invitedUser.dni);
+    if (!mobileUser) return { enqueued: false, skipped: 'mobile_user_not_found' };
+
+    const deliveryAttempt = this.resolveDeliveryAttempt(
+      options.deliveryAttempt ?? invitation.noticeCount,
+    );
+    const baseDeduplicationKey = `${INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE}:${String(invitation._id)}:${String(invitedUser._id)}`;
+    // Preserve generation 1 so deployments with existing outboxes do not send
+    // an invitation again merely because the reconciliation worker was added.
+    const deduplicationKey = deliveryAttempt === 1
+      ? baseDeduplicationKey
+      : `${baseDeduplicationKey}:delivery:${deliveryAttempt}`;
+    const notificationId = deliveryAttempt === 1
+      ? `iinvite_${String(invitation._id)}`
+      : `iinvite_${String(invitation._id)}_${deliveryAttempt}`;
+    const topic = this.buildUserTopic(mobileUser._id);
+    const title = 'Invitación institucional';
+    const body = `Tienes una invitación pendiente para administrar ${tenant.name}.`;
+    const data = {
+      type: INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE,
+      invitationId: String(invitation._id),
+      tenantId: String(invitation.tenantId),
+      deliveryAttempt: String(deliveryAttempt),
+      deduplicationKey,
+    };
+
+    await this.ensureHistory({ deduplicationKey, mobileUser, dni, topic, title, body, data });
+    const outbox = await this.outboxModel.findOneAndUpdate(
+      { deduplicationKey },
+      { $setOnInsert: {
+        notificationId, deduplicationKey, type: INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE,
+        invitationId: invitation._id, tenantId: invitation.tenantId,
+        deliveryAttempt,
+        recipientUserId: invitedUser._id, recipientMobileUserId: mobileUser._id,
+        recipientIdentityId: dni, recipientTopic: topic,
+        smartAccountAddress: String(invitation.accountAddress).toLowerCase(),
+        title, body, data, status: 'PENDING', attemptCount: 0, nextAttemptAt: new Date(),
+      } },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+    void this.processDueOutbox(1).catch(() => undefined);
+    return { enqueued: true, notificationId, deduplicationKey, outbox };
+  }
+
+  async reconcilePendingInstitutionalInvitationDeliveries(limit = 10) {
+    const invitations = await this.invitationModel
+      .find({
+        status: 'PENDING',
+        expiresAt: { $gt: new Date() },
+      })
+      .sort({ updatedAt: 1, _id: 1 })
+      .limit(Math.max(1, limit))
+      .lean();
+
+    const results: Array<{ invitationId: string; enqueued: boolean; skipped?: string }> = [];
+    for (const invitation of invitations) {
+      const result = await this.enqueueForInstitutionalInvitation(String(invitation._id), {
+        deliveryAttempt: invitation.noticeCount,
+      });
+      results.push({ invitationId: String(invitation._id), ...result });
+    }
+    return results;
+  }
+
   async processDueOutbox(limit = 10) {
     const now = new Date();
     const candidates = await this.outboxModel
@@ -277,15 +371,22 @@ export class OfficialPublicationNotificationService {
         return { processed: true, status: 'SENT', skipped: 'already_sent' };
       }
 
-      if (item.type !== INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE) {
+      if (item.type === INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE) {
+        if (!(await this.isInstitutionalInvitationDeliverable(item))) {
+          await this.markCancelled(item, 'INSTITUTIONAL_INVITATION_NOT_DELIVERABLE');
+          return { processed: true, status: 'CANCELLED' };
+        }
+      } else if (item.type === INSTITUTIONAL_AUTHORIZATION_NOTIFICATION_TYPE) {
+        if (!(await this.isInstitutionalAuthorizationDeliverable(item))) {
+          await this.markCancelled(item, 'INSTITUTIONAL_AUTHORIZATION_NOT_DELIVERABLE');
+          return { processed: true, status: 'CANCELLED' };
+        }
+      } else {
         const event = await this.votingEventModel.findById(item.eventId).lean();
         if (!event || !this.isWindowOpen(event)) {
           await this.markCancelled(item, 'PUBLICATION_WINDOW_CLOSED');
           return { processed: true, status: 'CANCELLED' };
         }
-      } else if (!(await this.isInstitutionalAuthorizationDeliverable(item))) {
-        await this.markCancelled(item, 'INSTITUTIONAL_AUTHORIZATION_NOT_DELIVERABLE');
-        return { processed: true, status: 'CANCELLED' };
       }
 
       const messageId = await this.fb.messaging().send({
@@ -471,12 +572,38 @@ export class OfficialPublicationNotificationService {
     return Boolean(signer && String(signer.userId) === String(item.recipientUserId));
   }
 
-  private async findMobileUser(dni: string) {
-    return this.userModel.findOne({ dni, active: { $ne: false } });
+  private async isInstitutionalInvitationDeliverable(item: any) {
+    if (!item.invitationId) return false;
+    const invitation = await this.invitationModel.findById(item.invitationId).lean();
+    if (
+      invitation?.status !== 'PENDING' ||
+      new Date(invitation.expiresAt).getTime() <= Date.now()
+    ) return false;
+    const invitedUser = await this.roledUserModel
+      .findOne({ _id: item.recipientUserId, dni: invitation.dni }, { _id: 1 })
+      .lean();
+    return Boolean(invitedUser);
+  }
+
+  private async findMobileUser(dni: string, legacyDni?: string) {
+    const legacyCandidate = String(legacyDni ?? '').trim();
+    if (!legacyCandidate || legacyCandidate === dni) {
+      return this.userModel.findOne({ dni, active: { $ne: false } });
+    }
+    const dniCandidates = [dni, legacyCandidate];
+    return this.userModel.findOne({
+      dni: { $in: dniCandidates },
+      active: { $ne: false },
+    });
   }
 
   private normalizeDni(dni: string) {
-    return normalizeCarnet(dni) ?? String(dni ?? '').trim();
+    return normalizeCarnet(dni) || String(dni ?? '').trim();
+  }
+
+  private resolveDeliveryAttempt(value: unknown) {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
   }
 
   private buildUserTopic(userId: Types.ObjectId) {

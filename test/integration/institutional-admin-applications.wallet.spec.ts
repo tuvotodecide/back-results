@@ -252,6 +252,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     await conn.collection('roled_users').deleteMany({});
     await conn.collection('institutional_admin_invitations').deleteMany({});
     await conn.collection('notification_logs').deleteMany({});
+    await conn.collection('official_publication_notification_outbox').deleteMany({});
   });
 
   afterEach(() => {
@@ -877,6 +878,26 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
 
   it('D-INV-001 | crea invitación para persona registrada sin habilitar acceso ni solicitud móvil', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
+    const invitedUserId = new Types.ObjectId();
+    const invitedMobileUserId = new Types.ObjectId();
+    await conn.collection('roled_users').insertOne({
+      _id: invitedUserId,
+      dni: 'inv001',
+      email: 'inv001@example.com',
+      name: 'Invitada Nueva',
+      password: 'hashed',
+      role: 'USER',
+      active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('users').insertOne({
+      _id: invitedMobileUserId,
+      dni: 'inv001',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
     const response = await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
@@ -892,10 +913,14 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
     expect(await conn.collection('institutional_admin_invitations').countDocuments()).toBe(1);
     expect(await conn.collection('institutional_admin_applications').countDocuments()).toBe(0);
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId })).toBe(1);
-    expect(await conn.collection('notification_logs').countDocuments({
-      'data.event': 'INVITATION_CREATED',
-      'data.dni': 'inv001',
-    })).toBe(1);
+    expect(await conn.collection('official_publication_notification_outbox').findOne({
+      'data.type': 'INSTITUTIONAL_ADMIN_INVITATION',
+      recipientUserId: invitedUserId,
+      recipientMobileUserId: invitedMobileUserId,
+    })).toEqual(expect.objectContaining({
+      recipientTopic: `user_${invitedMobileUserId}`,
+      data: expect.objectContaining({ invitationId: response.body.id }),
+    }));
   });
 
   it('D-INV-002 / D-INV-012 | reutiliza cuenta existente al aceptar y no duplica usuario', async () => {
@@ -939,6 +964,10 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
 
   it('D-INV-003 | rechaza invitación si Identity indica persona no registrada', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
+    const notificationLogsBefore = await conn.collection('notification_logs').countDocuments();
+    const invitationOutboxesBefore = await conn
+      .collection('official_publication_notification_outbox')
+      .countDocuments({ type: 'INSTITUTIONAL_ADMIN_INVITATION' });
     httpService.axiosRef.post.mockResolvedValueOnce({
       data: { registered: false, accountAddress: null },
     });
@@ -950,7 +979,13 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
       .expect(400);
 
     expect(await conn.collection('institutional_admin_invitations').countDocuments()).toBe(0);
-    expect(await conn.collection('notification_logs').countDocuments()).toBe(0);
+    expect(await conn.collection('notification_logs').countDocuments()).toBe(notificationLogsBefore);
+    expect(await conn.collection('notification_logs').countDocuments({
+      'data.type': 'INSTITUTIONAL_ADMIN_INVITATION',
+    })).toBe(0);
+    expect(await conn.collection('official_publication_notification_outbox').countDocuments({
+      type: 'INSTITUTIONAL_ADMIN_INVITATION',
+    })).toBe(invitationOutboxesBefore);
     expect(await conn.collection('tenant_admin_assignments').countDocuments()).toBe(1);
   });
 
@@ -1004,10 +1039,9 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
       tenantId,
       dni: 'dup-inv',
     })).toBe(1);
-    expect(await conn.collection('notification_logs').countDocuments({
-      'data.event': 'INVITATION_CREATED',
-      'data.dni': 'dup-inv',
-    })).toBe(1);
+    expect(await conn.collection('official_publication_notification_outbox').countDocuments({
+      type: 'INSTITUTIONAL_ADMIN_INVITATION',
+    })).toBe(0);
   });
 
   it('D-INV-006 | aceptar invitación crea solicitud pendiente sin acceso activo', async () => {
@@ -2089,6 +2123,49 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     const { pendingTenantId } = await runHistoricalCompatibilityBackfill();
     await expect(conn.collection('institutional_tenants').findOne({ _id: pendingTenantId }))
       .resolves.toMatchObject({ stableInstitutionId: String(pendingTenantId), active: false });
+  });
+
+  it('D-INV-013 | reenviar conserva la invitación y crea una nueva generación de entrega', async () => {
+    const { tenantId } = await createActiveTenantWithPrimary();
+    const invitedUserId = new Types.ObjectId();
+    const invitedMobileUserId = new Types.ObjectId();
+    await conn.collection('roled_users').insertOne({
+      _id: invitedUserId, dni: 'retry-inv', email: 'retry-inv@example.com', name: 'Retry',
+      password: 'hashed', role: 'USER', active: false, createdAt: new Date(), updatedAt: new Date(),
+    });
+    await conn.collection('users').insertOne({
+      _id: invitedMobileUserId, dni: 'retry-inv', active: true, createdAt: new Date(), updatedAt: new Date(),
+    });
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
+      .send({ dni: 'retry-inv', name: 'Retry' })
+      .expect(201);
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/invitations/${created.body.id}/resend`)
+      .expect(201);
+
+    expect(await conn.collection('institutional_admin_invitations').countDocuments({ tenantId, dni: 'retry-inv' })).toBe(1);
+    const outboxes = await conn.collection('official_publication_notification_outbox').find({
+      'data.invitationId': created.body.id,
+    }).sort({ deliveryAttempt: 1 }).toArray();
+    expect(outboxes).toHaveLength(2);
+    expect(outboxes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        invitationId: new Types.ObjectId(created.body.id),
+        tenantId,
+        recipientUserId: invitedUserId,
+        recipientMobileUserId: invitedMobileUserId,
+        deliveryAttempt: 1,
+      }),
+      expect.objectContaining({
+        invitationId: new Types.ObjectId(created.body.id),
+        tenantId,
+        recipientUserId: invitedUserId,
+        recipientMobileUserId: invitedMobileUserId,
+        deliveryAttempt: 2,
+      }),
+    ]));
   });
 
   it('[MX-02][D-COMPAT-002][INTEGRACION] conserva compatibilidad de institución histórica confirmada', async () => {

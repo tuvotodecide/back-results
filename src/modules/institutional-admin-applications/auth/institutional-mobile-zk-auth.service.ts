@@ -24,6 +24,10 @@ import {
   InstitutionalAdminApplicationDocument,
 } from '../schemas/institutional-admin-application.schema';
 import {
+  InstitutionalAdminInvitation,
+  InstitutionalAdminInvitationDocument,
+} from '../schemas/institutional-admin-invitation.schema';
+import {
   TenantAdminAssignment,
   TenantAdminAssignmentDocument,
 } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
@@ -32,11 +36,14 @@ import {
   RoledUserDocument,
 } from '@/modules/auth/schemas/roledUser.schema';
 import {
+  INSTITUTIONAL_INVITATION_MOBILE_AUTH_PURPOSE,
   INSTITUTIONAL_MOBILE_AUTH_PURPOSE,
   InstitutionalMobileAuthContext,
+  InstitutionalInvitationMobileAuthContext,
 } from './institutional-mobile-auth.types';
 
-type PendingInstitutionalAuthRequest = {
+type PendingInstitutionalAuthorizationAuthRequest = {
+  kind: 'AUTHORIZATION';
   apiKeyHash: string;
   applicationId: string;
   tenantId: string;
@@ -45,6 +52,25 @@ type PendingInstitutionalAuthRequest = {
   request: AuthorizationRequestMessage;
   expiresAt: number;
 };
+
+type PendingInstitutionalInvitationAuthRequest = {
+  kind: 'INVITATION';
+  apiKeyHash: string;
+  invitationId: string;
+  tenantId: string;
+  dni: string;
+  smartAccountAddress: string;
+  request: AuthorizationRequestMessage;
+  expiresAt: number;
+};
+
+type PendingInstitutionalAuthRequest =
+  | PendingInstitutionalAuthorizationAuthRequest
+  | PendingInstitutionalInvitationAuthRequest;
+
+type InstitutionalMobileAuthAnyContext =
+  | InstitutionalMobileAuthContext
+  | InstitutionalInvitationMobileAuthContext;
 
 @Injectable()
 export class InstitutionalMobileZkAuthService {
@@ -68,6 +94,8 @@ export class InstitutionalMobileZkAuthService {
     private readonly http: HttpService,
     @InjectModel(InstitutionalAdminApplication.name)
     private readonly applicationModel: Model<InstitutionalAdminApplicationDocument>,
+    @InjectModel(InstitutionalAdminInvitation.name)
+    private readonly invitationModel: Model<InstitutionalAdminInvitationDocument>,
     @InjectModel(TenantAdminAssignment.name)
     private readonly assignmentModel: Model<TenantAdminAssignmentDocument>,
     @InjectModel(RoledUser.name)
@@ -111,11 +139,50 @@ export class InstitutionalMobileZkAuthService {
     );
 
     const pending: PendingInstitutionalAuthRequest = {
+      kind: 'AUTHORIZATION',
       apiKeyHash,
       applicationId: String(application._id),
       tenantId: String(application.tenantId),
       signerUserId: String(primary.userId),
       smartAccountAddress: String(primary.accountAddress).toLowerCase(),
+      request,
+      expiresAt,
+    };
+    this.pending.set(sessionId, pending);
+    await this.cacheSet(this.pendingCacheKey(sessionId), pending, this.pendingTtlMs);
+
+    return {
+      apiKey,
+      request,
+      expiresAt: new Date(Date.now() + this.ttlMs).toISOString(),
+    };
+  }
+
+  async createInvitationAuthRequest(invitationId: string): Promise<{
+    apiKey: string,
+    request: AuthorizationRequestMessage,
+    expiresAt: string,
+  }> {
+    this.assertConfigured(['callbackUrl', 'audience']);
+    const invitation = await this.loadInvitationContext(invitationId);
+    const sessionId = randomBytes(32).toString('hex');
+    const apiKey = sessionId;
+    const apiKeyHash = this.hashApiKey(apiKey);
+    const expiresAt = Date.now() + this.pendingTtlMs;
+    const uri = `${this.callbackUrl}?sessionId=${sessionId}`;
+    const request = auth.createAuthorizationRequest(
+      'Auth request to access an institutional invitation',
+      this.audience,
+      uri,
+    );
+
+    const pending: PendingInstitutionalInvitationAuthRequest = {
+      kind: 'INVITATION',
+      apiKeyHash,
+      invitationId: String(invitation._id),
+      tenantId: String(invitation.tenantId),
+      dni: invitation.dni,
+      smartAccountAddress: String(invitation.accountAddress).toLowerCase(),
       request,
       expiresAt,
     };
@@ -144,19 +211,21 @@ export class InstitutionalMobileZkAuthService {
       throw new UnauthorizedException('Verified proof does not contain a subject DID');
     }
 
-    const context = await this.buildContextFromDid(pending, did);
+    const context = pending.kind === 'INVITATION'
+      ? await this.buildInvitationContextFromDid(pending, did)
+      : await this.buildContextFromDid(pending, did);
     await this.cacheSet(this.contextCacheKey(context.apiKeyHash), context, this.ttlMs);
     await this.cacheDel(this.pendingCacheKey(sessionId));
     this.pending.delete(sessionId);
     return verifyResponse;
   }
 
-  async getContextByApiKey(apiKey: string): Promise<InstitutionalMobileAuthContext | null> {
+  async getContextByApiKey(apiKey: string): Promise<InstitutionalMobileAuthAnyContext | null> {
     const apiKeyHash = this.hashApiKey(apiKey);
-    const context = await this.cacheGet<InstitutionalMobileAuthContext>(
+    const context = await this.cacheGet<InstitutionalMobileAuthAnyContext>(
       this.contextCacheKey(apiKeyHash),
     );
-    if (!context || context.purpose !== INSTITUTIONAL_MOBILE_AUTH_PURPOSE) return null;
+    if (!context || ![INSTITUTIONAL_MOBILE_AUTH_PURPOSE, INSTITUTIONAL_INVITATION_MOBILE_AUTH_PURPOSE].includes(context.purpose)) return null;
     if (context.apiKeyHash !== apiKeyHash) return null;
     if (!context.expiresAt || new Date(context.expiresAt).getTime() <= Date.now()) {
       await this.cacheDel(this.contextCacheKey(apiKeyHash));
@@ -170,7 +239,7 @@ export class InstitutionalMobileZkAuthService {
   }
 
   private async buildContextFromDid(
-    pending: PendingInstitutionalAuthRequest,
+    pending: PendingInstitutionalAuthorizationAuthRequest,
     did: string,
   ): Promise<InstitutionalMobileAuthContext> {
     const { application, primary } = await this.loadApplicationContext(pending.applicationId);
@@ -207,6 +276,47 @@ export class InstitutionalMobileZkAuthService {
       issuedAt: issuedAt.toISOString(),
       expiresAt: expiresAt.toISOString(),
       purpose: INSTITUTIONAL_MOBILE_AUTH_PURPOSE,
+    };
+  }
+
+  private async buildInvitationContextFromDid(
+    pending: PendingInstitutionalInvitationAuthRequest,
+    did: string,
+  ): Promise<InstitutionalInvitationMobileAuthContext> {
+    const invitation = await this.loadInvitationContext(pending.invitationId);
+    if (
+      String(invitation.tenantId) !== pending.tenantId ||
+      invitation.dni !== pending.dni ||
+      String(invitation.accountAddress).toLowerCase() !== pending.smartAccountAddress
+    ) {
+      throw new ForbiddenException('Institutional invitation request mismatch');
+    }
+
+    const identityAccount = await this.resolveAccountByDid(did);
+    if (identityAccount.toLowerCase() !== pending.smartAccountAddress) {
+      throw new ForbiddenException('Verified identity is not the invited wallet');
+    }
+
+    const invitedUser = await this.roledUserModel
+      .findOne({ dni: invitation.dni }, { _id: 1, dni: 1 })
+      .lean();
+    if (!invitedUser?._id) {
+      throw new ForbiddenException('Institutional invitation requires a registered account');
+    }
+
+    const issuedAt = new Date();
+    const expiresAt = new Date(issuedAt.getTime() + this.ttlMs);
+    return {
+      apiKeyHash: pending.apiKeyHash,
+      invitationId: String(invitation._id),
+      invitedUserId: String(invitedUser._id),
+      tenantId: String(invitation.tenantId),
+      did,
+      dni: invitation.dni,
+      smartAccountAddress: pending.smartAccountAddress,
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      purpose: INSTITUTIONAL_INVITATION_MOBILE_AUTH_PURPOSE,
     };
   }
 
@@ -267,6 +377,21 @@ export class InstitutionalMobileZkAuthService {
       }
     }
     return { application, primary };
+  }
+
+  private async loadInvitationContext(invitationId: string) {
+    if (!Types.ObjectId.isValid(invitationId)) {
+      throw new BadRequestException('Institutional invitation not found');
+    }
+    const invitation = await this.invitationModel.findById(invitationId).lean();
+    if (
+      !invitation ||
+      invitation.status !== 'PENDING' ||
+      new Date(invitation.expiresAt).getTime() <= Date.now()
+    ) {
+      throw new BadRequestException('Institutional invitation is not available');
+    }
+    return invitation;
   }
 
   private async resolveAccountByDid(did: string): Promise<string> {

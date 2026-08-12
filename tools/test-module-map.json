@@ -45,9 +45,11 @@
       "test/integration/institutional-tenants-admin-management.spec.ts",
       "test/integration/institutional-wallet-regularization.spec.ts",
       "test/integration/institutional-voting/multi-tenant-access.spec.ts",
+      "test/end-to-end/tenant-access.e2e.spec.ts",
       "test/unit/contract-runtime-config.unit.spec.ts",
       "test/unit/institutional-access-recovery-requests.service.unit.spec.ts",
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
+      "test/unit/auth.service.institutional-access-status.unit.spec.ts",
       "test/unit/institutional-admin-applications/institutional-mobile-auth.controller.unit.spec.ts",
       "test/unit/institutional-admin-applications/institutional-mobile-zk-auth.service.unit.spec.ts",
       "test/unit/institutional-mobile-authorization-receipt-verification.unit.spec.ts",
@@ -60,15 +62,6 @@
       "test/unit/institutional-wallets-rate-limit.guard.unit.spec.ts",
       "test/unit/institutional-wallets.dto.unit.spec.ts",
       "test/unit/institutional-wallets.service.unit.spec.ts"
-    ]
-  },
-  "institutional-access-e2e-pending": {
-    "name": "Institutional tenant access E2E pending realignment outside MX-02 CI",
-    "flows": [
-      "INSTITUTIONAL_ACCESS_E2E_PENDING"
-    ],
-    "files": [
-      "test/end-to-end/tenant-access.e2e.spec.ts"
     ]
   },
   "institutional-tools": {

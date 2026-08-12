@@ -42,6 +42,19 @@ export class InstitutionalMobileAuthController {
     return response as unknown as InstitutionalMobileAuthRequestResponse;
   }
 
+  @Get('invitations/:invitationId/request')
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Generar auth request ZK para una invitación institucional móvil' })
+  @ApiParam({ name: 'invitationId', description: 'ID de la invitación institucional.' })
+  @ApiResponse({ status: 200, description: 'Auth request generado.' })
+  async createInvitationRequest(
+    @Param('invitationId') invitationId: string,
+  ): Promise<InstitutionalMobileAuthRequestResponse> {
+    const response = await this.authService.createInvitationAuthRequest(invitationId);
+    return response as unknown as InstitutionalMobileAuthRequestResponse;
+  }
+
   @Post('callback')
   @Public()
   @HttpCode(HttpStatus.OK)

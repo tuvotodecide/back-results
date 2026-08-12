@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InstitutionalAdminApplicationsService } from './institutional-admin-applications.service';
+import { OfficialPublicationNotificationService } from '@/modules/institutional-voting/services/publication/official-publication-notification.service';
 
 @Injectable()
 export class InstitutionalMobileAuthorizationReconciliationWorker
@@ -11,6 +12,7 @@ export class InstitutionalMobileAuthorizationReconciliationWorker
 
   constructor(
     private readonly applications: InstitutionalAdminApplicationsService,
+    private readonly notificationService: OfficialPublicationNotificationService,
     private readonly config: ConfigService,
   ) {}
 
@@ -46,6 +48,13 @@ export class InstitutionalMobileAuthorizationReconciliationWorker
       if (result.processed) processed += 1;
       if (result.reissuable) await this.applications.recoverFailedMobileAuthorization(String(row._id));
     }
+    await this.notificationService.reconcilePendingInstitutionalInvitationDeliveries(
+      this.number('reconciliationBatchSize', 10),
+    );
+    const notifications = await this.notificationService.processDueOutbox(
+      this.number('reconciliationBatchSize', 10),
+    );
+    processed += notifications.filter((item: any) => item?.processed).length;
     return { processed };
   }
 

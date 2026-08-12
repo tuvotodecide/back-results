@@ -12,6 +12,19 @@ jest.mock('@/api/vote', () => ({
   },
 }));
 
+// Tenant access does not exercise vote emission.  Isolate this incidental
+// provider so its ZK-voting graph is not constructed by InstitutionalVotingModule.
+jest.mock('@/modules/institutional-voting/services/participation/emit-vote.service', () => ({
+  EmitVoteService: class EmitVoteService {},
+}));
+
+// InstitutionalVotingModule also registers VoteWritterService, whose constructor
+// initializes a Coinbase smart account and performs an external eth_call. Tenant
+// access scenarios do not exercise voting or blockchain writes.
+jest.mock('@/modules/institutional-voting/services/core/vote-writter.service', () => ({
+  VoteWritterService: class VoteWritterService {},
+}));
+
 import appConfig from '@/config/app.config';
 import { HttpService } from '@nestjs/axios';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
@@ -74,6 +87,25 @@ jest.mock('@/modules/institutional-admin-applications/auth/institutional-mobile-
 jest.mock('@/modules/institutional-admin-applications/auth/institutional-mobile-zk-auth.guard', () => ({
   InstitutionalMobileZkAuthGuard: jest.fn().mockImplementation(() => ({
     canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/modules/institutional-voting/auth/official-publication-mobile-zk-auth.guard', () => ({
+  OfficialPublicationMobileZkAuthGuard: jest.fn().mockImplementation(() => ({
+    canActivate: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock('@/modules/institutional-voting/auth/official-publication-mobile-zk-auth.service', () => ({
+  OfficialPublicationMobileZkAuthService: jest.fn().mockImplementation(() => ({
+    createAuthRequest: jest.fn().mockResolvedValue({
+      apiKey: 'mock-official-publication-mobile-api-key',
+      request: {},
+      expiresAt: '2026-07-28T00:00:00.000Z',
+    }),
+    callback: jest.fn().mockResolvedValue({}),
+    getContextByApiKey: jest.fn().mockResolvedValue(null),
+    hashApiKey: jest.fn((apiKey: string) => `mock-hash-${apiKey}`),
   })),
 }));
 
@@ -748,6 +780,77 @@ it('D-APR-003 | rechaza solicitud tenant y bloquea el login del solicitante', as
       .expect(401);
 
     expect(loginRes.body.message).toBe('La solicitud institucional fue rechazada');
+  });
+
+it('REG-ACCESS-STATUS-001 | una invitación posterior reemplaza el rechazo histórico en el login', async () => {
+    const suffix = Date.now();
+    const institutionName = `Institution Retry ${suffix}`;
+    const primaryEmail = `primary-retry-${suffix}@example.com`;
+    const targetEmail = `target-retry-${suffix}@example.com`;
+    const targetDni = `T${suffix}`;
+    const primary = await createAndVerifyApplication({
+      dni: `P${suffix}`,
+      email: primaryEmail,
+      name: 'Primary Retry',
+      institutionName,
+    });
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${primary.createRes.body.id}/approve`)
+      .auth(adminToken, { type: 'bearer' })
+      .expect(201);
+    await confirmInstitutionCreation(primary.createRes.body.id);
+
+    const primaryLogin = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: primaryEmail, password: 'secret123' })
+      .expect(200);
+    const rejected = await createAndVerifyApplication({
+      dni: targetDni,
+      email: targetEmail,
+      name: 'Target Retry',
+      institutionName,
+    });
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/${rejected.createRes.body.id}/reject`)
+      .auth(adminToken, { type: 'bearer' })
+      .send({ reason: 'Rechazo histórico' })
+      .expect(201);
+
+    const rejectedApplication = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(rejected.createRes.body.id),
+    });
+    expect(rejectedApplication).toEqual(expect.objectContaining({ status: 'REJECTED' }));
+    const rejectedAssignment = await conn.collection('tenant_admin_assignments').findOne({
+      tenantId: rejectedApplication?.tenantId,
+      userId: rejectedApplication?.userId,
+    });
+    expect(rejectedAssignment).toEqual(expect.objectContaining({
+      status: 'REJECTED',
+      active: false,
+    }));
+
+    const invitationCreated = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/tenants/${rejectedApplication?.tenantId}/invitations`)
+      .auth(primaryLogin.body.accessToken, { type: 'bearer' })
+      .send({ dni: targetDni, name: 'Target Retry' })
+      .expect(201);
+    const invitation = await conn.collection('institutional_admin_invitations').findOne({
+      _id: new Types.ObjectId(invitationCreated.body.id),
+    });
+    const accepted = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/invitations/${invitationCreated.body.id}/accept`)
+      .send({ token: invitation?.invitationToken, email: targetEmail })
+      .expect(201);
+    expect(accepted.body.applicationStatus).toBe('PENDING_APPROVAL');
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: targetEmail, password: 'secret123' })
+      .expect(401)
+      .expect((res) => {
+        expect(res.body.code).toBe('TENANT_ACCESS_PENDING');
+        expect(res.body.code).not.toBe('TENANT_ACCESS_REJECTED');
+      });
   });
 
 it('D-REV-001 | revoca acceso tenant aprobado y bloquea el login del solicitante', async () => {

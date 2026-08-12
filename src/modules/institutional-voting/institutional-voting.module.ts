@@ -65,6 +65,10 @@ import {
   InstitutionalAdminApplication,
   InstitutionalAdminApplicationSchema,
 } from '../institutional-admin-applications/schemas/institutional-admin-application.schema';
+import {
+  InstitutionalAdminInvitation,
+  InstitutionalAdminInvitationSchema,
+} from '../institutional-admin-applications/schemas/institutional-admin-invitation.schema';
 import { ZkAuthModule } from '../zk-auth/zk-auth.module';
 import { MailModule } from '../mail/mail.module';
 import { User, UserSchema } from '../users/schemas/user.schema';
@@ -128,6 +132,7 @@ import { CreditsReaderService } from './services/core/credits-reader.service';
       { name: InstitutionalTenant.name, schema: InstitutionalTenantSchema },
       { name: TenantAdminAssignment.name, schema: TenantAdminAssignmentSchema },
       { name: InstitutionalAdminApplication.name, schema: InstitutionalAdminApplicationSchema },
+      { name: InstitutionalAdminInvitation.name, schema: InstitutionalAdminInvitationSchema },
       { name: RoledUser.name, schema: RoledUserSchema },
       { name: User.name, schema: UserSchema },
       { name: UserNotification.name, schema: UserNotificationSchema },

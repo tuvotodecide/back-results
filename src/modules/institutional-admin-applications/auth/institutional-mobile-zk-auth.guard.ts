@@ -33,7 +33,7 @@ export class InstitutionalMobileZkAuthGuard implements CanActivate {
     }
 
     const authContext = await this.authService.getContextByApiKey(apiKey);
-    if (!authContext) {
+    if (!authContext || authContext.purpose !== 'INSTITUTIONAL_AUTHORIZATION') {
       throw new UnauthorizedException();
     }
 
