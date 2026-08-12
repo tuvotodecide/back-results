@@ -82,9 +82,7 @@ export class InstitutionalMobileZkAuthService {
       this.resolvePositiveNumber('app.officialPublicationMobileAuth.pendingTtlMs', 3 * 60 * 1000),
     );
     this.callbackUrl =
-      this.config.get<string>('app.institutionalMobileAuth.callbackUrl') ||
-      this.config.get<string>('app.officialPublicationMobileAuth.callbackUrl') ||
-      '';
+      this.config.get<string>('app.institutionalMobileAuth.callbackUrl') || '';
     this.audience = this.config.get<string>('app.zkAuth.audience') || '';
     this.rpcUrl = this.config.get<string>('app.zkAuth.rpcUrl') || '';
     this.network = this.config.get<string>('app.zkAuth.network') || '';

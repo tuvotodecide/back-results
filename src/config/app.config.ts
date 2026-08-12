@@ -96,6 +96,18 @@ export default registerAs('app', () => ({
     ),
   },
 
+  institutionalMobileAuth: {
+    callbackUrl: process.env.INSTITUTIONAL_MOBILE_AUTH_CALLBACK_URL,
+    ttlMs: parseInt(
+      process.env.INSTITUTIONAL_MOBILE_AUTH_TTL_MS || '600000',
+      10,
+    ),
+    pendingTtlMs: parseInt(
+      process.env.INSTITUTIONAL_MOBILE_AUTH_PENDING_TTL_MS || '180000',
+      10,
+    ),
+  },
+
   issuer: {
     baseUrl: process.env.ISSUER_BASE_URL,
     username: process.env.ISSUER_USERNAME,

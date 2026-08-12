@@ -48,6 +48,8 @@
       "test/unit/contract-runtime-config.unit.spec.ts",
       "test/unit/institutional-access-recovery-requests.service.unit.spec.ts",
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
+      "test/unit/institutional-admin-applications/institutional-mobile-auth.controller.unit.spec.ts",
+      "test/unit/institutional-admin-applications/institutional-mobile-zk-auth.service.unit.spec.ts",
       "test/unit/institutional-mobile-authorization-receipt-verification.unit.spec.ts",
       "test/unit/institutional-mobile-authorization-reconciliation.worker.unit.spec.ts",
       "test/unit/institutional-voting/institutional-voting-access.service.unit.spec.ts",

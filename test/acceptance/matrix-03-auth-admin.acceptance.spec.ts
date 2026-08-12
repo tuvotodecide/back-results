@@ -188,7 +188,7 @@ describe('MX-03 | Auth administrative canonical HTTP contract', () => {
     );
   });
 
-  it('[MX-03][AUT-HTTP-P0-001][ACEPTACION] login invalido no retorna token ni datos sensibles', async () => {
+  it('[MX-03][AUT-HTTP-P0-001][AUT-CRE-P0-003][ACEPTACION] login invalido no retorna token ni datos sensibles', async () => {
     authService.signIn.mockRejectedValueOnce(
       new ForbiddenException('Credenciales inválidas'),
     );
@@ -209,5 +209,43 @@ describe('MX-03 | Auth administrative canonical HTTP contract', () => {
     expect(response.body).not.toHaveProperty('password');
     expect(response.body).not.toHaveProperty('availableContexts');
     expect(response.body).not.toHaveProperty('accessStatus');
+  });
+
+  it('[MX-03][AUT-CRE-P1-004][INTEGRACION] dos ingresos del mismo usuario conservan rol y contexto funcional', async () => {
+    const credentials = { email: 'admin@example.com', password: 'secret123' };
+    const [first, second] = await Promise.all([
+      request(app.getHttpServer()).post('/api/v1/auth/login').send(credentials).expect(200),
+      request(app.getHttpServer()).post('/api/v1/auth/login').send(credentials).expect(200),
+    ]);
+
+    expect(authService.signIn).toHaveBeenCalledTimes(2);
+    expect(authService.signIn).toHaveBeenNthCalledWith(1, credentials);
+    expect(authService.signIn).toHaveBeenNthCalledWith(2, credentials);
+
+    for (const response of [first, second]) {
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          accessToken: expect.any(String),
+          role: 'ADMIN',
+          active: true,
+          tenantId: null,
+          availableContexts: [
+            expect.objectContaining({ type: 'GLOBAL_ADMIN', role: 'ADMIN' }),
+          ],
+          requiresContextSelection: false,
+          defaultContext: expect.objectContaining({
+            type: 'GLOBAL_ADMIN',
+            role: 'ADMIN',
+          }),
+          accessStatus,
+        }),
+      );
+      expect(response.body).not.toHaveProperty('password');
+    }
+
+    expect(first.body.role).toBe(second.body.role);
+    expect(first.body.availableContexts).toEqual(second.body.availableContexts);
+    expect(first.body.defaultContext).toEqual(second.body.defaultContext);
+    expect(first.body.accessStatus).toEqual(second.body.accessStatus);
   });
 });
