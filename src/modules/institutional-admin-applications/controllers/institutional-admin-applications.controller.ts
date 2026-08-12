@@ -163,18 +163,18 @@ export class InstitutionalAdminApplicationsController {
 
   @Post('invitations/:invitationId/reject')
   @Public()
-  @UseGuards(InstitutionalPublicRateLimitGuard)
+  @UseGuards(OfficialPublicationMobileRateLimitGuard, InstitutionalInvitationMobileZkAuthGuard)
   @ApiOperation({
     summary: 'Rechazar invitación institucional',
-    description: 'Cierra una invitación vigente sin crear solicitud ni acceso.',
+    description: 'Requiere una credencial móvil ZK vigente de la persona invitada.',
   })
   rejectInvitation(
     @Param('invitationId') invitationId: string,
-    @Body() dto: ReviewInstitutionalAdminApplicationDto = {},
+    @Req() req: any,
   ) {
-    return this.institutionalAdminApplicationsService.rejectInvitation(
+    return this.institutionalAdminApplicationsService.rejectInvitationFromMobile(
       invitationId,
-      dto.reason,
+      req.user,
     );
   }
 
@@ -218,9 +218,13 @@ export class InstitutionalAdminApplicationsController {
     description:
       'Resuelve la institución desde una invitación pendiente sin aceptar tenant ni nombre desde el cliente.',
   })
-  getInvitationRegistrationContext(@Param('invitationId') invitationId: string) {
+  getInvitationRegistrationContext(
+    @Param('invitationId') invitationId: string,
+    @Query('continuationCode') continuationCode?: string,
+  ) {
     return this.institutionalAdminApplicationsService.getInvitationRegistrationContext(
       invitationId,
+      continuationCode,
     );
   }
 

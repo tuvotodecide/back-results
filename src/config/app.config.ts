@@ -106,6 +106,10 @@ export default registerAs('app', () => ({
       process.env.INSTITUTIONAL_MOBILE_AUTH_PENDING_TTL_MS || '180000',
       10,
     ),
+    registrationContinuationTtlMs: parseInt(
+      process.env.INSTITUTIONAL_MOBILE_AUTH_REGISTRATION_CONTINUATION_TTL_MS || '300000',
+      10,
+    ),
   },
 
   issuer: {

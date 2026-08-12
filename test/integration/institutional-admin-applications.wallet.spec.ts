@@ -74,6 +74,7 @@ import { InstitutionalAdminApplication } from '@/modules/institutional-admin-app
 import { InstitutionalAdminApplicationsService } from '@/modules/institutional-admin-applications/services/institutional-admin-applications.service';
 import { InstitutionalApplicationReviewGuard } from '@/modules/institutional-admin-applications/guards/institutional-application-review.guard';
 import { InstitutionalMobileZkAuthGuard } from '@/modules/institutional-admin-applications/auth/institutional-mobile-zk-auth.guard';
+import { InstitutionalMobileZkAuthService } from '@/modules/institutional-admin-applications/auth/institutional-mobile-zk-auth.service';
 import { InstitutionalTenant } from '@/modules/institutional-tenants/schemas/institutional-tenant.schema';
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { VotingEvent } from '@/modules/institutional-voting/schemas/voting-event.schema';
@@ -102,6 +103,11 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
   let previousIdentityApiKey: string | undefined;
   let previousInstitutionalApplicationRateLimit: string | undefined;
   let previousInstitutionalVerifyEmailRateLimit: string | undefined;
+  let previousInstitutionalMobileAuthCallbackUrl: string | undefined;
+  let previousVerifierDid: string | undefined;
+  let previousZkAuthRpcUrl: string | undefined;
+  let previousZkAuthNetwork: string | undefined;
+  let previousZkAuthStateContract: string | undefined;
   let currentReviewer: any;
   let mobileAuthorizationSequence = 0;
 
@@ -135,11 +141,22 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       process.env.INSTITUTIONAL_APPLICATION_RATE_LIMIT;
     previousInstitutionalVerifyEmailRateLimit =
       process.env.INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT;
+    previousInstitutionalMobileAuthCallbackUrl = process.env.INSTITUTIONAL_MOBILE_AUTH_CALLBACK_URL;
+    previousVerifierDid = process.env.VERIFIER_DID;
+    previousZkAuthRpcUrl = process.env.ZK_AUTH_RPC_URL;
+    previousZkAuthNetwork = process.env.ZK_AUTH_NETWORK;
+    previousZkAuthStateContract = process.env.ZK_AUTH_STATE_CONTRACT;
     process.env.IDENTITY_BASE_URL = 'https://identity.example.test';
     process.env.IDENTITY_API_KEY = 'identity-test-key';
     process.env.EMAIL_VERIFICATION_BASE_URL = 'https://front.example.test';
     process.env.INSTITUTIONAL_APPLICATION_RATE_LIMIT = '1000';
     process.env.INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT = '1000';
+    process.env.INSTITUTIONAL_MOBILE_AUTH_CALLBACK_URL =
+      'https://results.example/api/v1/mobile/institutional-authorizations/auth/callback';
+    process.env.VERIFIER_DID = 'did:example:verifier';
+    process.env.ZK_AUTH_RPC_URL = 'https://rpc.example';
+    process.env.ZK_AUTH_NETWORK = 'polygon:amoy';
+    process.env.ZK_AUTH_STATE_CONTRACT = '0x0000000000000000000000000000000000000001';
 
     mongod = await MongoMemoryReplSet.create({
       replSet: { count: 1 },
@@ -282,6 +299,16 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     } else {
       process.env.INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT =
         previousInstitutionalVerifyEmailRateLimit;
+    }
+    for (const [key, previous] of [
+      ['INSTITUTIONAL_MOBILE_AUTH_CALLBACK_URL', previousInstitutionalMobileAuthCallbackUrl],
+      ['VERIFIER_DID', previousVerifierDid],
+      ['ZK_AUTH_RPC_URL', previousZkAuthRpcUrl],
+      ['ZK_AUTH_NETWORK', previousZkAuthNetwork],
+      ['ZK_AUTH_STATE_CONTRACT', previousZkAuthStateContract],
+    ] as const) {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
     }
     await app?.close();
     await conn?.close();
@@ -878,19 +905,7 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
 
   it('D-INV-001 | crea invitación para persona registrada sin habilitar acceso ni solicitud móvil', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
-    const invitedUserId = new Types.ObjectId();
     const invitedMobileUserId = new Types.ObjectId();
-    await conn.collection('roled_users').insertOne({
-      _id: invitedUserId,
-      dni: 'inv001',
-      email: 'inv001@example.com',
-      name: 'Invitada Nueva',
-      password: 'hashed',
-      role: 'USER',
-      active: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
     await conn.collection('users').insertOne({
       _id: invitedMobileUserId,
       dni: 'inv001',
@@ -915,12 +930,113 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ tenantId })).toBe(1);
     expect(await conn.collection('official_publication_notification_outbox').findOne({
       'data.type': 'INSTITUTIONAL_ADMIN_INVITATION',
-      recipientUserId: invitedUserId,
       recipientMobileUserId: invitedMobileUserId,
     })).toEqual(expect.objectContaining({
       recipientTopic: `user_${invitedMobileUserId}`,
       data: expect.objectContaining({ invitationId: response.body.id }),
     }));
+  });
+
+  it('[MX-02][D3][INTEGRACION] completa ZK y registro administrativo para identidad móvil sin RoledUser', async () => {
+    const { tenantId } = await createActiveTenantWithPrimary('Institución D3 realista');
+    const invitedMobileUserId = new Types.ObjectId();
+    await conn.collection('users').insertOne({
+      _id: invitedMobileUserId,
+      dni: 'd3real',
+      active: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const created = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
+      .send({ dni: 'd3real', name: 'Identidad móvil D3' })
+      .expect(201);
+    expect(await conn.collection('roled_users').countDocuments({ dni: 'd3real' })).toBe(0);
+
+    const authService = moduleRef.get(InstitutionalMobileZkAuthService);
+    const authRequest = await authService.createInvitationAuthRequest(created.body.id);
+    // The test double preserves the request contract but not the callback URL;
+    // the API key is the same random session id by design.
+    const sessionId = authRequest.apiKey;
+    httpService.axiosRef.get.mockResolvedValueOnce({
+      data: { ok: true, record: { accountAddress: validAccountAddress } },
+    });
+    await authService.callback(sessionId, 'mock-zk-proof');
+    const mobileContext = await authService.getContextByApiKey(authRequest.apiKey);
+    expect(mobileContext).toEqual(expect.objectContaining({
+      invitationId: created.body.id,
+      dni: 'd3real',
+      smartAccountAddress: validAccountAddress,
+      purpose: 'INSTITUTIONAL_INVITATION',
+    }));
+
+    const accepted = await applicationsService.acceptInvitationFromMobile(created.body.id, {
+      sub: String((mobileContext as any).did),
+      dni: 'd3real',
+      smartAccountAddress: validAccountAddress,
+      invitationId: created.body.id,
+      mobileAuthContextHash: String((mobileContext as any).apiKeyHash),
+      authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK',
+    });
+    expect(accepted).toMatchObject({
+      status: 'REQUIRES_ADMIN_ACCOUNT',
+      invitationId: created.body.id,
+      continuationCode: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    await expect(applicationsService.getInvitationRegistrationContext(
+      created.body.id,
+      accepted.continuationCode,
+    )).resolves.toMatchObject({ tenant: { id: String(tenantId) } });
+
+    const registrationPayload = {
+      invitationId: created.body.id,
+      registrationContinuationCode: accepted.continuationCode,
+      dni: 'd3real',
+      name: 'Cuenta Administrativa D3',
+      email: 'd3real@example.com',
+      password: 'ClaveD3Segura123',
+    };
+    const concurrentRegistrations = await Promise.all([
+      request(app.getHttpServer())
+        .post('/api/v1/institutional-admin-applications')
+        .send(registrationPayload),
+      request(app.getHttpServer())
+        .post('/api/v1/institutional-admin-applications')
+        .send(registrationPayload),
+    ]);
+    expect(concurrentRegistrations.filter((result) => result.status === 201)).toHaveLength(1);
+    expect(concurrentRegistrations.filter((result) => result.status === 409)).toHaveLength(1);
+    const registered = concurrentRegistrations.find((result) => result.status === 201)!;
+    const application = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(registered.body.id),
+    });
+    expect(application).toMatchObject({
+      invitationId: new Types.ObjectId(created.body.id),
+      tenantId,
+      status: 'PENDING_EMAIL_VERIFICATION',
+    });
+    expect(await conn.collection('roled_users').findOne({ dni: 'd3real' })).toEqual(
+      expect.objectContaining({ email: 'd3real@example.com' }),
+    );
+    await request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications')
+      .send(registrationPayload)
+      .expect(201);
+    expect(registered.body).toEqual(expect.objectContaining({
+      id: registered.body.id,
+      status: 'PENDING_EMAIL_VERIFICATION',
+    }));
+    expect(await conn.collection('institutional_admin_applications').countDocuments({
+      invitationId: new Types.ObjectId(created.body.id),
+    })).toBe(1);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/institutional-admin-applications/verify-email')
+      .send({ token: application?.verificationToken })
+      .expect(201);
+    await expect(conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(registered.body.id),
+    })).resolves.toMatchObject({ status: 'PENDING_APPROVAL' });
   });
 
   it('D-INV-002 / D-INV-012 | reutiliza cuenta existente al aceptar y no duplica usuario', async () => {
@@ -1085,11 +1201,25 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/invitations/${created.body.id}/reject`)
       .send({ reason: 'No acepta' })
-      .expect(201);
+      .expect(401);
+
+    const authService = moduleRef.get(InstitutionalMobileZkAuthService);
+    const authRequest = await authService.createInvitationAuthRequest(created.body.id);
+    httpService.axiosRef.get.mockResolvedValueOnce({
+      data: { ok: true, record: { accountAddress: validAccountAddress } },
+    });
+    await authService.callback(authRequest.apiKey, 'mock-zk-proof');
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/invitations/${created.body.id}/reject`)
+      .set('x-api-key', authRequest.apiKey)
+      .expect(200);
 
     expect(await conn.collection('institutional_admin_invitations').findOne({
       _id: new Types.ObjectId(created.body.id),
-    })).toEqual(expect.objectContaining({ status: 'REJECTED', reason: 'No acepta' }));
+    })).toEqual(expect.objectContaining({
+      status: 'REJECTED',
+      reason: 'Rechazada desde el teléfono',
+    }));
     expect(await conn.collection('institutional_admin_applications').countDocuments()).toBe(0);
   });
 
@@ -2154,14 +2284,12 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       expect.objectContaining({
         invitationId: new Types.ObjectId(created.body.id),
         tenantId,
-        recipientUserId: invitedUserId,
         recipientMobileUserId: invitedMobileUserId,
         deliveryAttempt: 1,
       }),
       expect.objectContaining({
         invitationId: new Types.ObjectId(created.body.id),
         tenantId,
-        recipientUserId: invitedUserId,
         recipientMobileUserId: invitedMobileUserId,
         deliveryAttempt: 2,
       }),

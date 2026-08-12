@@ -230,21 +230,19 @@ export class OfficialPublicationNotificationService {
     ) {
       return { enqueued: false, skipped: 'invitation_not_pending' };
     }
-    const [tenant, invitedUser] = await Promise.all([
+    const [tenant, mobileUser] = await Promise.all([
       this.tenantModel.findById(invitation.tenantId).lean(),
-      this.roledUserModel.findOne({ dni: invitation.dni }, { _id: 1, dni: 1 }).lean(),
+      this.findMobileUser(this.normalizeDni(invitation.dni), invitation.dni),
     ]);
-    if (!tenant || !invitedUser?._id || !invitedUser.dni) {
-      return { enqueued: false, skipped: 'invited_user_not_found' };
+    if (!tenant || !mobileUser?._id) {
+      return { enqueued: false, skipped: 'invited_mobile_identity_not_found' };
     }
-    const dni = this.normalizeDni(invitedUser.dni);
-    const mobileUser = await this.findMobileUser(dni, invitedUser.dni);
-    if (!mobileUser) return { enqueued: false, skipped: 'mobile_user_not_found' };
+    const dni = this.normalizeDni(invitation.dni);
 
     const deliveryAttempt = this.resolveDeliveryAttempt(
       options.deliveryAttempt ?? invitation.noticeCount,
     );
-    const baseDeduplicationKey = `${INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE}:${String(invitation._id)}:${String(invitedUser._id)}`;
+    const baseDeduplicationKey = `${INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE}:${String(invitation._id)}:${String(mobileUser._id)}`;
     // Preserve generation 1 so deployments with existing outboxes do not send
     // an invitation again merely because the reconciliation worker was added.
     const deduplicationKey = deliveryAttempt === 1
@@ -271,7 +269,7 @@ export class OfficialPublicationNotificationService {
         notificationId, deduplicationKey, type: INSTITUTIONAL_INVITATION_NOTIFICATION_TYPE,
         invitationId: invitation._id, tenantId: invitation.tenantId,
         deliveryAttempt,
-        recipientUserId: invitedUser._id, recipientMobileUserId: mobileUser._id,
+        recipientMobileUserId: mobileUser._id,
         recipientIdentityId: dni, recipientTopic: topic,
         smartAccountAddress: String(invitation.accountAddress).toLowerCase(),
         title, body, data, status: 'PENDING', attemptCount: 0, nextAttemptAt: new Date(),
@@ -579,10 +577,14 @@ export class OfficialPublicationNotificationService {
       invitation?.status !== 'PENDING' ||
       new Date(invitation.expiresAt).getTime() <= Date.now()
     ) return false;
-    const invitedUser = await this.roledUserModel
-      .findOne({ _id: item.recipientUserId, dni: invitation.dni }, { _id: 1 })
-      .lean();
-    return Boolean(invitedUser);
+    const mobileUser = await this.findMobileUser(
+      this.normalizeDni(invitation.dni),
+      invitation.dni,
+    );
+    return Boolean(
+      mobileUser?._id &&
+      String(mobileUser._id) === String(item.recipientMobileUserId),
+    );
   }
 
   private async findMobileUser(dni: string, legacyDni?: string) {

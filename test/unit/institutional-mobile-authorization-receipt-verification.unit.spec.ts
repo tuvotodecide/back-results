@@ -46,7 +46,8 @@ describe('InstitutionalAdminApplicationsService receipt verification', () => {
     }) };
     service = new InstitutionalAdminApplicationsService(
       {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
-      {} as any, config as any, {} as any, {} as any, {} as any, {} as any, userOperationService, chainVerificationService,
+      {} as any, config as any, {} as any, {} as any, {} as any, {} as any,
+      userOperationService, chainVerificationService, {} as any,
     );
     jest.spyOn(service as any, 'resolveMobileAuthorizationContext').mockResolvedValue({
       tenant: { _id: 'tenant-1' }, primary: { accountAddress: signer },

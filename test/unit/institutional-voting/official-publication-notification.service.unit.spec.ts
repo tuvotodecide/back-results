@@ -251,13 +251,12 @@ describe('OfficialPublicationNotificationService', () => {
       expiresAt: new Date('2099-01-01T00:00:00.000Z'),
     }) });
     models.tenant.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: tenantId, name: 'Tenant' }) });
-    models.roledUser.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: signerUserId, dni: '123456' }) });
 
     const result = await service.enqueueForInstitutionalInvitation(String(invitationId));
 
     expect(result).toMatchObject({
       enqueued: true,
-      deduplicationKey: `INSTITUTIONAL_ADMIN_INVITATION:${invitationId}:${signerUserId}`,
+      deduplicationKey: `INSTITUTIONAL_ADMIN_INVITATION:${invitationId}:${mobileUserId}`,
     });
     expect(models.outbox.findOneAndUpdate).toHaveBeenCalledWith(
       expect.anything(),
@@ -287,28 +286,26 @@ describe('OfficialPublicationNotificationService', () => {
       expiresAt: new Date('2099-01-01T00:00:00.000Z'),
     }) });
     models.tenant.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: tenantId, name: 'Tenant' }) });
-    models.roledUser.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: signerUserId, dni: '123456' }) });
 
     await expect(service.enqueueForInstitutionalInvitation(String(invitationId), {
       deliveryAttempt: 2,
     })).resolves.toMatchObject({
       enqueued: true,
       notificationId: `iinvite_${invitationId}_2`,
-      deduplicationKey: `INSTITUTIONAL_ADMIN_INVITATION:${invitationId}:${signerUserId}:delivery:2`,
+      deduplicationKey: `INSTITUTIONAL_ADMIN_INVITATION:${invitationId}:${mobileUserId}:delivery:2`,
     });
 
     const inserted = models.outbox.findOneAndUpdate.mock.calls.at(-1)[1].$setOnInsert;
     expect(inserted).toMatchObject({
       invitationId,
       tenantId,
-      recipientUserId: signerUserId,
       recipientMobileUserId: mobileUserId,
       deliveryAttempt: 2,
       data: expect.objectContaining({ invitationId: String(invitationId), deliveryAttempt: '2' }),
     });
   });
 
-  it('recupera la invitación original cuando aparecen después la cuenta y el usuario móvil, sin duplicar el outbox', async () => {
+  it('recupera la invitación original cuando aparece la identidad móvil, sin requerir cuenta administrativa', async () => {
     const invitationId = new Types.ObjectId();
     const invitation = {
       _id: invitationId,
@@ -326,18 +323,12 @@ describe('OfficialPublicationNotificationService', () => {
     });
     models.invitation.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(invitation) });
     models.tenant.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: tenantId, name: 'Tenant' }) });
-    models.roledUser.findOne
-      .mockReturnValueOnce({ lean: jest.fn().mockResolvedValue(null) })
-      .mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: signerUserId, dni: '123456' }) });
     models.user.findOne
       .mockResolvedValueOnce(null)
       .mockResolvedValue({ _id: mobileUserId, dni: '123456' });
 
     await expect(service.reconcilePendingInstitutionalInvitationDeliveries()).resolves.toEqual([
-      expect.objectContaining({ invitationId: String(invitationId), enqueued: false, skipped: 'invited_user_not_found' }),
-    ]);
-    await expect(service.reconcilePendingInstitutionalInvitationDeliveries()).resolves.toEqual([
-      expect.objectContaining({ invitationId: String(invitationId), enqueued: false, skipped: 'mobile_user_not_found' }),
+      expect.objectContaining({ invitationId: String(invitationId), enqueued: false, skipped: 'invited_mobile_identity_not_found' }),
     ]);
     await expect(service.reconcilePendingInstitutionalInvitationDeliveries()).resolves.toEqual([
       expect.objectContaining({ invitationId: String(invitationId), enqueued: true }),
@@ -415,9 +406,9 @@ describe('OfficialPublicationNotificationService', () => {
     const item: any = {
       _id: new Types.ObjectId(),
       notificationId: `iinvite_${invitationId}`,
-      deduplicationKey: `INSTITUTIONAL_ADMIN_INVITATION:${invitationId}:${signerUserId}`,
+      deduplicationKey: `INSTITUTIONAL_ADMIN_INVITATION:${invitationId}:${mobileUserId}`,
       invitationId,
-      recipientUserId: signerUserId,
+      recipientMobileUserId: mobileUserId,
       recipientTopic: `user_${mobileUserId}`,
       type: 'INSTITUTIONAL_ADMIN_INVITATION',
       title: 'Invitación institucional',
@@ -430,7 +421,6 @@ describe('OfficialPublicationNotificationService', () => {
     models.invitation.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({
       _id: invitationId, dni: '123456', status: 'PENDING', expiresAt: new Date('2099-01-01'),
     }) });
-    models.roledUser.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: signerUserId }) });
     sendMock.mockRejectedValueOnce(new Error('fcm unavailable'));
 
     await expect(service.processOne(item.notificationId)).resolves.toMatchObject({

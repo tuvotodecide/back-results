@@ -1,6 +1,54 @@
 export const INSTITUTIONAL_MOBILE_AUTH_PURPOSE = 'INSTITUTIONAL_AUTHORIZATION' as const;
 export const INSTITUTIONAL_INVITATION_MOBILE_AUTH_PURPOSE =
   'INSTITUTIONAL_INVITATION' as const;
+export const INSTITUTIONAL_INVITATION_REGISTRATION_CONTINUATION =
+  'INSTITUTIONAL_INVITATION_REGISTRATION_CONTINUATION' as const;
+
+export type InstitutionalInvitationRegistrationContinuation = {
+  purpose: 'D3_ADMIN_REGISTRATION';
+  invitationId: string;
+  tenantId: string;
+  dni: string;
+  smartAccountAddress: string;
+  did: string;
+  mobileAuthContextHash: string;
+  issuedAt: string;
+  expiresAt: string;
+  usedAt?: string;
+  state?: 'AVAILABLE' | 'CLAIMED' | 'COMPLETED';
+};
+
+export type InstitutionalInvitationRegistrationContinuationClaim = {
+  claimId: string;
+  continuation: InstitutionalInvitationRegistrationContinuation;
+};
+
+export interface InstitutionalInvitationRegistrationContinuationService {
+  issueInvitationRegistrationContinuation(mobileAuthContextHash: string): Promise<{
+    continuationCode: string;
+    expiresAt: string;
+  }>;
+  getInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+  ): Promise<InstitutionalInvitationRegistrationContinuation>;
+  claimInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+  ): Promise<InstitutionalInvitationRegistrationContinuationClaim>;
+  completeInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+    claimId: string,
+    applicationId: string,
+    session?: unknown,
+  ): Promise<void>;
+  releaseInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+    claimId: string,
+  ): Promise<void>;
+}
 
 export type InstitutionalMobileAuthContext = {
   apiKeyHash: string;
@@ -26,7 +74,6 @@ export type InstitutionalMobileRequestUser = {
 export type InstitutionalInvitationMobileAuthContext = {
   apiKeyHash: string;
   invitationId: string;
-  invitedUserId: string;
   tenantId: string;
   did: string;
   dni: string;
@@ -41,5 +88,7 @@ export type InstitutionalInvitationMobileRequestUser = {
   dni: string;
   smartAccountAddress: string;
   invitationId: string;
+  /** Hash interno de la sesión ZK; nunca se expone al cliente web. */
+  mobileAuthContextHash: string;
   authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK';
 };

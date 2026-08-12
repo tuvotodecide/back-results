@@ -49,6 +49,34 @@ export class InstitutionalAdminInvitation {
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalAdminApplication', default: null })
   applicationId?: Types.ObjectId | null;
 
+  /**
+   * Durable, hashed state for the post-ZK D3 continuation. Keeping it on the
+   * invitation lets Mongo atomically arbitrate a continuation across replicas.
+   */
+  @Prop({ type: String, trim: true, select: false, default: null })
+  registrationContinuationCodeHash?: string | null;
+
+  @Prop({ type: String, enum: ['AVAILABLE', 'CLAIMED', 'COMPLETED'], default: null })
+  registrationContinuationState?: 'AVAILABLE' | 'CLAIMED' | 'COMPLETED' | null;
+
+  @Prop({ type: Date, default: null })
+  registrationContinuationExpiresAt?: Date | null;
+
+  @Prop({ type: Date, default: null })
+  registrationContinuationClaimExpiresAt?: Date | null;
+
+  @Prop({ type: String, trim: true, select: false, default: null })
+  registrationContinuationClaimId?: string | null;
+
+  @Prop({ type: Date, default: null })
+  registrationContinuationCompletedAt?: Date | null;
+
+  @Prop({ type: String, trim: true, default: null })
+  registrationContinuationDid?: string | null;
+
+  @Prop({ type: String, trim: true, default: null })
+  registrationContinuationMobileAuthContextHash?: string | null;
+
   @Prop({ type: Number, default: 1, min: 0 })
   noticeCount?: number;
 
@@ -64,4 +92,8 @@ export const InstitutionalAdminInvitationSchema =
 
 InstitutionalAdminInvitationSchema.index(
   { tenantId: 1, dni: 1, status: 1 },
+);
+InstitutionalAdminInvitationSchema.index(
+  { registrationContinuationCodeHash: 1 },
+  { sparse: true },
 );

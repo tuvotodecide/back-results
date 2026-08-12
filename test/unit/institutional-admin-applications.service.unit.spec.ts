@@ -46,6 +46,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
   let httpService: any;
   let auditService: any;
   let historyService: any;
+  let mobileZkAuthService: any;
   let service: InstitutionalAdminApplicationsService;
   let session: any;
 
@@ -144,6 +145,16 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     historyService = {
       createWithSession: jest.fn().mockResolvedValue({ success: true, data: null }),
     };
+    mobileZkAuthService = {
+      getInvitationRegistrationContinuation: jest.fn(),
+      claimInvitationRegistrationContinuation: jest.fn().mockResolvedValue({
+        claimId: 'd3-claim',
+        continuation: { purpose: 'D3_ADMIN_REGISTRATION' },
+      }),
+      completeInvitationRegistrationContinuation: jest.fn().mockResolvedValue(undefined),
+      releaseInvitationRegistrationContinuation: jest.fn().mockResolvedValue(undefined),
+      issueInvitationRegistrationContinuation: jest.fn(),
+    };
     (executeCoinbaseOp as jest.Mock).mockReset();
     (VoteContractCalls.createInstitution as jest.Mock).mockReset();
     (VoteContractReads.getInstitutionAdmin as jest.Mock).mockReset();
@@ -170,6 +181,7 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       { enqueueForInstitutionalAuthorization: jest.fn().mockResolvedValue({ enqueued: true }) } as any,
       { getUserOperationByHash: jest.fn(), getUserOperationReceipt: jest.fn() } as any,
       { decodeSmartAccountCalls: jest.fn() } as any,
+      mobileZkAuthService,
     );
   });
 
@@ -258,20 +270,33 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       nameNorm: 'institucion invitante',
     };
     invitationModel.findById.mockReturnValue(invitation);
+    mailService.enqueueInstitutionalVerificationEmail = jest.fn().mockResolvedValue(undefined);
     tenantModel.findById.mockResolvedValue(tenant);
     applicationModel.findOne.mockResolvedValue(null);
+    mobileZkAuthService.getInvitationRegistrationContinuation.mockResolvedValue({
+      purpose: 'D3_ADMIN_REGISTRATION',
+      invitationId: invitationId.toString(),
+      tenantId: tenantId.toString(),
+      dni: '123456',
+      smartAccountAddress: validAccountAddress,
+      did: 'did:example:invited',
+      mobileAuthContextHash: 'context-hash',
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
     roledUserModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
-    roledUserModel.create.mockResolvedValue({ _id: userId, password: 'hashed-password' });
-    applicationModel.create.mockResolvedValue({
+    roledUserModel.create.mockResolvedValue([{ _id: userId, password: 'hashed-password' }]);
+    applicationModel.create.mockResolvedValue([{
       _id: appId,
       status: 'PENDING_EMAIL_VERIFICATION',
       email: 'invitado@example.com',
       name: 'Persona invitada',
       userId,
-    });
+    }]);
 
     await expect(service.createApplication({
       invitationId: invitationId.toString(),
+      registrationContinuationCode: 'a'.repeat(64),
       dni: '123456',
       name: 'Persona invitada',
       email: 'INVITADO@example.com',
@@ -287,20 +312,63 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       userId: userId.toString(),
     });
 
-    expect(applicationModel.create).toHaveBeenCalledWith(expect.objectContaining({
+    expect(applicationModel.create).toHaveBeenCalledWith([expect.objectContaining({
       tenantId,
       invitationId,
       institutionName: 'Institución invitante',
       institutionNameNorm: 'institucion invitante',
       accountAddress: validAccountAddress,
       status: 'PENDING_EMAIL_VERIFICATION',
-    }));
-    expect(applicationModel.create.mock.calls[0][0]).not.toMatchObject({
+    })], { session });
+    expect(applicationModel.create.mock.calls[0][0][0]).not.toMatchObject({
       institutionName: 'Institución manipulada',
     });
     expect(invitation.applicationId).toEqual(appId);
     expect(invitation.status).toBe('PENDING');
-    expect(mailService.sendEmail).toHaveBeenCalled();
+    expect(mobileZkAuthService.completeInvitationRegistrationContinuation).toHaveBeenCalledWith(
+      'a'.repeat(64),
+      invitationId.toString(),
+      'd3-claim',
+      appId.toString(),
+      session,
+    );
+    expect(mailService.enqueueInstitutionalVerificationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ targetId: appId, session }),
+    );
+  });
+
+  it('[MX-02][D3][TX-D3-02][UNITARIA] libera el claim si la transacción falla y no deja una continuación irrecuperable', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000019');
+    const invitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '123456',
+      accountAddress: validAccountAddress,
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+      applicationId: undefined,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    invitationModel.findById.mockReturnValue(invitation);
+    tenantModel.findById.mockResolvedValue({ _id: tenantId, name: 'Institución', nameNorm: 'institucion' });
+    applicationModel.findOne.mockResolvedValue(null);
+    mobileZkAuthService.getInvitationRegistrationContinuation.mockResolvedValue({
+      invitationId: String(invitationId), tenantId: String(tenantId), dni: '123456',
+      smartAccountAddress: validAccountAddress, purpose: 'D3_ADMIN_REGISTRATION',
+    });
+    mobileZkAuthService.claimInvitationRegistrationContinuation.mockResolvedValue({ claimId: 'retry-claim' });
+    session.withTransaction.mockRejectedValueOnce(new Error('application insert failed'));
+
+    await expect(service.createApplication({
+      invitationId: String(invitationId), registrationContinuationCode: 'b'.repeat(64),
+      dni: '123456', name: 'Persona', email: 'persona@example.com', password: 'secret123',
+    })).rejects.toThrow('application insert failed');
+
+    expect(mobileZkAuthService.releaseInvitationRegistrationContinuation).toHaveBeenCalledWith(
+      'b'.repeat(64), String(invitationId), 'retry-claim',
+    );
+    expect(session.endSession).toHaveBeenCalled();
   });
 
   it('[MX-02][D3][UNITARIA] la aceptación móvil devuelve acción funcional cuando falta cuenta administrativa y hasAdminAccount no es fijo', async () => {
@@ -320,20 +388,71 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       invitationId: invitationId.toString(),
       dni: '123456',
       smartAccountAddress: validAccountAddress,
+      mobileAuthContextHash: 'verified-mobile-auth-context',
       authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK' as const,
     };
     invitationModel.findById.mockReturnValue(invitation);
     tenantModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue(tenant) });
     roledUserModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(null) });
+    mobileZkAuthService.issueInvitationRegistrationContinuation.mockResolvedValue({
+      continuationCode: 'b'.repeat(64),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
 
     await expect(service.acceptInvitationFromMobile(invitationId.toString(), authUser))
       .resolves.toEqual({
         status: 'REQUIRES_ADMIN_ACCOUNT',
         invitationId: invitationId.toString(),
         tenant: { id: tenantId.toString(), name: 'Institución invitante' },
+        continuationCode: 'b'.repeat(64),
+        continuationExpiresAt: expect.any(String),
       });
     await expect(service.getMobileInvitationRequest(invitationId.toString(), authUser))
       .resolves.toEqual(expect.objectContaining({ hasAdminAccount: false }));
+  });
+
+  it('[MX-02][D4][UNITARIA] reutiliza la cuenta administrativa existente sin emitir continuación ni pedir registro web', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000013');
+    const invitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '123456',
+      accountAddress: validAccountAddress,
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+    };
+    const existingAdmin = {
+      _id: userId,
+      dni: '123456',
+      email: 'existing@example.com',
+      password: 'hash',
+    };
+    const authUser = {
+      sub: 'did:example:existing-admin',
+      invitationId: invitationId.toString(),
+      dni: '123456',
+      smartAccountAddress: validAccountAddress,
+      mobileAuthContextHash: 'verified-mobile-auth-context',
+      authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK' as const,
+    };
+    invitationModel.findById.mockReturnValue(invitation);
+    roledUserModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(existingAdmin) });
+    const acceptSpy = jest.spyOn(service as any, 'acceptInvitationForUser').mockResolvedValue({
+      status: 'ACCEPTED',
+      applicationStatus: 'PENDING_APPROVAL',
+    });
+
+    await expect(service.acceptInvitationFromMobile(invitationId.toString(), authUser)).resolves.toEqual({
+      status: 'ACCEPTED',
+      applicationStatus: 'PENDING_APPROVAL',
+    });
+    expect(acceptSpy).toHaveBeenCalledWith(
+      invitationId.toString(),
+      { token: invitation.invitationToken, email: existingAdmin.email },
+      userId.toString(),
+    );
+    expect(mobileZkAuthService.issueInvitationRegistrationContinuation).not.toHaveBeenCalled();
   });
 
   it('[MX-02][D3][UNITARIA] al verificar el correo mantiene la solicitud para aprobación y consume la invitación asociada', async () => {

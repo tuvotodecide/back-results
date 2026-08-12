@@ -53,8 +53,10 @@ export class OfficialPublicationNotificationOutbox {
   @Prop({ required: false, min: 1, default: 1, index: true })
   deliveryAttempt?: number;
 
-  @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: true, index: true })
-  recipientUserId!: Types.ObjectId;
+  // Invitation recipients can be mobile identities before they create a
+  // RoledUser administrative account. Other notification types still set it.
+  @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: false, index: true })
+  recipientUserId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   recipientMobileUserId!: Types.ObjectId;

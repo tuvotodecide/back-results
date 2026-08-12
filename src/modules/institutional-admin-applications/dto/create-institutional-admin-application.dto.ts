@@ -60,6 +60,16 @@ export class CreateInstitutionalAdminApplicationDto {
   invitationId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Código efímero emitido tras validar ZK en el móvil. Requerido para completar un registro iniciado desde una invitación.',
+  })
+  @ValidateIf((dto) => Boolean(dto.invitationId))
+  @IsString()
+  @IsNotEmpty()
+  @Length(32, 256)
+  registrationContinuationCode?: string;
+
+  @ApiPropertyOptional({
     example: 'Colegio de Ingenieros',
     description:
       'Requerido solo para el flujo explícito de institución no listada. Si institutionId existe, el backend resuelve el nombre del tenant.',

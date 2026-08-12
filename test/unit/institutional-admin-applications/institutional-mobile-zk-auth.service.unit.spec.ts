@@ -33,13 +33,19 @@ describe('InstitutionalMobileZkAuthService', () => {
 
   let cache: any;
   let service: InstitutionalMobileZkAuthService;
+  let roledUserModel: any;
+  let invitationModel: any;
+  let storedInvitation: any;
 
   const modelReturning = (value: any) => ({
     findById: jest.fn(() => ({ lean: jest.fn().mockResolvedValue(value) })),
     findOne: jest.fn(() => ({ lean: jest.fn().mockResolvedValue(value) })),
   });
 
-  const createService = (callbackUrl: string | undefined = institutionalCallback) => {
+  const createService = (
+    callbackUrl: string | undefined = institutionalCallback,
+    roledUser: any = { _id: signerUserId, dni: '1234567' },
+  ) => {
     cache = {
       store: new Map<string, any>(),
       get: jest.fn(async (key: string) => cache.store.get(key)),
@@ -53,6 +59,37 @@ describe('InstitutionalMobileZkAuthService', () => {
     mockNewVerifier.mockResolvedValue({ fullVerify: mockFullVerify });
     mockEthStateResolver.mockImplementation((rpcUrl, stateContract) => ({ rpcUrl, stateContract }));
 
+    roledUserModel = modelReturning(roledUser);
+    storedInvitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '1234567',
+      accountAddress: signerWallet,
+      status: 'PENDING',
+      expiresAt: new Date('2099-01-01'),
+      createdAt: new Date(),
+    };
+    invitationModel = {
+      findById: jest.fn((id: string) => {
+        const value = String(id) === String(invitationId) ? storedInvitation : null;
+        const result = { lean: jest.fn().mockResolvedValue(value) };
+        return { select: jest.fn(() => result), ...result };
+      }),
+      findOne: jest.fn(() => ({ lean: jest.fn().mockResolvedValue(storedInvitation) })),
+      findOneAndUpdate: jest.fn(async (_filter: any, update: any) => {
+        if (update.$set?.registrationContinuationState === 'CLAIMED') {
+          if (storedInvitation.registrationContinuationState !== 'AVAILABLE') return null;
+        }
+        Object.assign(storedInvitation, update.$set ?? {});
+        for (const key of Object.keys(update.$unset ?? {})) delete storedInvitation[key];
+        return storedInvitation;
+      }),
+      updateOne: jest.fn(async (_filter: any, update: any) => {
+        Object.assign(storedInvitation, update.$set ?? {});
+        for (const key of Object.keys(update.$unset ?? {})) delete storedInvitation[key];
+        return { modifiedCount: 1 };
+      }),
+    };
     service = new InstitutionalMobileZkAuthService(
       cache,
       {
@@ -78,9 +115,9 @@ describe('InstitutionalMobileZkAuthService', () => {
         },
       } as any,
       modelReturning({ _id: applicationId, tenantId }) as any,
-      modelReturning({ _id: invitationId, tenantId, dni: '1234567', accountAddress: signerWallet, status: 'PENDING', expiresAt: new Date('2099-01-01') }) as any,
+      invitationModel as any,
       modelReturning({ userId: signerUserId, accountAddress: signerWallet }) as any,
-      modelReturning({ _id: signerUserId, dni: '1234567' }) as any,
+      roledUserModel as any,
     );
   };
 
@@ -149,6 +186,96 @@ describe('InstitutionalMobileZkAuthService', () => {
       180000,
     );
     expect(JSON.stringify(result)).not.toContain('invitationToken');
+  });
+
+  it('permite completar ZK de una identidad móvil sin RoledUser y reclama una continuación D3 una sola vez', async () => {
+    createService(institutionalCallback, null);
+    const { apiKey, request } = await service.createInvitationAuthRequest(String(invitationId));
+    const sessionId = String((request as any).body.callbackUrl).split('sessionId=')[1];
+
+    await service.callback(sessionId, 'auth-v2-token');
+    expect(roledUserModel.findOne).not.toHaveBeenCalled();
+    const continuation = await service.issueInvitationRegistrationContinuation(
+      service.hashApiKey(apiKey),
+    );
+
+    expect(continuation.continuationCode).toMatch(/^[a-f0-9]{64}$/);
+    await expect(
+      service.getInvitationRegistrationContinuation(
+        continuation.continuationCode,
+        String(invitationId),
+      ),
+    ).resolves.toEqual(expect.objectContaining({
+      invitationId: String(invitationId),
+      tenantId: String(tenantId),
+      did: 'did:example:institutional-admin',
+      purpose: 'D3_ADMIN_REGISTRATION',
+    }));
+
+    const claim = await service.claimInvitationRegistrationContinuation(
+      continuation.continuationCode,
+      String(invitationId),
+    );
+    expect(claim.claimId).toMatch(/^[a-f0-9]{64}$/);
+    await expect(
+      service.claimInvitationRegistrationContinuation(
+        continuation.continuationCode,
+        String(invitationId),
+      ),
+    ).rejects.toThrow('already being processed');
+    await service.completeInvitationRegistrationContinuation(
+      continuation.continuationCode,
+      String(invitationId),
+      claim.claimId,
+      String(applicationId),
+    );
+    await expect(
+      service.claimInvitationRegistrationContinuation(
+        continuation.continuationCode,
+        String(invitationId),
+      ),
+    ).rejects.toThrow('already completed');
+  });
+
+  it('rechaza continuaciones expiradas o vinculadas a otra invitación', async () => {
+    const { apiKey, request } = await service.createInvitationAuthRequest(String(invitationId));
+    const sessionId = String((request as any).body.callbackUrl).split('sessionId=')[1];
+    await service.callback(sessionId, 'auth-v2-token');
+    const continuation = await service.issueInvitationRegistrationContinuation(
+      service.hashApiKey(apiKey),
+    );
+
+    await expect(
+      service.getInvitationRegistrationContinuation(
+        continuation.continuationCode,
+        String(new Types.ObjectId()),
+      ),
+    ).rejects.toThrow('mismatch');
+
+    storedInvitation.registrationContinuationExpiresAt = new Date(Date.now() - 1);
+    await expect(
+      service.getInvitationRegistrationContinuation(
+        continuation.continuationCode,
+        String(invitationId),
+      ),
+    ).rejects.toThrow('expired');
+  });
+
+  it('reclama atómicamente una continuación cuando dos consumidores compiten', async () => {
+    const { apiKey, request } = await service.createInvitationAuthRequest(String(invitationId));
+    const sessionId = String((request as any).body.callbackUrl).split('sessionId=')[1];
+    await service.callback(sessionId, 'auth-v2-token');
+    const continuation = await service.issueInvitationRegistrationContinuation(
+      service.hashApiKey(apiKey),
+    );
+
+    const results = await Promise.allSettled([
+      service.claimInvitationRegistrationContinuation(continuation.continuationCode, String(invitationId)),
+      service.claimInvitationRegistrationContinuation(continuation.continuationCode, String(invitationId)),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
   });
 
   it('fails clearly instead of using the official publication callback when institutional configuration is missing', async () => {

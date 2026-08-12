@@ -6,6 +6,7 @@ import {
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -18,7 +19,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Cache } from 'cache-manager';
 import { createHash, randomBytes } from 'crypto';
 import path from 'path';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import {
   InstitutionalAdminApplication,
   InstitutionalAdminApplicationDocument,
@@ -37,6 +38,7 @@ import {
 } from '@/modules/auth/schemas/roledUser.schema';
 import {
   INSTITUTIONAL_INVITATION_MOBILE_AUTH_PURPOSE,
+  InstitutionalInvitationRegistrationContinuation,
   INSTITUTIONAL_MOBILE_AUTH_PURPOSE,
   InstitutionalMobileAuthContext,
   InstitutionalInvitationMobileAuthContext,
@@ -79,6 +81,7 @@ export class InstitutionalMobileZkAuthService {
   private readonly pending = new Map<string, PendingInstitutionalAuthRequest>();
   private readonly ttlMs: number;
   private readonly pendingTtlMs: number;
+  private readonly registrationContinuationTtlMs: number;
   private readonly callbackUrl: string;
   private readonly audience: string;
   private readonly network: string;
@@ -108,6 +111,10 @@ export class InstitutionalMobileZkAuthService {
     this.pendingTtlMs = this.resolvePositiveNumber(
       'app.institutionalMobileAuth.pendingTtlMs',
       this.resolvePositiveNumber('app.officialPublicationMobileAuth.pendingTtlMs', 3 * 60 * 1000),
+    );
+    this.registrationContinuationTtlMs = this.resolvePositiveNumber(
+      'app.institutionalMobileAuth.registrationContinuationTtlMs',
+      5 * 60 * 1000,
     );
     this.callbackUrl =
       this.config.get<string>('app.institutionalMobileAuth.callbackUrl') || '';
@@ -279,6 +286,226 @@ export class InstitutionalMobileZkAuthService {
     };
   }
 
+  /**
+   * Exchanges a verified mobile-ZK context for a short-lived, opaque D3
+   * continuation.  It intentionally does not carry an API key, proof, or
+   * administrative user id to the browser.
+   */
+  async issueInvitationRegistrationContinuation(
+    mobileAuthContextHash: string,
+  ): Promise<{ continuationCode: string; expiresAt: string }> {
+    const context = await this.cacheGet<InstitutionalInvitationMobileAuthContext>(
+      this.contextCacheKey(mobileAuthContextHash),
+    );
+    if (
+      !context ||
+      context.purpose !== INSTITUTIONAL_INVITATION_MOBILE_AUTH_PURPOSE ||
+      context.apiKeyHash !== mobileAuthContextHash ||
+      new Date(context.expiresAt).getTime() <= Date.now()
+    ) {
+      throw new UnauthorizedException('Institutional invitation mobile session expired');
+    }
+
+    const now = Date.now();
+    const remainingContextMs = new Date(context.expiresAt).getTime() - now;
+    const ttlMs = Math.min(this.registrationContinuationTtlMs, remainingContextMs);
+    if (ttlMs <= 0) {
+      throw new UnauthorizedException('Institutional invitation mobile session expired');
+    }
+    const continuationCode = randomBytes(32).toString('hex');
+    const expiresAt = new Date(now + ttlMs).toISOString();
+    const continuation: InstitutionalInvitationRegistrationContinuation = {
+      purpose: 'D3_ADMIN_REGISTRATION',
+      invitationId: context.invitationId,
+      tenantId: context.tenantId,
+      dni: context.dni,
+      smartAccountAddress: context.smartAccountAddress,
+      did: context.did,
+      mobileAuthContextHash,
+      issuedAt: new Date(now).toISOString(),
+      expiresAt,
+    };
+    const updated = await this.invitationModel.findOneAndUpdate(
+      {
+        _id: new Types.ObjectId(context.invitationId),
+        status: 'PENDING',
+        expiresAt: { $gt: new Date() },
+      },
+      {
+        $set: {
+          registrationContinuationCodeHash: this.hashApiKey(continuationCode),
+          registrationContinuationState: 'AVAILABLE',
+          registrationContinuationExpiresAt: new Date(expiresAt),
+          registrationContinuationClaimExpiresAt: null,
+          registrationContinuationClaimId: null,
+          registrationContinuationCompletedAt: null,
+          registrationContinuationDid: context.did,
+          registrationContinuationMobileAuthContextHash: mobileAuthContextHash,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!updated) {
+      throw new UnauthorizedException('Institutional invitation is no longer available');
+    }
+    return { continuationCode, expiresAt };
+  }
+
+  async getInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+  ): Promise<InstitutionalInvitationRegistrationContinuation> {
+    const code = String(continuationCode || '').trim();
+    if (!code) {
+      throw new UnauthorizedException('Institutional registration continuation is required');
+    }
+    return this.loadRegistrationContinuation(code, invitationId);
+  }
+
+  async claimInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+  ): Promise<{ claimId: string; continuation: InstitutionalInvitationRegistrationContinuation }> {
+    const code = String(continuationCode || '').trim();
+    const continuation = await this.loadRegistrationContinuation(code, invitationId);
+    if (continuation.state === 'COMPLETED') {
+      throw new ForbiddenException('Institutional registration continuation already completed');
+    }
+    const now = new Date();
+    const claimId = randomBytes(32).toString('hex');
+    const claimed = await this.invitationModel.findOneAndUpdate(
+      {
+        _id: new Types.ObjectId(invitationId),
+        registrationContinuationCodeHash: this.hashApiKey(code),
+        registrationContinuationExpiresAt: { $gt: now },
+        $or: [
+          { registrationContinuationState: 'AVAILABLE' },
+          {
+            registrationContinuationState: 'CLAIMED',
+            registrationContinuationClaimExpiresAt: { $lte: now },
+          },
+        ],
+      },
+      {
+        $set: {
+          registrationContinuationState: 'CLAIMED',
+          registrationContinuationClaimId: claimId,
+          registrationContinuationClaimExpiresAt: new Date(
+            Math.min(
+              new Date(continuation.expiresAt).getTime(),
+              now.getTime() + 2 * 60_000,
+            ),
+          ),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!claimed) {
+      const current = await this.loadRegistrationContinuation(code, invitationId);
+      if (current.state === 'COMPLETED') {
+        throw new ForbiddenException('Institutional registration continuation already completed');
+      }
+      throw new ConflictException('Institutional registration is already being processed');
+    }
+    return { claimId, continuation: { ...continuation, state: 'CLAIMED' } };
+  }
+
+  async completeInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+    claimId: string,
+    applicationId: string,
+    session?: ClientSession,
+  ): Promise<void> {
+    const query = this.invitationModel.updateOne(
+      {
+        _id: new Types.ObjectId(invitationId),
+        registrationContinuationCodeHash: this.hashApiKey(String(continuationCode || '').trim()),
+        registrationContinuationState: 'CLAIMED',
+        registrationContinuationClaimId: claimId,
+      },
+      {
+        $set: {
+          registrationContinuationState: 'COMPLETED',
+          registrationContinuationCompletedAt: new Date(),
+          applicationId: new Types.ObjectId(applicationId),
+        },
+        $unset: {
+          registrationContinuationClaimId: '',
+          registrationContinuationClaimExpiresAt: '',
+        },
+      },
+    );
+    if (session) query.session(session);
+    const result = await query;
+    if (result.modifiedCount !== 1) {
+      throw new ConflictException('Institutional registration continuation claim was lost');
+    }
+  }
+
+  async releaseInvitationRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+    claimId: string,
+  ): Promise<void> {
+    await this.invitationModel.updateOne(
+      {
+        _id: new Types.ObjectId(invitationId),
+        registrationContinuationCodeHash: this.hashApiKey(String(continuationCode || '').trim()),
+        registrationContinuationState: 'CLAIMED',
+        registrationContinuationClaimId: claimId,
+      },
+      {
+        $set: { registrationContinuationState: 'AVAILABLE' },
+        $unset: {
+          registrationContinuationClaimId: '',
+          registrationContinuationClaimExpiresAt: '',
+        },
+      },
+    );
+  }
+
+  private async loadRegistrationContinuation(
+    continuationCode: string,
+    invitationId: string,
+  ): Promise<InstitutionalInvitationRegistrationContinuation> {
+    const code = String(continuationCode || '').trim();
+    if (!code) {
+      throw new UnauthorizedException('Institutional registration continuation is required');
+    }
+    if (!Types.ObjectId.isValid(invitationId)) {
+      throw new ForbiddenException('Institutional registration continuation mismatch');
+    }
+    const invitation = await this.invitationModel.findById(invitationId).select(
+      '+registrationContinuationCodeHash +registrationContinuationClaimId',
+    ).lean();
+    if (!invitation) {
+      throw new ForbiddenException('Institutional registration continuation mismatch');
+    }
+    if (
+      invitation.registrationContinuationCodeHash !== this.hashApiKey(code) ||
+      !invitation.registrationContinuationExpiresAt ||
+      invitation.registrationContinuationExpiresAt.getTime() <= Date.now() ||
+      !invitation.registrationContinuationDid ||
+      !invitation.registrationContinuationMobileAuthContextHash
+    ) {
+      throw new UnauthorizedException('Institutional registration continuation expired');
+    }
+    return {
+      purpose: 'D3_ADMIN_REGISTRATION',
+      invitationId: String(invitation._id),
+      tenantId: String(invitation.tenantId),
+      dni: invitation.dni,
+      smartAccountAddress: String(invitation.accountAddress).toLowerCase(),
+      did: invitation.registrationContinuationDid,
+      mobileAuthContextHash: invitation.registrationContinuationMobileAuthContextHash,
+      issuedAt: (invitation as any).createdAt?.toISOString?.() ?? new Date().toISOString(),
+      expiresAt: invitation.registrationContinuationExpiresAt.toISOString(),
+      usedAt: invitation.registrationContinuationCompletedAt?.toISOString(),
+      state: invitation.registrationContinuationState ?? 'AVAILABLE',
+    };
+  }
+
   private async buildInvitationContextFromDid(
     pending: PendingInstitutionalInvitationAuthRequest,
     did: string,
@@ -297,19 +524,11 @@ export class InstitutionalMobileZkAuthService {
       throw new ForbiddenException('Verified identity is not the invited wallet');
     }
 
-    const invitedUser = await this.roledUserModel
-      .findOne({ dni: invitation.dni }, { _id: 1, dni: 1 })
-      .lean();
-    if (!invitedUser?._id) {
-      throw new ForbiddenException('Institutional invitation requires a registered account');
-    }
-
     const issuedAt = new Date();
     const expiresAt = new Date(issuedAt.getTime() + this.ttlMs);
     return {
       apiKeyHash: pending.apiKeyHash,
       invitationId: String(invitation._id),
-      invitedUserId: String(invitedUser._id),
       tenantId: String(invitation.tenantId),
       did,
       dni: invitation.dni,

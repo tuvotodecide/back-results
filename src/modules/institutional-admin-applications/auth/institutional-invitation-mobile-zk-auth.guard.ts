@@ -34,10 +34,13 @@ export class InstitutionalInvitationMobileZkAuthGuard implements CanActivate {
 
   private buildRequestUser(authContext: InstitutionalInvitationMobileAuthContext) {
     return {
-      sub: authContext.invitedUserId,
+      // The DID is the mobile identity asserted by ZK. It deliberately is not
+      // a RoledUser id: an invitation can precede administrative registration.
+      sub: authContext.did,
       dni: authContext.dni,
       smartAccountAddress: authContext.smartAccountAddress,
       invitationId: authContext.invitationId,
+      mobileAuthContextHash: authContext.apiKeyHash,
       authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK' as const,
     };
   }
