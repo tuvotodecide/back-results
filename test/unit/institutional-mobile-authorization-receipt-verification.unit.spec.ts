@@ -64,8 +64,10 @@ describe('InstitutionalAdminApplicationsService receipt verification', () => {
   });
 
   it('consulta explícitamente el receipt y confirma sólo la operación exitosa y coincidente', async () => {
-    await expect((service as any).verifyMobileAuthorizationUserOperation(application())).resolves.toEqual({
-      status: 'CONFIRMED', code: 'INSTITUTIONAL_USER_OPERATION_CONFIRMED',
+    await expect((service as any).verifyMobileAuthorizationUserOperation(application())).resolves.toMatchObject({
+      status: 'CONFIRMED',
+      code: 'INSTITUTIONAL_USER_OPERATION_CONFIRMED',
+      txHash: `0x${'b'.repeat(64)}`,
     });
     expect(userOperationService.getUserOperationByHash).toHaveBeenCalledWith(userOpHash);
     expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(userOpHash);
@@ -88,23 +90,69 @@ describe('InstitutionalAdminApplicationsService receipt verification', () => {
     });
   });
 
-  it('persiste retry automático y backoff cuando todavía no hay receipt', async () => {
+  it('acota el retry y aplica backoff cuando no hay receipt ni postestado on-chain', async () => {
     const updateOne = jest.fn().mockResolvedValue({});
     (service as any).applicationModel = {
       findOneAndUpdate: jest.fn().mockResolvedValue({ ...application(), status: 'PENDING_CHAIN_CONFIRMATION', chainAttempts: 1 }),
       updateOne,
     };
     userOperationService.getUserOperationReceipt.mockResolvedValue(null);
+    jest.spyOn(service as any, 'isMobileAuthorizationConfirmedOnNetwork').mockResolvedValue(false);
 
     await expect(service.processMobileAuthorizationRetry(applicationId)).resolves.toMatchObject({
-      processed: true, status: 'PENDING', attempts: 2,
+      processed: true, status: 'RETRY_PENDING', attempts: 2,
     });
     expect(updateOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       $set: expect.objectContaining({
-        status: 'PENDING_CHAIN_CONFIRMATION',
-        chainStatus: 'SENT',
+        status: 'CHAIN_RETRY_PENDING',
+        chainStatus: 'RETRY_PENDING',
         chainAttempts: 2,
         chainNextRetryAt: expect.any(Date),
+      }),
+    }));
+  });
+
+  it('reconcilia por postestado on-chain aunque el bundler no conozca el userOpHash', async () => {
+    const complete = jest.spyOn(service as any, 'completeMobileAuthorizationFromNetwork').mockResolvedValue(undefined);
+    const onChain = jest.spyOn(service as any, 'isMobileAuthorizationConfirmedOnNetwork').mockResolvedValue(true);
+    (service as any).applicationModel = {
+      findOneAndUpdate: jest.fn().mockResolvedValue({ ...application(), status: 'PENDING_CHAIN_CONFIRMATION', chainAttempts: 1 }),
+      updateOne: jest.fn(),
+    };
+    userOperationService.getUserOperationByHash.mockResolvedValue(null);
+    userOperationService.getUserOperationReceipt.mockResolvedValue(null);
+
+    await expect(service.processMobileAuthorizationRetry(applicationId)).resolves.toMatchObject({
+      processed: true,
+      status: 'CONFIRMED',
+      reusedNetworkState: true,
+    });
+    expect(onChain).toHaveBeenCalledWith(expect.objectContaining({ _id: applicationId }), 'institution-1', target);
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ _id: applicationId }));
+  });
+
+  it('termina el pending desconocido al alcanzar el límite sin habilitar otra firma', async () => {
+    const updateOne = jest.fn().mockResolvedValue({});
+    (service as any).applicationModel = {
+      findOneAndUpdate: jest.fn().mockResolvedValue({ ...application(), status: 'CHAIN_RETRY_PENDING', chainAttempts: 4 }),
+      updateOne,
+    };
+    userOperationService.getUserOperationByHash.mockResolvedValue(null);
+    userOperationService.getUserOperationReceipt.mockResolvedValue(null);
+    jest.spyOn(service as any, 'isMobileAuthorizationConfirmedOnNetwork').mockResolvedValue(false);
+
+    await expect(service.processMobileAuthorizationRetry(applicationId)).resolves.toMatchObject({
+      processed: true,
+      status: 'FAILED',
+      attempts: 5,
+      reissuable: false,
+    });
+    expect(updateOne).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      $set: expect.objectContaining({
+        status: 'CHAIN_FAILED',
+        chainStatus: 'FAILED',
+        chainNextRetryAt: null,
+        chainLastError: 'INSTITUTIONAL_USER_OPERATION_PENDING',
       }),
     }));
   });

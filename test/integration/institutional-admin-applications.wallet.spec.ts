@@ -3169,6 +3169,58 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     })).toBe(1);
   });
 
+  it('[MX-02][REC-02][REC-05][REC-06][REC-07][REC-08][REC-09][REC-10][INTEGRACION] reconcilia ADD por postestado on-chain aunque el bundler no conozca el hash', async () => {
+    const { target, primaryApplication, targetApplication, stableInstitutionId, targetWallet } =
+      await createPendingMobileAuthorization('onchain-state');
+    const userOpHash = `0x${'9'.repeat(64)}`;
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/claim`)
+      .send({ deviceId: 'qa-phone-onchain-state' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/submission`)
+      .send({ deviceId: 'qa-phone-onchain-state', userOpHash })
+      .expect(200);
+
+    userOperationService.getUserOperationByHash.mockResolvedValue(null);
+    userOperationService.getUserOperationReceipt.mockResolvedValue(null);
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
+
+    const first = await applicationsService.reconcileMobileAuthorizationOperation(target.id);
+    const second = await applicationsService.reconcileMobileAuthorizationOperation(target.id);
+
+    expect(first.reconciled).toBe(true);
+    expect(second.reconciled).toBe(true);
+    expect(VoteContractReads.isAuthorizedAddress).toHaveBeenCalledWith(
+      expect.any(String),
+      stableInstitutionId,
+      targetWallet,
+    );
+    expect(VoteContractReads.isAuthorizedAddress).not.toHaveBeenCalledWith(
+      expect.any(String),
+      target.id,
+      expect.anything(),
+    );
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+
+    const stored = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(target.id),
+    });
+    expect(stored).toMatchObject({
+      status: 'APPROVED',
+      chainStatus: 'CONFIRMED',
+      mobileAuthorizationUserOpHash: userOpHash,
+    });
+    expect(stored?.mobileAuthorizationTxHash ?? stored?.chainTxHash ?? null).toBeNull();
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: primaryApplication?.tenantId,
+      userId: targetApplication?.userId,
+      institutionalRole: 'SECONDARY',
+      status: 'APPROVED',
+      active: true,
+    })).toBe(1);
+  });
+
   it('[MX-02][D-SIGN-010][INTEGRACION] / [MX-02][D-RETRY-001][INTEGRACION] / [MX-02][D-RETRY-002][INTEGRACION] / [MX-02][D-RETRY-003][INTEGRACION] / [MX-02][D-RETRY-005][INTEGRACION] / [MX-02][D-RETRY-007][INTEGRACION] reintenta la consulta de receipt sin reenviar', async () => {
     const { target, primaryApplication, targetApplication } =
       await createPendingMobileAuthorization('retry-flow');

@@ -3258,20 +3258,11 @@ export class InstitutionalAdminApplicationsService {
       { $set: { chainLockedAt: now, chainLockedUntil: lockUntil } },
       { returnDocument: 'after' },
     );
-    if (!app) return { processed: false, reason: 'NO_CLAIMABLE_OPERATION' };
+    if (!app) return { processed: false, reason: 'NO_CLAIMABLE_OPERATION', reissuable: false };
     try {
       const userOperation = await this.verifyMobileAuthorizationUserOperation(app);
       if (userOperation.status === 'PENDING') {
-        const attempts = (app.chainAttempts ?? 0) + 1;
-        await this.applicationModel.updateOne(
-          { _id: app._id },
-          { $set: {
-            status: 'PENDING_CHAIN_CONFIRMATION', chainStatus: 'SENT', chainAttempts: attempts,
-            chainNextRetryAt: this.calculateNextChainRetryAt(attempts),
-            chainLastError: userOperation.code, chainLockedAt: null, chainLockedUntil: null,
-          } },
-        );
-        return { processed: true, status: 'PENDING', attempts };
+        return this.reconcilePendingMobileAuthorizationFromNetwork(app, userOperation.code);
       }
       if (userOperation.status !== 'CONFIRMED') {
         await this.applicationModel.updateOne(
@@ -3283,25 +3274,23 @@ export class InstitutionalAdminApplicationsService {
         );
         return { processed: true, status: 'FAILED', reason: userOperation.code, reissuable: true };
       }
+      if (userOperation.txHash && !app.mobileAuthorizationTxHash) {
+        await this.applicationModel.updateOne(
+          { _id: app._id },
+          { $set: { mobileAuthorizationTxHash: userOperation.txHash, chainTxHash: userOperation.txHash } },
+        );
+      }
       const stableInstitutionId = this.requireStableInstitutionId(app);
       const targetWallet = this.normalizeAccountAddress(app.accountAddress);
       const confirmed = await this.isMobileAuthorizationConfirmedOnNetwork(app, stableInstitutionId, targetWallet);
       if (confirmed) {
         await this.completeMobileAuthorizationFromNetwork(app);
-        return { processed: true, status: 'CONFIRMED', reusedNetworkState: true };
+        return { processed: true, status: 'CONFIRMED', reusedNetworkState: true, reissuable: false };
       }
-      const attempts = (app.chainAttempts ?? 0) + 1;
-      await this.applicationModel.updateOne({ _id: app._id }, {
-        $set: {
-          status: 'PENDING_CHAIN_CONFIRMATION',
-          chainStatus: 'SENT',
-          chainAttempts: attempts,
-          chainNextRetryAt: this.calculateNextChainRetryAt(attempts),
-          chainLockedAt: null,
-          chainLockedUntil: null,
-        },
-      });
-      return { processed: true, status: 'PENDING' };
+      return this.deferMobileAuthorizationConfirmation(
+        app,
+        'INSTITUTIONAL_ONCHAIN_STATE_PENDING',
+      );
     } catch (error) {
       const attempts = (app.chainAttempts ?? 0) + 1;
       const retryable = attempts < this.maxMobileAuthorizationRetryAttempts();
@@ -3319,6 +3308,53 @@ export class InstitutionalAdminApplicationsService {
       );
       return { processed: true, status: retryable ? 'RETRY_PENDING' : 'FAILED', attempts, reissuable: false };
     }
+  }
+
+  private async reconcilePendingMobileAuthorizationFromNetwork(
+    app: InstitutionalAdminApplicationDocument,
+    pendingCode: string,
+  ) {
+    const stableInstitutionId = this.requireStableInstitutionId(app);
+    const targetWallet = this.normalizeAccountAddress(app.accountAddress);
+    const confirmed = await this.isMobileAuthorizationConfirmedOnNetwork(
+      app,
+      stableInstitutionId,
+      targetWallet,
+    );
+    if (confirmed) {
+      await this.completeMobileAuthorizationFromNetwork(app);
+      return { processed: true, status: 'CONFIRMED', reusedNetworkState: true, reissuable: false };
+    }
+    return this.deferMobileAuthorizationConfirmation(app, pendingCode);
+  }
+
+  private async deferMobileAuthorizationConfirmation(
+    app: InstitutionalAdminApplicationDocument,
+    code: string,
+  ) {
+    const attempts = (app.chainAttempts ?? 0) + 1;
+    const retryable = attempts < this.maxMobileAuthorizationRetryAttempts();
+    await this.applicationModel.updateOne(
+      { _id: app._id },
+      {
+        $set: {
+          status: retryable ? 'CHAIN_RETRY_PENDING' : 'CHAIN_FAILED',
+          chainStatus: retryable ? 'RETRY_PENDING' : 'FAILED',
+          chainAttempts: attempts,
+          chainNextRetryAt: retryable ? this.calculateNextChainRetryAt(attempts) : null,
+          chainLastError: code,
+          chainLockedAt: null,
+          chainLockedUntil: null,
+        },
+      },
+    );
+    return {
+      processed: true,
+      status: retryable ? 'RETRY_PENDING' : 'FAILED',
+      attempts,
+      reason: code,
+      reissuable: false,
+    };
   }
 
   private async verifyMobileAuthorizationUserOperation(app: InstitutionalAdminApplicationDocument) {
@@ -3379,7 +3415,12 @@ export class InstitutionalAdminApplicationsService {
     ) {
       return { status: 'FAILED', code: 'INSTITUTIONAL_USER_OPERATION_CALL_MISMATCH' } as const;
     }
-    return { status: 'CONFIRMED', code: 'INSTITUTIONAL_USER_OPERATION_CONFIRMED' } as const;
+    const txHash = String(receipt.txHash || receipt.receipt?.transactionHash || '').trim().toLowerCase();
+    return {
+      status: 'CONFIRMED',
+      code: 'INSTITUTIONAL_USER_OPERATION_CONFIRMED',
+      txHash: /^0x[a-f0-9]{64}$/i.test(txHash) ? txHash : null,
+    } as const;
   }
 
   async findMobileAuthorizationReconciliationBatch(limit: number, now = new Date()) {
