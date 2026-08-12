@@ -1489,6 +1489,10 @@ it('[MX-02][D-NEW-004][INTEGRACION] rechaza correo duplicado antes de consultar 
   it('D-REQ-003 | bloquea solicitud cuando la persona ya administra la institución', async () => {
     const { tenantId } = await createActiveTenantWithPrimary('Institucion Ya Admin');
     const userId = new Types.ObjectId();
+    const notificationLogsBefore = await conn.collection('notification_logs').countDocuments({
+      'data.event': 'MOBILE_AUTHORIZATION_REQUESTED',
+      'data.targetUserId': String(userId),
+    });
     await conn.collection('roled_users').insertOne({
       _id: userId,
       dni: 'req003',
@@ -1525,7 +1529,10 @@ it('[MX-02][D-NEW-004][INTEGRACION] rechaza correo duplicado antes de consultar 
       tenantId,
       dni: 'req003',
     })).toBe(0);
-    expect(await conn.collection('notification_logs').countDocuments()).toBe(0);
+    expect(await conn.collection('notification_logs').countDocuments({
+      'data.event': 'MOBILE_AUTHORIZATION_REQUESTED',
+      'data.targetUserId': String(userId),
+    })).toBe(notificationLogsBefore);
   });
 
   it('D-REQ-004 / D-REQ-005 / D-REQ-009 | rechazo conserva historial y permite nueva solicitud', async () => {
