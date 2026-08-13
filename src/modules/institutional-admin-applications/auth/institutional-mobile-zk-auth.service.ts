@@ -553,9 +553,16 @@ export class InstitutionalMobileZkAuthService {
       active: true,
       status: 'APPROVED',
     };
+    const isCompletedPrimaryTransfer =
+      application.mobileAuthorizationAction === 'CHANGE_INSTITUTION_ADMIN' &&
+      ['APPROVED', 'REVOKED'].includes(String(application.status));
     const isPendingPrimaryTransfer =
       application.mobileAuthorizationAction === 'CHANGE_INSTITUTION_ADMIN' &&
       !['APPROVED', 'REJECTED', 'REVOKED'].includes(String(application.status));
+    if (isCompletedPrimaryTransfer) {
+      const historicalSigner = await this.loadHistoricalPrimaryTransferSigner(application);
+      return { application, primary: historicalSigner };
+    }
     if (isPendingPrimaryTransfer) {
       if (!application.approvedBy) {
         throw new ForbiddenException('Institutional primary signer not found');
@@ -596,6 +603,25 @@ export class InstitutionalMobileZkAuthService {
       }
     }
     return { application, primary };
+  }
+
+  private async loadHistoricalPrimaryTransferSigner(application: any) {
+    if (!application.approvedBy || !application.initiatedByAssignmentId || !application.initiatedByWallet) {
+      throw new ForbiddenException('Institutional primary signer is not bound to this request');
+    }
+    const signer = await this.assignmentModel.findOne({
+      _id: application.initiatedByAssignmentId,
+      tenantId: application.tenantId,
+      userId: application.approvedBy,
+    }).lean();
+    if (
+      !signer?.userId ||
+      !signer.accountAddress ||
+      String(signer.accountAddress).toLowerCase() !== String(application.initiatedByWallet).toLowerCase()
+    ) {
+      throw new ForbiddenException('Institutional primary signer wallet changed');
+    }
+    return signer;
   }
 
   private async loadInvitationContext(invitationId: string) {

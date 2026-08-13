@@ -3877,9 +3877,16 @@ export class InstitutionalAdminApplicationsService {
       status: 'APPROVED',
     };
     const action = this.resolveMobileAuthorizationAction(app);
+    const isCompletedPrimaryTransfer =
+      action === 'CHANGE_INSTITUTION_ADMIN' &&
+      ['APPROVED', 'REVOKED'].includes(String(app.status));
     const isPendingPrimaryTransfer =
       action === 'CHANGE_INSTITUTION_ADMIN' &&
       !['APPROVED', 'REJECTED', 'REVOKED'].includes(String(app.status));
+    if (isCompletedPrimaryTransfer) {
+      const historicalSigner = await this.resolveHistoricalPrimaryTransferSigner(app, tenant._id);
+      return { tenant, primary: historicalSigner };
+    }
     if (isPendingPrimaryTransfer) {
       if (!app.approvedBy) {
         throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_SIGNER_NOT_FOUND', message: 'La transferencia no tiene administrador principal firmante.' });
@@ -3904,6 +3911,40 @@ export class InstitutionalAdminApplicationsService {
       await this.assertPendingPrimaryTransferTargetStillEligible(app);
     }
     return { tenant, primary };
+  }
+
+  /**
+   * A completed primary-transfer request belongs to the PRIMARY that was bound
+   * when it was created, not to the person who became PRIMARY as its result.
+   * This is used only to read that request's terminal state; every mutating
+   * method still rejects terminal requests before a new operation can be sent.
+   */
+  private async resolveHistoricalPrimaryTransferSigner(
+    app: InstitutionalAdminApplicationDocument,
+    tenantId: Types.ObjectId,
+  ) {
+    if (!app.approvedBy || !app.initiatedByAssignmentId || !app.initiatedByWallet) {
+      throw new ConflictException({
+        code: 'INSTITUTIONAL_PRIMARY_TRANSFER_INITIATOR_NOT_BOUND',
+        message: 'La transferencia no conserva el administrador principal que la inició.',
+      });
+    }
+    const signer = await this.assignmentModel.findOne({
+      _id: app.initiatedByAssignmentId,
+      tenantId,
+      userId: app.approvedBy,
+    }).lean();
+    if (
+      !signer?.accountAddress ||
+      this.normalizeAccountAddressForComparison(String(signer.accountAddress)) !==
+        this.normalizeAccountAddressForComparison(String(app.initiatedByWallet))
+    ) {
+      throw new ConflictException({
+        code: 'INSTITUTIONAL_PRIMARY_TRANSFER_INITIATOR_WALLET_CHANGED',
+        message: 'La billetera del administrador principal cambió durante la transferencia.',
+      });
+    }
+    return signer;
   }
 
   private async assertPendingPrimaryTransferTargetStillEligible(

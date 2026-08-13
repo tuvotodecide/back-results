@@ -3211,6 +3211,35 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
+  it('[MX-02][D-TRF-012][INTEGRACION] deja que el firmante histórico consulte sólo su transferencia finalizada', async () => {
+    const transfer = await submitPrimaryTransferForConfirmation('historical-result');
+
+    currentReviewer = {
+      sub: String(transfer.primaryUserId),
+      role: 'USER',
+      smartAccountAddress: transfer.primaryWallet,
+    };
+    await request(app.getHttpServer())
+      .get(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}`)
+      .expect(200)
+      .expect((response) => {
+        expect(response.body).toMatchObject({
+          status: 'APPROVED',
+          canSign: false,
+          signerWallet: transfer.primaryWallet,
+        });
+      });
+
+    currentReviewer = {
+      sub: String(new Types.ObjectId()),
+      role: 'USER',
+      smartAccountAddress: transfer.primaryWallet,
+    };
+    await request(app.getHttpServer())
+      .get(`/api/v1/institutional-admin-applications/mobile/authorizations/${transfer.applicationId}`)
+      .expect(403);
+  });
+
   it('[MX-02][D-TRF-007][INTEGRACION] un error recuperable conserva la firma y agenda un reintento', async () => {
     const transfer = await createPendingPrimaryTransferAuthorization('retry');
     const userOpHash = `0x${'9'.repeat(64)}`;

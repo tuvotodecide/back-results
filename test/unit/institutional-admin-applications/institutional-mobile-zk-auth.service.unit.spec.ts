@@ -145,6 +145,40 @@ describe('InstitutionalMobileZkAuthService', () => {
     );
   });
 
+  it('keeps a completed primary transfer bound to its historical signer', async () => {
+    const initiatedByAssignmentId = new Types.ObjectId();
+    (service as any).applicationModel = modelReturning({
+      _id: applicationId,
+      tenantId,
+      status: 'APPROVED',
+      mobileAuthorizationAction: 'CHANGE_INSTITUTION_ADMIN',
+      approvedBy: signerUserId,
+      initiatedByAssignmentId,
+      initiatedByWallet: signerWallet,
+    });
+    (service as any).assignmentModel = modelReturning({
+      _id: initiatedByAssignmentId,
+      tenantId,
+      userId: signerUserId,
+      accountAddress: signerWallet,
+      institutionalRole: 'SECONDARY',
+      status: 'APPROVED',
+      active: true,
+    });
+
+    await service.createAuthRequest(String(applicationId));
+
+    expect(cache.set).toHaveBeenCalledWith(
+      expect.stringMatching(/^institutional-mobile-auth:pending:[a-f0-9]{64}$/),
+      expect.objectContaining({
+        applicationId: String(applicationId),
+        signerUserId: String(signerUserId),
+        smartAccountAddress: signerWallet.toLowerCase(),
+      }),
+      180000,
+    );
+  });
+
   it('resolves an institutional pending session through the institutional callback', async () => {
     const { apiKey, request } = await service.createAuthRequest(String(applicationId));
     const sessionId = String((request as any).body.callbackUrl).split('sessionId=')[1];
