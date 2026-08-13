@@ -2693,6 +2693,80 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
+  it('[MX-02][REG-MOBILE-CHAIN-001][INTEGRACION] polling posterior a submission es read-only, conserva hash y rechaza snapshots viejos', async () => {
+    const { target, targetApplication } = await createPendingMobileAuthorization('post-submission-polling');
+    const userOpHash = `0x${'e'.repeat(64)}`;
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/claim`)
+      .send({ deviceId: 'qa-phone-post-submission' })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/signing`)
+      .send({ deviceId: 'qa-phone-post-submission' })
+      .expect(200);
+
+    const beforeSubmission = await conn.collection('institutional_admin_applications').findOne({
+      _id: targetApplication?._id,
+    });
+    const submitted = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/submission`)
+      .send({ deviceId: 'qa-phone-post-submission', userOpHash })
+      .expect(200);
+    expect(submitted.body).toMatchObject({
+      status: 'PENDING_CHAIN_CONFIRMATION',
+      userOpHash,
+      canSign: false,
+    });
+
+    for (let index = 0; index < 3; index += 1) {
+      const poll = await request(app.getHttpServer())
+        .get(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}`)
+        .expect(200);
+      expect(poll.body).toMatchObject({
+        status: 'PENDING_CHAIN_CONFIRMATION',
+        userOpHash,
+        canSign: false,
+      });
+    }
+
+    const staleWrite = await conn.collection('institutional_admin_applications').updateOne(
+      {
+        _id: targetApplication?._id,
+        status: 'PENDING_MOBILE_AUTHORIZATION',
+        mobileAuthorizationUserOpHash: null,
+      },
+      {
+        $set: {
+          status: 'PENDING_MOBILE_AUTHORIZATION',
+          mobileAuthorizationUserOpHash: null,
+          mobileAuthorizationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      },
+    );
+    expect(staleWrite.matchedCount).toBe(0);
+
+    const stored = await conn.collection('institutional_admin_applications').findOne({
+      _id: targetApplication?._id,
+    });
+    expect(stored).toMatchObject({
+      status: 'PENDING_CHAIN_CONFIRMATION',
+      mobileAuthorizationUserOpHash: userOpHash,
+    });
+    expect(stored?.mobileAuthorizationExpiresAt?.getTime()).toBe(
+      beforeSubmission?.mobileAuthorizationExpiresAt?.getTime(),
+    );
+
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/claim`)
+      .send({ deviceId: 'qa-phone-post-submission' })
+      .expect(409);
+    await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/signing`)
+      .send({ deviceId: 'qa-phone-post-submission' })
+      .expect(409);
+  });
+
   it('[MX-02][D-SIGN-004][INTEGRACION] bloquea la firma con billetera distinta sin preparar operación', async () => {
     const { target } = await createPendingMobileAuthorization('sign-wallet-mismatch');
     currentReviewer.smartAccountAddress = '0x0000000000000000000000000000000000000bad';

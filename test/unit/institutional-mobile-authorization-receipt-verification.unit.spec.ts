@@ -184,6 +184,7 @@ describe('InstitutionalAdminApplicationsService receipt verification', () => {
       updateOne,
     };
     jest.spyOn(service as any, 'completeMobileAuthorizationFromNetwork');
+    jest.spyOn(service as any, 'isMobileAuthorizationConfirmedOnNetwork').mockResolvedValue(false);
     userOperationService.getUserOperationReceipt.mockResolvedValue({
       userOpHash, sender: signer, success: false, txHash: `0x${'b'.repeat(64)}`,
       receipt: { transactionHash: `0x${'b'.repeat(64)}`, status: '0x0', blockNumber: '0x1', logs: [] },
@@ -204,6 +205,7 @@ describe('InstitutionalAdminApplicationsService receipt verification', () => {
       ...application(), status: 'CHAIN_FAILED', chainAttempts: 1,
     });
     (service as any).applicationModel = { findOneAndUpdate, updateOne };
+    jest.spyOn(service as any, 'isMobileAuthorizationConfirmedOnNetwork').mockResolvedValue(false);
     userOperationService.getUserOperationReceipt.mockResolvedValue({
       userOpHash, sender: signer, success: false, txHash: `0x${'b'.repeat(64)}`,
       receipt: { transactionHash: `0x${'b'.repeat(64)}`, status: '0x0', blockNumber: '0x1', logs: [] },
