@@ -879,6 +879,7 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    const notificationLogsBefore = await conn.collection('notification_logs').countDocuments();
 
     await request(app.getHttpServer())
       .post('/api/v1/institutional-admin-applications')
@@ -1130,13 +1131,18 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
       updatedAt: new Date(),
     });
 
+    const notificationLogsBefore = await conn.collection('notification_logs').countDocuments();
+
     await request(app.getHttpServer())
       .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
       .send({ dni: 'yaadmin', name: 'Ya Admin' })
       .expect(409);
 
     expect(await conn.collection('institutional_admin_invitations').countDocuments()).toBe(0);
-    expect(await conn.collection('notification_logs').countDocuments()).toBe(0);
+    expect(await conn.collection('notification_logs').countDocuments()).toBe(notificationLogsBefore);
+    expect(await conn.collection('notification_logs').countDocuments({
+      'data.type': 'INSTITUTIONAL_ADMIN_INVITATION',
+    })).toBe(0);
   });
 
   it('D-INV-005 | bloquea invitación vigente duplicada sin reenviar aviso', async () => {
@@ -2765,6 +2771,109 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
       .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/signing`)
       .send({ deviceId: 'qa-phone-post-submission' })
       .expect(409);
+  });
+
+  it('[MX-02][HIST-01][HIST-03][HIST-04][HIST-05][HIST-06][HIST-07][HIST-08][HIST-09][HIST-10][INTEGRACION] recupera una autorización histórica ya aplicada on-chain sin hash, firma ni nueva UserOperation', async () => {
+    const { target, targetApplication, stableInstitutionId, targetWallet } =
+      await createPendingMobileAuthorization('historical-onchain-complete');
+    const complete = jest.spyOn(applicationsService as any, 'completeMobileAuthorizationFromNetwork');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(true);
+
+    const recovery = await Promise.all([
+      applicationsService.reconcileMobileAuthorizationOperation(target.id),
+      applicationsService.reconcileMobileAuthorizationOperation(target.id),
+    ]);
+    expect(recovery.some((result) => result.reconciled)).toBe(true);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(VoteContractReads.isAuthorizedAddress).toHaveBeenCalledWith(
+      expect.any(String),
+      stableInstitutionId,
+      targetWallet,
+    );
+
+    const stored = await conn.collection('institutional_admin_applications').findOne({
+      _id: targetApplication?._id,
+    });
+    expect(stored).toMatchObject({
+      status: 'APPROVED',
+    });
+    expect(stored?.mobileAuthorizationUserOpHash ?? null).toBeNull();
+    expect(stored?.mobileAuthorizationTxHash ?? stored?.chainTxHash ?? null).toBeNull();
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: targetApplication?.tenantId,
+      userId: targetApplication?.userId,
+      status: 'APPROVED',
+      active: true,
+    })).toBe(1);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+    expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
+
+    const detail = await request(app.getHttpServer())
+      .get(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}`)
+      .expect(200);
+    expect(detail.body).toMatchObject({ status: 'APPROVED', canSign: false });
+
+    const claim = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/claim`)
+      .send({ deviceId: 'qa-phone-historical' })
+      .expect(409);
+    expect(claim.body.canSign).not.toBe(true);
+    const signing = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/signing`)
+      .send({ deviceId: 'qa-phone-historical' })
+      .expect(409);
+    expect(signing.body.canSign).not.toBe(true);
+
+    currentReviewer = {
+      sub: String(new Types.ObjectId('64f000000000000000000001')),
+      role: 'ADMIN',
+      smartAccountAddress: validAccountAddress,
+    };
+    const claimHistorical = await createPendingMobileAuthorization(
+      'historical-claim-complete',
+      '0x0000000000000000000000000000000000000a01',
+      '0x0000000000000000000000000000000000000a02',
+    );
+    const claimRecovery = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${claimHistorical.target.id}/claim`)
+      .send({ deviceId: 'qa-phone-historical-claim' })
+      .expect(200);
+    expect(claimRecovery.body).toMatchObject({
+      request: { status: 'APPROVED', canSign: false },
+    });
+    expect(claimRecovery.body.execution).toBeUndefined();
+
+    currentReviewer = {
+      sub: String(new Types.ObjectId('64f000000000000000000001')),
+      role: 'ADMIN',
+      smartAccountAddress: validAccountAddress,
+    };
+    const signingHistorical = await createPendingMobileAuthorization(
+      'historical-signing-complete',
+      '0x0000000000000000000000000000000000000b01',
+      '0x0000000000000000000000000000000000000b02',
+    );
+    const signingRecovery = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${signingHistorical.target.id}/signing`)
+      .send({ deviceId: 'qa-phone-historical-signing' })
+      .expect(200);
+    expect(signingRecovery.body).toMatchObject({ status: 'APPROVED', canSign: false });
+    expect(VoteContractCalls.addAuthorizedAddress).not.toHaveBeenCalled();
+  });
+
+  it('[MX-02][HIST-02][INTEGRACION] una autorización nueva permanece firmable cuando el postestado on-chain es falso', async () => {
+    const { target } = await createPendingMobileAuthorization('historical-onchain-false');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+
+    const claim = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${target.id}/claim`)
+      .send({ deviceId: 'qa-phone-historical-false' })
+      .expect(200);
+    expect(claim.body).toMatchObject({
+      request: { status: 'PENDING_MOBILE_AUTHORIZATION', canSign: true },
+      execution: { action: 'ADD_AUTHORIZED_ADDRESS' },
+    });
+    expect(VoteContractCalls.addAuthorizedAddress).toHaveBeenCalledTimes(1);
   });
 
   it('[MX-02][D-SIGN-004][INTEGRACION] bloquea la firma con billetera distinta sin preparar operación', async () => {

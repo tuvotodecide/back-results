@@ -3121,8 +3121,13 @@ export class InstitutionalAdminApplicationsService {
   }
 
   async claimMobileAuthorization(applicationId: string, dto: any = {}, authUser?: InstitutionalMobileRequestUser) {
-    const app = await this.getApplicationOrThrow(applicationId);
+    let app = await this.getApplicationOrThrow(applicationId);
     const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    this.assertMobileAuthUserMatches(primary, authUser);
+    if (await this.reconcileHistoricalMobileAuthorizationIfAlreadyOnChain(applicationId)) {
+      app = await this.getApplicationOrThrow(applicationId);
+      return { request: this.toMobileAuthorizationResponse(app, tenant, primary, app.status) };
+    }
     const status = await this.expireMobileAuthorizationIfNeeded(app);
     if (status === 'MOBILE_AUTHORIZATION_EXPIRED') {
       throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_EXPIRED', message: 'La autorización móvil venció.' });
@@ -3136,7 +3141,6 @@ export class InstitutionalAdminApplicationsService {
     if (!String(dto?.deviceId || '').trim()) {
       throw new BadRequestException({ code: 'INSTITUTIONAL_DEVICE_ID_REQUIRED', message: 'El dispositivo es requerido.' });
     }
-    this.assertMobileAuthUserMatches(primary, authUser);
     if (app.mobileAuthorizationDeviceId && app.mobileAuthorizationDeviceId !== String(dto.deviceId)) {
       throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_ALREADY_CLAIMED', message: 'Esta autorización ya está siendo procesada en otro dispositivo.' });
     }
@@ -3156,6 +3160,11 @@ export class InstitutionalAdminApplicationsService {
         _id: app._id,
         status: 'PENDING_MOBILE_AUTHORIZATION',
         mobileAuthorizationUserOpHash: null,
+        $or: [
+          { chainLockedUntil: { $exists: false } },
+          { chainLockedUntil: null },
+          { chainLockedUntil: { $lte: new Date() } },
+        ],
       },
       {
         $set: {
@@ -3191,8 +3200,13 @@ export class InstitutionalAdminApplicationsService {
   }
 
   async markMobileAuthorizationSigning(applicationId: string, dto: any = {}, authUser?: InstitutionalMobileRequestUser) {
-    const app = await this.getApplicationOrThrow(applicationId);
+    let app = await this.getApplicationOrThrow(applicationId);
     const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    this.assertMobileAuthUserMatches(primary, authUser);
+    if (await this.reconcileHistoricalMobileAuthorizationIfAlreadyOnChain(applicationId)) {
+      app = await this.getApplicationOrThrow(applicationId);
+      return this.toMobileAuthorizationResponse(app, tenant, primary, app.status);
+    }
     const status = await this.expireMobileAuthorizationIfNeeded(app);
     if (status === 'MOBILE_AUTHORIZATION_EXPIRED') {
       throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_EXPIRED', message: 'La autorización móvil venció.' });
@@ -3203,7 +3217,6 @@ export class InstitutionalAdminApplicationsService {
         message: 'La autorización ya fue enviada y no puede volver a firmarse.',
       });
     }
-    this.assertMobileAuthUserMatches(primary, authUser);
     this.assertSameMobileDevice(app, dto?.deviceId);
     const signing = await this.applicationModel.findOneAndUpdate(
       {
@@ -3211,6 +3224,11 @@ export class InstitutionalAdminApplicationsService {
         status: 'PENDING_MOBILE_AUTHORIZATION',
         mobileAuthorizationUserOpHash: null,
         mobileAuthorizationDeviceId: app.mobileAuthorizationDeviceId,
+        $or: [
+          { chainLockedUntil: { $exists: false } },
+          { chainLockedUntil: null },
+          { chainLockedUntil: { $lte: new Date() } },
+        ],
       },
       { $set: { mobileAuthorizationSignedAt: app.mobileAuthorizationSignedAt ?? new Date() } },
       { returnDocument: 'after' },
@@ -3247,13 +3265,17 @@ export class InstitutionalAdminApplicationsService {
   }
 
   async submitMobileAuthorization(applicationId: string, dto: any = {}, authUser?: InstitutionalMobileRequestUser) {
-    const app = await this.getApplicationOrThrow(applicationId);
+    let app = await this.getApplicationOrThrow(applicationId);
     const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    this.assertMobileAuthUserMatches(primary, authUser);
+    if (await this.reconcileHistoricalMobileAuthorizationIfAlreadyOnChain(applicationId)) {
+      app = await this.getApplicationOrThrow(applicationId);
+      return this.toMobileAuthorizationResponse(app, tenant, primary, app.status);
+    }
     const status = await this.expireMobileAuthorizationIfNeeded(app);
     if (status === 'MOBILE_AUTHORIZATION_EXPIRED') {
       throw new ConflictException({ code: 'INSTITUTIONAL_AUTHORIZATION_EXPIRED', message: 'La autorización móvil venció.' });
     }
-    this.assertMobileAuthUserMatches(primary, authUser);
     this.assertSameMobileDevice(app, dto?.deviceId);
     const userOpHash = String(dto?.userOpHash || '').trim().toLowerCase();
     if (!/^0x[a-f0-9]{64}$/i.test(userOpHash)) {
@@ -3278,6 +3300,11 @@ export class InstitutionalAdminApplicationsService {
         status: 'PENDING_MOBILE_AUTHORIZATION',
         mobileAuthorizationUserOpHash: null,
         mobileAuthorizationDeviceId: app.mobileAuthorizationDeviceId,
+        $or: [
+          { chainLockedUntil: { $exists: false } },
+          { chainLockedUntil: null },
+          { chainLockedUntil: { $lte: new Date() } },
+        ],
       },
       {
         $set: {
@@ -3313,13 +3340,78 @@ export class InstitutionalAdminApplicationsService {
   }
 
   async reconcileMobileAuthorizationOperation(applicationId: string) {
-    const app = await this.getApplicationOrThrow(applicationId);
+    let app = await this.getApplicationOrThrow(applicationId);
     const { tenant, primary } = await this.resolveMobileAuthorizationContext(app);
+    if (await this.reconcileHistoricalMobileAuthorizationIfAlreadyOnChain(applicationId)) {
+      app = await this.getApplicationOrThrow(applicationId);
+      return { reconciled: true, request: this.toMobileAuthorizationResponse(app, tenant, primary, app.status) };
+    }
     await this.processMobileAuthorizationRetry(applicationId);
     const refreshed = await this.getApplicationOrThrow(applicationId);
     const reconciled = ['APPROVED', 'REVOKED'].includes(String(refreshed.status)) &&
       refreshed.chainStatus === 'CONFIRMED';
     return { reconciled, request: this.toMobileAuthorizationResponse(refreshed, tenant, primary, refreshed.status) };
+  }
+
+  /**
+   * Recovers legacy rows that lost their user-operation hash after the contract
+   * call succeeded. This is deliberately invoked by explicit reconciliation or
+   * before issuing a new signing package, never by polling GET.
+   */
+  private async reconcileHistoricalMobileAuthorizationIfAlreadyOnChain(applicationId: string) {
+    const now = new Date();
+    const lockUntil = new Date(now.getTime() + 60_000);
+    const app = await this.applicationModel.findOneAndUpdate(
+      {
+        _id: this.toObjectId(applicationId),
+        status: 'PENDING_MOBILE_AUTHORIZATION',
+        $and: [
+          {
+            $or: [
+              { mobileAuthorizationAction: 'ADD_AUTHORIZED_ADDRESS' },
+              { mobileAuthorizationAction: null },
+              { mobileAuthorizationAction: { $exists: false } },
+            ],
+          },
+          {
+            $or: [
+              { chainLockedUntil: { $exists: false } },
+              { chainLockedUntil: null },
+              { chainLockedUntil: { $lte: now } },
+            ],
+          },
+        ],
+      },
+      { $set: { chainLockedAt: now, chainLockedUntil: lockUntil } },
+      { returnDocument: 'after' },
+    );
+    if (!app) return false;
+
+    try {
+      const stableInstitutionId = this.requireStableInstitutionId(app);
+      const targetWallet = this.normalizeAccountAddress(app.accountAddress);
+      const confirmed = await this.isMobileAuthorizationConfirmedOnNetwork(
+        app,
+        stableInstitutionId,
+        targetWallet,
+      );
+      if (confirmed) {
+        await this.completeMobileAuthorizationFromNetwork(app);
+        const finalized = await this.getApplicationOrThrow(applicationId);
+        return finalized.status === 'APPROVED';
+      }
+      await this.applicationModel.updateOne(
+        { _id: app._id, status: 'PENDING_MOBILE_AUTHORIZATION', chainLockedUntil: lockUntil },
+        { $set: { chainLockedAt: null, chainLockedUntil: null } },
+      );
+      return false;
+    } catch (error) {
+      await this.applicationModel.updateOne(
+        { _id: app._id, status: 'PENDING_MOBILE_AUTHORIZATION', chainLockedUntil: lockUntil },
+        { $set: { chainLockedAt: null, chainLockedUntil: null } },
+      );
+      throw error;
+    }
   }
 
   async processMobileAuthorizationRetry(applicationId: string) {
@@ -3951,6 +4043,7 @@ export class InstitutionalAdminApplicationsService {
         const fresh = await this.getApplicationOrThrow(String(app._id), session);
         const action = this.resolveMobileAuthorizationAction(fresh);
         if (fresh.chainStatus === 'CONFIRMED' && ['APPROVED', 'REVOKED'].includes(String(fresh.status))) return;
+        if (['APPROVED', 'REJECTED', 'REVOKED'].includes(String(fresh.status))) return;
         if (action === 'CHANGE_INSTITUTION_ADMIN') {
           if (!fresh.targetAssignmentId || !fresh.approvedBy) {
             throw new ConflictException({ code: 'INSTITUTIONAL_PRIMARY_TRANSFER_CONTEXT_INCOMPLETE', message: 'La transferencia no tiene relaciones completas.' });
