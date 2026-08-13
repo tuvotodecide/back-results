@@ -2,7 +2,7 @@ import { Contract } from "@/modules/contracts/schemas/contract.schema";
 import { Connection, Types } from "mongoose";
 import request from "supertest";
 import Papa from 'papaparse';
-import { generateUniqueStrings, randomNumericString, randomPhone } from "../generators";
+import { randomNumericString, randomPhone } from "../generators";
 import { Delegate } from "@/modules/contracts/schemas/delegate.schema";
 
 export async function seedMayors(conn: Connection, electionId: Types.ObjectId) {
@@ -49,7 +49,19 @@ export async function seedRandomDelegates(
 ): Promise<DelegateWithId[]> {
   const delegates: any[] = [];
 
-  const delegateDnis = generateUniqueStrings(count, () => randomNumericString(3, 6));
+  // The delegate collection has a unique DNI index.  This helper is invoked
+  // repeatedly in the same scenario, so uniqueness must include delegates
+  // seeded by earlier calls, not only the current CSV batch.
+  const existingDnis = new Set<string>(
+    await conn.collection<Pick<Delegate, 'dni'>>('delegates').distinct('dni'),
+  );
+  const delegateDnis: string[] = [];
+  while (delegateDnis.length < count) {
+    const dni = randomNumericString(3, 6);
+    if (existingDnis.has(dni)) continue;
+    existingDnis.add(dni);
+    delegateDnis.push(dni);
+  }
   for (let i = 0; i < count; i++) {
     delegates[i] = {
       dni: delegateDnis[i],
