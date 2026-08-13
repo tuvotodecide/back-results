@@ -1082,6 +1082,9 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
   it('D-INV-003 | rechaza invitación si Identity indica persona no registrada', async () => {
     const { tenantId } = await createActiveTenantWithPrimary();
     const notificationLogsBefore = await conn.collection('notification_logs').countDocuments();
+    const invitationNotificationLogsBefore = await conn.collection('notification_logs').countDocuments({
+      'data.type': 'INSTITUTIONAL_ADMIN_INVITATION',
+    });
     const invitationOutboxesBefore = await conn
       .collection('official_publication_notification_outbox')
       .countDocuments({ type: 'INSTITUTIONAL_ADMIN_INVITATION' });
@@ -1099,7 +1102,7 @@ it('registro rechaza institutionId inexistente o inactivo antes de consultar Ide
     expect(await conn.collection('notification_logs').countDocuments()).toBe(notificationLogsBefore);
     expect(await conn.collection('notification_logs').countDocuments({
       'data.type': 'INSTITUTIONAL_ADMIN_INVITATION',
-    })).toBe(0);
+    })).toBe(invitationNotificationLogsBefore);
     expect(await conn.collection('official_publication_notification_outbox').countDocuments({
       type: 'INSTITUTIONAL_ADMIN_INVITATION',
     })).toBe(invitationOutboxesBefore);
@@ -2510,6 +2513,46 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     })).toBe(1);
   });
 
+  it('[MX-02][D-REQ-010][INTEGRACION] approve y reject concurrentes dejan una sola transición compatible', async () => {
+    const primary = await createVerifiedApplication(
+      payloadFor('approve-reject-race-primary', 'Tenant Race Review', validAccountAddress),
+    );
+    await approveAndConfirmApplication(primary.id);
+    const primaryApplication = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(primary.id),
+    });
+    const target = await createVerifiedApplication(
+      payloadFor('approve-reject-race-target', 'Tenant Race Review', '0x00000000000000000000000000000000000000e4'),
+    );
+    currentReviewer = { sub: String(primaryApplication?.userId), role: 'USER' };
+
+    const [approval, rejection] = await Promise.all([
+      request(app.getHttpServer())
+        .post(`/api/v1/institutional-admin-applications/${target.id}/approve`),
+      request(app.getHttpServer())
+        .post(`/api/v1/institutional-admin-applications/${target.id}/reject`)
+        .send({ reason: 'Carrera de revisión' }),
+    ]);
+
+    expect([approval.status, rejection.status].filter((status) => status === 201)).toHaveLength(1);
+    expect([approval.status, rejection.status].filter((status) => status === 400)).toHaveLength(1);
+    const stored = await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(target.id),
+    });
+    expect(['PENDING_MOBILE_AUTHORIZATION', 'REJECTED']).toContain(stored?.status);
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      tenantId: primaryApplication?.tenantId,
+      userId: stored?.userId,
+      active: true,
+    })).toBe(0);
+    if (stored?.status === 'REJECTED') {
+      expect(await conn.collection('notification_logs').countDocuments({
+        'data.applicationId': target.id,
+        'data.event': 'MOBILE_AUTHORIZATION_REQUESTED',
+      })).toBe(0);
+    }
+  });
+
   it('D-APR-003 | notifica solo al administrador principal vigente', async () => {
     const primary = await createVerifiedApplication(
       payloadFor('notify-primary', 'Tenant Notifica Principal', validAccountAddress),
@@ -3487,6 +3530,38 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(VoteContractCalls.removeAuthorizedAddress).not.toHaveBeenCalled();
   });
 
+  it('[MX-02][D-REV-012][INTEGRACION] recupera un retiro histórico ya aplicado on-chain sin nueva firma ni UserOperation', async () => {
+    const { created, targetAssignment } = await createRemovalAuthorization('historical-onchain-complete');
+    const complete = jest.spyOn(applicationsService as any, 'completeMobileAuthorizationFromNetwork');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+
+    const recovery = await Promise.all([
+      applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId),
+      applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId),
+    ]);
+
+    expect(recovery.some((result) => result.reconciled)).toBe(true);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(await conn.collection('institutional_admin_applications').findOne({
+      _id: new Types.ObjectId(created.body.applicationId),
+      status: 'REVOKED',
+      mobileAuthorizationUserOpHash: null,
+    })).toBeTruthy();
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      _id: targetAssignment?._id,
+      active: false,
+      status: 'REVOKED',
+    })).toBe(1);
+    expect(VoteContractCalls.removeAuthorizedAddress).not.toHaveBeenCalled();
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
+
+    const claim = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/mobile/authorizations/${created.body.applicationId}/claim`)
+      .send({ deviceId: 'qa-phone-historical-remove' })
+      .expect(409);
+    expect(claim.body.canSign).not.toBe(true);
+  });
+
   it('[MX-02][D-REV-002][INTEGRACION] genera un único aviso móvil para la eliminación pendiente', async () => {
     const { created, primaryApplication, targetAssignment } = await createRemovalAuthorization('notification');
     const repeated = await request(app.getHttpServer())
@@ -3520,6 +3595,26 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(reconciled).toMatchObject({ reconciled: true });
     expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(`0x${'5'.repeat(64)}`);
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: false, status: 'REVOKED' })).toBe(1);
+  });
+
+  it('[MX-02][D-REV-013][INTEGRACION] receipt ausente con postestado de retiro cumplido reconcilia sin otra firma', async () => {
+    const { created, targetAssignment } = await createRemovalAuthorization('receipt-null-onchain-complete');
+    await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-receipt-null');
+    userOperationService.getUserOperationReceipt.mockResolvedValueOnce(null);
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+
+    const reconciled = await applicationsService.reconcileMobileAuthorizationOperation(
+      created.body.applicationId,
+    );
+
+    expect(reconciled).toMatchObject({ reconciled: true });
+    expect(await conn.collection('tenant_admin_assignments').countDocuments({
+      _id: targetAssignment?._id,
+      active: false,
+      status: 'REVOKED',
+    })).toBe(1);
+    expect(VoteContractCalls.removeAuthorizedAddress).toHaveBeenCalledTimes(1);
+    expect(executeCoinbaseOp).not.toHaveBeenCalled();
   });
 
   it('[MX-02][D-REV-005][INTEGRACION] conserva acceso mientras la confirmación on-chain continúa pendiente', async () => {

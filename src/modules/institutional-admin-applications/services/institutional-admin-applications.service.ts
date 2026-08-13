@@ -3369,6 +3369,7 @@ export class InstitutionalAdminApplicationsService {
           {
             $or: [
               { mobileAuthorizationAction: 'ADD_AUTHORIZED_ADDRESS' },
+              { mobileAuthorizationAction: 'REMOVE_AUTHORIZED_ADDRESS' },
               { mobileAuthorizationAction: null },
               { mobileAuthorizationAction: { $exists: false } },
             ],
@@ -3398,7 +3399,7 @@ export class InstitutionalAdminApplicationsService {
       if (confirmed) {
         await this.completeMobileAuthorizationFromNetwork(app);
         const finalized = await this.getApplicationOrThrow(applicationId);
-        return finalized.status === 'APPROVED';
+        return ['APPROVED', 'REVOKED'].includes(String(finalized.status));
       }
       await this.applicationModel.updateOne(
         { _id: app._id, status: 'PENDING_MOBILE_AUTHORIZATION', chainLockedUntil: lockUntil },
