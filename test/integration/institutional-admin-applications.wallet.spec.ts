@@ -3616,7 +3616,7 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
   });
 
   it('[MX-02][D-REV-004][INTEGRACION] revoca el acceso solo después de un receipt válido de eliminación', async () => {
-    const { created, targetAssignment } = await createRemovalAuthorization('confirmed');
+    const { created, targetApplication, targetAssignment } = await createRemovalAuthorization('confirmed');
     await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-confirmed');
     (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
     const reconciled = await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
@@ -3624,6 +3624,116 @@ it('[MX-02][D-NEW-002][INTEGRACION] rechaza persona no registrada sin persistenc
     expect(reconciled).toMatchObject({ reconciled: true });
     expect(userOperationService.getUserOperationReceipt).toHaveBeenCalledWith(`0x${'5'.repeat(64)}`);
     expect(await conn.collection('tenant_admin_assignments').countDocuments({ _id: targetAssignment?._id, active: false, status: 'REVOKED' })).toBe(1);
+    expect(await conn.collection('institutional_admin_applications').findOne({
+      _id: targetApplication?._id,
+    })).toEqual(expect.objectContaining({ status: 'REVOKED' }));
+  });
+
+  it('[MX-02][D-REV-014][INTEGRACION] permite reinvitar y aceptar desde móvil después de revocar el acceso', async () => {
+    const { created, primaryApplication, targetApplication, targetAssignment } =
+      await createRemovalAuthorization('reinvite');
+    await submitRemovalAuthorization(created.body.applicationId, 'qa-phone-remove-reinvite');
+    (VoteContractReads.isAuthorizedAddress as jest.Mock).mockResolvedValue(false);
+    await applicationsService.reconcileMobileAuthorizationOperation(created.body.applicationId);
+
+    expect(await conn.collection('tenant_admin_assignments').findOne({
+      _id: targetAssignment?._id,
+    })).toEqual(expect.objectContaining({ status: 'REVOKED', active: false }));
+    expect(await conn.collection('institutional_admin_applications').findOne({
+      _id: targetApplication?._id,
+    })).toEqual(expect.objectContaining({ status: 'REVOKED' }));
+
+    currentReviewer = {
+      sub: String(primaryApplication?.userId),
+      role: 'USER',
+      smartAccountAddress: validAccountAddress,
+    };
+    const reinvitation = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/tenants/${primaryApplication?.tenantId}/invitations`)
+      .send({ dni: targetApplication?.dni, name: targetApplication?.name })
+      .expect(201);
+    const invitation = await conn.collection('institutional_admin_invitations').findOne({
+      _id: new Types.ObjectId(reinvitation.body.id),
+    });
+
+    await expect(applicationsService.acceptInvitationFromMobile(reinvitation.body.id, {
+      sub: 'did:iden3:target-reinvited',
+      invitationId: reinvitation.body.id,
+      dni: String(targetApplication?.dni),
+      smartAccountAddress: String(invitation?.accountAddress),
+      mobileAuthContextHash: 'mobile-auth-context-reinvite',
+      authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK',
+    })).resolves.toMatchObject({
+      id: reinvitation.body.id,
+      status: 'ACCEPTED',
+      applicationStatus: 'PENDING_APPROVAL',
+    });
+    expect(await conn.collection('institutional_admin_applications').findOne({
+      invitationId: invitation?._id,
+    })).toEqual(expect.objectContaining({ status: 'PENDING_APPROVAL' }));
+  });
+
+  it('[MX-02][D-REV-015][INTEGRACION] acepta una reinvitación frente a datos históricos APPROVED con membership revocada', async () => {
+    const { tenantId, primaryUserId } = await createActiveTenantWithPrimary('Institución histórica revocada');
+    const targetUserId = new Types.ObjectId();
+    const historicalApplicationId = new Types.ObjectId();
+    await conn.collection('roled_users').insertOne({
+      _id: targetUserId,
+      dni: 'historical-revoked',
+      email: 'historical-revoked@example.com',
+      name: 'Administradora histórica',
+      password: 'hashed-target',
+      role: 'USER',
+      active: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('institutional_admin_applications').insertOne({
+      _id: historicalApplicationId,
+      dni: 'historical-revoked',
+      email: 'historical-revoked@example.com',
+      passwordHash: 'hashed-target',
+      name: 'Administradora histórica',
+      institutionName: 'Institución histórica revocada',
+      institutionNameNorm: 'institución histórica revocada',
+      accountAddress: validAccountAddress,
+      status: 'APPROVED',
+      tenantId,
+      userId: targetUserId,
+      approvedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await conn.collection('tenant_admin_assignments').insertOne({
+      tenantId,
+      userId: targetUserId,
+      applicationId: historicalApplicationId,
+      accountAddress: validAccountAddress,
+      institutionalRole: 'SECONDARY',
+      status: 'REVOKED',
+      active: false,
+      revokedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    currentReviewer = { sub: String(primaryUserId), role: 'USER', smartAccountAddress: validAccountAddress };
+    const reinvitation = await request(app.getHttpServer())
+      .post(`/api/v1/institutional-admin-applications/tenants/${tenantId}/invitations`)
+      .send({ dni: 'historical-revoked', name: 'Administradora histórica' })
+      .expect(201);
+    const invitation = await conn.collection('institutional_admin_invitations').findOne({
+      _id: new Types.ObjectId(reinvitation.body.id),
+    });
+
+    await expect(applicationsService.acceptInvitationFromMobile(reinvitation.body.id, {
+      sub: 'did:iden3:historical-revoked',
+      invitationId: reinvitation.body.id,
+      dni: 'historical-revoked',
+      smartAccountAddress: String(invitation?.accountAddress),
+      mobileAuthContextHash: 'mobile-auth-context-historical',
+      authType: 'INSTITUTIONAL_INVITATION_MOBILE_ZK',
+    })).resolves.toMatchObject({ status: 'ACCEPTED', applicationStatus: 'PENDING_APPROVAL' });
   });
 
   it('[MX-02][D-REV-013][INTEGRACION] receipt ausente con postestado de retiro cumplido reconcilia sin otra firma', async () => {

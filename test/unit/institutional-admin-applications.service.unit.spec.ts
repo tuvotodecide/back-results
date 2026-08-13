@@ -455,6 +455,101 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
     expect(mobileZkAuthService.issueInvitationRegistrationContinuation).not.toHaveBeenCalled();
   });
 
+  it('[MX-02][D-REV-014][UNITARIA] acepta una reinvitación si el APPROVED histórico tiene membership revocada', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000014');
+    const invitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '123456',
+      name: 'Persona reinvitada',
+      accountAddress: validAccountAddress,
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    invitationModel.findById.mockReturnValue(invitation);
+    roledUserModel.find.mockReturnValue({
+      sort: jest.fn().mockResolvedValue([{ _id: userId, dni: '123456', email: 'existing@example.com', password: 'hash' }]),
+    });
+    assignmentModel.findOne.mockResolvedValue(null);
+    applicationModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(null) });
+    tenantModel.findById.mockReturnValue({ session: jest.fn().mockResolvedValue({ _id: tenantId, name: 'Institución', nameNorm: 'institución' }) });
+    applicationModel.create.mockResolvedValue([{
+      _id: appId,
+      status: 'PENDING_APPROVAL',
+    }]);
+
+    await expect((service as any).acceptInvitationForUser(invitationId.toString(), {
+      token: invitation.invitationToken,
+      email: 'existing@example.com',
+    }, userId.toString())).resolves.toEqual({
+      id: invitationId.toString(),
+      status: 'ACCEPTED',
+      applicationId: appId.toString(),
+      applicationStatus: 'PENDING_APPROVAL',
+    });
+    expect(applicationModel.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      status: { $in: expect.not.arrayContaining(['APPROVED']) },
+    }));
+    expect(applicationModel.create).toHaveBeenCalledWith([expect.objectContaining({
+      invitationId,
+      tenantId,
+      userId,
+      status: 'PENDING_APPROVAL',
+    })], { session });
+  });
+
+  it('[MX-02][D-REV-016][UNITARIA] mantiene bloqueado el duplicado cuando la membership sigue activa', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000015');
+    const invitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '123456',
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    invitationModel.findById.mockReturnValue(invitation);
+    roledUserModel.find.mockReturnValue({
+      sort: jest.fn().mockResolvedValue([{ _id: userId, dni: '123456', email: 'existing@example.com' }]),
+    });
+    assignmentModel.findOne.mockResolvedValue({ status: 'APPROVED', active: true });
+
+    await expect((service as any).acceptInvitationForUser(invitationId.toString(), {
+      token: invitation.invitationToken,
+      email: 'existing@example.com',
+    }, userId.toString())).rejects.toThrow(ConflictException);
+    expect(applicationModel.findOne).not.toHaveBeenCalled();
+  });
+
+  it('[MX-02][D-REV-017][UNITARIA] mantiene bloqueado el duplicado cuando existe otro proceso pendiente', async () => {
+    const invitationId = new Types.ObjectId('64e000000000000000000016');
+    const invitation = {
+      _id: invitationId,
+      tenantId,
+      dni: '123456',
+      invitationToken: 'opaque-invitation-token',
+      expiresAt: new Date(Date.now() + 60_000),
+      status: 'PENDING',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    invitationModel.findById.mockReturnValue(invitation);
+    roledUserModel.find.mockReturnValue({
+      sort: jest.fn().mockResolvedValue([{ _id: userId, dni: '123456', email: 'existing@example.com' }]),
+    });
+    assignmentModel.findOne.mockResolvedValue(null);
+    applicationModel.findOne.mockReturnValue({
+      session: jest.fn().mockResolvedValue({ _id: appId, status: 'PENDING_APPROVAL' }),
+    });
+
+    await expect((service as any).acceptInvitationForUser(invitationId.toString(), {
+      token: invitation.invitationToken,
+      email: 'existing@example.com',
+    }, userId.toString())).rejects.toThrow(ConflictException);
+  });
+
   it('[MX-02][D3][UNITARIA] al verificar el correo mantiene la solicitud para aprobación y consume la invitación asociada', async () => {
     const invitationId = new Types.ObjectId('64e000000000000000000012');
     const application = {

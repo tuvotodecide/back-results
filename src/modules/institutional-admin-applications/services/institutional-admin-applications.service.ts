@@ -1730,10 +1730,33 @@ export class InstitutionalAdminApplicationsService {
           }
         }
 
-        const existingApplication = await this.applicationModel
+        // A completed application is not, by itself, proof of current access.
+        // The assignment is the canonical access record: a historical application
+        // can remain APPROVED after a legacy revocation while its assignment is
+        // already REVOKED/inactive.
+        const membershipQuery = this.assignmentModel.findOne({
+          tenantId: invitation.tenantId,
+          userId: user._id,
+          $or: [
+            { status: 'APPROVED', active: true },
+            { status: { $exists: false }, active: true },
+          ],
+        });
+        if (typeof membershipQuery.session === 'function') {
+          membershipQuery.session(session);
+        }
+        const activeMembership = await membershipQuery;
+        if (activeMembership) {
+          throw new ConflictException('Ya existe una solicitud vigente para esta institución.');
+        }
+
+        // Keep duplicate protection for real in-flight processes, but do not
+        // treat an APPROVED historical application as active access.
+        const existingPendingApplication = await this.applicationModel
           .findOne({
             tenantId: invitation.tenantId,
             userId: user._id,
+            invitationId: { $ne: invitation._id },
             status: {
               $in: [
                 'PENDING_EMAIL_VERIFICATION',
@@ -1742,12 +1765,11 @@ export class InstitutionalAdminApplicationsService {
                 'PENDING_CHAIN_CONFIRMATION',
                 'CHAIN_RETRY_PENDING',
                 'RECONCILIATION_PENDING',
-                'APPROVED',
               ],
             },
           })
           .session(session);
-        if (existingApplication) {
+        if (existingPendingApplication) {
           throw new ConflictException('Ya existe una solicitud vigente para esta institución.');
         }
 
@@ -4147,6 +4169,13 @@ export class InstitutionalAdminApplicationsService {
           }
           fresh.status = 'APPROVED' as any;
         } else if (action === 'REMOVE_AUTHORIZED_ADDRESS') {
+          const revokedAt = new Date();
+          const assignment = await this.assignmentModel.findOne({
+            _id: fresh.targetAssignmentId ?? undefined,
+            tenantId: fresh.tenantId,
+            userId: fresh.userId,
+            institutionalRole: 'SECONDARY',
+          }).session(session);
           await this.assignmentModel.updateOne(
             {
               _id: fresh.targetAssignmentId ?? undefined,
@@ -4158,12 +4187,30 @@ export class InstitutionalAdminApplicationsService {
               $set: {
                 status: 'REVOKED',
                 active: false,
-                revokedAt: new Date(),
+                revokedAt,
                 reason: fresh.reason ?? 'Acceso eliminado después de confirmación de red.',
               },
             },
             { session },
           );
+          if (assignment?.applicationId && String(assignment.applicationId) !== String(fresh._id)) {
+            await this.applicationModel.updateOne(
+              {
+                _id: assignment.applicationId,
+                tenantId: fresh.tenantId,
+                userId: fresh.userId,
+                status: 'APPROVED',
+              },
+              {
+                $set: {
+                  status: 'REVOKED',
+                  revokedAt,
+                  reason: fresh.reason ?? 'Acceso eliminado después de confirmación de red.',
+                },
+              },
+              { session },
+            );
+          }
           fresh.status = 'REVOKED' as any;
         } else {
           await this.assignmentModel.updateOne(
