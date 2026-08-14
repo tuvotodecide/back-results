@@ -174,6 +174,7 @@ export class IncentiveCampaignsService {
   isUngrantableError(error: any) {
     return error.message?.includes('TVDIncentive: campaign has been refunded')
       || error.message?.includes('TVDIncentive: campaign is paused')
+      || error.message?.includes('TVDIncentive: no active campaign')
       || error.message?.includes('TVDIncentive: campaign grant window is not active')
       || error.message?.includes('TVDIncentive: max wallets reached');
   }
