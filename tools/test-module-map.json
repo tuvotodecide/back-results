@@ -50,6 +50,7 @@
       "test/unit/institutional-access-recovery-requests.service.unit.spec.ts",
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
       "test/unit/auth.service.institutional-access-status.unit.spec.ts",
+      "test/unit/auth.service.institutional-role.unit.spec.ts",
       "test/unit/institutional-admin-applications/institutional-mobile-auth.controller.unit.spec.ts",
       "test/unit/institutional-admin-applications/institutional-mobile-zk-auth.service.unit.spec.ts",
       "test/unit/institutional-mobile-authorization-receipt-verification.unit.spec.ts",

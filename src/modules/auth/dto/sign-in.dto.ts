@@ -20,6 +20,9 @@ export class AuthContextDto {
   @ApiPropertyOptional({ enum: userRoles })
   role?: UserRole;
 
+  @ApiPropertyOptional({ enum: ['PRIMARY', 'SECONDARY'] })
+  institutionalRole?: 'PRIMARY' | 'SECONDARY';
+
   @ApiPropertyOptional()
   label?: string;
 
@@ -54,6 +57,9 @@ export class TenantAccessItemDto {
 
   @ApiPropertyOptional()
   membershipId?: string | null;
+
+  @ApiPropertyOptional({ enum: ['PRIMARY', 'SECONDARY'] })
+  institutionalRole?: 'PRIMARY' | 'SECONDARY';
 
   @ApiProperty({ enum: tenantAccessStatuses })
   status: TenantAccessStatus;

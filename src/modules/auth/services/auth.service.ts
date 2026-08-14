@@ -481,6 +481,7 @@ export class AuthService {
       contexts.push({
         type: 'TENANT',
         role: user.role,
+        institutionalRole: membership.institutionalRole ?? undefined,
         label: `Tenant: ${tenant.name}`,
         tenantId: String(membership.tenantId),
         tenantName: tenant.name,
@@ -556,6 +557,7 @@ export class AuthService {
         item: {
           applicationId: membership.applicationId ? String(membership.applicationId) : null,
           membershipId: String(membership._id),
+          institutionalRole: membership.institutionalRole ?? undefined,
           status: this.normalizeTenantAccessStatus(effectiveStatus),
           tenantId: String(membership.tenantId),
           tenantName: tenant?.name ?? null,
