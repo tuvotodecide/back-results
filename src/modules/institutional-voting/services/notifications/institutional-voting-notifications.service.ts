@@ -43,6 +43,7 @@ type VotingReminderOffsetMinutes = 60 | 15;
 export class InstitutionalVotingNotificationsService {
   private readonly logger = new Logger(InstitutionalVotingNotificationsService.name);
   private readonly chain: string;
+  private readonly broadcastTopic: string;
 
   constructor(
     @Inject('FIREBASE_ADMIN')
@@ -63,6 +64,9 @@ export class InstitutionalVotingNotificationsService {
   ) {
     this.chain = this.configService.get<string>(
       'app.blockchain.chain',
+    )!;
+    this.broadcastTopic = this.configService.get<string>(
+      'app.notifications.broadcastTopic',
     )!;
   }
 
@@ -141,6 +145,10 @@ export class InstitutionalVotingNotificationsService {
       },
     };
 
+    if (event.isOpenVoting) {
+      return this.notifyConvocationBroadcast(event, payload, mode);
+    }
+
     const recipients = (
       await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
         includeDisabled: false,
@@ -203,6 +211,97 @@ export class InstitutionalVotingNotificationsService {
       newlyNotified: sent,
       skippedWithoutUser: 0,
       failed,
+    };
+  }
+
+  private async notifyConvocationBroadcast(
+    event: VotingEventDocument,
+    payload: NotificationPayload,
+    mode: 'initial' | 'incremental',
+  ) {
+    if (event.convocationNotifiedAt) {
+      return {
+        status: 'no_pending_voters',
+        mode,
+        totalEligible: 0,
+        alreadyNotified: 1,
+        newlyNotified: 0,
+        skippedWithoutUser: 0,
+        failed: 0,
+      };
+    }
+
+    const { sent, failed } = await this.sendBroadcastNotification(payload);
+
+    if (sent > 0) {
+      await this.votingEventModel.updateOne(
+        { _id: event._id },
+        { $set: { convocationNotifiedAt: new Date() } },
+      );
+    }
+
+    return {
+      status: sent > 0 ? 'success' : 'failed',
+      mode,
+      totalEligible: sent + failed,
+      alreadyNotified: 0,
+      newlyNotified: sent,
+      skippedWithoutUser: 0,
+      failed,
+    };
+  }
+
+  private async sendBroadcastNotification(payload: NotificationPayload) {
+    const topic = this.broadcastTopic;
+
+    let status: 'SENT' | 'FAILED' = 'SENT';
+    let messageId: string | undefined;
+    let error: string | undefined;
+
+    try {
+      messageId = await this.fb.messaging().send({
+        topic,
+        notification: {
+          title: payload.title,
+          body: payload.body,
+        },
+        data: payload.data,
+        android: { priority: 'high' },
+        apns: { headers: { 'apns-priority': '10' } },
+      });
+    } catch (e: any) {
+      status = 'FAILED';
+      error = e?.message || String(e);
+      console.error('[InstitutionalVotingNotifications] Broadcast push delivery failed', {
+        topic,
+        type: payload.data?.type,
+        error,
+      });
+    }
+
+    await Promise.all([
+      this.userNotificationModel.create({
+        topic,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data,
+        status: 'NEW',
+      }),
+      this.notificationLogModel.create({
+        type: 'generic',
+        topic,
+        title: payload.title,
+        body: payload.body,
+        data: payload.data,
+        status,
+        ...(messageId ? { messageId } : {}),
+        ...(error ? { error } : {}),
+      }),
+    ]);
+
+    return {
+      sent: status === 'SENT' ? 1 : 0,
+      failed: status === 'SENT' ? 0 : 1,
     };
   }
 
@@ -500,41 +599,42 @@ export class InstitutionalVotingNotificationsService {
       phase === 'START' ? event.votingStart : event.votingEnd,
     );
     const copy = this.buildVotingReminderCopy(event.name, phase, offsetMinutes, reminderTime);
+    const payload: NotificationPayload = {
+      type: 'voting_reminder',
+      title: copy.title,
+      body: copy.body,
+      data: {
+        type,
+        eventId,
+        electionId: eventId,
+        eventName: event.name,
+        phase,
+        offsetMinutes: String(offsetMinutes),
+        scheduledFor,
+        severity: 'info',
+        votingStart: event.votingStart?.toISOString?.() ?? '',
+        votingEnd: event.votingEnd?.toISOString?.() ?? '',
+        resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
+        bannerTitle: copy.title,
+        bannerSubtitle: copy.body,
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        link: this.buildPublicElectionPath(eventId),
+        deepLink: `myapp://event/${eventId}`,
+      },
+    };
+
+    if (event.isOpenVoting) {
+      return this.sendBroadcastNotification(payload);
+    }
+
     const recipients = (
       await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
         includeDisabled: false,
       })
     ).filter((recipient) => recipient.enabled !== false && !!recipient._id);
 
-    return this.notifyRecipients(
-      {
-        type: 'voting_reminder',
-        title: copy.title,
-        body: copy.body,
-        data: {
-          type,
-          eventId,
-          electionId: eventId,
-          eventName: event.name,
-          phase,
-          offsetMinutes: String(offsetMinutes),
-          scheduledFor,
-          severity: 'info',
-          votingStart: event.votingStart?.toISOString?.() ?? '',
-          votingEnd: event.votingEnd?.toISOString?.() ?? '',
-          resultsPublishAt: event.resultsPublishAt?.toISOString?.() ?? '',
-          bannerTitle: copy.title,
-          bannerSubtitle: copy.body,
-          publicPath: this.buildPublicElectionPath(eventId),
-          publicUrl,
-          link: this.buildPublicElectionPath(eventId),
-          deepLink: `myapp://event/${eventId}`,
-        },
-      },
-      recipients,
-      {},
-      eventId,
-    );
+    return this.notifyRecipients(payload, recipients, {}, eventId);
   }
 
   async sendOfficialPublicationReminder(event: VotingEventDocument) {
@@ -605,6 +705,10 @@ export class InstitutionalVotingNotificationsService {
     payload: NotificationPayload,
     additionalPerUserDniData: Record<string, Record<string, string>> = {},
   ) {
+    if (event.isOpenVoting) {
+      return this.sendBroadcastNotification(payload);
+    }
+
     const recipients = await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
       includeDisabled: true,
     });
@@ -616,6 +720,10 @@ export class InstitutionalVotingNotificationsService {
     event: VotingEventDocument,
     payload: NotificationPayload,
   ) {
+    if (event.isOpenVoting) {
+      return this.sendBroadcastNotification(payload);
+    }
+
     const recipients = (
       await this.padronUsersService.getResolvedPadronUsersFomEvent(event, {
         includeDisabled: false,

@@ -283,8 +283,11 @@ export class OfficialPublicationRequest {
   @Prop({ required: true, trim: true })
   abiVersion!: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'PadronVersion', required: true, index: true })
-  padronVersionId!: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'PadronVersion', required: false, default: null, index: true })
+  padronVersionId?: Types.ObjectId | null;
+
+  @Prop({ required: false, default: false, index: true })
+  isOpenVoting?: boolean;
 
   @Prop({ required: true, min: 1 })
   enabledVotersCount!: number;

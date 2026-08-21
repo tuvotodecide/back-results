@@ -22,6 +22,7 @@ import {
   ParticipationDocument,
 } from '../../schemas/participation.schema';
 import { VotingEvent } from '../../schemas/voting-event.schema';
+import { User, UserDocument } from '@/modules/users/schemas/user.schema';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
 import { ParticipationReportPdfService } from './participation-report-pdf.service';
 
@@ -40,6 +41,8 @@ export class ParticipationAnalyticsService {
     private readonly participationModel: Model<ParticipationDocument>,
     @InjectModel(InstitutionalTenant.name)
     private readonly tenantModel: Model<InstitutionalTenantDocument>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
     private readonly reportPdfService: ParticipationReportPdfService,
   ) {}
@@ -68,6 +71,10 @@ export class ParticipationAnalyticsService {
     const safePage = Math.max(1, Number(page) || 1);
     const safeLimit = Math.min(500, Math.max(1, Number(limit) || 50));
     const skip = (safePage - 1) * safeLimit;
+
+    if (event.isOpenVoting) {
+      return this.getParticipationListFromUsers(event._id, safePage, safeLimit, skip);
+    }
 
     const currentVersion = await this.padronVersionModel
       .findOne({ eventId: event._id, isCurrent: true }, { _id: 1 })
@@ -135,6 +142,54 @@ export class ParticipationAnalyticsService {
     };
   }
 
+  private async getParticipationListFromUsers(
+    eventId: Types.ObjectId,
+    safePage: number,
+    safeLimit: number,
+    skip: number,
+  ) {
+    const [users, total] = await Promise.all([
+      this.userModel
+        .find({ active: true }, { _id: 1, dni: 1 })
+        .sort({ dni: 1, _id: 1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .lean(),
+      this.userModel.countDocuments({ active: true }),
+    ]);
+
+    const carnetNorms = users
+      .map((user) => String(user.dni ?? '').trim())
+      .filter(Boolean);
+    const participationRows = carnetNorms.length
+      ? await this.participationModel
+          .find(
+            { eventId, carnetNorm: { $in: carnetNorms } },
+            { carnetNorm: 1 },
+          )
+          .lean()
+      : [];
+    const participatedCarnets = new Set(
+      participationRows.map((row) => String(row.carnetNorm ?? '').trim()),
+    );
+
+    return {
+      data: users.map((user) => {
+        const carnetNorm = String(user.dni ?? '').trim();
+        return {
+          id: String(user._id),
+          carnetNorm,
+          status: participatedCarnets.has(carnetNorm) ? 'PARTICIPATED' : 'PENDING',
+        };
+      }),
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
+      padronVersionId: null,
+    };
+  }
+
   async downloadParticipationReport(
     eventId: string,
     requester: any,
@@ -166,14 +221,16 @@ export class ParticipationAnalyticsService {
 
     const [tenant, currentVersion] = await Promise.all([
       this.tenantModel.findById(event.tenantId, { name: 1 }).lean(),
-      this.padronVersionModel
-        .findOne({ eventId: event._id, isCurrent: true }, { _id: 1 })
-        .lean(),
+      event.isOpenVoting
+        ? Promise.resolve(null)
+        : this.padronVersionModel
+            .findOne({ eventId: event._id, isCurrent: true }, { _id: 1 })
+            .lean(),
     ]);
 
     const base = this.buildBaseResponse(event, tenant?.name);
 
-    if (!currentVersion) {
+    if (!event.isOpenVoting && !currentVersion) {
       return {
         ...base,
         generatedAt: new Date().toISOString(),
@@ -182,27 +239,45 @@ export class ParticipationAnalyticsService {
       };
     }
 
-    const enabledEntries = await this.padronEntryModel
-      .find(
-        {
-          padronVersionId: currentVersion._id,
-          enabled: { $ne: false },
-        },
-        { _id: 1, carnetNorm: 1 },
-      )
-      .sort({ carnetNorm: 1, _id: 1 })
-      .lean();
-
     const enabledByCarnet = new Map<string, { id: string; carnetNorm: string }>();
-    for (const entry of enabledEntries) {
-      const carnetNorm = String(entry.carnetNorm ?? '').trim();
-      if (!carnetNorm || enabledByCarnet.has(carnetNorm)) {
-        continue;
+
+    if (event.isOpenVoting) {
+      const users = await this.userModel
+        .find({ active: true }, { _id: 1, dni: 1 })
+        .sort({ dni: 1, _id: 1 })
+        .lean();
+      for (const user of users) {
+        const carnetNorm = String(user.dni ?? '').trim();
+        if (!carnetNorm || enabledByCarnet.has(carnetNorm)) {
+          continue;
+        }
+        enabledByCarnet.set(carnetNorm, {
+          id: String(user._id),
+          carnetNorm,
+        });
       }
-      enabledByCarnet.set(carnetNorm, {
-        id: String(entry._id),
-        carnetNorm,
-      });
+    } else {
+      const enabledEntries = await this.padronEntryModel
+        .find(
+          {
+            padronVersionId: currentVersion!._id,
+            enabled: { $ne: false },
+          },
+          { _id: 1, carnetNorm: 1 },
+        )
+        .sort({ carnetNorm: 1, _id: 1 })
+        .lean();
+
+      for (const entry of enabledEntries) {
+        const carnetNorm = String(entry.carnetNorm ?? '').trim();
+        if (!carnetNorm || enabledByCarnet.has(carnetNorm)) {
+          continue;
+        }
+        enabledByCarnet.set(carnetNorm, {
+          id: String(entry._id),
+          carnetNorm,
+        });
+      }
     }
 
     const participationRows = await this.participationModel

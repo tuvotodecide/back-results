@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -136,6 +137,7 @@ export class VotingEventsService {
       objective: dto.objective,
       isReferendum: Boolean(dto.isReferendum),
       isOpenVoting: Boolean(dto.isOpenVoting),
+      maxOpenVoters: dto.isOpenVoting ? dto.maxOpenVoters : undefined,
       votingStart,
       votingEnd,
       resultsPublishAt,
@@ -163,6 +165,8 @@ export class VotingEventsService {
       name: created.name,
       objective: created.objective,
       isReferendum: Boolean(created.isReferendum),
+      isOpenVoting: Boolean(created.isOpenVoting),
+      maxOpenVoters: created.maxOpenVoters ?? null,
       votingStart: created.votingStart,
       votingEnd: created.votingEnd,
       resultsPublishAt: created.resultsPublishAt,
@@ -321,13 +325,20 @@ export class VotingEventsService {
       return [];
     }
 
-    const eventIds = eligibleEvents.map((event) => event._id);
+    const openEvents = eligibleEvents.filter((event) => event.isOpenVoting);
+    const closedEvents = eligibleEvents.filter((event) => !event.isOpenVoting);
+
+    if (!closedEvents.length) {
+      return openEvents;
+    }
+
+    const eventIds = closedEvents.map((event) => event._id);
     const currentVersions = await this.padronVersionModel
       .find({ eventId: { $in: eventIds }, isCurrent: true }, { _id: 1, eventId: 1 })
       .lean();
 
     if (!currentVersions.length) {
-      return [];
+      return openEvents;
     }
 
     const versionIds = currentVersions.map((version) => version._id);
@@ -341,7 +352,7 @@ export class VotingEventsService {
     );
 
     if (!activeVersions.length) {
-      return [];
+      return openEvents;
     }
 
     const padronEntries = await this.padronEntryModel
@@ -354,10 +365,6 @@ export class VotingEventsService {
       )
       .lean();
 
-    if (!padronEntries.length) {
-      return [];
-    }
-
     const allowedVersionIds = new Set(
       padronEntries.map((entry) => String(entry.padronVersionId)),
     );
@@ -367,7 +374,11 @@ export class VotingEventsService {
         .map((version) => String(version.eventId)),
     );
 
-    return eligibleEvents.filter((event) => allowedEventIds.has(String(event._id)));
+    const allowedClosedEvents = closedEvents.filter((event) =>
+      allowedEventIds.has(String(event._id)),
+    );
+
+    return [...openEvents, ...allowedClosedEvents];
   }
 
   async getPublicEventDetail(eventId: string) {
@@ -380,6 +391,7 @@ export class VotingEventsService {
         name: event.name,
         objective: event.objective,
         isReferendum: Boolean(event.isReferendum),
+        isOpenVoting: Boolean(event.isOpenVoting),
         state: event.state,
         availabilityStatus: 'CANCELLED',
         phase: 'UNAVAILABLE',
@@ -438,6 +450,7 @@ export class VotingEventsService {
       name: event.name,
       objective: event.objective,
       isReferendum: Boolean(event.isReferendum),
+      isOpenVoting: Boolean(event.isOpenVoting),
       state: event.state,
       phase: isResults ? 'RESULTS' : isActive ? 'ACTIVE' : isUpcoming ? 'UPCOMING' : 'OTHER',
       votingStart: event.votingStart ?? null,
@@ -598,6 +611,7 @@ export class VotingEventsService {
       objective: event.objective,
       isReferendum: Boolean(event.isReferendum),
       isOpenVoting: Boolean(event.isOpenVoting),
+      maxOpenVoters: event.maxOpenVoters ?? null,
       state: event.state,
       votingStart: event.votingStart ?? null,
       votingEnd: event.votingEnd ?? null,
@@ -1465,13 +1479,15 @@ export class VotingEventsService {
     const [roles, activeOptions, currentPadron, activeDraft] = await Promise.all([
       this.eventRoleModel.find({ eventId: event._id }).lean(),
       this.votingOptionModel.find({ eventId: event._id, active: true }).lean(),
-      this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
-      this.accessService.canFullyEditEvent(event)
-        ? this.padronImportJobModel
+      event.isOpenVoting
+        ? null
+        : this.padronVersionModel.findOne({ eventId: event._id, isCurrent: true }).lean(),
+      event.isOpenVoting || !this.accessService.canFullyEditEvent(event)
+        ? null
+        : this.padronImportJobModel
             .findOne({ eventId: event._id, isActiveDraft: true })
             .sort({ createdAt: -1, _id: -1 })
-            .lean()
-        : null,
+            .lean(),
     ]);
 
     const pending: string[] = [];
@@ -1496,41 +1512,43 @@ export class VotingEventsService {
     if (roles.length === 0) pending.push('cargos');
     if (activeOptions.length === 0) pending.push('opciones');
 
-    if (activeDraft) {
-      const stagingCount = Number(activeDraft.summary?.stagingCount ?? 0);
-      const invalidCount =
-        Number(activeDraft.summary?.invalidCount ?? 0) +
-        Number(activeDraft.summary?.duplicateCount ?? 0);
-      const missingIdentityCount = Number(activeDraft.summary?.missingIdentityCount ?? 0);
-      const enabledCount = Number(activeDraft.summary?.enabledCount ?? 0);
+    if (!event.isOpenVoting) {
+      if (activeDraft) {
+        const stagingCount = Number(activeDraft.summary?.stagingCount ?? 0);
+        const invalidCount =
+          Number(activeDraft.summary?.invalidCount ?? 0) +
+          Number(activeDraft.summary?.duplicateCount ?? 0);
+        const missingIdentityCount = Number(activeDraft.summary?.missingIdentityCount ?? 0);
+        const enabledCount = Number(activeDraft.summary?.enabledCount ?? 0);
 
-      if (stagingCount <= 0) pending.push('padron');
-      if (invalidCount > 0) pending.push('padron_invalid');
-      if (stagingCount > 0 && invalidCount === 0 && enabledCount <= 0) {
-        pending.push('padron_registered_enabled');
-      } else if (missingIdentityCount > 0 && event.state === 'DRAFT') {
-        const registeredEnabledCount =
-          await this.countRegisteredEnabledStagingEntries(activeDraft._id);
-        if (registeredEnabledCount <= 0) {
+        if (stagingCount <= 0) pending.push('padron');
+        if (invalidCount > 0) pending.push('padron_invalid');
+        if (stagingCount > 0 && invalidCount === 0 && enabledCount <= 0) {
           pending.push('padron_registered_enabled');
+        } else if (missingIdentityCount > 0 && event.state === 'DRAFT') {
+          const registeredEnabledCount =
+            await this.countRegisteredEnabledStagingEntries(activeDraft._id);
+          if (registeredEnabledCount <= 0) {
+            pending.push('padron_registered_enabled');
+          }
         }
-      }
-    } else if (!currentPadron) {
-      pending.push('padron');
-    } else {
-      if (Number(currentPadron?.totals?.validCount ?? 0) <= 0) pending.push('padron');
-      if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) pending.push('padron_invalid');
-      if (Number(currentPadron?.totals?.validCount ?? 0) > 0) {
-        const registeredEnabledCurrentPadronCount =
-          await this.countRegisteredEnabledCurrentPadronEntries(currentPadron._id);
-        if (registeredEnabledCurrentPadronCount <= 0) pending.push('padron_registered_enabled');
-      }
+      } else if (!currentPadron) {
+        pending.push('padron');
+      } else {
+        if (Number(currentPadron?.totals?.validCount ?? 0) <= 0) pending.push('padron');
+        if (Number(currentPadron?.totals?.invalidCount ?? 0) > 0) pending.push('padron_invalid');
+        if (Number(currentPadron?.totals?.validCount ?? 0) > 0) {
+          const registeredEnabledCurrentPadronCount =
+            await this.countRegisteredEnabledCurrentPadronEntries(currentPadron._id);
+          if (registeredEnabledCurrentPadronCount <= 0) pending.push('padron_registered_enabled');
+        }
 
-      const comparisonReportOk = await this.comparisonReportModel.exists({
-        padronVersionId: currentPadron._id,
-        status: 'OK',
-      });
-      if (!comparisonReportOk) pending.push('padron_validation');
+        const comparisonReportOk = await this.comparisonReportModel.exists({
+          padronVersionId: currentPadron._id,
+          status: 'OK',
+        });
+        if (!comparisonReportOk) pending.push('padron_validation');
+      }
     }
 
     if (roles.length > 0 && activeOptions.length > 0) {

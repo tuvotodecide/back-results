@@ -17,19 +17,22 @@ export type VotingEventState =
 @Schema({ timestamps: true, collection: 'voting_events' })
 export class VotingEvent {
   @Prop({ type: Types.ObjectId, ref: 'InstitutionalTenant', required: true, index: true })
-  tenantId: Types.ObjectId;
+  tenantId!: Types.ObjectId;
 
   @Prop({ required: true, trim: true })
-  name: string;
+  name!: string;
 
   @Prop({ required: true, trim: true })
-  objective: string;
+  objective!: string;
 
   @Prop({ type: Boolean, default: false })
   isReferendum?: boolean;
 
   @Prop({ type: Boolean, default: false })
   isOpenVoting?: boolean;
+
+  @Prop({ required: false, default: 0 })
+  maxOpenVoters?: number;
 
   @Prop({ type: Date, required: false })
   votingStart?: Date;
@@ -56,10 +59,10 @@ export class VotingEvent {
     default: 'DRAFT',
     index: true,
   })
-  state: VotingEventState;
+  state!: VotingEventState;
 
   @Prop({ default: true })
-  publicEligibilityEnabled: boolean;
+  publicEligibilityEnabled!: boolean;
 
   @Prop({ type: Date, required: false })
   convocationNotifiedAt?: Date;

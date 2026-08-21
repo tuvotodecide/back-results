@@ -57,7 +57,8 @@ export type CreateOfficialPublicationRequestInput = {
   proxyAddress: string;
   implementationAddress: string;
   abiVersion: string;
-  padronVersionId: Types.ObjectId | string;
+  padronVersionId?: Types.ObjectId | string | null;
+  isOpenVoting?: boolean;
   enabledVotersCount: number;
   optionsHash: string;
   merkleRoots: {
@@ -97,6 +98,9 @@ export class OfficialPublicationRequestService {
     input: CreateOfficialPublicationRequestInput,
   ): Promise<CreateOrGetActiveRequestResult> {
     const activeKey = this.buildActiveKey(input.eventId);
+    const padronVersionId = input.padronVersionId
+      ? this.toObjectId(input.padronVersionId)
+      : null;
     await this.releasePreSubmissionRetryableActiveKey(input.eventId);
     const existing = await this.getActiveRequestByEventId(input.eventId);
     if (existing) {
@@ -113,7 +117,7 @@ export class OfficialPublicationRequestService {
         requestedByUserId: this.toObjectId(input.requestedByUserId),
         signerUserId: this.toObjectId(input.signerUserId),
         assignmentId: this.toObjectId(input.assignmentId),
-        padronVersionId: this.toObjectId(input.padronVersionId),
+        padronVersionId,
         preparedArtifactId: input.preparedArtifactId
           ? this.toObjectId(input.preparedArtifactId)
           : null,

@@ -5,11 +5,11 @@ export type UserNotificationDocument = UserNotification & Document;
 
 @Schema({ timestamps: true, collection: 'user_notifications' })
 export class UserNotification {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  userId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  userId?: Types.ObjectId;
 
-  @Prop({ required: true, trim: true })
-  dni: string;
+  @Prop({ required: false, trim: true })
+  dni?: string;
 
   @Prop({ required: true })
   topic: string; // ej. loc_<locationId>

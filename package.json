@@ -52,6 +52,7 @@
     "test:matrix:16:support": "node tools/run-module-tests.mjs matrix_16_support",
     "test:matrix:02": "node tools/run-module-tests.mjs matrix_02",
     "test:matrix:ea": "node tools/run-module-tests.mjs matrix_ea",
+    "test:matrix:ea2": "node tools/run-module-tests.mjs matrix_ea2",
     "test:matrix:rdv": "node tools/run-module-tests.mjs matrix_rdv",
     "test:matrix:rr": "node tools/run-module-tests.mjs matrix_rr",
     "test:module:institutional-access": "node tools/run-module-tests.mjs matrix_02",

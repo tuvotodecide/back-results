@@ -41,6 +41,7 @@ describe('MX-07 mobile vote focal unit coverage', () => {
       history as never,
       voteReader as never,
       issuer as never,
+      { getEventOrThrow: jest.fn().mockResolvedValue({ isOpenVoting: false }) } as never,
     );
   });
 
@@ -49,7 +50,8 @@ describe('MX-07 mobile vote focal unit coverage', () => {
       version: { findOne: jest.fn().mockReturnValue(resolved(null)) }, entry: { findOne: jest.fn().mockReturnValue(resolved(null)) }, report: { exists: jest.fn() }, participation: { findOne: jest.fn().mockReturnValue(resolved(null)) },
     };
     const access = { getEventOrThrow: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(eventId), state: 'PUBLISHED', votingStart: new Date(Date.now() - 1_000), votingEnd: new Date(Date.now() + 1_000) }) };
-    const service = new ParticipationService(models.version as never, models.entry as never, models.report as never, models.participation as never, access as never);
+    const voteReaderStub = { getElectionStatus: jest.fn().mockResolvedValue({ creditBalance: '10' }) };
+    const service = new ParticipationService(models.version as never, models.entry as never, models.report as never, models.participation as never, access as never, voteReaderStub as never);
     await expect(service.checkParticipationStatus(eventId, 'ABC-789')).resolves.toMatchObject({ status: 'PADRON_NOT_AVAILABLE', canVote: false });
     models.version.findOne.mockReturnValue(resolved({ _id: new Types.ObjectId() }));
     models.report.exists.mockResolvedValue(false);

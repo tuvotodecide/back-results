@@ -22,6 +22,7 @@ import {
 } from '../../schemas/participation.schema';
 import { normalizeCarnet } from '../../utils/carnet-normalizer';
 import { InstitutionalVotingAccessService } from '../core/institutional-voting-access.service';
+import { VoteReaderService } from '../core/vote-reader.service';
 
 @Injectable()
 export class ParticipationService {
@@ -35,6 +36,7 @@ export class ParticipationService {
     @InjectModel(Participation.name)
     private readonly participationModel: Model<ParticipationDocument>,
     private readonly accessService: InstitutionalVotingAccessService,
+    private readonly voteReaderService: VoteReaderService,
   ) {}
 
   async createParticipation(
@@ -224,32 +226,34 @@ export class ParticipationService {
       outsideVotingWindow = true;
     }
 
-    const currentVersion = await this.padronVersionModel
-      .findOne({ eventId: event._id, isCurrent: true })
-      .lean();
+    if (!event.isOpenVoting) {
+      const currentVersion = await this.padronVersionModel
+        .findOne({ eventId: event._id, isCurrent: true })
+        .lean();
 
-    if (!currentVersion) {
-      return { status: 'PADRON_NOT_AVAILABLE', canVote: false, alreadyVoted: false };
-    }
+      if (!currentVersion) {
+        return { status: 'PADRON_NOT_AVAILABLE', canVote: false, alreadyVoted: false };
+      }
 
-    const reportOk = await this.comparisonReportModel.exists({
-      padronVersionId: currentVersion._id,
-      status: 'OK',
-    });
-    if (!reportOk) {
-      return { status: 'ROLL_IN_VALIDATION', canVote: false, alreadyVoted: false };
-    }
+      const reportOk = await this.comparisonReportModel.exists({
+        padronVersionId: currentVersion._id,
+        status: 'OK',
+      });
+      if (!reportOk) {
+        return { status: 'ROLL_IN_VALIDATION', canVote: false, alreadyVoted: false };
+      }
 
-    const inPadron = await this.padronEntryModel.findOne({
-      padronVersionId: currentVersion._id,
-      carnetNorm,
-    }, { enabled: 1 }).lean();
-    if (!inPadron) {
-      return { status: 'NOT_IN_ROLL', canVote: false, alreadyVoted: false };
-    }
+      const inPadron = await this.padronEntryModel.findOne({
+        padronVersionId: currentVersion._id,
+        carnetNorm,
+      }, { enabled: 1 }).lean();
+      if (!inPadron) {
+        return { status: 'NOT_IN_ROLL', canVote: false, alreadyVoted: false };
+      }
 
-    if (inPadron.enabled === false) {
-      return { status: 'VOTER_DISABLED', canVote: false, alreadyVoted: false };
+      if (inPadron.enabled === false) {
+        return { status: 'VOTER_DISABLED', canVote: false, alreadyVoted: false };
+      }
     }
 
     const existing = await this.participationModel
@@ -266,10 +270,15 @@ export class ParticipationService {
       };
     }
 
-    return {
-      status: outsideVotingWindow ? 'OUTSIDE_VOTING_WINDOW' : 'CAN_VOTE',
-      canVote: !outsideVotingWindow,
-      alreadyVoted: false,
-    };
+    if (outsideVotingWindow) {
+      return { status: 'OUTSIDE_VOTING_WINDOW', canVote: false, alreadyVoted: false };
+    }
+
+    const electionStatus = await this.voteReaderService.getElectionStatus(eventId);
+    if (BigInt(electionStatus.creditBalance) <= 0n) {
+      return { status: 'CREDITS_EMPTY', canVote: false, alreadyVoted: false };
+    }
+
+    return { status: 'CAN_VOTE', canVote: true, alreadyVoted: false };
   }
 }

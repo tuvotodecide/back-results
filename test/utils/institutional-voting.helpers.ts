@@ -132,6 +132,21 @@ export async function bootstrapInstitutionalVotingContext(): Promise<Institution
         { option: 'Option B', votes: '50' },
       ];
     }),
+    // El estado de participación consulta el saldo on-chain de la elección antes de
+    // habilitar el voto; por defecto hay créditos de sobra (ver CREDITS_EMPTY en MX-EA2).
+    getElectionStatus: jest.fn(async (voteEventId: string) => ({
+      institution: '0x0000000000000000000000000000000000000000',
+      creditBalance: '1000',
+      lockedTVD: '1000',
+      pendingTVD: '0',
+      startCreditBalance: '1000',
+      startLockedTVD: '1000',
+      liquidated: false,
+      burnedTVD: '0',
+      consumedTVD: '0',
+      refundedTVD: '0',
+    })),
+    isDniInMerkleTree: jest.fn(async () => true),
   };
 
   const voteWritterServiceMock = {

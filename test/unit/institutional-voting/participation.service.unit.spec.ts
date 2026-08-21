@@ -12,6 +12,7 @@ import { PadronEntry } from '@/modules/institutional-voting/schemas/padron-entry
 import { ComparisonReport } from '@/modules/institutional-voting/schemas/comparison-report.schema';
 import { Participation } from '@/modules/institutional-voting/schemas/participation.schema';
 import { InstitutionalVotingAccessService } from '@/modules/institutional-voting/services/core/institutional-voting-access.service';
+import { VoteReaderService } from '@/modules/institutional-voting/services/core/vote-reader.service';
 
 describe('ParticipationService (unit)', () => {
   let service: ParticipationService;
@@ -31,6 +32,9 @@ describe('ParticipationService (unit)', () => {
   };
   let accessService: {
     getEventOrThrow: jest.Mock;
+  };
+  let voteReaderService: {
+    getElectionStatus: jest.Mock;
   };
 
   const activeEvent = () => ({
@@ -57,6 +61,10 @@ describe('ParticipationService (unit)', () => {
     accessService = {
       getEventOrThrow: jest.fn(),
     };
+    // Saldo on-chain suficiente por defecto: el agotamiento de créditos se cubre en MX-EA2.
+    voteReaderService = {
+      getElectionStatus: jest.fn().mockResolvedValue({ creditBalance: '100' }),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -69,6 +77,7 @@ describe('ParticipationService (unit)', () => {
         },
         { provide: getModelToken(Participation.name), useValue: participationModel },
         { provide: InstitutionalVotingAccessService, useValue: accessService },
+        { provide: VoteReaderService, useValue: voteReaderService },
       ],
     }).compile();
 

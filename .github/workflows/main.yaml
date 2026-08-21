@@ -163,6 +163,10 @@ jobs:
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:ea
 
+      - name: MX-EA 2 | Elecciones abiertas 2 | Backend Results
+        if: ${{ !cancelled() }}
+        run: pnpm test:matrix:ea2
+
       - name: MX-RDV | Registro despues de votacion | Backend Results
         if: ${{ !cancelled() }}
         run: pnpm test:matrix:rdv

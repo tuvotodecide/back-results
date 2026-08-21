@@ -65,29 +65,37 @@ export class OfficialPublicationPreparationService {
     const publicationInstitution =
       await this.accessService.resolveOfficialPublicationInstitution(event, requester);
 
-    await this.padronService.materializeActiveDraftVersion(eventId, requester, {
-      comparisonStatus: 'OK',
-      deactivateDraft: false,
-      markConfirmed: false,
-      certificateMode: 'ON_CONFIRMATION',
-    });
+    const isOpenVoting = Boolean(event.isOpenVoting);
 
-    const currentPadron = await this.padronVersionModel
-      .findOne({ eventId: event._id, isCurrent: true })
-      .lean();
-    if (!currentPadron) {
+    if (!isOpenVoting) {
+      await this.padronService.materializeActiveDraftVersion(eventId, requester, {
+        comparisonStatus: 'OK',
+        deactivateDraft: false,
+        markConfirmed: false,
+        certificateMode: 'ON_CONFIRMATION',
+      });
+    }
+
+    const currentPadron = isOpenVoting
+      ? null
+      : await this.padronVersionModel
+          .findOne({ eventId: event._id, isCurrent: true })
+          .lean();
+    if (!isOpenVoting && !currentPadron) {
       throw new BadRequestException({
         code: 'OFFICIAL_PUBLICATION_PADRON_MISSING',
         message: 'No existe un padron confirmado para preparar la publicacion',
       });
     }
 
-    const convotatedUsers = (
-      await this.padronUsersService.getUnresolverPadronUsersFomEvent(event, {
-        includeDisabled: false,
-      })
-    ).map((user) => String(user.dni));
-    if (convotatedUsers.length === 0) {
+    const convotatedUsers = isOpenVoting
+      ? []
+      : (
+          await this.padronUsersService.getUnresolverPadronUsersFomEvent(event, {
+            includeDisabled: false,
+          })
+        ).map((user) => String(user.dni));
+    if (!isOpenVoting && convotatedUsers.length === 0) {
       throw new BadRequestException({
         code: 'OFFICIAL_PUBLICATION_EMPTY_VOTERS',
         message: 'La publicacion oficial requiere votantes habilitados',
@@ -112,7 +120,9 @@ export class OfficialPublicationPreparationService {
       convotatedUsers,
       options,
     );
-    const requiredCredits = BigInt(convotatedUsers.length);
+    const requiredCredits = isOpenVoting
+      ? BigInt(event.maxOpenVoters ?? 0)
+      : BigInt(convotatedUsers.length);
     const preflight = await this.tvdBlockchainService.validateVotePublicationPreflight({
       institutionWallet: publicationInstitution.accountAddress,
       institutionId: publicationInstitution.institutionId,
@@ -140,7 +150,7 @@ export class OfficialPublicationPreparationService {
     const snapshotHash = this.hashJson({
       eventId,
       institutionId: publicationInstitution.institutionId,
-      padronVersionId: String(currentPadron._id),
+      padronVersionId: currentPadron ? String(currentPadron._id) : null,
       votersDigest,
       votersCount: convotatedUsers.length,
       optionsHash,
@@ -184,8 +194,11 @@ export class OfficialPublicationPreparationService {
       proxyAddress: preflight.proxyAddress,
       implementationAddress: preflight.implementationAddress,
       abiVersion: 'voteContract.createVote.v1',
-      padronVersionId: currentPadron._id as Types.ObjectId,
-      enabledVotersCount: convotatedUsers.length,
+      padronVersionId: currentPadron ? (currentPadron._id as Types.ObjectId) : null,
+      isOpenVoting,
+      enabledVotersCount: isOpenVoting
+        ? Number(event.maxOpenVoters ?? 0)
+        : convotatedUsers.length,
       optionsHash,
       merkleRoots: {
         ciMerkleRoot: preparedVote.ciMerkleTree.root.toString(),
@@ -218,6 +231,7 @@ export class OfficialPublicationPreparationService {
         institutionId: publicationInstitution.institutionId,
         snapshotHash,
         voters: convotatedUsers,
+        votersCount: isOpenVoting ? Number(event.maxOpenVoters ?? 0) : convotatedUsers.length,
         dids,
         preparedVote,
       });

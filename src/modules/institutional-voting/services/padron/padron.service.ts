@@ -1556,6 +1556,13 @@ export class PadronService {
       };
     }
 
+    if (event.isOpenVoting) {
+      return {
+        status: 'ELIGIBLE',
+        referenceVersion: null,
+      };
+    }
+
     const carnetNorm = normalizeCarnet(carnet);
 
     const currentVersion = await this.padronVersionModel

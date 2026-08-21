@@ -126,7 +126,9 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     expect(Buffer.isBuffer(download.body)).toBe(true);
     expect(download.body.subarray(0, 5).toString('utf-8')).toBe('%PDF-');
     const text = download.body.toString('utf-8');
-    expect(text).toContain('CONSTANCIA DE PADRON CONFIRMADO');
+    // El título lleva tilde ("CONSTANCIA DE PADRÓN CONFIRMADO"), y la fuente Type1 del PDF se
+    // declara con /WinAnsiEncoding: la Ó no viaja como UTF-8 sino como el escape octal \323.
+    expect(text).toContain('CONSTANCIA DE PADR\\323N CONFIRMADO');
     expect(text).toContain('Eleccion Directiva 2026');
     expect(text).toContain(padronVersionId);
     expect(text).toContain('123456 | HABILITADO');

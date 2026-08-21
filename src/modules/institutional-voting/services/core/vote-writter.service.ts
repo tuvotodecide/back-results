@@ -165,18 +165,22 @@ export class VoteWritterService {
     voters: string[],
     options: string[],
   ): Promise<PreparedVotePublication> {
+    const isOpenVoting = Boolean(event.isOpenVoting);
+
     const secrets = voters.map(() => {
       // Generate 32 bytes (256 bits)
       const buffer = randomBytes(32);
       // Convert to Hex string
-      return '0x' + buffer.toString('hex');  
+      return '0x' + buffer.toString('hex');
     });
 
-    const ciHashes = voters.map(voter => 
-      this.merkletreeService.stringToFieldElement(voter)
-    );
+    const ciMerkleTree = isOpenVoting
+      ? { root: 0n, layers: [] as bigint[][] }
+      : await this.merkletreeService.buildMerkleTree(
+          voters.map(voter => this.merkletreeService.stringToFieldElement(voter)),
+        );
 
-    const ciMerkleTree = await this.merkletreeService.buildMerkleTree(ciHashes);
+    const votersCount = isOpenVoting ? Number(event.maxOpenVoters ?? 0) : voters.length;
 
     // Copy options and add 'BLANK' as an additional option
     const optionsWithBlank = [...options];
@@ -190,7 +194,7 @@ export class VoteWritterService {
       this.dateToUnixTimestamp(event.votingStart!),
       this.dateToUnixTimestamp(event.votingEnd!),
       this.dateToUnixTimestamp(event.resultsPublishAt!),
-      voters.length,
+      votersCount,
       ciMerkleTree.root,
       optionsWithBlank,
     ] as const;
@@ -203,7 +207,7 @@ export class VoteWritterService {
       this.dateToUnixTimestamp(event.votingStart!),
       this.dateToUnixTimestamp(event.votingEnd!),
       this.dateToUnixTimestamp(event.resultsPublishAt!),
-      voters.length,
+      votersCount,
       ciMerkleTree.root,
       optionsWithBlank
     );

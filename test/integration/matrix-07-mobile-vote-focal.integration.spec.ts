@@ -26,6 +26,7 @@ describe('MX-07 mobile vote focal integration coverage', () => {
       { create: jest.fn().mockResolvedValue(undefined) } as never,
       { isDniInMerkleTree: jest.fn() } as never,
       { getDidsByDnis: jest.fn(), issueCredential: jest.fn() } as never,
+      { getEventOrThrow: jest.fn().mockResolvedValue({ isOpenVoting: false }) } as never,
     );
   });
 

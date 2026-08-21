@@ -249,6 +249,10 @@ export default registerAs('app', () => ({
     },
   },
 
+  notifications: {
+    broadcastTopic: process.env.NOTIFICATIONS_BROADCAST_TOPIC || 'broadcast_topic',
+  },
+
   redEnlace: {
     mode: process.env.RED_ENLACE_MODE || 'mock',
     baseUrl: process.env.RED_ENLACE_BASE_URL || '',

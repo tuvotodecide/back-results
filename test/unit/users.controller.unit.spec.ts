@@ -10,7 +10,10 @@ import { UsersController } from '@/modules/users/controllers/users.controller';
 import { UsersService } from '@/modules/users/services/users.service';
 import { NotificationLog } from '@/modules/notifications/schemas/notification-log.schema';
 import { UserNotification } from '@/modules/notifications/schemas/user-notification.schema';
+import { ConfigService } from '@nestjs/config';
 import { chain } from '../utils/chain';
+
+const BROADCAST_TOPIC = 'broadcast_topic';
 
 const mkUsersService = () => ({
 
@@ -51,6 +54,10 @@ describe('UsersController', () => {
         { provide: UsersService, useValue: svc },
         { provide: getModelToken(NotificationLog.name), useValue: logModel },
         { provide: getModelToken(UserNotification.name), useValue: userNotifModel },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(BROADCAST_TOPIC) },
+        },
       ],
     }).compile();
     ctrl = mod.get(UsersController);
@@ -101,8 +108,10 @@ describe('UsersController', () => {
     const result = await ctrl.listNotificationsByDni('4', 2 as any, 1 as any);
     expect(result.page).toBe(2);
     expect(result.total).toBe(1);
+    // El topic de broadcast se suma siempre: es donde caen las notificaciones de las
+    // votaciones abiertas, que no tienen padrón al que dirigirse por usuario.
     expect(logModel.find).toHaveBeenCalledWith({
-      topic: { $in: ['loc_507f1f', 'user_U4'] },
+      topic: { $in: ['loc_507f1f', 'user_U4', BROADCAST_TOPIC] },
     });
   });
 
