@@ -40,17 +40,25 @@ import {
 } from '../dto/attest-participation.dto';
 import { Public } from '@/core/decorators/public.decorator';
 import { ZkAuthGuard } from '@/core/guards/zk-auth.guard';
+import { ConfigService } from '@nestjs/config';
 
 @ApiTags('Users')
 @Controller('api/v1/users')
 export class UsersController {
+  private readonly broadcastTopic: string;
+
   constructor(
     private readonly usersService: UsersService,
     @InjectModel(NotificationLog.name)
     private logModel: Model<NotificationLog>,
     @InjectModel(UserNotification.name)
     private userNotifModel: Model<UserNotification>,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.broadcastTopic = this.configService.get<string>(
+      'app.notifications.broadcastTopic',
+    )!;
+  }
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -156,6 +164,7 @@ export class UsersController {
       topics.push(`loc_${safeLoc}`);
     }
     topics.push(`user_${user._id.toString()}`);
+    topics.push(this.broadcastTopic);
 
     const skip = (Number(page) - 1) * Number(limit);
 

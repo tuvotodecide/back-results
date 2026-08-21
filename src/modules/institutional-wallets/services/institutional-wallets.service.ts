@@ -3,6 +3,7 @@ import {
   BadRequestException,
   GatewayTimeoutException,
   Injectable,
+  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
@@ -91,6 +92,7 @@ export class InstitutionalWalletsService {
         accountAddress: data.accountAddress.trim(),
       };
     } catch (error) {
+      Logger.error(error);
       if (error instanceof BadGatewayException) {
         throw error;
       }

@@ -660,6 +660,16 @@
       "test/end-to-end/matrix-ea.e2e.spec.ts"
     ]
   },
+  "matrix_ea2": {
+    "name": "MX-EA2 | Votaciones abiertas sin padron",
+    "flows": [
+      "EA2"
+    ],
+    "files": [
+      "test/end-to-end/matrix-ea2.e2e.spec.ts",
+      "test/unit/institutional-voting/matrix-ea2.unit.spec.ts"
+    ]
+  },
   "matrix_rdv": {
     "name": "MX-RDV | Registro después de votación",
     "flows": [

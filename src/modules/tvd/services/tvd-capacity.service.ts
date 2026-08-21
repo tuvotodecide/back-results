@@ -131,7 +131,9 @@ export class TvdCapacityService {
     }
 
     const balance = await this.readCurrentWalletBalance(walletContext);
-    const padronState = await this.resolveCurrentPadronState(event);
+    const padronState = event.isOpenVoting
+      ? this.resolveOpenVotingCapacityState(event)
+      : await this.resolveCurrentPadronState(event);
     const calculation = this.calculateCapacity(
       BigInt(padronState.participantCount),
       balance,
@@ -232,6 +234,18 @@ export class TvdCapacityService {
         errorCode: this.sanitizeTvdErrorCode(error),
       });
     }
+  }
+
+  private resolveOpenVotingCapacityState(
+    event: CapacityVotingEvent,
+  ): CurrentPadronCapacityState {
+    const participantCount = Number(event.maxOpenVoters ?? 0);
+
+    return {
+      participantCount: participantCount > 0 ? participantCount : 0,
+      padronVersionId: null,
+      reasonCode: participantCount > 0 ? null : 'PADRON_EMPTY',
+    };
   }
 
   private async resolveCurrentPadronState(

@@ -109,11 +109,12 @@ describe('MX-14 Backend Results — unitarias focales', () => {
     const query = (rows: object[]) => ({ sort: jest.fn().mockReturnThis(), limit: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(rows) });
     const logModel = { find: jest.fn(() => query([{ _id: 'log', messageId: 'same', createdAt: new Date('2026-01-02') }])), countDocuments: jest.fn().mockResolvedValue(1) };
     const inboxModel = { find: jest.fn(() => query([{ _id: 'inbox', messageId: 'same', createdAt: new Date('2026-01-01') }])), countDocuments: jest.fn().mockResolvedValue(1) };
-    const controller = new UsersController(users as never, logModel as never, inboxModel as never);
+    const configService = { get: jest.fn().mockReturnValue('broadcast_topic') };
+    const controller = new UsersController(users as never, logModel as never, inboxModel as never, configService as never);
 
     const response = await controller.listNotificationsByDni('123', 1, 20);
 
-    expect(logModel.find).toHaveBeenCalledWith({ topic: { $in: [`loc_${locationId}`, `user_${userId}`] } });
+    expect(logModel.find).toHaveBeenCalledWith({ topic: { $in: [`loc_${locationId}`, `user_${userId}`, 'broadcast_topic'] } });
     expect(response).toEqual(expect.objectContaining({ total: 1, data: [expect.objectContaining({ _id: 'log' })] }));
   });
 

@@ -1,6 +1,6 @@
 import { ZkAuthService } from "@/modules/zk-auth/services/zk-auth.service";
 import { AuthorizationResponseMessage } from "@iden3/js-iden3-auth/dist/types/types-sdk";
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, Logger, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { EnabledSession, EnabledSessionDocument } from "../../schemas/enabled-session.shcema";
 import { Model, Types } from "mongoose";
@@ -10,6 +10,7 @@ import { HistoryService } from "@/modules/history/services/history.service";
 import { HistoryOperationKey, HistoryType } from "@/modules/history/dto/create-history.dto";
 import { VoteReaderService } from "../core/vote-reader.service";
 import { IssuerService } from "../core/issuer.service";
+import { InstitutionalVotingAccessService } from "../core/institutional-voting-access.service";
 
 @Injectable()
 export class EmitVoteService {
@@ -23,6 +24,7 @@ export class EmitVoteService {
     private readonly historyService: HistoryService,
     private readonly voteReaderService: VoteReaderService,
     private readonly issuerService: IssuerService,
+    private readonly accessService: InstitutionalVotingAccessService,
   ) {}
 
   async getVoteVc(eventId: string, dni: string): Promise<{ vc: string }> {
@@ -35,9 +37,12 @@ export class EmitVoteService {
       return { vc: session.sessionToken };
     }
 
-    const isInVote = await this.voteReaderService.isDniInMerkleTree(eventId, dni);
-    if (!isInVote) {
-      throw new NotFoundException('No enabled session found for this user and event');
+    const event = await this.accessService.getEventOrThrow(eventId);
+    if (!event.isOpenVoting) {
+      const isInVote = await this.voteReaderService.isDniInMerkleTree(eventId, dni);
+      if (!isInVote) {
+        throw new NotFoundException('No enabled session found for this user and event');
+      }
     }
 
     const dids = await this.issuerService.getDidsByDnis([dni]);
@@ -114,6 +119,8 @@ export class EmitVoteService {
       }
       if (error?.message?.includes('Nullifier already used')) {
         throw new BadRequestException('This vote has already been cast');
+      } else if (error?.message?.includes('TVDCredits: election has no credits')) {
+        throw new ConflictException('Current election has no credits');
       } else {
         Logger.error('Error casting vote:', error);
         throw new InternalServerErrorException('An error occurred while casting the vote');

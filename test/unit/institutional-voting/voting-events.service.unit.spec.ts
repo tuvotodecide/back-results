@@ -493,6 +493,7 @@ describe('VotingEventsService (unit)', () => {
       name: 'Eleccion eliminada',
       objective: 'Elegir directiva',
       isReferendum: false,
+      isOpenVoting: false,
       state: 'CANCELLED',
       availabilityStatus: 'CANCELLED',
       phase: 'UNAVAILABLE',

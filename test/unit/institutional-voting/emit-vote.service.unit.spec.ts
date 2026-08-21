@@ -21,6 +21,7 @@ describe('EmitVoteService (unit)', () => {
   let historyService: { create: jest.Mock };
   let voteReaderService: { isDniInMerkleTree: jest.Mock };
   let issuerService: { getDidsByDnis: jest.Mock; issueCredential: jest.Mock };
+  let accessService: { getEventOrThrow: jest.Mock };
   let service: EmitVoteService;
 
   const eventId = new Types.ObjectId().toString();
@@ -74,6 +75,9 @@ describe('EmitVoteService (unit)', () => {
       getDidsByDnis: jest.fn(),
       issueCredential: jest.fn(),
     };
+    accessService = {
+      getEventOrThrow: jest.fn().mockResolvedValue({ isOpenVoting: false }),
+    };
 
     service = new EmitVoteService(
       enabledSessionModel as any,
@@ -83,6 +87,7 @@ describe('EmitVoteService (unit)', () => {
       historyService as any,
       voteReaderService as any,
       issuerService as any,
+      accessService as any,
     );
   });
 

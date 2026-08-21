@@ -591,6 +591,7 @@ export class OfficialPublicationApiService {
       ...this.serializeAdminRequest(request),
       eventName: context.eventName,
       institutionName: context.institutionName,
+      isOpenVoting: request.isOpenVoting ?? false,
       votingStart: this.iso(context.votingStart),
       votingEnd: this.iso(context.votingEnd),
       resultsPublishAt: this.iso(context.resultsPublishAt),

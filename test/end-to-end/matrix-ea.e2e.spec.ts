@@ -199,18 +199,24 @@ describe('MX-EA | Votaciones abiertas E2E', () => {
     return request(httpServer).get(`/api/v1/voting/events/${eventId}`);
   }
 
-  it('EA-P0-02-001 crea el evento con isOpenVoting=true y lo refleja en el detalle', async () => {
-    const created = await createEvent({ isOpenVoting: true });
+  it('EA-P0-02-001 crea el evento con isOpenVoting=true y maxOpenVoters y lo refleja en el detalle', async () => {
+    // Una votación abierta ya no tiene padrón: el límite de votantes (maxOpenVoters) es el
+    // que define cuántos créditos/TVD se reservan, por eso viaja junto a isOpenVoting.
+    const created = await createEvent({ isOpenVoting: true, maxOpenVoters: 250 });
     expect(created.status).toBe(201);
+    expect(created.body.isOpenVoting).toBe(true);
+    expect(created.body.maxOpenVoters).toBe(250);
 
     const detail = await getEventDetail(created.body.id);
     expect(detail.status).toBe(200);
     expect(detail.body.isOpenVoting).toBe(true);
+    expect(detail.body.maxOpenVoters).toBe(250);
 
     const stored = await conn
       .collection('voting_events')
       .findOne({ _id: new Types.ObjectId(created.body.id) });
     expect(stored?.isOpenVoting).toBe(true);
+    expect(stored?.maxOpenVoters).toBe(250);
   });
 
   it('EA-P0-02-002 crea el evento con isOpenVoting=false explícito y lo refleja en el detalle', async () => {

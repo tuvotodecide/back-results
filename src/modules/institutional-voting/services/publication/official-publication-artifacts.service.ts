@@ -61,6 +61,7 @@ export class OfficialPublicationArtifactsService implements OnModuleInit {
     institutionId: string;
     snapshotHash: string;
     voters: string[];
+    votersCount?: number;
     dids: { dni: string; did: string }[];
     preparedVote: PreparedVotePublication;
   }) {
@@ -83,7 +84,7 @@ export class OfficialPublicationArtifactsService implements OnModuleInit {
             tenantId: this.toObjectId(input.tenantId),
             institutionId: input.institutionId,
             snapshotHash: input.snapshotHash,
-            votersCount: input.voters.length,
+            votersCount: input.votersCount ?? input.voters.length,
             votersDigest,
             encryptedPayload,
             payloadDigest,

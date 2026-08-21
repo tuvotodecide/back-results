@@ -8,6 +8,7 @@ import { InstitutionalVotingAccessService } from '@/modules/institutional-voting
 import { PadronEntry } from '@/modules/institutional-voting/schemas/padron-entry.schema';
 import { PadronVersion } from '@/modules/institutional-voting/schemas/padron-version.schema';
 import { Participation } from '@/modules/institutional-voting/schemas/participation.schema';
+import { User } from '@/modules/users/schemas/user.schema';
 
 const SENSITIVE_FIELDS = [
   'candidateId',
@@ -31,6 +32,7 @@ describe('ParticipationAnalyticsService (unit)', () => {
   let padronEntryModel: { find: jest.Mock };
   let participationModel: { find: jest.Mock };
   let tenantModel: { findById: jest.Mock };
+  let userModel: { find: jest.Mock; countDocuments: jest.Mock };
   let reportPdfService: { buildPdf: jest.Mock };
   let accessService: {
     getEventOrThrow: jest.Mock;
@@ -79,6 +81,7 @@ describe('ParticipationAnalyticsService (unit)', () => {
     padronEntryModel = { find: jest.fn() };
     participationModel = { find: jest.fn() };
     tenantModel = { findById: jest.fn() };
+    userModel = { find: jest.fn(), countDocuments: jest.fn() };
     reportPdfService = { buildPdf: jest.fn(() => Buffer.from('%PDF-1.4\nmock\n')) };
     accessService = {
       getEventOrThrow: jest.fn(),
@@ -92,6 +95,8 @@ describe('ParticipationAnalyticsService (unit)', () => {
         { provide: getModelToken(PadronEntry.name), useValue: padronEntryModel },
         { provide: getModelToken(Participation.name), useValue: participationModel },
         { provide: getModelToken(InstitutionalTenant.name), useValue: tenantModel },
+        // Solo lo usan las votaciones abiertas (sin padrón); cubierto en MX-EA2.
+        { provide: getModelToken(User.name), useValue: userModel },
         { provide: InstitutionalVotingAccessService, useValue: accessService },
         { provide: ParticipationReportPdfService, useValue: reportPdfService },
       ],
