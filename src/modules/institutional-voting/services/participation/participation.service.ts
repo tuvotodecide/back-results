@@ -76,7 +76,8 @@ export class ParticipationService {
       }
       throw new ConflictException('Ya participaste en este evento');
     }
-    if (status.status !== 'CAN_VOTE') {
+
+    if (status.status !== 'CAN_VOTE' && status.status !== 'CREDITS_EMPTY') {
       throw new ForbiddenException({ error: status.status });
     }
 
