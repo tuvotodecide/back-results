@@ -46,7 +46,12 @@ export class InstitutionalEmailOutboxService {
       subject: 'Verifica tu solicitud de administrador institucional',
       template: 'verify-email',
       safePayload: { name: this.safeFirstName(params.name) },
-      idempotencyKey: this.buildIdempotencyKey('INSTITUTIONAL_VERIFY_EMAIL', params.targetId),
+      idempotencyKey: params.correlationId?.trim()
+        ? this.buildIdempotencyKey(
+            'INSTITUTIONAL_VERIFY_EMAIL',
+            `${params.targetId}:${params.correlationId.trim()}`,
+          )
+        : this.buildIdempotencyKey('INSTITUTIONAL_VERIFY_EMAIL', params.targetId),
       status: 'PENDING' as const,
       attempts: 0,
       nextAttemptAt: new Date(),

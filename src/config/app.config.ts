@@ -48,6 +48,10 @@ export default registerAs('app', () => ({
       process.env.EMAIL_VERIFICATION_TOKEN_TTL_HOURS || '24',
       10,
     ),
+    verificationResendCooldownSeconds: parseInt(
+      process.env.EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS || '60',
+      10,
+    ),
     passwordResetBaseUrl: process.env.PASSWORD_RESET_BASE_URL || '',
     passwordResetTokenTTLHours: parseInt(
       process.env.PASSWORD_RESET_TOKEN_TTL_HOURS || '2',

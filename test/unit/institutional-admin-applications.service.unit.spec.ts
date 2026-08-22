@@ -981,6 +981,67 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
     );
   });
 
+  it('D-MAIL-015 | resendVerificationEmail rota el token y reencola el correo para una solicitud pendiente', async () => {
+    const app: any = {
+      _id: appId,
+      status: 'PENDING_EMAIL_VERIFICATION',
+      email: 'admin@example.com',
+      name: 'Admin Tenant',
+      verificationToken: 'token-anterior',
+      verificationTokenExpiresAt: new Date(Date.now() + 60_000),
+      verificationLastSentAt: new Date(Date.now() - 5 * 60_000),
+      tenantId,
+      userId,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    applicationModel.findOne.mockReturnValue(sortResolved(app));
+    mailService.enqueueInstitutionalVerificationEmail = jest.fn().mockResolvedValue(undefined);
+    mailService.processPendingBatch = jest.fn().mockResolvedValue(undefined);
+
+    await expect(service.resendVerificationEmail('ADMIN@example.com ')).resolves.toEqual({
+      message: expect.any(String),
+    });
+
+    expect(applicationModel.findOne).toHaveBeenCalledWith({
+      email: 'admin@example.com',
+      status: 'PENDING_EMAIL_VERIFICATION',
+    });
+    expect(app.verificationToken).not.toBe('token-anterior');
+    expect(app.verificationResendCount).toBe(1);
+    expect(app.save).toHaveBeenCalled();
+    expect(mailService.enqueueInstitutionalVerificationEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ targetId: appId, correlationId: 'resend-1' }),
+    );
+    expect(auditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'INSTITUTIONAL_VERIFICATION_EMAIL_RESENT' }),
+    );
+  });
+
+  it('D-MAIL-015 | resendVerificationEmail responde igual y no envía correo sin solicitud pendiente ni tras el cooldown', async () => {
+    mailService.enqueueInstitutionalVerificationEmail = jest.fn().mockResolvedValue(undefined);
+    applicationModel.findOne.mockReturnValue(sortResolved(null));
+
+    const unknownEmailResponse = await service.resendVerificationEmail('desconocido@example.com');
+
+    const recentApp: any = {
+      _id: appId,
+      status: 'PENDING_EMAIL_VERIFICATION',
+      email: 'admin@example.com',
+      name: 'Admin Tenant',
+      verificationToken: 'token-reciente',
+      verificationLastSentAt: new Date(),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    applicationModel.findOne.mockReturnValue(sortResolved(recentApp));
+
+    await expect(service.resendVerificationEmail('admin@example.com')).resolves.toEqual(
+      unknownEmailResponse,
+    );
+    expect(recentApp.verificationToken).toBe('token-reciente');
+    expect(recentApp.save).not.toHaveBeenCalled();
+    expect(mailService.enqueueInstitutionalVerificationEmail).not.toHaveBeenCalled();
+  });
+
   it('[MX-02][D-NEW-006][UNITARIA] approveApplication crea tenant/asignacion pendientes sin activar acceso', async () => {
     const app: any = {
       _id: appId,

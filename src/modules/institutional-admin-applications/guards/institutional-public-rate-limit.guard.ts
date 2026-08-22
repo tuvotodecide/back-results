@@ -82,6 +82,9 @@ export class InstitutionalPublicRateLimitGuard implements CanActivate {
   }
 
   private resolveLegacyLimit(routeKey: string): number {
+    if (routeKey.includes('resend-verification-email')) {
+      return this.configService.get<number>('INSTITUTIONAL_RESEND_VERIFICATION_RATE_LIMIT', 5);
+    }
     if (routeKey.includes('verify-email')) {
       return this.configService.get<number>('INSTITUTIONAL_VERIFY_EMAIL_RATE_LIMIT', 30);
     }

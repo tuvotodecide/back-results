@@ -110,6 +110,12 @@ export class InstitutionalAdminApplication {
   verificationTokenExpiresAt?: Date;
 
   @Prop({ type: Date, required: false })
+  verificationLastSentAt?: Date;
+
+  @Prop({ type: Number, required: false, default: 0 })
+  verificationResendCount?: number;
+
+  @Prop({ type: Date, required: false })
   emailVerifiedAt?: Date;
 
   @Prop({ type: Types.ObjectId, ref: 'RoledUser', required: false })

@@ -26,6 +26,7 @@ import { OfficialPublicationMobileRateLimitGuard } from '@/modules/institutional
 import { AcceptInstitutionalAdminInvitationDto } from '../dto/accept-institutional-admin-invitation.dto';
 import { CreateInstitutionalAdminApplicationDto } from '../dto/create-institutional-admin-application.dto';
 import { CreateInstitutionalAdminInvitationDto } from '../dto/create-institutional-admin-invitation.dto';
+import { ResendInstitutionalAdminApplicationVerificationDto } from '../dto/resend-institutional-admin-application-verification.dto';
 import { ReviewInstitutionalAdminApplicationDto } from '../dto/review-institutional-admin-application.dto';
 import { VerifyInstitutionalAdminApplicationDto } from '../dto/verify-institutional-admin-application.dto';
 import { InstitutionalMobileZkAuthGuard } from '../auth/institutional-mobile-zk-auth.guard';
@@ -67,6 +68,23 @@ export class InstitutionalAdminApplicationsController {
   @ApiResponse({ status: 200, description: 'Correo verificado correctamente.' })
   verifyEmail(@Body() dto: VerifyInstitutionalAdminApplicationDto) {
     return this.institutionalAdminApplicationsService.verifyEmail(dto.token);
+  }
+
+  @Post('resend-verification-email')
+  @Public()
+  @UseGuards(InstitutionalPublicRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reenviar correo de verificación de solicitud institucional',
+    description:
+      'Genera un nuevo token y reenvía el correo de verificación cuando la solicitud sigue pendiente de verificación. Responde siempre de forma genérica para no revelar si el correo existe.',
+  })
+  @ApiBody({ type: ResendInstitutionalAdminApplicationVerificationDto })
+  @ApiResponse({ status: 200, description: 'Solicitud de reenvío procesada.' })
+  resendVerificationEmail(
+    @Body() dto: ResendInstitutionalAdminApplicationVerificationDto,
+  ) {
+    return this.institutionalAdminApplicationsService.resendVerificationEmail(dto.email);
   }
 
   @Get()

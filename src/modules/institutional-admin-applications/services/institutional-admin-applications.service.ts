@@ -543,6 +543,77 @@ export class InstitutionalAdminApplicationsService {
     };
   }
 
+  async resendVerificationEmail(rawEmail: string) {
+    // Respuesta genérica siempre: el endpoint es público y no debe revelar
+    // si un correo tiene una solicitud institucional pendiente.
+    const genericResponse = {
+      message:
+        'Si existe una solicitud pendiente de verificación para ese correo, se envió un nuevo enlace.',
+    };
+    const email = rawEmail.trim().toLowerCase();
+
+    const app = await this.applicationModel
+      .findOne({ email, status: 'PENDING_EMAIL_VERIFICATION' })
+      .sort({ createdAt: -1, _id: -1 });
+    if (!app) {
+      return genericResponse;
+    }
+
+    if (app.invitationId) {
+      const invitation = await this.invitationModel.findById(app.invitationId);
+      const invitationStillUsable =
+        invitation &&
+        invitation.status === 'PENDING' &&
+        invitation.expiresAt.getTime() > Date.now() &&
+        String(invitation.applicationId || '') === String(app._id);
+      if (!invitationStillUsable) {
+        return genericResponse;
+      }
+    }
+
+    const cooldownMs =
+      1000 *
+      this.configService.get<number>('app.mail.verificationResendCooldownSeconds', 60);
+    const lastSentAt = app.verificationLastSentAt ?? (app as any).createdAt;
+    if (lastSentAt && Date.now() - new Date(lastSentAt).getTime() < cooldownMs) {
+      return genericResponse;
+    }
+
+    app.verificationToken = randomBytes(32).toString('hex');
+    app.verificationTokenExpiresAt = new Date(
+      Date.now() +
+        1000 * 60 * 60 * this.configService.get<number>('app.mail.verificationTokenTTLHours', 24),
+    );
+    app.verificationResendCount = (app.verificationResendCount ?? 0) + 1;
+    app.verificationLastSentAt = new Date();
+    await app.save();
+
+    await this.sendVerificationEmail(
+      app._id,
+      app.email,
+      app.name,
+      app.verificationToken,
+      `resend-${app.verificationResendCount}`,
+    );
+
+    await this.auditService.record({
+      tenantId: app.tenantId ?? null,
+      actor: null,
+      action: 'INSTITUTIONAL_VERIFICATION_EMAIL_RESENT',
+      targetType: 'InstitutionalAdminApplication',
+      targetId: app._id,
+      targetUserId: app.userId ?? null,
+      applicationId: app._id,
+      newState: {
+        status: app.status,
+        resendCount: app.verificationResendCount,
+        verificationTokenExpiresAt: app.verificationTokenExpiresAt,
+      },
+    });
+
+    return genericResponse;
+  }
+
   async listApplications(status?: string, requester?: any, tenantIdFilter?: string) {
     const query: Record<string, unknown> = {};
     if (status) {
@@ -2854,6 +2925,7 @@ export class InstitutionalAdminApplicationsService {
     to: string,
     name: string,
     token: string,
+    correlationId?: string,
   ) {
     const verificationBaseUrl = this.configService.get<string>('app.mail.verificationBaseUrl') || '';
 
@@ -2866,6 +2938,7 @@ export class InstitutionalAdminApplicationsService {
         recipient: to,
         name,
         targetId: applicationId,
+        correlationId,
       });
       await this.emailOutboxService.processPendingBatch?.(1);
       return;
