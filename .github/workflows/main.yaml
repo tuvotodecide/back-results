@@ -25,7 +25,7 @@ env:
 
 jobs:
   module-tests:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.SKIP_TESTS != 'true'
     name: Backend Results - Module tests
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -232,7 +232,7 @@ jobs:
     needs: [module-tests]
     if: |
       always() &&
-      (needs.module-tests.result == 'success' || (needs.module-tests.result == 'skipped' && startsWith(github.ref, 'refs/tags/')))
+      (needs.module-tests.result == 'success' || needs.module-tests.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -318,7 +318,11 @@ jobs:
           fi
 
   deploy-dev:
-    if: github.ref == 'refs/heads/main'
+    if: |
+      always() &&
+      github.ref == 'refs/heads/main' &&
+      needs.build.result == 'success' &&
+      (needs.module-tests.result == 'success' || needs.module-tests.result == 'skipped')
     name: Deploy to Hetzner (dev) via SSH
     needs: [build, module-tests]
     runs-on: ubuntu-latest
