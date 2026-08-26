@@ -990,6 +990,18 @@ export class InstitutionalAdminApplicationsService {
       await this.assertRequesterIsPrimaryForTenant(requester, app.tenantId);
     }
 
+    await this.applicationModel.deleteMany({
+      _id: { $ne: app._id },
+      dni: app.dni,
+      email: app.email,
+      $or: [
+        { status: { $nin: ['APPROVED', 'REJECTED'] } },
+        { institutionNameNorm: { $exists: false } },
+        { accountAddress: { $exists: false } },
+        { chainTxHash: { $exists: false } },
+      ],
+    });
+
     if (app.status === 'APPROVED') {
       return this.toAuthorizationRetryResponse(app);
     }
