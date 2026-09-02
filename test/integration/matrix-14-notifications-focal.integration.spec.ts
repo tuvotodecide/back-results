@@ -3,7 +3,9 @@ import { TopicMessagingService } from '@/modules/notifications/services/topic-me
 import { InstitutionalVotingNotificationsService } from '@/modules/institutional-voting/services/notifications/institutional-voting-notifications.service';
 import { VoteContractReads } from '@/api/vote';
 
-jest.mock('@/api/vote', () => ({ VoteContractReads: { rewardByVote: jest.fn() } }));
+jest.mock('@/api/vote', () => ({
+  VoteContractReads: { rewardByVote: jest.fn(), getTokenBalance: jest.fn() },
+}));
 
 type Row = Record<string, unknown>;
 
@@ -76,6 +78,7 @@ describe('MX-14 Backend Results — integraciones focales', () => {
     const { service, inboxRows, logRows, padron } = makeNotificationFlow();
     const userId = new Types.ObjectId();
     (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValue(5n);
+    (VoteContractReads.getTokenBalance as jest.Mock).mockResolvedValue(1000n);
     padron.getUsersByCarnets.mockResolvedValue([{ _id: userId, dni: '123' }]);
 
     await service.notifyVoteRewardAvailableIfEligible('event-1', '123');

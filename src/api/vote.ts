@@ -1,4 +1,4 @@
-import { createPublicClient, encodeFunctionData, formatEther, getContract, Hex, http } from "viem";
+import { createPublicClient, encodeFunctionData, erc20Abi, formatEther, getContract, Hex, http } from "viem";
 import { availableNetworks } from "./params";
 import votingContractAbi from "../abi/voteContract.json";
 import { buildPoseidon } from "circomlibjs";
@@ -227,6 +227,24 @@ async function getHashVoted(chainId: string, voteId: string, voteHash: bigint) {
   }
 }
 
+async function getTokenBalance(chainId: string, token: string) {
+  const { voteContract, bundler, chain } = availableNetworks[chainId];
+
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(bundler),
+  });
+
+  const tokenContract = getContract({
+    address: token as Hex,
+    abi: erc20Abi,
+    client: {public: publicClient},
+  });
+
+  const balance = await tokenContract.read.balanceOf([voteContract]);
+  return BigInt(formatEther(balance));
+}
+
 async function getVotedEvents(chainId: string, fromBlock: number | bigint) {
   const { voteContract } = availableNetworks[chainId];
   const publicClient = createPublicClient({
@@ -281,4 +299,5 @@ export const VoteContractReads = {
   isAuthorizedAddress,
   getHashVoted,
   getVotedEvents,
+  getTokenBalance,
 }

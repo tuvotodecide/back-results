@@ -8,7 +8,9 @@ import { InstitutionalVotingNotificationsService } from '@/modules/institutional
 import { VotingEventsService } from '@/modules/institutional-voting/services/events/voting-events.service';
 import { VoteContractReads } from '@/api/vote';
 
-jest.mock('@/api/vote', () => ({ VoteContractReads: { rewardByVote: jest.fn() } }));
+jest.mock('@/api/vote', () => ({
+  VoteContractReads: { rewardByVote: jest.fn(), getTokenBalance: jest.fn() },
+}));
 
 type FirebaseMock = { messaging: jest.Mock; send: jest.Mock };
 
@@ -174,6 +176,7 @@ describe('MX-14 Backend Results — unitarias focales', () => {
   it('[MX-14][NOT-GEN-P0-002][UNITARIA] omite recompensa cero y construye clave por tipo, evento y usuario', async () => {
     const { service, inbox, padron, firebase } = makeInstitutionalService();
     (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValueOnce(0n).mockResolvedValueOnce(5n);
+    (VoteContractReads.getTokenBalance as jest.Mock).mockResolvedValue(1000n);
     const userId = new Types.ObjectId();
     padron.getUsersByCarnets.mockResolvedValue([{ _id: userId, dni: '123' }]);
 
@@ -255,6 +258,7 @@ describe('MX-14 Backend Results — unitarias focales', () => {
   it('[MX-14][NOT-DUP-P0-001][UNITARIA] devuelve already_notified ante índice único de recompensa', async () => {
     const { service, inbox, padron } = makeInstitutionalService();
     (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValue(5n);
+    (VoteContractReads.getTokenBalance as jest.Mock).mockResolvedValue(1000n);
     padron.getUsersByCarnets.mockResolvedValue([{ _id: new Types.ObjectId(), dni: '123' }]);
     inbox.create.mockRejectedValue({ code: 11000 });
 

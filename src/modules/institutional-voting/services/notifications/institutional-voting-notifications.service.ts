@@ -44,6 +44,7 @@ export class InstitutionalVotingNotificationsService {
   private readonly logger = new Logger(InstitutionalVotingNotificationsService.name);
   private readonly chain: string;
   private readonly broadcastTopic: string;
+  private readonly tokenAddr: string;
 
   constructor(
     @Inject('FIREBASE_ADMIN')
@@ -67,6 +68,9 @@ export class InstitutionalVotingNotificationsService {
     )!;
     this.broadcastTopic = this.configService.get<string>(
       'app.notifications.broadcastTopic',
+    )!;
+    this.tokenAddr = this.configService.get<string>(
+      'app.tvd.tokenContractAddress',
     )!;
   }
 
@@ -471,8 +475,10 @@ export class InstitutionalVotingNotificationsService {
 
   async notifyVoteRewardAvailableIfEligible(eventId: string, carnet: string) {
     let rewardAmount: bigint;
+    let tokenBalance: bigint;
     try {
       rewardAmount = await VoteContractReads.rewardByVote(this.chain);
+      tokenBalance = await VoteContractReads.getTokenBalance(this.chain, this.tokenAddr);
     } catch (error: any) {
       this.logger.warn({
         message: 'Vote reward lookup failed after confirmed participation',
@@ -482,7 +488,7 @@ export class InstitutionalVotingNotificationsService {
       return { sent: 0, skipped: 'reward_lookup_failed' };
     }
 
-    if (rewardAmount <= 0n) {
+    if (rewardAmount <= 0n || tokenBalance <= rewardAmount) {
       return { sent: 0, skipped: 'no_reward' };
     }
 

@@ -15,8 +15,11 @@ import { VoteContractReads } from '@/api/vote';
 jest.mock('@/api/vote', () => ({
   VoteContractReads: {
     rewardByVote: jest.fn(),
+    getTokenBalance: jest.fn(),
   },
 }));
+
+const TOKEN_ADDRESS = '0x0000000000000000000000000000000000000tvd';
 
 describe('InstitutionalVotingNotificationsService (unit)', () => {
   let service: InstitutionalVotingNotificationsService;
@@ -88,12 +91,20 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
           useValue: padronUsersService,
         },
         { provide: MailService, useValue: mailService },
-        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue('hardhat') } },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn((key: string) =>
+              key === 'app.tvd.tokenContractAddress' ? TOKEN_ADDRESS : 'hardhat',
+            ),
+          },
+        },
       ],
     }).compile();
 
     service = moduleRef.get(InstitutionalVotingNotificationsService);
     (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValue(5n);
+    (VoteContractReads.getTokenBalance as jest.Mock).mockResolvedValue(1000n);
   });
 
   it('notifica convocatoria inicial solo a empadronados habilitados y marca primera notificación', async () => {
@@ -298,6 +309,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     const result = await service.notifyVoteRewardAvailableIfEligible('event-1', '1234567');
 
     expect(VoteContractReads.rewardByVote).toHaveBeenCalledWith('hardhat');
+    expect(VoteContractReads.getTokenBalance).toHaveBeenCalledWith('hardhat', TOKEN_ADDRESS);
     expect(userNotificationModel.create).toHaveBeenCalledWith(
       expect.objectContaining({
         userId,
@@ -349,6 +361,17 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(firebaseMessaging.send).not.toHaveBeenCalled();
   });
 
+  it('PAR-RWD-P0-002 no notifica recompensa por voto cuando el contrato no tiene saldo suficiente de token', async () => {
+    (VoteContractReads.rewardByVote as jest.Mock).mockResolvedValueOnce(5n);
+    (VoteContractReads.getTokenBalance as jest.Mock).mockResolvedValueOnce(5n);
+
+    const result = await service.notifyVoteRewardAvailableIfEligible('event-1', '1234567');
+
+    expect(result).toEqual({ sent: 0, skipped: 'no_reward' });
+    expect(padronUsersService.getUsersByCarnets).not.toHaveBeenCalled();
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+  });
+
   it('PAR-RWD-P0-003 / PAR-ERR-P1-003 no duplica recompensa por voto cuando ya existe deduplicationKey', async () => {
     const userId = new Types.ObjectId();
     padronUsersService.getUsersByCarnets.mockResolvedValue([
@@ -364,6 +387,14 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
 
   it('PAR-RWD-P1-004 / PAR-ERR-P1-003 mantiene el flujo exitoso aunque falle RPC o Firebase al notificar recompensa', async () => {
     (VoteContractReads.rewardByVote as jest.Mock).mockRejectedValueOnce(new Error('rpc down'));
+
+    await expect(
+      service.notifyVoteRewardAvailableIfEligible('event-1', '1234567'),
+    ).resolves.toEqual({ sent: 0, skipped: 'reward_lookup_failed' });
+
+    (VoteContractReads.getTokenBalance as jest.Mock).mockRejectedValueOnce(
+      new Error('token balance rpc down'),
+    );
 
     await expect(
       service.notifyVoteRewardAvailableIfEligible('event-1', '1234567'),
