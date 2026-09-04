@@ -40,6 +40,7 @@ function makeInstitutionalService() {
     events as never,
     { find: jest.fn() } as never,
     { find: jest.fn() } as never,
+    { find: jest.fn(() => ({ lean: jest.fn().mockResolvedValue([]) })) } as never,
     padron as never,
     { sendEmail: jest.fn() } as never,
     { get: jest.fn().mockReturnValue('test-chain') } as never,

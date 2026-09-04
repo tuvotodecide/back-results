@@ -40,8 +40,8 @@ function createPadronHarness() {
     canEnableExistingPadronEntriesPostPublication: jest.fn().mockReturnValue(true),
     hasPublicationWindowExpired: jest.fn().mockReturnValue(false),
     isOfficialPublicationConfirmed: jest.fn().mockReturnValue(false),
-    getCreateLeadHours: jest.fn().mockReturnValue(12),
-    getOfficialPublicationLeadHours: jest.fn().mockReturnValue(6),
+    getCreateLeadHours: jest.fn().mockReturnValue(1),
+    getOfficialPublicationLeadHours: jest.fn().mockReturnValue(0),
   };
   const issuer = { getDidsByDnis: jest.fn().mockResolvedValue([]), issueCredential: jest.fn() };
   const service = new PadronService(

@@ -34,8 +34,8 @@ function createHarness() {
     canEnableExistingPadronEntriesPostPublication: jest.fn().mockReturnValue(true),
     hasPublicationWindowExpired: jest.fn().mockReturnValue(false),
     isOfficialPublicationConfirmed: jest.fn().mockReturnValue(false),
-    getCreateLeadHours: jest.fn().mockReturnValue(12),
-    getOfficialPublicationLeadHours: jest.fn().mockReturnValue(6),
+    getCreateLeadHours: jest.fn().mockReturnValue(1),
+    getOfficialPublicationLeadHours: jest.fn().mockReturnValue(0),
   };
   const issuer = { getDidsByDnis: jest.fn().mockResolvedValue([]), issueCredential: jest.fn() };
   const voteWritter = { addNewVoters: jest.fn() };
@@ -62,8 +62,8 @@ describe('MX-05 Backend Results — integración focal de padrón', () => {
     expect(result).toMatchObject({ importJob: null, data: [], total: 0, totalPages: 0 });
     expect(result.editingRules).toMatchObject({
       mode: 'FULL',
-      dateValidationMinHours: 12,
-      officialPublicationCutoffHours: 6,
+      dateValidationMinHours: 1,
+      officialPublicationCutoffHours: 0,
     });
     expect(h.access.assertTenantWriteAccess).toHaveBeenCalledWith(h.event.tenantId, h.requester);
     expect(h.models.version.create).not.toHaveBeenCalled();

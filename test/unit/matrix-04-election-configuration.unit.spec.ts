@@ -10,7 +10,7 @@ function harness() {
     _id: id, tenantId, name: 'Elección inicial', objective: 'Objetivo institucional suficiente',
     state: 'DRAFT', isReferendum: false, votingStart: new Date('2030-07-10T08:00:00Z'),
     votingEnd: new Date('2030-07-10T10:00:00Z'), resultsPublishAt: new Date('2030-07-10T11:00:00Z'),
-    publishDeadline: new Date('2030-07-10T02:00:00Z'), save: jest.fn().mockResolvedValue(undefined),
+    publishDeadline: new Date('2030-07-10T08:00:00Z'), save: jest.fn().mockResolvedValue(undefined),
   };
   const eventRoleFind = jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
   const optionFind = jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) });
@@ -26,7 +26,7 @@ function harness() {
     getTenantOrThrow: jest.fn().mockResolvedValue({ _id: tenantId }), getEventOrThrow: jest.fn().mockResolvedValue(event),
     assertTenantWriteAccess: jest.fn().mockResolvedValue(undefined),
     parseAndValidateDates: jest.fn().mockReturnValue({ votingStart: event.votingStart, votingEnd: event.votingEnd, resultsPublishAt: event.resultsPublishAt }),
-    getCreateLeadHours: jest.fn(() => 12), getOfficialPublicationLeadHours: jest.fn(() => 6),
+    getCreateLeadHours: jest.fn(() => 1), getOfficialPublicationLeadHours: jest.fn(() => 0),
     computePublishDeadline: jest.fn(() => event.publishDeadline), normalizeName: jest.fn((value: string) => value.trim().toLowerCase()),
     canFullyEditEvent: jest.fn(() => true), canModifyPadronDuringVoting: jest.fn(() => false),
     canEnableExistingPadronEntriesPostPublication: jest.fn(() => false), resolveReadableTenantIds: jest.fn().mockResolvedValue([tenantId]),
@@ -52,12 +52,12 @@ describe('MX-04 Backend Results — unitarias canónicas', () => {
     await expect(h.service.createEvent(validDto(h.tenantId), { sub: 'admin-1' })).resolves.toMatchObject({ tenantId: String(h.tenantId), state: 'DRAFT' });
     expect(h.models.createEvent).toHaveBeenCalledWith(expect.objectContaining({ tenantId: h.tenantId, state: 'DRAFT' }));
   });
-  it('[MX-04][ELE-TIM-P0-001][UNITARIA] valida fechas reales, orden y anticipación mínima de doce horas', () => {
+  it('[MX-04][ELE-TIM-P0-001][UNITARIA] valida fechas reales, orden y anticipación mínima de una hora', () => {
     const access = new InstitutionalVotingAccessService({} as never, {} as never, {} as never, {} as never);
-    const valid = access.parseAndValidateDates('2030-07-10T08:00:00Z', '2030-07-10T10:00:00Z', '2030-07-10T11:00:00Z', 12);
+    const valid = access.parseAndValidateDates('2030-07-10T08:00:00Z', '2030-07-10T10:00:00Z', '2030-07-10T11:00:00Z', 1);
     expect(valid.votingStart).toBeInstanceOf(Date);
-    expect(() => access.parseAndValidateDates('2030-07-10T10:00:00Z', '2030-07-10T08:00:00Z', '2030-07-10T11:00:00Z', 12)).toThrow(BadRequestException);
-    expect(() => access.parseAndValidateDates('2030-07-10T08:00:00Z', undefined, undefined, 12)).toThrow(BadRequestException);
+    expect(() => access.parseAndValidateDates('2030-07-10T10:00:00Z', '2030-07-10T08:00:00Z', '2030-07-10T11:00:00Z', 1)).toThrow(BadRequestException);
+    expect(() => access.parseAndValidateDates('2030-07-10T08:00:00Z', undefined, undefined, 1)).toThrow(BadRequestException);
   });
   it('[MX-04][ELE-TIM-P1-003][UNITARIA] actualiza cronograma editable y recalcula deadline', async () => {
     const h = harness(); await h.service.updateSchedule(String(h.id), { votingStart: '2030-07-10T08:00:00Z', votingEnd: '2030-07-10T10:00:00Z', resultsPublishAt: '2030-07-10T11:00:00Z' }, {});

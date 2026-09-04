@@ -88,7 +88,7 @@ describe('Institutional voting integration - publication and results', () => {
     return eventId;
   }
 
-  it('crea el deadline oficial exactamente 6 horas antes del inicio de votación', async () => {
+  it('crea el deadline oficial exactamente 0 horas antes del inicio de votación', async () => {
     // Set dynamic dates based on now
     const now = Date.now();
     const votingStartDate = new Date(now + 48 * 60 * 60 * 1000); // 48h from now
@@ -111,8 +111,8 @@ describe('Institutional voting integration - publication and results', () => {
       },
     );
 
-    // Calculate expected publishDeadline: 6 hours before votingStart
-    const expectedPublishDeadline = new Date(votingStartDate.getTime() - 6 * 60 * 60 * 1000).toISOString();
+    // Calculate expected publishDeadline: 0 hours before votingStart
+    const expectedPublishDeadline = new Date(votingStartDate.getTime()).toISOString();
 
     expect(created.status).toBe(201);
     expect(new Date(created.body.publishDeadline).toISOString()).toBe(expectedPublishDeadline);
@@ -513,10 +513,10 @@ describe('Institutional voting integration - publication and results', () => {
     );
   });
 
-  it('envía recordatorio 30 minutos antes del límite si aún no hubo publicación oficial', async () => {
+  it('envía recordatorio 15 minutos antes del límite si aún no hubo publicación oficial', async () => {
     const eventId = await preparePublishedEvent();
     await updateEventDatesInDb(eventId, {
-      publishDeadline: new Date(Date.now() + 25 * 60 * 1000),
+      publishDeadline: new Date(Date.now() + 12 * 60 * 1000),
     });
 
     const lifecycle = ctx.app.get(InstitutionalVotingLifecycleService);

@@ -70,7 +70,7 @@ describe('MX-05 | Padrón, staging, elegibilidad y archivos | Backend Results | 
     );
   }
 
-  it('PAD-CFM-P0-001 / PAD-STA-P0-001 | mantiene un draft editable después de confirmar el padrón mientras falten más de 6 horas', async () => {
+  it('PAD-CFM-P0-001 / PAD-STA-P0-001 | mantiene un draft editable después de confirmar el padrón mientras el deadline de publicación siga vigente', async () => {
     const eventId = await createBaseEvent();
     const importJobId = new Types.ObjectId();
 

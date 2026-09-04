@@ -63,14 +63,14 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       .mockReturnValueOnce(emptyFindQuery());
   };
 
-  it('busca recordatorios en la ventana exacta publishDeadline - 30 minutos', async () => {
+  it('busca recordatorios en la ventana exacta publishDeadline - 15 minutos', async () => {
     const now = new Date('2026-04-23T23:31:00.000Z');
     jest.useFakeTimers().setSystemTime(now);
 
     const reminderEvent = {
       _id: new Types.ObjectId(),
       name: 'Eleccion institucional',
-      publishDeadline: new Date('2026-04-24T00:01:00.000Z'),
+      publishDeadline: new Date('2026-04-23T23:46:00.000Z'),
     };
     const remindableQuery = {
       limit: jest.fn().mockResolvedValue([reminderEvent]),
@@ -90,7 +90,7 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       state: { $in: ['DRAFT', 'READY_FOR_REVIEW'] },
       publishDeadline: {
         $gt: now,
-        $lte: new Date('2026-04-24T00:01:00.000Z'),
+        $lte: new Date('2026-04-23T23:46:00.000Z'),
       },
       $or: [
         { officialPublicationReminderSentAt: { $exists: false } },

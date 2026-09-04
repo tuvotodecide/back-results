@@ -8,6 +8,7 @@ import { InstitutionalVotingNotificationsService } from '@/modules/institutional
 import { VotingEvent } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { RoledUser } from '@/modules/auth/schemas/roledUser.schema';
+import { User } from '@/modules/users/schemas/user.schema';
 import { PadronUsersService } from '@/modules/institutional-voting/services/core/padron-users.service';
 import { MailService } from '@/modules/mail/mail.service';
 import { UsersController } from '@/modules/users/controllers/users.controller';
@@ -73,6 +74,7 @@ describe('MX-14 Backend Results — E2E focal', () => {
         { provide: getModelToken(VotingEvent.name), useValue: { updateOne: jest.fn() } },
         { provide: getModelToken(TenantAdminAssignment.name), useValue: { find: jest.fn() } },
         { provide: getModelToken(RoledUser.name), useValue: { find: jest.fn() } },
+        { provide: getModelToken(User.name), useValue: { find: jest.fn(() => ({ lean: jest.fn(async () => []) })) } },
         { provide: PadronUsersService, useValue: padronUsers },
         { provide: MailService, useValue: { sendEmail: jest.fn() } },
         { provide: ConfigService, useValue: { get: jest.fn((key: string) => {

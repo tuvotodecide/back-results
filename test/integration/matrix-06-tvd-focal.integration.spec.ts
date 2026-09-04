@@ -136,7 +136,7 @@ function publicationHarness() {
     claimRequest: jest.fn().mockResolvedValue({ ...request, status: 'CLAIMED', claimedByDeviceId: 'device-1' }), startSigning: jest.fn().mockResolvedValue({ ...request, status: 'SIGNING', claimedByDeviceId: 'device-1' }),
     rejectRequest: jest.fn().mockResolvedValue({ ...request, status: 'REJECTED' }), registerSubmission: jest.fn().mockResolvedValue({ ...request, status: 'SUBMITTED', claimedByDeviceId: 'device-1', userOpHash: `0x${'1'.repeat(64)}`, txHash: `0x${'2'.repeat(64)}` }), markExpired: jest.fn(),
   };
-  const event = { _id: eventId, tenantId, name: 'Elección MX-06', votingStart: new Date('2099-01-02T12:00:00.000Z'), votingEnd: new Date('2099-01-02T18:00:00.000Z'), resultsPublishAt: new Date('2099-01-02T20:00:00.000Z'), publishDeadline: new Date('2099-01-02T06:00:00.000Z') };
+  const event = { _id: eventId, tenantId, name: 'Elección MX-06', votingStart: new Date('2099-01-02T12:00:00.000Z'), votingEnd: new Date('2099-01-02T18:00:00.000Z'), resultsPublishAt: new Date('2099-01-02T20:00:00.000Z'), publishDeadline: new Date('2099-01-02T12:00:00.000Z') };
   const access = { getEventOrThrow: jest.fn().mockResolvedValue(event), assertTenantWriteAccess: jest.fn().mockResolvedValue(undefined), resolveOfficialPublicationInstitution: jest.fn().mockResolvedValue({ institutionId: 'institution-1', smartAccountAddress: wallet }) };
   const service = new OfficialPublicationApiService(
     { findById: jest.fn().mockResolvedValue(event) } as never,

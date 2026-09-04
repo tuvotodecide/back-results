@@ -24,11 +24,11 @@ function focalService() {
   models.votingOptionFind.mockReturnValue({ lean: optionLean });
   models.padronVersionFindOne.mockReturnValue({ lean: currentPadronLean });
   models.padronImportJobFindOne.mockReturnValue({ sort: jest.fn().mockReturnValue({ lean: activeDraftLean }) });
-  const event = { _id: id, tenantId, name: 'Elección inicial', objective: 'Objetivo inicial suficiente', state: 'DRAFT', isReferendum: false, votingStart: new Date('2030-07-10T08:00:00Z'), votingEnd: new Date('2030-07-10T10:00:00Z'), resultsPublishAt: new Date('2030-07-10T11:00:00Z'), publishDeadline: new Date('2030-07-10T02:00:00Z'), save: models.save };
+  const event = { _id: id, tenantId, name: 'Elección inicial', objective: 'Objetivo inicial suficiente', state: 'DRAFT', isReferendum: false, votingStart: new Date('2030-07-10T08:00:00Z'), votingEnd: new Date('2030-07-10T10:00:00Z'), resultsPublishAt: new Date('2030-07-10T11:00:00Z'), publishDeadline: new Date('2030-07-10T08:00:00Z'), save: models.save };
   const access = {
     getTenantOrThrow: jest.fn().mockResolvedValue({ _id: tenantId }), getEventOrThrow: jest.fn().mockResolvedValue(event),
     assertTenantWriteAccess: jest.fn().mockResolvedValue(undefined), parseAndValidateDates: jest.fn().mockReturnValue({ votingStart: new Date('2030-07-10T08:00:00Z'), votingEnd: new Date('2030-07-10T10:00:00Z'), resultsPublishAt: new Date('2030-07-10T11:00:00Z') }),
-    getCreateLeadHours: jest.fn(() => 12), getOfficialPublicationLeadHours: jest.fn(() => 6), computePublishDeadline: jest.fn(() => new Date('2030-07-10T02:00:00Z')), normalizeName: jest.fn((value: string) => value.trim().toLowerCase()), canFullyEditEvent: jest.fn(() => true), canModifyPadronDuringVoting: jest.fn(() => false), canEnableExistingPadronEntriesPostPublication: jest.fn(() => false), hasPublicationWindowExpired: jest.fn(() => false), resolveReadableTenantIds: jest.fn().mockResolvedValue([tenantId]),
+    getCreateLeadHours: jest.fn(() => 1), getOfficialPublicationLeadHours: jest.fn(() => 0), computePublishDeadline: jest.fn(() => new Date('2030-07-10T08:00:00Z')), normalizeName: jest.fn((value: string) => value.trim().toLowerCase()), canFullyEditEvent: jest.fn(() => true), canModifyPadronDuringVoting: jest.fn(() => false), canEnableExistingPadronEntriesPostPublication: jest.fn(() => false), hasPublicationWindowExpired: jest.fn(() => false), resolveReadableTenantIds: jest.fn().mockResolvedValue([tenantId]),
   };
   const eventModel = { create: models.createEvent, find: jest.fn(), deleteOne: models.deleteEvent };
   const roleModel = { create: models.createRole, find: models.eventRoleFind, findOne: models.findRole, deleteOne: models.deleteRole, deleteMany: models.deleteRoles };
@@ -55,10 +55,10 @@ describe('MX-04 Backend Results — unitarias focales de configuración', () => 
     expect(result).toMatchObject({ tenantId: String(ctx.tenantId), state: 'DRAFT' });
   });
 
-  it('[MX-04][ELE-TIM-P0-001][UNITARIA] entrega al servicio solamente el cronograma previamente validado con anticipación de doce horas', async () => {
+  it('[MX-04][ELE-TIM-P0-001][UNITARIA] entrega al servicio solamente el cronograma previamente validado con anticipación de una hora', async () => {
     const ctx = focalService(); ctx.models.createEvent.mockResolvedValue({ ...ctx.event, votingStart: new Date(), votingEnd: new Date(), resultsPublishAt: new Date() });
     await ctx.service.createEvent({ tenantId: String(ctx.tenantId), name: 'Elección válida', objective: 'Objetivo suficientemente descriptivo', votingStart: '2030-07-10T08:00:00Z', votingEnd: '2030-07-10T10:00:00Z', resultsPublishAt: '2030-07-10T11:00:00Z' }, { sub: 'admin-1' });
-    expect(ctx.access.parseAndValidateDates).toHaveBeenCalledWith('2030-07-10T08:00:00Z', '2030-07-10T10:00:00Z', '2030-07-10T11:00:00Z', 12);
+    expect(ctx.access.parseAndValidateDates).toHaveBeenCalledWith('2030-07-10T08:00:00Z', '2030-07-10T10:00:00Z', '2030-07-10T11:00:00Z', 1);
   });
 
   it('[MX-04][ELE-TIM-P1-003][UNITARIA] recalcula deadline al actualizar el cronograma editable', async () => {

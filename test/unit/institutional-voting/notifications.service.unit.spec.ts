@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { RoledUser } from '@/modules/auth/schemas/roledUser.schema';
+import { User } from '@/modules/users/schemas/user.schema';
 import { TenantAdminAssignment } from '@/modules/institutional-tenants/schemas/tenant-admin-assignment.schema';
 import { VotingEvent } from '@/modules/institutional-voting/schemas/voting-event.schema';
 import { PadronUsersService } from '@/modules/institutional-voting/services/core/padron-users.service';
@@ -25,6 +26,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
   let service: InstitutionalVotingNotificationsService;
   let tenantAdminAssignmentModel: any;
   let roledUserModel: any;
+  let userModel: any;
   let mailService: any;
   let userNotificationModel: any;
   let notificationLogModel: any;
@@ -38,6 +40,11 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     };
     roledUserModel = {
       find: jest.fn(),
+    };
+    userModel = {
+      find: jest.fn().mockReturnValue({
+        lean: jest.fn().mockResolvedValue([]),
+      }),
     };
     mailService = {
       sendEmail: jest.fn().mockResolvedValue(undefined),
@@ -86,6 +93,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
           useValue: tenantAdminAssignmentModel,
         },
         { provide: getModelToken(RoledUser.name), useValue: roledUserModel },
+        { provide: getModelToken(User.name), useValue: userModel },
         {
           provide: PadronUsersService,
           useValue: padronUsersService,
@@ -692,6 +700,8 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     const tenantId = new Types.ObjectId();
     const userA = new Types.ObjectId();
     const userB = new Types.ObjectId();
+    const appUserA = new Types.ObjectId();
+    const appUserB = new Types.ObjectId();
     const event = {
       _id: new Types.ObjectId(),
       tenantId,
@@ -713,6 +723,12 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
         { _id: userB, email: 'admin2@example.com', name: 'Admin Dos', dni: '7000002' },
       ]),
     });
+    userModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        { _id: appUserA, dni: '7000001' },
+        { _id: appUserB, dni: '7000002' },
+      ]),
+    });
 
     const result = await service.sendOfficialPublicationReminder(event as any);
 
@@ -728,6 +744,10 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(recipientQuery.active).toBe(true);
     expect(recipientQuery._id.$in.map(String)).toEqual([String(userA), String(userB)]);
     expect(recipientProjection).toEqual({ email: 1, name: 1, dni: 1 });
+    expect(userModel.find).toHaveBeenCalledWith(
+      { dni: { $in: ['7000001', '7000002'] } },
+      { _id: 1, dni: 1 },
+    );
     expect(mailService.sendEmail).toHaveBeenCalledTimes(2);
     expect(mailService.sendEmail).toHaveBeenCalledWith(
       'Admin@Example.com',
@@ -743,7 +763,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     expect(firebaseMessaging.send).toHaveBeenCalledTimes(2);
     expect(firebaseMessaging.send).toHaveBeenCalledWith(
       expect.objectContaining({
-        topic: `user_${String(userA)}`,
+        topic: `user_${String(appUserA)}`,
         notification: {
           title: 'Confirma la publicación oficial',
           body: 'Confirma la publicación oficial de Eleccion institucional antes del 23/04/2026, 20:01.',
@@ -761,8 +781,8 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     );
     expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
       [
-        expect.objectContaining({ userId: userA, dni: '7000001' }),
-        expect.objectContaining({ userId: userB, dni: '7000002' }),
+        expect.objectContaining({ userId: appUserA, dni: '7000001' }),
+        expect.objectContaining({ userId: appUserB, dni: '7000002' }),
       ],
       { ordered: false },
     );
@@ -812,6 +832,9 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     });
     roledUserModel.find.mockReturnValue({
       lean: jest.fn().mockResolvedValue([{ _id: userA, name: 'Admin Sin Correo', dni: '7000003' }]),
+    });
+    userModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId(), dni: '7000003' }]),
     });
 
     const result = await service.sendOfficialPublicationReminder(event as any);

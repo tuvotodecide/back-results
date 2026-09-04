@@ -32,7 +32,9 @@ function makeNotificationFlow() {
   const service = new InstitutionalVotingNotificationsService(
     { messaging: firebase.messaging } as never, inbox as never, logs as never,
     { updateOne: jest.fn().mockResolvedValue({}) } as never, { find: jest.fn() } as never,
-    { find: jest.fn() } as never, padron as never, { sendEmail: jest.fn() } as never,
+    { find: jest.fn() } as never,
+    { find: jest.fn(() => ({ lean: jest.fn().mockResolvedValue([]) })) } as never,
+    padron as never, { sendEmail: jest.fn() } as never,
     { get: jest.fn().mockReturnValue('test-chain') } as never,
   );
   return { firebase, inboxRows, logRows, inbox, logs, padron, service };

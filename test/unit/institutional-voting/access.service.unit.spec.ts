@@ -468,7 +468,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result.resultsPublishAt).toBeInstanceOf(Date);
   });
 
-  it('ELE-TIM-P1-002 permite fechas exactamente en el límite mínimo de 12 horas', () => {
+  it('ELE-TIM-P1-002 permite fechas exactamente en el límite mínimo de 1 hora', () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     const createLeadHours = service.getCreateLeadHours();
@@ -489,15 +489,15 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     expect(result.votingStart).toBeInstanceOf(Date);
   });
 
-  it('calcula publishDeadline exactamente 6 horas antes de votingStart', () => {
+  it('calcula publishDeadline exactamente 0 horas antes de votingStart', () => {
     const votingStart = new Date('2026-04-25T00:01:00.000Z');
 
     expect(service.computePublishDeadline(votingStart)?.toISOString()).toBe(
-      '2026-04-24T18:01:00.000Z',
+      '2026-04-25T00:01:00.000Z',
     );
   });
 
-  it('permite fechas exactamente en el límite mínimo de 6 horas para publicación oficial', () => {
+  it('permite fechas exactamente en el límite mínimo de 0 horas para publicación oficial', () => {
     const now = Date.UTC(2026, 0, 1, 12, 0, 0);
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
     const officialPublicationLeadHours = service.getOfficialPublicationLeadHours();
@@ -548,7 +548,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
 
     expect(() =>
       service.parseAndValidateDates(
-        new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+        new Date(Date.now() + 30 * 60 * 1000).toISOString(),
         new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
         new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
         service.getCreateLeadHours(),
@@ -574,7 +574,7 @@ describe('InstitutionalVotingAccessService (unit)', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('bloquea edición total una vez confirmada la publicación oficial aunque falten más de 6 horas', () => {
+  it('bloquea edición total una vez confirmada la publicación oficial aunque el deadline siga vigente', () => {
     const now = new Date('2026-01-01T12:00:00.000Z');
     const event = {
       state: 'OFFICIALLY_PUBLISHED',
