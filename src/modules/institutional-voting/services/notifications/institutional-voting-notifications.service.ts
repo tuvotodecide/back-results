@@ -18,6 +18,7 @@ import {
   VotingEventState,
 } from '../../schemas/voting-event.schema';
 import { PadronUsersService } from '../core/padron-users.service';
+import { User, UserDocument } from '@/modules/users/schemas/user.schema';
 
 const CONVOCATION_DATA_TYPE = 'INSTITUTIONAL_PADRON_REVIEW_OPEN';
 const VOTE_REWARD_AVAILABLE_TYPE = 'VOTE_REWARD_AVAILABLE';
@@ -59,6 +60,8 @@ export class InstitutionalVotingNotificationsService {
     private readonly tenantAdminAssignmentModel: Model<TenantAdminAssignmentDocument>,
     @InjectModel(RoledUser.name)
     private readonly roledUserModel: Model<RoledUserDocument>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
     private readonly padronUsersService: PadronUsersService,
     private readonly mailService: MailService,
     private readonly configService: ConfigService,
@@ -269,7 +272,10 @@ export class InstitutionalVotingNotificationsService {
           title: payload.title,
           body: payload.body,
         },
-        data: payload.data,
+        data: {
+          ...payload.data,
+          eligible: 'true'
+        },
         android: { priority: 'high' },
         apns: { headers: { 'apns-priority': '10' } },
       });
@@ -288,7 +294,7 @@ export class InstitutionalVotingNotificationsService {
         topic,
         title: payload.title,
         body: payload.body,
-        data: payload.data,
+        data: {...payload.data, eligible: 'true'},
         status: 'NEW',
       }),
       this.notificationLogModel.create({
@@ -296,7 +302,7 @@ export class InstitutionalVotingNotificationsService {
         topic,
         title: payload.title,
         body: payload.body,
-        data: payload.data,
+        data: {...payload.data, eligible: 'true'},
         status,
         ...(messageId ? { messageId } : {}),
         ...(error ? { error } : {}),
@@ -669,9 +675,13 @@ export class InstitutionalVotingNotificationsService {
     const recipients = await this.roledUserModel
       .find(
         { _id: { $in: userIds.map((id) => new Types.ObjectId(id)) }, active: true },
-        { email: 1, name: 1 },
+        { email: 1, name: 1, dni: 1 },
       )
       .lean();
+
+    if (!recipients.length) {
+      return { sent: 0, skipped: 'no_recipients' };
+    }
 
     const mails = Array.from(
       new Map(
@@ -680,10 +690,6 @@ export class InstitutionalVotingNotificationsService {
           .map((recipient) => [String(recipient.email).trim().toLowerCase(), recipient]),
       ).values(),
     );
-
-    if (!mails.length) {
-      return { sent: 0, skipped: 'no_emails' };
-    }
 
     const deadline = this.formatReminderDeadline(event.publishDeadline);
     await Promise.all(
@@ -702,8 +708,62 @@ export class InstitutionalVotingNotificationsService {
       ),
     );
 
+    const pushRecipients: NotificationRecipient[] = (await this.userModel.find(
+      { dni: { $in: recipients.map(r => r.dni) } },
+      { _id: 1, dni: 1 },
+    ).lean()).map((recipient) => ({
+      _id: recipient._id,
+      dni: recipient.dni,
+      active: true,
+      enabled: true,
+    }));
+
+    const push = await this.notifyRecipients(
+      this.buildOfficialPublicationReminderPayload(event, deadline),
+      pushRecipients,
+      {},
+      String(event._id),
+    );
+
     await this.markOfficialPublicationReminderSent(event);
-    return { sent: mails.length };
+    return {
+      sent: mails.length,
+      pushSent: push.sent ?? 0,
+      pushFailed: push.failed ?? 0,
+    };
+  }
+
+  private buildOfficialPublicationReminderPayload(
+    event: VotingEventDocument,
+    deadline: string,
+  ): NotificationPayload {
+    const eventId = String(event._id);
+    const publicUrl = this.buildPublicElectionUrl(eventId);
+    const body = deadline
+      ? `Confirma la publicación oficial de ${event.name} antes del ${deadline}.`
+      : `Confirma la publicación oficial de ${event.name}.`;
+
+    return {
+      type: 'official_publication_reminder',
+      title: 'Confirma la publicación oficial',
+      body,
+      data: {
+        type: 'INSTITUTIONAL_OFFICIAL_PUBLICATION_REMINDER',
+        eventId,
+        electionId: eventId,
+        eventName: event.name,
+        state: String(event.state),
+        severity: 'warning',
+        deadline,
+        publishDeadline: event.publishDeadline?.toISOString?.() ?? '',
+        bannerTitle: 'Confirma la publicación oficial',
+        bannerSubtitle: body,
+        publicPath: this.buildPublicElectionPath(eventId),
+        publicUrl,
+        link: this.buildPublicElectionPath(eventId),
+        deepLink: `myapp://event/${eventId}`
+      },
+    };
   }
 
   private async notifyToCurrentPadron(

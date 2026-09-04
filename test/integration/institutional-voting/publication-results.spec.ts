@@ -526,7 +526,7 @@ describe('Institutional voting integration - publication and results', () => {
       .mockImplementation(async (event: any) => {
         event.officialPublicationReminderSentAt = new Date();
         await event.save();
-        return { sent: 1 };
+        return { sent: 1, pushSent: 1, pushFailed: 0 };
       });
 
     await lifecycle.processLifecycle();

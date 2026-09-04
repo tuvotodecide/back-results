@@ -709,8 +709,8 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     });
     roledUserModel.find.mockReturnValue({
       lean: jest.fn().mockResolvedValue([
-        { _id: userA, email: 'Admin@Example.com', name: 'Admin Uno' },
-        { _id: userB, email: 'admin2@example.com', name: 'Admin Dos' },
+        { _id: userA, email: 'Admin@Example.com', name: 'Admin Uno', dni: '7000001' },
+        { _id: userB, email: 'admin2@example.com', name: 'Admin Dos', dni: '7000002' },
       ]),
     });
 
@@ -727,7 +727,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
     const [recipientQuery, recipientProjection] = roledUserModel.find.mock.calls[0];
     expect(recipientQuery.active).toBe(true);
     expect(recipientQuery._id.$in.map(String)).toEqual([String(userA), String(userB)]);
-    expect(recipientProjection).toEqual({ email: 1, name: 1 });
+    expect(recipientProjection).toEqual({ email: 1, name: 1, dni: 1 });
     expect(mailService.sendEmail).toHaveBeenCalledTimes(2);
     expect(mailService.sendEmail).toHaveBeenCalledWith(
       'Admin@Example.com',
@@ -740,9 +740,86 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
         deadline: '23/04/2026, 20:01',
       },
     );
+    expect(firebaseMessaging.send).toHaveBeenCalledTimes(2);
+    expect(firebaseMessaging.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic: `user_${String(userA)}`,
+        notification: {
+          title: 'Confirma la publicación oficial',
+          body: 'Confirma la publicación oficial de Eleccion institucional antes del 23/04/2026, 20:01.',
+        },
+        data: expect.objectContaining({
+          type: 'INSTITUTIONAL_OFFICIAL_PUBLICATION_REMINDER',
+          eventId: String(event._id),
+          eventName: 'Eleccion institucional',
+          deadline: '23/04/2026, 20:01',
+          publishDeadline: '2026-04-24T00:01:00.000Z',
+          dni: '7000001',
+          eligible: 'true',
+        }),
+      }),
+    );
+    expect(userNotificationModel.insertMany).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ userId: userA, dni: '7000001' }),
+        expect.objectContaining({ userId: userB, dni: '7000002' }),
+      ],
+      { ordered: false },
+    );
     expect((event as any).officialPublicationReminderSentAt).toBeInstanceOf(Date);
     expect(event.save).toHaveBeenCalled();
-    expect(result).toEqual({ sent: 2 });
+    expect(result).toEqual({ sent: 2, pushSent: 2, pushFailed: 0 });
+  });
+
+  it('no envía recordatorio de publicación oficial si no hay administradores activos', async () => {
+    const tenantId = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId,
+      name: 'Eleccion sin admins',
+      publishDeadline: new Date('2026-04-24T00:01:00.000Z'),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    tenantAdminAssignmentModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ userId: new Types.ObjectId() }]),
+    });
+    roledUserModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([]),
+    });
+
+    const result = await service.sendOfficialPublicationReminder(event as any);
+
+    expect(result).toEqual({ sent: 0, skipped: 'no_recipients' });
+    expect(mailService.sendEmail).not.toHaveBeenCalled();
+    expect(firebaseMessaging.send).not.toHaveBeenCalled();
+    expect(event.save).not.toHaveBeenCalled();
+  });
+
+  it('envía push del recordatorio de publicación oficial aunque los admins no tengan correo', async () => {
+    const tenantId = new Types.ObjectId();
+    const userA = new Types.ObjectId();
+    const event = {
+      _id: new Types.ObjectId(),
+      tenantId,
+      name: 'Eleccion sin correos',
+      publishDeadline: new Date('2026-04-24T00:01:00.000Z'),
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    tenantAdminAssignmentModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ userId: userA }]),
+    });
+    roledUserModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([{ _id: userA, name: 'Admin Sin Correo', dni: '7000003' }]),
+    });
+
+    const result = await service.sendOfficialPublicationReminder(event as any);
+
+    expect(mailService.sendEmail).not.toHaveBeenCalled();
+    expect(firebaseMessaging.send).toHaveBeenCalledTimes(1);
+    expect((event as any).officialPublicationReminderSentAt).toBeInstanceOf(Date);
+    expect(result).toEqual({ sent: 0, pushSent: 1, pushFailed: 0 });
   });
 
   it('envía recordatorio de inicio 1h a votantes habilitados con payload institucional', async () => {

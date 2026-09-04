@@ -33,7 +33,7 @@ export class InstitutionalVotingLifecycleService {
   @Cron('*/1 * * * *')
   async processLifecycle() {
     const now = new Date();
-    const reminderWindowEnd = new Date(now.getTime() + 30 * 60 * 1000);
+    const reminderWindowEnd = new Date(now.getTime() + 15 * 60 * 1000);
 
     await this.processVotingReminderNotifications(now);
 

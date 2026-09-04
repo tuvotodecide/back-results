@@ -28,7 +28,7 @@ import {
 @Injectable()
 export class InstitutionalVotingAccessService {
   private readonly logger = new Logger(InstitutionalVotingAccessService.name);
-  private readonly createLeadHours = 0;
+  private readonly createLeadHours = 1;
   private readonly officialPublicationLeadHours = 0;
 
   constructor(
