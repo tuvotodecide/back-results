@@ -948,6 +948,7 @@ describe('InstitutionalVotingNotificationsService (unit)', () => {
   it.each([
     ['START', 60, 'INSTITUTIONAL_VOTING_STARTS_IN_1H', 'La votación inicia en 1 hora', 'Eleccion tabla comienza a las 10:00.'],
     ['START', 15, 'INSTITUTIONAL_VOTING_STARTS_IN_15M', 'La votación inicia en 15 minutos', 'Eleccion tabla comienza a las 10:00.'],
+    ['START', 0, 'INSTITUTIONAL_VOTING_STARTED', 'La votación ya está abierta', 'Eleccion tabla ya está abierta desde las 10:00. Ya puedes emitir tu voto.'],
     ['END', 60, 'INSTITUTIONAL_VOTING_ENDS_IN_1H', 'La votación termina en 1 hora', 'Eleccion tabla cierra a las 14:00.'],
     ['END', 15, 'INSTITUTIONAL_VOTING_ENDS_IN_15M', 'La votación termina en 15 minutos', 'Eleccion tabla cierra a las 14:00.'],
   ])(

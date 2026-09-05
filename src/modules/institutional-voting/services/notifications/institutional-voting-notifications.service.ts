@@ -38,7 +38,7 @@ type NotificationRecipient = {
 };
 
 type VotingReminderPhase = 'START' | 'END';
-type VotingReminderOffsetMinutes = 60 | 15;
+type VotingReminderOffsetMinutes = 60 | 15 | 0;
 
 @Injectable()
 export class InstitutionalVotingNotificationsService {
@@ -924,6 +924,10 @@ export class InstitutionalVotingNotificationsService {
     offsetMinutes: VotingReminderOffsetMinutes,
   ) {
     if (phase === 'START') {
+      if (offsetMinutes === 0) {
+        return 'INSTITUTIONAL_VOTING_STARTED';
+      }
+
       return offsetMinutes === 60
         ? 'INSTITUTIONAL_VOTING_STARTS_IN_1H'
         : 'INSTITUTIONAL_VOTING_STARTS_IN_15M';
@@ -940,11 +944,23 @@ export class InstitutionalVotingNotificationsService {
     offsetMinutes: VotingReminderOffsetMinutes,
     reminderTime: string,
   ) {
+    const startedActionText = reminderTime
+      ? `ya está abierta desde las ${reminderTime}. Ya puedes emitir tu voto.`
+      : 'ya está abierta. Ya puedes emitir tu voto.';
     const actionText =
       phase === 'START'
-        ? (reminderTime ? `comienza a las ${reminderTime}.` : 'está próxima a iniciar.')
+        ? offsetMinutes === 0
+          ? startedActionText
+          : (reminderTime ? `comienza a las ${reminderTime}.` : 'está próxima a iniciar.')
         : (reminderTime ? `cierra a las ${reminderTime}.` : 'está próxima a cerrar.');
     const body = `${eventName} ${actionText}`;
+
+    if (phase === 'START' && offsetMinutes === 0) {
+      return {
+        title: 'La votación ya está abierta',
+        body,
+      };
+    }
 
     if (phase === 'START' && offsetMinutes === 60) {
       return {

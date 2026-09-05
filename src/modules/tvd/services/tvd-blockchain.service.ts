@@ -72,7 +72,7 @@ const ERC20_ERROR_ABI = [
 @Injectable()
 export class TvdBlockchainService {
   private readonly logger = new Logger(TvdBlockchainService.name);
-  private readonly chain: string;
+  public readonly chain: string;
   private readonly pk: string;
 
   constructor(

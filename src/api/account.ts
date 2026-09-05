@@ -1,4 +1,4 @@
-import { Address, createPublicClient, getContract, Hex, http } from 'viem';
+import { Abi, Address, createPublicClient, getContract, Hex, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
   availableNetworks,
@@ -275,4 +275,21 @@ export async function fetchUserAttestations(userId) {
       message: (error.message || 'Error al cargar los atestiguamientos')
     };
   }
+}
+
+export function getReadContract(chainId: string, contract: string, abi: Abi) {
+  const { bundler, chain } = availableNetworks[chainId];
+
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(bundler),
+  });
+
+  const vote = getContract({
+    address: contract as Hex,
+    abi,
+    client: {public: publicClient},
+  });
+
+  return vote;
 }

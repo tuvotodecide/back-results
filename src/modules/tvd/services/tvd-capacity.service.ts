@@ -30,6 +30,8 @@ import {
 } from '../dto/tvd-capacity.dto';
 import { TvdBlockchainService } from './tvd-blockchain.service';
 import { TvdQueryService } from './tvd-query.service';
+import { CreditsContractCalls } from '@/api/electoralCredits';
+import { ConfigService } from '@nestjs/config';
 
 const TOKENS_PER_PARTICIPANT = '1';
 const POSITIVE_INTEGER_REGEX = /^[1-9]\d*$/;
@@ -75,7 +77,10 @@ type CapacityCalculation = {
 
 @Injectable()
 export class TvdCapacityService {
+  private readonly electoralCreditsAddr: string;
+
   constructor(
+    private readonly configService: ConfigService,
     @InjectModel(VotingEvent.name)
     private readonly votingEventModel: Model<VotingEventDocument>,
     @InjectModel(PadronVersion.name)
@@ -86,7 +91,9 @@ export class TvdCapacityService {
     private readonly padronImportJobModel: Model<PadronImportJobDocument>,
     private readonly tvdQueries: TvdQueryService,
     private readonly blockchain: TvdBlockchainService,
-  ) {}
+  ) {
+    this.electoralCreditsAddr = this.configService.get<string>('app.contracts.electoralCredits.address')!;
+  }
 
   async estimateCapacity(
     estimatedParticipantsInput: string,
@@ -98,7 +105,12 @@ export class TvdCapacityService {
       'estimatedParticipants',
     );
     const balance = await this.resolveCurrentWalletBalance(requester, tenantId);
-    const calculation = this.calculateCapacity(estimatedParticipants, balance);
+    const tvdPerVote = await CreditsContractCalls.tvdPerCredit(this.blockchain.chain, this.electoralCreditsAddr);
+    const calculation = this.calculateCapacity(
+      estimatedParticipants,
+      balance,
+      tvdPerVote,
+    );
 
     return {
       estimatedParticipants: estimatedParticipants.toString(),
@@ -131,12 +143,14 @@ export class TvdCapacityService {
     }
 
     const balance = await this.readCurrentWalletBalance(walletContext);
+    const tvdPerVote = await CreditsContractCalls.tvdPerCredit(this.blockchain.chain, this.electoralCreditsAddr);
     const padronState = event.isOpenVoting
       ? this.resolveOpenVotingCapacityState(event)
       : await this.resolveCurrentPadronState(event);
     const calculation = this.calculateCapacity(
       BigInt(padronState.participantCount),
       balance,
+      tvdPerVote,
     );
     const reasonCode = this.resolveDefinitiveReasonCode(
       padronState.reasonCode,
@@ -301,8 +315,8 @@ export class TvdCapacityService {
   private calculateCapacity(
     participantCount: bigint,
     balance: ResolvedTvdBalance,
+    tokenScale: bigint,
   ): CapacityCalculation {
-    const tokenScale = 10n ** BigInt(balance.decimals);
     const requiredSmallestUnit = participantCount * tokenScale;
     const missingSmallestUnit =
       balance.availableSmallestUnit >= requiredSmallestUnit

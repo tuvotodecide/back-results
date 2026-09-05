@@ -7,6 +7,13 @@ jest.mock('@/modules/zk-auth/services/zk-auth.service', () => ({
   ZkAuthService: class ZkAuthService {},
 }));
 
+jest.mock('@/api/electoralCredits', () => ({
+  CreditsContractCalls: {
+    liquidate: jest.fn(),
+    tvdPerCredit: jest.fn(async () => 10n ** 18n),
+  },
+}));
+
 import { EmitVoteService } from '@/modules/institutional-voting/services/participation/emit-vote.service';
 import { VoteWritterService } from '@/modules/institutional-voting/services/core/vote-writter.service';
 import { TvdCapacityService } from '@/modules/tvd/services/tvd-capacity.service';
@@ -342,11 +349,16 @@ describe('MX-EA2 | Votaciones abiertas sin padron (unit)', () => {
         })),
       };
       const blockchain = {
+        chain: '84532',
         getLiquidBalance: jest.fn(async () => '500000000000000000000'), // 500 TVD
         getTokenDecimals: jest.fn(async () => 18),
       };
+      const configService = {
+        get: jest.fn(() => getAddress('0xcccccccccccccccccccccccccccccccccccccccc')),
+      };
 
       const service = new TvdCapacityService(
+        configService as never,
         votingEventModel as never,
         padronVersionModel as never,
         padronEntryModel as never,

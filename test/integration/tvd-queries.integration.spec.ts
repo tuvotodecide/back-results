@@ -1,3 +1,10 @@
+jest.mock('@/api/electoralCredits', () => ({
+  CreditsContractCalls: {
+    liquidate: jest.fn(),
+    tvdPerCredit: jest.fn(),
+  },
+}));
+
 import appConfig from '@/config/app.config';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
@@ -46,6 +53,7 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import { Connection, Model, Types } from 'mongoose';
 import request from 'supertest';
 import { getAddress } from 'viem';
+import { CreditsContractCalls } from '@/api/electoralCredits';
 
 const walletA = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 const walletB = getAddress('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
@@ -54,7 +62,15 @@ const assignmentContract = getAddress(
   '0x2222222222222222222222222222222222222222',
 );
 const tokenContract = getAddress('0x4444444444444444444444444444444444444444');
+const electoralCreditsAddr = getAddress(
+  '0x5555555555555555555555555555555555555555',
+);
 const txHash = `0x${'7'.repeat(64)}`;
+const ONE_TVD = 10n ** 18n;
+
+const tvdPerCreditMock = CreditsContractCalls.tvdPerCredit as jest.MockedFunction<
+  typeof CreditsContractCalls.tvdPerCredit
+>;
 
 describe('TVD query endpoints (integration)', () => {
   let app: INestApplication;
@@ -72,6 +88,7 @@ describe('TVD query endpoints (integration)', () => {
   let previousIdentityBaseUrl: string | undefined;
   let previousIdentityApiKey: string | undefined;
   let previousTvdDecimals: string | undefined;
+  let previousCreditsAddress: string | undefined;
 
   const httpService = {
     axiosRef: {
@@ -80,6 +97,7 @@ describe('TVD query endpoints (integration)', () => {
   };
 
   const blockchain = {
+    chain: '84532',
     getTotalBalance: jest.fn(async () => ({
       wallet: walletA,
       decimals: 18,
@@ -114,6 +132,8 @@ describe('TVD query endpoints (integration)', () => {
     process.env.IDENTITY_BASE_URL = 'https://identity.example.test';
     process.env.IDENTITY_API_KEY = 'identity-test-key';
     process.env.TVD_DECIMALS = '18';
+    previousCreditsAddress = process.env.TVD_ELECTORAL_CREDITS_ADDRESS;
+    process.env.TVD_ELECTORAL_CREDITS_ADDRESS = electoralCreditsAddr;
 
     mongod = await MongoMemoryReplSet.create({
       replSet: { count: 1 },
@@ -224,6 +244,7 @@ describe('TVD query endpoints (integration)', () => {
     });
     blockchain.getLiquidBalance.mockResolvedValue('11000000000000000000');
     blockchain.getTokenDecimals.mockResolvedValue(18);
+    tvdPerCreditMock.mockResolvedValue(ONE_TVD);
     await Promise.all([
       conn.collection('institutional_tenants').deleteMany({}),
       conn.collection('tenant_admin_assignments').deleteMany({}),
@@ -256,6 +277,11 @@ describe('TVD query endpoints (integration)', () => {
       delete process.env.TVD_DECIMALS;
     } else {
       process.env.TVD_DECIMALS = previousTvdDecimals;
+    }
+    if (previousCreditsAddress === undefined) {
+      delete process.env.TVD_ELECTORAL_CREDITS_ADDRESS;
+    } else {
+      process.env.TVD_ELECTORAL_CREDITS_ADDRESS = previousCreditsAddress;
     }
     await app?.close();
     await conn?.close();
@@ -707,6 +733,56 @@ describe('TVD query endpoints (integration)', () => {
     expect(await accreditationModel.countDocuments({})).toBe(beforeAccreditations);
   });
 
+  it('TVD-CAPACITY-EST-POS-I-003 | POSITIVO | INTEGRACION | escala la estimacion con el tvdPerCredit del contrato de creditos', async () => {
+    // 2 TVD por participante.
+    tvdPerCreditMock.mockResolvedValueOnce(2n * ONE_TVD);
+    blockchain.getLiquidBalance.mockResolvedValueOnce('30000000000000000000');
+
+    const beforePayments = await paymentModel.countDocuments({});
+    const beforeAccreditations = await accreditationModel.countDocuments({});
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional')
+      .send({ estimatedParticipants: 20 })
+      .expect(201);
+
+    expect(tvdPerCreditMock).toHaveBeenCalledWith(
+      blockchain.chain,
+      electoralCreditsAddr,
+    );
+    expect(res.body).toMatchObject({
+      estimatedParticipants: '20',
+      tokensPerParticipant: '1',
+      estimatedRequiredTokens: '40',
+      estimatedRequiredSmallestUnit: '40000000000000000000',
+      availableTokens: '30',
+      estimatedMissingTokens: '10',
+      estimatedMissingSmallestUnit: '10000000000000000000',
+      hasEstimatedCapacity: false,
+      reasonCode: 'INSUFFICIENT_TVD_BALANCE',
+    });
+    expect(await paymentModel.countDocuments({})).toBe(beforePayments);
+    expect(await accreditationModel.countDocuments({})).toBe(beforeAccreditations);
+  });
+
+  it('TVD-CAPACITY-EST-NEG-I-002 | NEGATIVO | INTEGRACION | no expone detalles tecnicos cuando falla la lectura de tvdPerCredit', async () => {
+    tvdPerCreditMock.mockRejectedValueOnce(
+      new Error('rpc http://private-rpc.local failed reading tvdPerCredit'),
+    );
+
+    const beforePayments = await paymentModel.countDocuments({});
+    const beforeAccreditations = await accreditationModel.countDocuments({});
+    const res = await request(app.getHttpServer())
+      .post('/api/v1/tvd/me/estimated-capacity')
+      .set('Authorization', 'Bearer institutional')
+      .send({ estimatedParticipants: 10 })
+      .expect(500);
+
+    expect(JSON.stringify(res.body)).not.toContain('private-rpc');
+    expect(await paymentModel.countDocuments({})).toBe(beforePayments);
+    expect(await accreditationModel.countDocuments({})).toBe(beforeAccreditations);
+  });
+
   it('TVD-CAPACITY-EST-NEG-I-001 | NEGATIVO | INTEGRACION | rechaza inputs invalidos y campos autoritativos del frontend', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/tvd/me/estimated-capacity')
@@ -738,6 +814,7 @@ describe('TVD query endpoints (integration)', () => {
       .expect(400);
 
     expect(blockchain.getLiquidBalance).not.toHaveBeenCalled();
+    expect(tvdPerCreditMock).not.toHaveBeenCalled();
   });
 
   it('TVD-CAPACITY-EST-POS-I-002 | POSITIVO | INTEGRACION | dos admins del mismo tenant conservan wallets independientes', async () => {

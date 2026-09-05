@@ -60,6 +60,7 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       .mockReturnValueOnce(emptyFindQuery())
       .mockReturnValueOnce(emptyFindQuery())
       .mockReturnValueOnce(emptyFindQuery())
+      .mockReturnValueOnce(emptyFindQuery())
       .mockReturnValueOnce(emptyFindQuery());
   };
 
@@ -86,7 +87,7 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
 
     await service.processLifecycle();
 
-    expect(votingEventModel.find).toHaveBeenNthCalledWith(5, {
+    expect(votingEventModel.find).toHaveBeenNthCalledWith(6, {
       state: { $in: ['DRAFT', 'READY_FOR_REVIEW'] },
       publishDeadline: {
         $gt: now,
@@ -159,6 +160,7 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
       .mockReturnValueOnce({ limit: jest.fn().mockResolvedValue([startEvent]) })
       .mockReturnValueOnce(emptyFindQuery())
       .mockReturnValueOnce({ limit: jest.fn().mockResolvedValue([endEvent]) })
+      .mockReturnValueOnce(emptyFindQuery())
       .mockReturnValueOnce(emptyFindQuery());
 
     const result = await service.processVotingReminderNotifications(now);
@@ -199,6 +201,49 @@ describe('InstitutionalVotingLifecycleService (unit)', () => {
         eventId: String(endEvent._id),
         phase: 'END',
         offsetMinutes: 60,
+        sent: 1,
+      }),
+    ]);
+  });
+
+  it('notifica el inicio de la votación en el minuto exacto en que abre (offset 0)', async () => {
+    const now = new Date('2026-07-10T14:00:30.000Z');
+    jest.useFakeTimers().setSystemTime(now);
+
+    const startedEvent = {
+      _id: new Types.ObjectId(),
+      name: 'Eleccion recien abierta',
+      state: 'PUBLISHED',
+      votingStart: new Date('2026-07-10T14:00:00.000Z'),
+      votingEnd: new Date('2026-07-10T18:00:00.000Z'),
+    };
+
+    votingEventModel.find
+      .mockReturnValueOnce(emptyFindQuery())
+      .mockReturnValueOnce(emptyFindQuery())
+      .mockReturnValueOnce(emptyFindQuery())
+      .mockReturnValueOnce(emptyFindQuery())
+      .mockReturnValueOnce({ limit: jest.fn().mockResolvedValue([startedEvent]) });
+
+    const result = await service.processVotingReminderNotifications(now);
+
+    expect(votingEventModel.find).toHaveBeenNthCalledWith(5, {
+      state: { $in: ['OFFICIALLY_PUBLISHED', 'PUBLISHED'] },
+      votingStart: {
+        $gt: new Date('2026-07-10T13:59:30.000Z'),
+        $lte: now,
+      },
+    });
+    expect(notificationsService.notifyVotingReminderIfEligible).toHaveBeenCalledWith(
+      startedEvent,
+      'START',
+      0,
+    );
+    expect(result).toEqual([
+      expect.objectContaining({
+        eventId: String(startedEvent._id),
+        phase: 'START',
+        offsetMinutes: 0,
         sent: 1,
       }),
     ]);

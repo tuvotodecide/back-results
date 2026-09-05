@@ -5,6 +5,7 @@ const mockGetBlock = jest.fn();
 const mockCreateVoteCall = jest.fn();
 const mockCastVoteCall = jest.fn();
 const mockGetVoteHash = jest.fn();
+const mockLiquidateCall = jest.fn();
 
 jest.mock('@/api/params', () => ({
   availableNetworks: {
@@ -28,6 +29,14 @@ jest.mock('@/api/vote', () => ({
     getVoteHash: (...args: any[]) => mockGetVoteHash(...args),
   },
   VoteContractReads: {},
+}));
+
+// Evita cargar @/api/account (y con el permissionless/accounts) al importar el servicio.
+jest.mock('@/api/electoralCredits', () => ({
+  CreditsContractCalls: {
+    liquidate: (...args: any[]) => mockLiquidateCall(...args),
+    tvdPerCredit: jest.fn(),
+  },
 }));
 
 jest.mock('viem', () => ({
@@ -76,6 +85,11 @@ describe('VoteWritterService (unit)', () => {
     mockWaitForTransactionReceipt.mockResolvedValue({ blockNumber: 123n, status: 'success' });
     mockGetBlock.mockResolvedValue({ timestamp: 1_700_000_000n });
     mockGetVoteHash.mockResolvedValue(999n);
+    mockLiquidateCall.mockReturnValue({
+      to: '0xElectoralCredits',
+      value: 0n,
+      data: '0xliquidate',
+    });
 
     merkletreeService = {
       stringToFieldElement: jest.fn((value: string) =>
@@ -94,6 +108,7 @@ describe('VoteWritterService (unit)', () => {
           const values: Record<string, string> = {
             'app.blockchain.chain': 'base-sepolia',
             'app.blockchain.privateKey': '0xprivate',
+            'app.contracts.electoralCredits.address': '0xElectoralCredits',
           };
           return values[key];
         }),
@@ -194,5 +209,35 @@ describe('VoteWritterService (unit)', () => {
     await expect(
       service.castVote('123abc', 'Frente Azul', 'secret-1'),
     ).rejects.toThrow('Transaction 0xtx reverted');
+  });
+
+  it('liquidateVote usa el contrato de creditos configurado y espera el receipt', async () => {
+    await service.liquidateVote('123abc');
+
+    expect(mockLiquidateCall).toHaveBeenCalledWith(
+      '0xElectoralCredits',
+      '123abc',
+    );
+    expect(mockSendTransaction).toHaveBeenCalledWith({
+      to: '0xElectoralCredits',
+      value: 0n,
+      data: '0xliquidate',
+    });
+    expect(mockWaitForTransactionReceipt).toHaveBeenCalledWith({
+      hash: '0xtx',
+      timeout: 900000,
+      pollingInterval: 2000,
+    });
+  });
+
+  it('liquidateVote propaga un receipt revertido sin declarar la liquidacion', async () => {
+    mockWaitForTransactionReceipt.mockResolvedValueOnce({
+      blockNumber: 123n,
+      status: 'reverted',
+    });
+
+    await expect(service.liquidateVote('123abc')).rejects.toThrow(
+      'Transaction 0xtx reverted',
+    );
   });
 });

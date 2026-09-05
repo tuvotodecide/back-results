@@ -20,6 +20,7 @@ export class InstitutionalVotingLifecycleService {
     { phase: 'START' as const, offsetMinutes: 15 as const, field: 'votingStart' as const },
     { phase: 'END' as const, offsetMinutes: 60 as const, field: 'votingEnd' as const },
     { phase: 'END' as const, offsetMinutes: 15 as const, field: 'votingEnd' as const },
+    { phase: 'START' as const, offsetMinutes: 0 as const, field: 'votingStart' as const },
   ];
 
   constructor(

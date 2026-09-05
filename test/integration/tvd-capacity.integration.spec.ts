@@ -3,6 +3,13 @@ jest.mock('@iden3/js-iden3-auth', () => ({
   resolver: {},
 }));
 
+jest.mock('@/api/electoralCredits', () => ({
+  CreditsContractCalls: {
+    liquidate: jest.fn(),
+    tvdPerCredit: jest.fn(),
+  },
+}));
+
 import appConfig from '@/config/app.config';
 import { JwtAuthGuard } from '@/core/guards/jwt-auth.guard';
 import {
@@ -44,6 +51,7 @@ import {
 } from '@/modules/tvd/schemas/token-accreditation.schema';
 import { TvdBlockchainService } from '@/modules/tvd/services/tvd-blockchain.service';
 import { TvdModule } from '@/modules/tvd/tvd.module';
+import { CreditsContractCalls } from '@/api/electoralCredits';
 import { InstitutionalVotingService } from '@/modules/institutional-voting/services/institutional-voting.service';
 import { INestApplication, UnauthorizedException, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -61,6 +69,14 @@ import { getAddress } from 'viem';
 
 const walletA = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 const walletB = getAddress('0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+const electoralCreditsAddr = getAddress(
+  '0xcccccccccccccccccccccccccccccccccccccccc',
+);
+const ONE_TVD = 10n ** 18n;
+
+const tvdPerCreditMock = CreditsContractCalls.tvdPerCredit as jest.MockedFunction<
+  typeof CreditsContractCalls.tvdPerCredit
+>;
 
 type TestRequester = {
   sub?: string;
@@ -85,8 +101,10 @@ describe('TVD capacity endpoints (integration)', () => {
   let currentUser: TestRequester | null;
   let seed: Awaited<ReturnType<typeof seedData>>;
   let previousTvdDecimals: string | undefined;
+  let previousCreditsAddress: string | undefined;
 
   const blockchain = {
+    chain: '84532',
     getTotalBalance: jest.fn(async () => ({
       wallet: walletA,
       decimals: 18,
@@ -106,6 +124,8 @@ describe('TVD capacity endpoints (integration)', () => {
   beforeAll(async () => {
     previousTvdDecimals = process.env.TVD_DECIMALS;
     process.env.TVD_DECIMALS = '18';
+    previousCreditsAddress = process.env.TVD_ELECTORAL_CREDITS_ADDRESS;
+    process.env.TVD_ELECTORAL_CREDITS_ADDRESS = electoralCreditsAddr;
     mongod = await MongoMemoryReplSet.create({
       replSet: { count: 1 },
       instanceOpts: [{ launchTimeout: 120000 }],
@@ -218,6 +238,7 @@ describe('TVD capacity endpoints (integration)', () => {
     });
     blockchain.getLiquidBalance.mockResolvedValue('10000000000000000000');
     blockchain.getTokenDecimals.mockResolvedValue(18);
+    tvdPerCreditMock.mockResolvedValue(ONE_TVD);
   });
 
   afterAll(async () => {
@@ -225,6 +246,11 @@ describe('TVD capacity endpoints (integration)', () => {
       delete process.env.TVD_DECIMALS;
     } else {
       process.env.TVD_DECIMALS = previousTvdDecimals;
+    }
+    if (previousCreditsAddress === undefined) {
+      delete process.env.TVD_ELECTORAL_CREDITS_ADDRESS;
+    } else {
+      process.env.TVD_ELECTORAL_CREDITS_ADDRESS = previousCreditsAddress;
     }
     await app?.close();
     await conn?.close();
@@ -385,6 +411,49 @@ describe('TVD capacity endpoints (integration)', () => {
     expect(afterEvent?.publicationConfirmed).toBe(
       beforeEvent?.publicationConfirmed,
     );
+  });
+
+  it('escala el requerimiento con el tvdPerCredit leído del contrato de créditos', async () => {
+    expect(tvdPerCreditMock).not.toHaveBeenCalled();
+    // 2 TVD por participante.
+    tvdPerCreditMock.mockResolvedValueOnce(2n * ONE_TVD);
+    blockchain.getLiquidBalance.mockResolvedValueOnce('15000000000000000000');
+
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/voting/events/${seed.eventA._id}/tvd-capacity`)
+      .set('Authorization', 'Bearer institutional')
+      .expect(200);
+
+    expect(tvdPerCreditMock).toHaveBeenCalledWith(
+      blockchain.chain,
+      electoralCreditsAddr,
+    );
+    expect(res.body).toMatchObject({
+      participantCount: 10,
+      requiredTokens: '20',
+      requiredSmallestUnit: '20000000000000000000',
+      availableTokens: '15',
+      missingTokens: '5',
+      canPublish: false,
+      reasonCode: 'INSUFFICIENT_TVD_BALANCE',
+    });
+    expect(await paymentModel.countDocuments({})).toBe(0);
+    expect(await accreditationModel.countDocuments({})).toBe(0);
+  });
+
+  it('no expone detalles técnicos cuando falla la lectura de tvdPerCredit', async () => {
+    tvdPerCreditMock.mockRejectedValueOnce(
+      new Error('rpc http://private-rpc.local failed reading tvdPerCredit'),
+    );
+
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/voting/events/${seed.eventA._id}/tvd-capacity`)
+      .set('Authorization', 'Bearer institutional')
+      .expect(500);
+
+    expect(JSON.stringify(res.body)).not.toContain('private-rpc');
+    expect(await paymentModel.countDocuments({})).toBe(0);
+    expect(await accreditationModel.countDocuments({})).toBe(0);
   });
 
   it('ignora cualquier estimación previa y bloquea participantCount enviado por query', async () => {
