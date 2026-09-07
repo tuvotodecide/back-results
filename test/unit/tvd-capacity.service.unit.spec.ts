@@ -431,7 +431,7 @@ describe('TvdCapacityService', () => {
 
       expect(result).toMatchObject({
         participantCount: 4,
-        tokensPerParticipant: '1',
+        tokensPerParticipant: '2.5',
         requiredTokens: '10',
         requiredSmallestUnit: '10000000000000000000',
         availableTokens: '10',
@@ -663,7 +663,7 @@ describe('TvdCapacityService', () => {
 
       expect(result).toMatchObject({
         estimatedParticipants: '4',
-        tokensPerParticipant: '1',
+        tokensPerParticipant: '2.5',
         estimatedRequiredTokens: '10',
         estimatedRequiredSmallestUnit: '10000000000000000000',
         availableTokens: '10',

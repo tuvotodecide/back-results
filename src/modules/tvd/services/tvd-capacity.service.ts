@@ -5,7 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { formatUnits } from 'viem';
+import { formatEther, formatUnits } from 'viem';
 import { Model, Types } from 'mongoose';
 import {
   PadronEntry,
@@ -114,7 +114,7 @@ export class TvdCapacityService {
 
     return {
       estimatedParticipants: estimatedParticipants.toString(),
-      tokensPerParticipant: TOKENS_PER_PARTICIPANT,
+      tokensPerParticipant: formatEther(tvdPerVote),
       estimatedRequiredTokens: calculation.requiredTokens,
       estimatedRequiredSmallestUnit: calculation.requiredSmallestUnit.toString(),
       availableTokens: balance.availableTokens,
@@ -161,7 +161,7 @@ export class TvdCapacityService {
       eventId: String(event._id),
       participantCount: padronState.participantCount,
       padronVersionId: padronState.padronVersionId,
-      tokensPerParticipant: TOKENS_PER_PARTICIPANT,
+      tokensPerParticipant: formatEther(tvdPerVote),
       requiredTokens: calculation.requiredTokens,
       requiredSmallestUnit: calculation.requiredSmallestUnit.toString(),
       availableTokens: balance.availableTokens,

@@ -752,7 +752,7 @@ describe('TVD query endpoints (integration)', () => {
     );
     expect(res.body).toMatchObject({
       estimatedParticipants: '20',
-      tokensPerParticipant: '1',
+      tokensPerParticipant: '2',
       estimatedRequiredTokens: '40',
       estimatedRequiredSmallestUnit: '40000000000000000000',
       availableTokens: '30',
