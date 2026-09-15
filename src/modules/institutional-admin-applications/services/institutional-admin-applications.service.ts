@@ -540,6 +540,8 @@ export class InstitutionalAdminApplicationsService {
       id: String(app._id),
       status: app.status,
       emailVerifiedAt: app.emailVerifiedAt,
+      email: app.email,
+      username: app.name
     };
   }
 

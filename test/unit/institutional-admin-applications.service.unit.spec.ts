@@ -557,6 +557,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       invitationId,
       tenantId,
       dni: '123456',
+      email: 'admin@example.com',
+      name: 'Admin Tenant',
       status: 'PENDING_EMAIL_VERIFICATION',
       verificationToken: 'verification-token',
       verificationTokenExpiresAt: new Date(Date.now() + 60_000),
@@ -579,6 +581,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       id: appId.toString(),
       status: 'PENDING_APPROVAL',
       emailVerifiedAt: expect.any(Date),
+      email: 'admin@example.com',
+      username: 'Admin Tenant',
     });
 
     expect(application.status).toBe('PENDING_APPROVAL');
@@ -594,6 +598,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       verificationTokenExpiresAt: new Date(Date.now() + 60_000),
       tenantId,
       userId,
+      email: 'admin@example.com',
+      name: 'Admin Tenant',
       save: jest.fn().mockResolvedValue(undefined),
     };
     applicationModel.findOne.mockResolvedValueOnce(application);
@@ -602,6 +608,8 @@ describe('MX-02 | Gestión de instituciones, administradores y wallets | Backend
       id: appId.toString(),
       status: 'PENDING_APPROVAL',
       emailVerifiedAt: expect.any(Date),
+      email: 'admin@example.com',
+      username: 'Admin Tenant',
     });
 
     expect(application.status).toBe('PENDING_APPROVAL');
@@ -959,6 +967,8 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
       verificationTokenExpiresAt: new Date(Date.now() + 60_000),
       tenantId,
       userId,
+      email: 'admin@example.com',
+      name: 'Admin Tenant',
       save: jest.fn().mockResolvedValue(undefined),
     };
     applicationModel.findOne.mockResolvedValueOnce(app);
@@ -968,6 +978,8 @@ it('D-MAIL-006 / D-MAIL-007 | verifyEmail cambia a PENDING_APPROVAL sin crear as
       id: appId.toString(),
       status: 'PENDING_APPROVAL',
       emailVerifiedAt: expect.any(Date),
+      email: 'admin@example.com',
+      username: 'Admin Tenant',
     });
     expect(app.save).toHaveBeenCalled();
     expect(assignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
