@@ -304,4 +304,53 @@ describe('TVD exchange rates endpoint (integration)', () => {
       .set('Authorization', 'Bearer test-admin')
       .expect(404);
   });
+
+  it('TVD-RATE-POS-I-006 | POSITIVO | INTEGRACION | consulta publica active-rate sin JWT devuelve solo moneda y tasa', async () => {
+    await request(app.getHttpServer())
+      .post(endpoint)
+      .set('Authorization', 'Bearer test-admin')
+      .set('Idempotency-Key', 'rate-key-active-public')
+      .send({ ...validBody, bobPerToken: '6.96' })
+      .expect(201);
+
+    const res = await request(app.getHttpServer())
+      .get(`${endpoint}/active-rate`)
+      .expect(200);
+
+    expect(res.body).toEqual({ fiatCurrency: 'BOB', bobPerToken: '6.96' });
+  });
+
+  it('TVD-RATE-POS-I-007 | POSITIVO | INTEGRACION | active-rate es accesible para usuarios sin rol ADMIN', async () => {
+    await request(app.getHttpServer())
+      .post(endpoint)
+      .set('Authorization', 'Bearer test-admin')
+      .set('Idempotency-Key', 'rate-key-active-user')
+      .send(validBody)
+      .expect(201);
+
+    currentUser = { sub: new Types.ObjectId().toHexString(), role: 'USER', active: true };
+    const res = await request(app.getHttpServer())
+      .get(`${endpoint}/active-rate`)
+      .set('Authorization', 'Bearer test-user')
+      .expect(200);
+
+    expect(res.body).toEqual({ fiatCurrency: 'BOB', bobPerToken: '1' });
+  });
+
+  it('TVD-RATE-NEG-I-010 | NEGATIVO | INTEGRACION | active-rate sin tasa vigente devuelve 404', async () => {
+    await request(app.getHttpServer())
+      .get(`${endpoint}/active-rate`)
+      .expect(404);
+  });
+
+  it('TVD-RATE-NEG-I-011 | NEGATIVO | INTEGRACION | endpoints administrativos siguen requiriendo JWT y rol ADMIN', async () => {
+    await request(app.getHttpServer()).get(endpoint).expect(401);
+    await request(app.getHttpServer()).get(`${endpoint}/current`).expect(401);
+
+    currentUser = { sub: new Types.ObjectId().toHexString(), role: 'USER', active: true };
+    await request(app.getHttpServer())
+      .get(`${endpoint}/current`)
+      .set('Authorization', 'Bearer test-user')
+      .expect(403);
+  });
 });
