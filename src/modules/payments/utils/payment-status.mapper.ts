@@ -1,7 +1,15 @@
 import { PaymentStatus } from '../payments.constants';
 
-export const RED_ENLACE_ACTIVE_QR_STATUSES = new Set(['PENDING', 'INITIALIZE']);
-export const RED_ENLACE_SUCCESS_STATUSES = new Set(['SUCCESS']);
+// Estados de QR Simple v2 (PENDIENTE, PAGADO, ...) junto a los de v1, que
+// siguen guardados en pagos generados antes de la migracion.
+export const RED_ENLACE_ACTIVE_QR_STATUSES = new Set([
+  'PENDIENTE',
+  'PENDING',
+  'INITIALIZE',
+]);
+export const RED_ENLACE_SUCCESS_STATUSES = new Set(['PAGADO', 'SUCCESS']);
+const RED_ENLACE_EXPIRED_STATUSES = new Set(['EXPIRADO', 'EXPIRED']);
+const RED_ENLACE_CANCELLED_STATUSES = new Set(['CANCELADO', 'CANCELLED']);
 
 export function normalizeRedEnlaceStatus(value?: string | null): string {
   return String(value ?? '').trim().toUpperCase();
@@ -48,6 +56,7 @@ export function mapRedEnlaceStatus(
   const responseCode = String(input.responseCode ?? '').trim();
   const providerStatus = normalizeRedEnlaceStatus(input.providerStatus);
 
+  // Codigos del callback v1; v2 envia el estado en codigoRespuesta.
   if (input.source === 'WEBHOOK') {
     if (responseCode === '00') {
       return {
@@ -79,7 +88,7 @@ export function mapRedEnlaceStatus(
       ambiguous: false,
     };
   }
-  if (providerStatus === 'SUCCESS') {
+  if (RED_ENLACE_SUCCESS_STATUSES.has(providerStatus)) {
     return {
       status: 'PAYMENT_CONFIRMED',
       requiresConfirmationValidation: true,
@@ -95,14 +104,14 @@ export function mapRedEnlaceStatus(
       ambiguous: !input.hasSuccessEvidence,
     };
   }
-  if (providerStatus === 'EXPIRED') {
+  if (RED_ENLACE_EXPIRED_STATUSES.has(providerStatus)) {
     return {
       status: 'EXPIRED',
       requiresConfirmationValidation: false,
       ambiguous: false,
     };
   }
-  if (providerStatus === 'CANCELLED') {
+  if (RED_ENLACE_CANCELLED_STATUSES.has(providerStatus)) {
     return {
       status: 'CANCELLED',
       requiresConfirmationValidation: false,

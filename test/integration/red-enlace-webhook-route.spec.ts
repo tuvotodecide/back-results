@@ -12,22 +12,20 @@ const LEGACY_ROUTE = '/api/v1/integrations/red-enlace/pay-in/webhook';
 function redEnlacePayload(numeroReferencia: number | string = 1511556) {
   return {
     numeroReferencia,
-    estado: '00',
-    transacciones: {
-      monto: '10.00',
-      moneda: 'BOB',
-      fechaHoraTransaccion: '2025-08-01T16:00:57.286',
-      cliente: {
-        nombreCliente: 'JUAN PEREZ',
-        ciCliente: '14240008',
-        numeroCuenta: '1011000024',
-      },
-      numeroAch: '14262508014140754846',
-      banco: {
-        descripcion: 'BANCO ECONOMICO',
-        sigla: 'BEC',
-        codigoParticipante: '1016',
-      },
+    codigoRespuesta: 'SUCCESS',
+    detalleRespuesta: 'Pago procesado exitosamente',
+    monto: '10.00',
+    moneda: 'BOB',
+    fechaHoraTransaccion: '2025-08-01T16:00:57',
+    clienteOrigen: {
+      ciCliente: '14240008',
+      nombreCliente: 'JUAN PEREZ',
+      numeroCuenta: '1011000024',
+    },
+    bancoOrigen: {
+      codigoBanco: '1016',
+      nombreBanco: 'BANCO ECONOMICO',
+      numeroOrdenAch: '14262508014140754846',
     },
   };
 }
@@ -57,7 +55,7 @@ describe('Red Enlace webhook routes', () => {
             get: jest.fn((key: string) => {
               const values: Record<string, string> = {
                 'app.redEnlace.mode': 'mock',
-                'app.redEnlace.apiKey': 'outgoing-red-enlace-api-key',
+                'app.redEnlace.clientSecret': 'outgoing-red-enlace-client-secret',
                 'app.redEnlace.callbackToken': 'valid-callback-token',
               };
               return values[key];
@@ -103,17 +101,17 @@ describe('Red Enlace webhook routes', () => {
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 
-  it('POST /api/v1/qr/confirmed does not accept the outgoing Red Enlace API key as callback token', async () => {
+  it('POST /api/v1/qr/confirmed does not accept the outgoing Red Enlace client secret as callback token', async () => {
     await request(app.getHttpServer())
       .post(CANONICAL_ROUTE)
-      .set('x-api-key', 'outgoing-red-enlace-api-key')
+      .set('x-api-key', 'outgoing-red-enlace-client-secret')
       .send(redEnlacePayload())
       .expect(401);
 
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 
-  it('POST /api/v1/qr/confirmed accepts the correct x-api-key callback token and nested Red Enlace contract', async () => {
+  it('POST /api/v1/qr/confirmed accepts the correct x-api-key callback token and QR Simple v2 contract', async () => {
     const response = await request(app.getHttpServer())
       .post(CANONICAL_ROUTE)
       .set('x-api-key', 'valid-callback-token')
@@ -129,17 +127,17 @@ describe('Red Enlace webhook routes', () => {
     expect(receiveWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         numeroReferencia: '1511556',
-        estado: '00',
-        transacciones: expect.objectContaining({
-          monto: '10.00',
-          moneda: 'BOB',
-          numeroAch: '14262508014140754846',
+        codigoRespuesta: 'SUCCESS',
+        monto: '10.00',
+        moneda: 'BOB',
+        bancoOrigen: expect.objectContaining({
+          numeroOrdenAch: '14262508014140754846',
         }),
       }),
     );
   });
 
-  it('POST /api/v1/qr/confirmed rejects an empty body without requiring codigoRespuesta', async () => {
+  it('POST /api/v1/qr/confirmed rejects an empty body', async () => {
     const response = await request(app.getHttpServer())
       .post(CANONICAL_ROUTE)
       .set('x-api-key', 'valid-callback-token')
@@ -148,24 +146,21 @@ describe('Red Enlace webhook routes', () => {
 
     const validationBody = JSON.stringify(response.body);
     expect(validationBody).toContain('numeroReferencia');
-    expect(validationBody).toContain('estado');
-    expect(validationBody).not.toContain('codigoRespuesta');
+    expect(validationBody).toContain('codigoRespuesta');
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 
-  it('POST /api/v1/qr/confirmed rejects callback states outside 00, 03 and 05', async () => {
-    const response = await request(app.getHttpServer())
+  it('POST /api/v1/qr/confirmed rejects the v1 callback contract', async () => {
+    await request(app.getHttpServer())
       .post(CANONICAL_ROUTE)
       .set('x-api-key', 'valid-callback-token')
       .send({
         numeroReferencia: 1511556,
-        estado: '99',
+        estado: '00',
+        transacciones: { monto: '10.00', moneda: 'BOB' },
       })
       .expect(400);
 
-    const validationBody = JSON.stringify(response.body);
-    expect(validationBody).toContain('estado');
-    expect(validationBody).not.toContain('codigoRespuesta');
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 
@@ -181,77 +176,42 @@ describe('Red Enlace webhook routes', () => {
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 
-  it('POST /api/v1/qr/confirmed accepts estado 03 without full banking data', async () => {
-    const response = await request(app.getHttpServer())
+  it.each(['SUCCESS', 'PAGADO'])(
+    'POST /api/v1/qr/confirmed requires monto and moneda when codigoRespuesta is %s',
+    async (codigoRespuesta) => {
+      const response = await request(app.getHttpServer())
+        .post(CANONICAL_ROUTE)
+        .set('x-api-key', 'valid-callback-token')
+        .send({
+          numeroReferencia: 1511556,
+          codigoRespuesta,
+          bancoOrigen: { numeroOrdenAch: '14262508014140754846' },
+        })
+        .expect(400);
+
+      const validationBody = JSON.stringify(response.body);
+      expect(validationBody).toContain('monto');
+      expect(validationBody).toContain('moneda');
+      expect(receiveWebhook).not.toHaveBeenCalled();
+    },
+  );
+
+  it('POST /api/v1/qr/confirmed accepts a non paid status without banking data', async () => {
+    await request(app.getHttpServer())
       .post(CANONICAL_ROUTE)
       .set('x-api-key', 'valid-callback-token')
       .send({
-        numeroReferencia: 1511556,
-        estado: '03',
+        numeroReferencia: '1511556',
+        codigoRespuesta: 'EXPIRADO',
       })
       .expect(200);
 
-    expect(response.body).toEqual({
-      numeroReferencia: '1511556',
-      codigoRespuesta: '00',
-      detalleRespuesta: null,
-    });
     expect(receiveWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         numeroReferencia: '1511556',
-        estado: '03',
+        codigoRespuesta: 'EXPIRADO',
       }),
     );
-  });
-
-  it('POST /api/v1/qr/confirmed accepts estado 05 without full banking data', async () => {
-    const response = await request(app.getHttpServer())
-      .post(CANONICAL_ROUTE)
-      .set('x-api-key', 'valid-callback-token')
-      .send({
-        numeroReferencia: '1511556',
-        estado: '05',
-        transacciones: {
-          fechaHoraTransaccion: '2025-08-01T16:00:57.286',
-        },
-      })
-      .expect(200);
-
-    expect(response.body).toEqual({
-      numeroReferencia: '1511556',
-      codigoRespuesta: '00',
-      detalleRespuesta: null,
-    });
-    expect(receiveWebhook).toHaveBeenCalledWith(
-      expect.objectContaining({
-        numeroReferencia: '1511556',
-        estado: '05',
-        transacciones: expect.objectContaining({
-          fechaHoraTransaccion: '2025-08-01T16:00:57.286',
-        }),
-      }),
-    );
-  });
-
-  it('POST /api/v1/qr/confirmed requires monto and moneda for estado 00', async () => {
-    const response = await request(app.getHttpServer())
-      .post(CANONICAL_ROUTE)
-      .set('x-api-key', 'valid-callback-token')
-      .send({
-        numeroReferencia: 1511556,
-        estado: '00',
-        transacciones: {
-          numeroAch: '14262508014140754846',
-        },
-      })
-      .expect(400);
-
-    const validationBody = JSON.stringify(response.body);
-    expect(validationBody).toContain('transacciones');
-    expect(validationBody).toContain('monto');
-    expect(validationBody).toContain('moneda');
-    expect(validationBody).not.toContain('codigoRespuesta');
-    expect(receiveWebhook).not.toHaveBeenCalled();
   });
 
   it('keeps the previous webhook route as a single-call deprecated alias', async () => {

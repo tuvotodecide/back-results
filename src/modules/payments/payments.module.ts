@@ -12,6 +12,7 @@ import { RedEnlaceWebhookGuard } from './guards/red-enlace-webhook.guard';
 import { QR_PAYMENT_PROVIDER } from './payments.constants';
 import { createQrPaymentProvider } from './providers/qr-payment-provider.factory';
 import { MockRedEnlaceQrProvider } from './providers/mock-red-enlace-qr.provider';
+import { RedEnlaceOAuthService } from './providers/red-enlace-oauth.service';
 import { RedEnlaceQrHttpProvider } from './providers/red-enlace-qr-http.provider';
 import { PaymentProviderEvent, PaymentProviderEventSchema } from './schemas/payment-provider-event.schema';
 import { PaymentTransaction, PaymentTransactionSchema } from './schemas/payment-transaction.schema';
@@ -40,6 +41,7 @@ import { RedEnlaceWebhookService } from './services/red-enlace-webhook.service';
     RedEnlaceWebhookService,
     RedEnlaceWebhookGuard,
     MockRedEnlaceQrProvider,
+    RedEnlaceOAuthService,
     RedEnlaceQrHttpProvider,
     {
       provide: QR_PAYMENT_PROVIDER,

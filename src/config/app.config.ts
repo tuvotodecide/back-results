@@ -260,7 +260,11 @@ export default registerAs('app', () => ({
   redEnlace: {
     mode: process.env.RED_ENLACE_MODE || 'mock',
     baseUrl: process.env.RED_ENLACE_BASE_URL || '',
-    apiKey: process.env.RED_ENLACE_API_KEY || '',
+    clientId: process.env.RED_ENLACE_CLIENT_ID || '',
+    clientSecret: process.env.RED_ENLACE_CLIENT_SECRET || '',
+    establishmentId: process.env.RED_ENLACE_ESTABLISHMENT_ID || '',
+    establishmentName: process.env.RED_ENLACE_ESTABLISHMENT_NAME || '',
+    webhookUrl: process.env.RED_ENLACE_WEBHOOK_URL || '',
     callbackToken: process.env.RED_ENLACE_CALLBACK_TOKEN || '',
     webhookSecret: process.env.RED_ENLACE_WEBHOOK_SECRET || '',
     httpTimeoutMs: parseInt(process.env.RED_ENLACE_HTTP_TIMEOUT_MS || '5000', 10),

@@ -5,7 +5,7 @@ import { MockRedEnlaceQrProvider } from './mock-red-enlace-qr.provider';
 import { QrPaymentProvider } from './qr-payment-provider.interface';
 import { RedEnlaceQrHttpProvider } from './red-enlace-qr-http.provider';
 
-const RED_ENLACE_SANDBOX_HOST = 'appcobranzacert.redenlace.com.bo';
+const RED_ENLACE_SANDBOX_HOST = 'atcgwapitest.redenlace.com.bo';
 
 export function createQrPaymentProvider(
   configService: ConfigService,
@@ -32,30 +32,55 @@ export function validateRedEnlaceConfiguration(
 
   if (normalizedMode === 'mock') return;
 
-  const baseUrl = configService.get<string>('app.redEnlace.baseUrl')?.trim();
-  const apiKey = configService.get<string>('app.redEnlace.apiKey')?.trim();
-  const callbackToken =
-    configService.get<string>('app.redEnlace.callbackToken')?.trim() || '';
-  const authMode =
-    configService.get<string>('app.redEnlace.webhookAuthMode')?.trim().toLowerCase() ||
-    'api-key';
+  const read = (key: string) =>
+    String(configService.get<string>(`app.redEnlace.${key}`) ?? '').trim();
+  const baseUrl = read('baseUrl');
+  const clientId = read('clientId');
+  const clientSecret = read('clientSecret');
+  const establishmentId = read('establishmentId');
+  const establishmentName = read('establishmentName');
+  const webhookUrl = read('webhookUrl');
+  const callbackToken = read('callbackToken');
+  const authMode = read('webhookAuthMode').toLowerCase() || 'api-key';
 
   if (!baseUrl) {
     throw new Error('Red Enlace requires RED_ENLACE_BASE_URL');
   }
-  if (!apiKey) {
-    throw new Error('Red Enlace requires RED_ENLACE_API_KEY');
+  if (!clientId) {
+    throw new Error('Red Enlace requires RED_ENLACE_CLIENT_ID');
+  }
+  if (!clientSecret) {
+    throw new Error('Red Enlace requires RED_ENLACE_CLIENT_SECRET');
+  }
+  if (!/^[1-9]\d*$/.test(establishmentId)) {
+    throw new Error(
+      'Red Enlace requires RED_ENLACE_ESTABLISHMENT_ID as a positive integer',
+    );
+  }
+  if (!establishmentName) {
+    throw new Error('Red Enlace requires RED_ENLACE_ESTABLISHMENT_NAME');
+  }
+  if (!webhookUrl) {
+    throw new Error('Red Enlace requires RED_ENLACE_WEBHOOK_URL');
   }
   if (!callbackToken) {
     throw new Error('Red Enlace requires RED_ENLACE_CALLBACK_TOKEN');
   }
-  if (apiKey === callbackToken) {
-    throw new Error('RED_ENLACE_API_KEY and RED_ENLACE_CALLBACK_TOKEN must differ');
+  if (clientSecret === callbackToken) {
+    throw new Error(
+      'RED_ENLACE_CLIENT_SECRET and RED_ENLACE_CALLBACK_TOKEN must differ',
+    );
   }
 
-  const url = parseRedEnlaceUrl(baseUrl);
+  const url = parseRedEnlaceUrl(baseUrl, 'RED_ENLACE_BASE_URL');
   if (url.protocol !== 'https:') {
     throw new Error('RED_ENLACE_BASE_URL must use HTTPS');
+  }
+
+  // El token del callback viaja en un header; solo se entrega sobre HTTPS.
+  const callbackUrl = parseRedEnlaceUrl(webhookUrl, 'RED_ENLACE_WEBHOOK_URL');
+  if (callbackUrl.protocol !== 'https:') {
+    throw new Error('RED_ENLACE_WEBHOOK_URL must use HTTPS');
   }
 
   if (normalizedMode === 'sandbox' && url.hostname !== RED_ENLACE_SANDBOX_HOST) {
@@ -76,10 +101,10 @@ function normalizeRedEnlaceMode(mode: string) {
   return String(mode ?? '').trim().toLowerCase();
 }
 
-function parseRedEnlaceUrl(value: string) {
+function parseRedEnlaceUrl(value: string, name: string) {
   try {
     return new URL(value);
   } catch {
-    throw new Error('RED_ENLACE_BASE_URL must be a valid URL');
+    throw new Error(`${name} must be a valid URL`);
   }
 }

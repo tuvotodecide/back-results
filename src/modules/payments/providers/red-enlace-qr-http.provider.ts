@@ -1,14 +1,18 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AxiosResponse } from 'axios';
 import { PaymentDomainError } from '../errors/payment-domain.error';
 import {
-  RED_ENLACE_API_KEY_HEADER,
-  RED_ENLACE_CHANNEL,
+  RED_ENLACE_ACCESS_TOKEN_HEADER,
+  RED_ENLACE_CLIENT_ID_HEADER,
   RED_ENLACE_GENERATE_QR_PATH,
   RED_ENLACE_QR_TTL_DEFAULT,
+  RED_ENLACE_TRANSACTION_NOT_FOUND_CODE,
   RED_ENLACE_VERIFY_QR_PATH,
+  RED_ENLACE_WEBHOOK_AUTH_HEADER,
 } from '../payments.constants';
+import { parseRedEnlaceDateTime } from '../utils/red-enlace-datetime.util';
 import { sanitizeProviderDetail } from '../utils/red-enlace-glosa.util';
 import { validateRedEnlaceQrImage } from '../utils/red-enlace-qr-image.util';
 import { parseRedEnlaceQrTtl } from '../utils/red-enlace-ttl.util';
@@ -27,55 +31,45 @@ import {
   VerifyQrInput,
   VerifyQrResult,
 } from './qr-payment-provider.interface';
+import { RedEnlaceOAuthService } from './red-enlace-oauth.service';
 
 @Injectable()
 export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly oauth: RedEnlaceOAuthService,
   ) {}
 
   async generateQr(input: GenerateQrInput): Promise<GenerateQrResult> {
     const baseUrl = this.getRequiredBaseUrl();
-    const apiKey = this.getRequiredApiKey();
     const timeout = this.getTimeoutMs();
+    const body = {
+      numeroReferencia: this.normalizeRedEnlaceReference(input.merchantReference),
+      glosa: input.glosa,
+      monto: this.minorToProviderAmount(input.amountMinor),
+      moneda: input.currency,
+      vigencia: this.getQrTtlSeconds(),
+      idEstablecimiento: this.getRequiredEstablishmentId(),
+      nombreEstablecimiento: this.getRequiredConfig('establishmentName'),
+      webhook: {
+        url: this.getRequiredConfig('webhookUrl'),
+        key: RED_ENLACE_WEBHOOK_AUTH_HEADER,
+        value: this.getRequiredConfig('callbackToken'),
+      },
+    };
 
     try {
-      const response = await this.httpService.axiosRef.post(
-        `${baseUrl}${RED_ENLACE_GENERATE_QR_PATH}`,
-        {
-          numeroReferencia: Number(
-            this.normalizeRedEnlaceReference(input.merchantReference),
-          ),
-          glosa: input.glosa,
-          monto: this.minorToProviderAmount(input.amountMinor),
-          moneda: input.currency,
-          canal: RED_ENLACE_CHANNEL,
-          tiempoQr: this.getQrTtl(),
-          campoExtra: '',
-        },
-        {
-          timeout,
-          headers: { [RED_ENLACE_API_KEY_HEADER]: apiKey },
-          validateStatus: () => true,
-        },
+      const response = await this.sendAuthorized((headers) =>
+        this.httpService.axiosRef.post(
+          `${baseUrl}${RED_ENLACE_GENERATE_QR_PATH}`,
+          body,
+          { timeout, headers, validateStatus: () => true },
+        ),
       );
 
-      if (response.status === 401 || response.status === 403) {
-        throw new PaymentDomainError(
-          'RED_ENLACE_UNAUTHORIZED',
-          'Red Enlace rechazo la autenticacion',
-          502,
-        );
-      }
-      if (response.status >= 500) {
-        throw new PaymentDomainError(
-          'RED_ENLACE_UNAVAILABLE',
-          'Red Enlace no disponible',
-          502,
-        );
-      }
-      if (response.status >= 400) {
+      this.assertHttpStatus(response, 'Red Enlace rechazo la solicitud');
+      if (response.data?.success !== true) {
         throw new PaymentDomainError(
           'RED_ENLACE_INVALID_RESPONSE',
           'Red Enlace rechazo la solicitud',
@@ -91,32 +85,22 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
 
   async verifyQr(input: VerifyQrInput): Promise<VerifyQrResult> {
     const baseUrl = this.getRequiredBaseUrl();
-    const apiKey = this.getRequiredApiKey();
     const timeout = this.getTimeoutMs();
     const providerReference = this.normalizeRedEnlaceReference(
       input.providerReference,
     );
 
     try {
-      const response = await this.httpService.axiosRef.get(
-        `${baseUrl}${RED_ENLACE_VERIFY_QR_PATH}/${encodeURIComponent(
-          providerReference,
-        )}`,
-        {
-          timeout,
-          headers: { [RED_ENLACE_API_KEY_HEADER]: apiKey },
-          validateStatus: () => true,
-        },
+      const response = await this.sendAuthorized((headers) =>
+        this.httpService.axiosRef.get(
+          `${baseUrl}${RED_ENLACE_VERIFY_QR_PATH}/${encodeURIComponent(
+            providerReference,
+          )}`,
+          { timeout, headers, validateStatus: () => true },
+        ),
       );
 
-      if (response.status === 401 || response.status === 403) {
-        throw new PaymentDomainError(
-          'RED_ENLACE_UNAUTHORIZED',
-          'Red Enlace rechazo la autenticacion',
-          502,
-        );
-      }
-      if (response.status === 404) {
+      if (response.status === 404 || this.isTransactionNotFound(response.data)) {
         return {
           providerReference,
           providerStatus: 'NOTFOUND',
@@ -124,14 +108,8 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
           responseDetail: 'Referencia no encontrada en Red Enlace',
         };
       }
-      if (response.status >= 500) {
-        throw new PaymentDomainError(
-          'RED_ENLACE_UNAVAILABLE',
-          'Red Enlace no disponible',
-          502,
-        );
-      }
-      if (response.status >= 400) {
+      this.assertHttpStatus(response, 'Red Enlace rechazo la consulta');
+      if (response.data?.success !== true) {
         throw new PaymentDomainError(
           'RED_ENLACE_INVALID_RESPONSE',
           'Red Enlace rechazo la consulta',
@@ -145,29 +123,76 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     }
   }
 
+  /**
+   * Envia la solicitud con el token OAuth vigente. Si Red Enlace responde 401
+   * (token revocado o expirado antes de lo previsto) obtiene uno nuevo y
+   * reintenta una sola vez.
+   */
+  private async sendAuthorized(
+    send: (headers: Record<string, string>) => Promise<AxiosResponse>,
+  ) {
+    const clientId = this.getRequiredConfig('clientId');
+    const buildHeaders = (token: string) => ({
+      [RED_ENLACE_ACCESS_TOKEN_HEADER]: token,
+      [RED_ENLACE_CLIENT_ID_HEADER]: clientId,
+    });
+
+    const token = await this.oauth.getAccessToken();
+    const response = await send(buildHeaders(token));
+    if (response.status !== 401) return response;
+
+    this.oauth.invalidate(token);
+    return send(buildHeaders(await this.oauth.getAccessToken()));
+  }
+
+  private assertHttpStatus(response: AxiosResponse, rejectedMessage: string) {
+    if (response.status === 401 || response.status === 403) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_UNAUTHORIZED',
+        'Red Enlace rechazo la autenticacion',
+        502,
+      );
+    }
+    if (response.status >= 500) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_UNAVAILABLE',
+        'Red Enlace no disponible',
+        502,
+      );
+    }
+    if (response.status >= 400) {
+      throw new PaymentDomainError(
+        'RED_ENLACE_INVALID_RESPONSE',
+        rejectedMessage,
+        502,
+      );
+    }
+  }
+
+  private isTransactionNotFound(body: any) {
+    return (
+      Array.isArray(body?.errors) &&
+      body.errors.some(
+        (error: any) =>
+          normalizeRedEnlaceStatus(error?.code) ===
+          RED_ENLACE_TRANSACTION_NOT_FOUND_CODE,
+      )
+    );
+  }
+
   private normalizeGenerateResponse(
-    data: any,
+    body: any,
     input: GenerateQrInput,
   ): GenerateQrResult {
-    const providerReference =
-      data?.numeroReferenciaAtc ??
-      data?.numeroReferencia ??
-      data?.providerReference ??
-      data?.referencia;
-    const qrImage =
-      data?.imagen ??
-      data?.qrImage ??
-      data?.imagenQr ??
-      data?.qr ??
-      data?.qrBase64;
-    const providerStatus = this.resolveProviderStatus(data, undefined);
+    const data = body?.data;
+    const providerStatus = this.resolveProviderStatus(data?.estado);
     const normalizedQrImage = RED_ENLACE_ACTIVE_QR_STATUSES.has(providerStatus)
-      ? this.validateQrImage(qrImage)
-      : qrImage != null
-        ? String(qrImage)
+      ? this.validateQrImage(data?.qr)
+      : data?.qr != null
+        ? String(data.qr)
         : '';
 
-    if (!providerReference) {
+    if (!this.hasValue(data?.numeroReferencia)) {
       throw new PaymentDomainError(
         'RED_ENLACE_INVALID_RESPONSE',
         'Respuesta invalida de Red Enlace',
@@ -176,23 +201,21 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     }
 
     const result: GenerateQrResult = {
-      providerReference: this.normalizeRedEnlaceReference(providerReference),
-      originMerchantReference:
-        data?.origenNumeroReferencia != null
-          ? this.normalizeRedEnlaceReference(data.origenNumeroReferencia)
-          : input.merchantReference,
-      amountMinor:
-        data?.monto != null ? this.providerAmountToMinor(data.monto) : undefined,
-      currency:
-        data?.moneda != null ? String(data.moneda).trim().toUpperCase() : undefined,
+      providerReference: this.normalizeRedEnlaceReference(data.numeroReferencia),
+      originMerchantReference: this.hasValue(data.numeroReferenciaOriginante)
+        ? this.normalizeRedEnlaceReference(data.numeroReferenciaOriginante)
+        : input.merchantReference,
+      amountMinor: this.hasValue(data.monto)
+        ? this.providerAmountToMinor(data.monto)
+        : undefined,
+      currency: this.hasValue(data.moneda)
+        ? String(data.moneda).trim().toUpperCase()
+        : undefined,
       providerStatus,
-      responseCode:
-        data?.codigoRespuesta != null
-          ? normalizeRedEnlaceStatus(data.codigoRespuesta)
-          : undefined,
-      responseDetail: sanitizeProviderDetail(data?.detalleRespuesta),
+      responseCode: providerStatus,
+      responseDetail: sanitizeProviderDetail(body?.message),
       qrImage: normalizedQrImage,
-      qrExpiresAt: input.expiresAt,
+      qrExpiresAt: parseRedEnlaceDateTime(data.fechaExpiracion) ?? input.expiresAt,
     };
 
     if (result.originMerchantReference !== input.merchantReference) {
@@ -221,73 +244,39 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
   }
 
   private normalizeVerifyResponse(
-    data: any,
+    body: any,
     providerReference: string,
   ): VerifyQrResult {
-    const statusHistory = this.parseStatusHistory(data?.estados);
-    const transaction = data?.transacciones;
-    const providerStatus = this.resolveProviderStatus(data, statusHistory);
+    const data = body?.data;
+    const providerStatus = this.resolveProviderStatus(data?.estado);
+    const bank = data?.bancoOrigen;
 
     return {
-      providerReference:
-        data?.numeroReferenciaAtc != null
-          ? this.normalizeRedEnlaceReference(data.numeroReferenciaAtc)
-          : data?.numeroReferencia != null
-            ? this.normalizeRedEnlaceReference(data.numeroReferencia)
-            : providerReference,
-      originMerchantReference:
-        data?.origenNumeroReferencia != null
-          ? String(data.origenNumeroReferencia)
-          : undefined,
-      amountMinor:
-        transaction?.monto != null
-          ? this.providerAmountToMinor(transaction.monto)
-          : data?.monto != null
-            ? this.providerAmountToMinor(data.monto)
-            : undefined,
-      currency:
-        transaction?.moneda != null
-          ? String(transaction.moneda).trim().toUpperCase()
-          : data?.moneda != null
-            ? String(data.moneda).trim().toUpperCase()
-            : undefined,
+      providerReference: this.hasValue(data.numeroReferencia)
+        ? this.normalizeRedEnlaceReference(data.numeroReferencia)
+        : providerReference,
+      originMerchantReference: this.hasValue(data.numeroReferenciaOriginante)
+        ? String(data.numeroReferenciaOriginante).trim()
+        : undefined,
+      amountMinor: this.hasValue(data.importe)
+        ? this.providerAmountToMinor(data.importe)
+        : undefined,
+      currency: this.hasValue(data.moneda)
+        ? String(data.moneda).trim().toUpperCase()
+        : undefined,
       providerStatus,
-      responseCode:
-        data?.codigoRespuesta != null
-          ? normalizeRedEnlaceStatus(data.codigoRespuesta)
-          : undefined,
-      responseDetail: sanitizeProviderDetail(data?.detalleRespuesta),
-      achReference:
-        transaction?.numeroAch != null
-          ? String(transaction.numeroAch).slice(0, 80)
-          : data?.achReference != null
-            ? String(data.achReference).slice(0, 80)
-            : null,
-      paymentDate:
-        transaction?.fechaHoraTransaccion != null
-          ? new Date(transaction.fechaHoraTransaccion)
-          : data?.fechaPago
-            ? new Date(data.fechaPago)
-            : null,
-      statusHistory,
+      responseCode: providerStatus,
+      responseDetail: sanitizeProviderDetail(data.mensaje ?? body?.message),
+      achReference: this.hasValue(bank?.numeroOrdenAch)
+        ? String(bank.numeroOrdenAch).trim().slice(0, 80)
+        : null,
+      paymentDate: parseRedEnlaceDateTime(bank?.fechaTransaccion),
     };
   }
 
-  private resolveProviderStatus(
-    data: any,
-    statusHistory?: Array<{ status: string; at?: Date | null }>,
-  ) {
-    const candidates = [
-      data?.codigoRespuesta,
-      data?.status,
-      data?.estado,
-      statusHistory?.[0]?.status,
-    ];
-
-    for (const candidate of candidates) {
-      const normalized = normalizeRedEnlaceStatus(candidate);
-      if (normalized) return normalized;
-    }
+  private resolveProviderStatus(value: unknown) {
+    const normalized = normalizeRedEnlaceStatus(value as string);
+    if (normalized) return normalized;
 
     throw new PaymentDomainError(
       'RED_ENLACE_INVALID_RESPONSE',
@@ -296,23 +285,24 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     );
   }
 
-  private parseStatusHistory(value: any) {
-    if (!Array.isArray(value)) return undefined;
-
-    return value
-      .map((entry) => {
-        const status = normalizeRedEnlaceStatus(entry?.estado);
-        if (!status) return null;
-        return {
-          status,
-          at: entry?.fechaHora ? new Date(entry.fechaHora) : null,
-        };
-      })
-      .filter((entry): entry is { status: string; at: Date | null } => !!entry);
+  // Red Enlace devuelve cadenas vacias en los campos que aun no aplican.
+  private hasValue(value: unknown) {
+    return value != null && String(value).trim() !== '';
   }
 
   private getRequiredBaseUrl() {
-    const value = this.configService.get<string>('app.redEnlace.baseUrl')?.trim();
+    return this.getRequiredConfig('baseUrl').replace(/\/+$/, '');
+  }
+
+  private getRequiredConfig(
+    key:
+      | 'baseUrl'
+      | 'clientId'
+      | 'establishmentName'
+      | 'webhookUrl'
+      | 'callbackToken',
+  ) {
+    const value = this.configService.get<string>(`app.redEnlace.${key}`)?.trim();
     if (!value) {
       throw new PaymentDomainError(
         'RED_ENLACE_NOT_CONFIGURED',
@@ -320,12 +310,14 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
         503,
       );
     }
-    return value.replace(/\/+$/, '');
+    return value;
   }
 
-  private getRequiredApiKey() {
-    const value = this.configService.get<string>('app.redEnlace.apiKey')?.trim();
-    if (!value) {
+  private getRequiredEstablishmentId() {
+    const value = Number(
+      this.configService.get<string | number>('app.redEnlace.establishmentId'),
+    );
+    if (!Number.isSafeInteger(value) || value <= 0) {
       throw new PaymentDomainError(
         'RED_ENLACE_NOT_CONFIGURED',
         'Red Enlace no configurado',
@@ -339,12 +331,11 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     return this.configService.get<number>('app.redEnlace.httpTimeoutMs') ?? 5000;
   }
 
-  private getQrTtl() {
+  private getQrTtlSeconds() {
     const ttl =
       this.configService.get<string>('app.redEnlace.qrTtl') ||
       RED_ENLACE_QR_TTL_DEFAULT;
-    parseRedEnlaceQrTtl(ttl);
-    return ttl;
+    return parseRedEnlaceQrTtl(ttl).seconds;
   }
 
   private validateQrImage(value: unknown) {
@@ -380,9 +371,11 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
     return reference;
   }
 
+  // Red Enlace espera monto como Decimal JSON. El limite decimal(10,2) que
+  // valida minorToRedEnlaceDecimal cabe exacto en un Number.
   private minorToProviderAmount(amountMinor: string) {
     try {
-      return minorToRedEnlaceDecimal(amountMinor);
+      return Number(minorToRedEnlaceDecimal(amountMinor));
     } catch {
       throw new PaymentDomainError(
         'RED_ENLACE_AMOUNT_INVALID',

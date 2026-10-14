@@ -32,13 +32,11 @@ const wallet = getAddress('0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
 function redEnlacePayload(providerReference: string) {
   return {
     numeroReferencia: providerReference,
-    estado: '00',
-    transacciones: {
-      monto: '10.5',
-      moneda: 'BOB',
-      fechaHoraTransaccion: '2026-07-17T10:30:00.000',
-      numeroAch: 'ACH-QR-001',
-    },
+    codigoRespuesta: 'SUCCESS',
+    monto: '10.5',
+    moneda: 'BOB',
+    fechaHoraTransaccion: '2026-07-17T10:30:00',
+    bancoOrigen: { numeroOrdenAch: 'ACH-QR-001' },
   };
 }
 

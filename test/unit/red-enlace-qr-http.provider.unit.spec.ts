@@ -9,58 +9,184 @@ const input = {
   merchantReference: '203414',
   amountMinor: '2000',
   currency: 'BOB' as const,
-  glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
+  glosa: 'PAGO 203414',
   description: 'Recarga institucional',
   expiresAt: new Date('2026-07-14T12:30:00.000Z'),
 };
 
+const defaultConfig: Record<string, string | number> = {
+  'app.redEnlace.baseUrl': 'https://red-enlace.test/sandbox/',
+  'app.redEnlace.clientId': 'client-id-test',
+  'app.redEnlace.establishmentId': '461362',
+  'app.redEnlace.establishmentName': 'BLOCKCHAIN API QR',
+  'app.redEnlace.webhookUrl': 'https://api.example.test/api/v1/qr/confirmed',
+  'app.redEnlace.callbackToken': 'incoming-callback-token',
+  'app.redEnlace.httpTimeoutMs': 5000,
+  'app.redEnlace.qrTtl': '00:30:00',
+};
+
+function createOAuth(tokens: string[] = ['token-1']) {
+  const queue = [...tokens];
+  return {
+    getAccessToken: jest.fn(() => Promise.resolve(queue.shift() ?? 'token-last')),
+    invalidate: jest.fn(),
+  };
+}
+
 function createProvider(
   http: { post?: jest.Mock; get?: jest.Mock },
   config: Record<string, string | number> = {},
+  oauth = createOAuth(),
 ) {
   return new RedEnlaceQrHttpProvider(
     { axiosRef: http } as any,
     {
-      get: jest.fn((key: string) => {
-        const values: Record<string, string | number> = {
-          'app.redEnlace.baseUrl': 'https://red-enlace.test/',
-          'app.redEnlace.apiKey': 'outgoing-red-enlace-api-key',
-          'app.redEnlace.httpTimeoutMs': 5000,
-          'app.redEnlace.qrTtl': '00:30:00',
-          ...config,
-        };
-        return values[key];
-      }),
+      get: jest.fn((key: string) => ({ ...defaultConfig, ...config })[key]),
     } as unknown as ConfigService,
+    oauth as any,
   );
 }
 
 function generateResponse(override: Record<string, any> = {}) {
   return {
-    moneda: 'BOB',
-    monto: '20.00',
-    origenNumeroReferencia: '203414',
-    numeroReferencia: '6780',
-    codigoRespuesta: 'PENDING',
-    detalleRespuesta: 'Estado en espera de la confirmacion pago QR',
-    imagen: validQrBase64,
-    ...override,
+    success: true,
+    message: 'QR generado exitosamente',
+    data: {
+      numeroReferencia: '6780',
+      estado: 'PENDIENTE',
+      fechaExpiracion: '2026-07-14T08:30:00',
+      moneda: 'BOB',
+      monto: 20.0,
+      numeroReferenciaOriginante: '203414',
+      qr: validQrBase64,
+      ...override,
+    },
   };
 }
 
+function verifyResponse(override: Record<string, any> = {}) {
+  return {
+    success: true,
+    message: 'Consulta exitosa',
+    data: {
+      estado: 'PENDIENTE',
+      mensaje: 'QR pendiente de pago',
+      importe: 20.0,
+      moneda: 'BOB',
+      numeroReferenciaOriginante: '203414',
+      numeroReferencia: '6780',
+      clienteOrigen: { nombreCliente: '', numeroCuenta: '', ciNitCliente: '' },
+      bancoOrigen: {
+        nombreBanco: '',
+        fechaTransaccion: '',
+        numeroOrdenAch: '',
+        codigoBanco: '',
+      },
+      ...override,
+    },
+  };
+}
+
+describe('RedEnlaceQrHttpProvider QR Simple v2 request', () => {
+  it('generates the QR with the v2 contract and OAuth headers', async () => {
+    const post = jest.fn().mockResolvedValue({ status: 200, data: generateResponse() });
+
+    await createProvider({ post }).generateQr(input);
+
+    expect(post).toHaveBeenCalledWith(
+      'https://red-enlace.test/sandbox/qr/simple/v2/generate',
+      {
+        numeroReferencia: '203414',
+        glosa: 'PAGO 203414',
+        monto: 20,
+        moneda: 'BOB',
+        vigencia: 1800,
+        idEstablecimiento: 461362,
+        nombreEstablecimiento: 'BLOCKCHAIN API QR',
+        webhook: {
+          url: 'https://api.example.test/api/v1/qr/confirmed',
+          key: 'x-api-key',
+          value: 'incoming-callback-token',
+        },
+      },
+      expect.objectContaining({
+        timeout: 5000,
+        headers: { access_token: 'token-1', client_id: 'client-id-test' },
+      }),
+    );
+  });
+
+  it('verifies the QR by ATC reference with OAuth headers', async () => {
+    const get = jest.fn().mockResolvedValue({ status: 200, data: verifyResponse() });
+
+    await createProvider({ get }).verifyQr({ providerReference: '6780' });
+
+    expect(get).toHaveBeenCalledWith(
+      'https://red-enlace.test/sandbox/qr/simple/v2/verify/6780',
+      expect.objectContaining({
+        headers: { access_token: 'token-1', client_id: 'client-id-test' },
+      }),
+    );
+  });
+
+  it('renews the token and retries once when Red Enlace answers 401', async () => {
+    const oauth = createOAuth(['expired-token', 'fresh-token']);
+    const post = jest
+      .fn()
+      .mockResolvedValueOnce({ status: 401, data: {} })
+      .mockResolvedValueOnce({ status: 200, data: generateResponse() });
+
+    await expect(
+      createProvider({ post }, {}, oauth).generateQr(input),
+    ).resolves.toEqual(expect.objectContaining({ providerReference: '6780' }));
+
+    expect(oauth.invalidate).toHaveBeenCalledWith('expired-token');
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[1][2].headers).toEqual({
+      access_token: 'fresh-token',
+      client_id: 'client-id-test',
+    });
+  });
+
+  it('fails as unauthorized when the renewed token is also rejected', async () => {
+    const post = jest.fn().mockResolvedValue({ status: 401, data: {} });
+
+    await expect(
+      createProvider({ post }, {}, createOAuth(['a', 'b'])).generateQr(input),
+    ).rejects.toMatchObject({
+      code: 'RED_ENLACE_UNAUTHORIZED',
+    } satisfies Partial<PaymentDomainError>);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not call Red Enlace when the establishment is not configured', async () => {
+    const post = jest.fn();
+
+    await expect(
+      createProvider({ post }, { 'app.redEnlace.establishmentId': '' }).generateQr(
+        input,
+      ),
+    ).rejects.toMatchObject({
+      code: 'RED_ENLACE_NOT_CONFIGURED',
+    } satisfies Partial<PaymentDomainError>);
+    expect(post).not.toHaveBeenCalled();
+  });
+});
+
 describe('RedEnlaceQrHttpProvider generation parsing', () => {
-  async function generate(data: Record<string, any>) {
-    const post = jest.fn().mockResolvedValue({ status: 200, data });
+  async function generate(body: Record<string, any>, status = 200) {
+    const post = jest.fn().mockResolvedValue({ status, data: body });
     return createProvider({ post }).generateQr(input);
   }
 
-  it('uses codigoRespuesta PENDING as the real provider status', async () => {
+  it('reads the data envelope and keeps PENDIENTE as provider status', async () => {
     await expect(generate(generateResponse())).resolves.toEqual(
       expect.objectContaining({
         providerReference: '6780',
         originMerchantReference: '203414',
-        providerStatus: 'PENDING',
-        responseCode: 'PENDING',
+        providerStatus: 'PENDIENTE',
+        responseCode: 'PENDIENTE',
+        responseDetail: 'QR generado exitosamente',
         amountMinor: '2000',
         currency: 'BOB',
         qrImage: validQrBase64,
@@ -68,78 +194,95 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
     );
   });
 
-  it('accepts a valid pure Base64 QR image', async () => {
-    await expect(
-      generate(generateResponse({ imagen: validQrBase64 })),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        providerStatus: 'PENDING',
-        qrImage: validQrBase64,
-      }),
-    );
+  it('uses fechaExpiracion as Bolivia local time', async () => {
+    const result = await generate(generateResponse());
+
+    expect(result.qrExpiresAt).toEqual(new Date('2026-07-14T12:30:00.000Z'));
+  });
+
+  it('falls back to the locally computed expiry when fechaExpiracion is invalid', async () => {
+    const result = await generate(generateResponse({ fechaExpiracion: 'x' }));
+
+    expect(result.qrExpiresAt).toEqual(input.expiresAt);
   });
 
   it('accepts a valid Base64 data URI QR image', async () => {
     const dataUri = `data:image/png;base64,${validQrBase64}`;
 
-    await expect(
-      generate(generateResponse({ imagen: dataUri })),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        providerStatus: 'PENDING',
-        qrImage: dataUri,
-      }),
+    await expect(generate(generateResponse({ qr: dataUri }))).resolves.toEqual(
+      expect.objectContaining({ qrImage: dataUri }),
     );
   });
 
-  it('sends monto as an exact decimal string without converting it to Number', async () => {
-    const post = jest.fn().mockResolvedValue({
-      status: 200,
-      data: generateResponse(),
-    });
+  it.each([
+    ['2000', 20, '20'],
+    ['1050', 10.5, '10.5'],
+    ['1', 0.01, '0.01'],
+    ['9999999999', 99999999.99, '99999999.99'],
+  ])(
+    'sends monto %s minor units as the JSON decimal %s without rounding',
+    async (amountMinor, monto, json) => {
+      const post = jest.fn().mockResolvedValue({ status: 200, data: generateResponse() });
 
-    await createProvider({ post }).generateQr(input);
+      await createProvider({ post })
+        .generateQr({ ...input, amountMinor })
+        .catch(() => undefined);
 
-    expect(post.mock.calls[0][1]).toEqual(
-      expect.objectContaining({
-        numeroReferencia: 203414,
-        monto: '20.00',
-      }),
-    );
-    expect(typeof post.mock.calls[0][1].monto).toBe('string');
-  });
-
-  it.each(['ERROR', 'CANCELLED', 'EXPIRED'])(
-    'does not force codigoRespuesta %s to PENDING',
-    async (codigoRespuesta) => {
-      await expect(
-        generate(generateResponse({ codigoRespuesta, imagen: undefined })),
-      ).resolves.toEqual(
-        expect.objectContaining({
-          providerStatus: codigoRespuesta,
-          responseCode: codigoRespuesta,
-          qrImage: '',
-        }),
-      );
+      expect(post.mock.calls[0][1].monto).toBe(monto);
+      expect(JSON.stringify(post.mock.calls[0][1])).toContain(`"monto":${json},`);
     },
   );
 
-  it('normalizes codigoRespuesta whitespace and case', async () => {
+  it('does not force ERROR to PENDIENTE and does not require an image', async () => {
     await expect(
-      generate(
-        generateResponse({ codigoRespuesta: ' closed ', imagen: undefined }),
-      ),
+      generate(generateResponse({ estado: 'ERROR', qr: undefined })),
     ).resolves.toEqual(
       expect.objectContaining({
-        providerStatus: 'CLOSED',
-        responseCode: 'CLOSED',
+        providerStatus: 'ERROR',
+        responseCode: 'ERROR',
+        qrImage: '',
       }),
     );
+  });
+
+  it('normalizes estado whitespace and case', async () => {
+    await expect(
+      generate(generateResponse({ estado: ' pendiente ' })),
+    ).resolves.toEqual(expect.objectContaining({ providerStatus: 'PENDIENTE' }));
+  });
+
+  it.each([
+    ['success false with HTTP 200', { success: false, message: 'Error', errors: [] }, 200],
+    [
+      'a 400 validation error',
+      {
+        success: false,
+        message: 'Error de validacion',
+        errors: [{ field: 'monto', message: 'invalido', code: 'INVALIDO' }],
+      },
+      400,
+    ],
+  ])('rejects %s', async (_label, body, status) => {
+    await expect(generate(body, status)).rejects.toMatchObject({
+      code: 'RED_ENLACE_INVALID_RESPONSE',
+    } satisfies Partial<PaymentDomainError>);
+  });
+
+  it('maps 5xx to RED_ENLACE_UNAVAILABLE', async () => {
+    await expect(generate({}, 503)).rejects.toMatchObject({
+      code: 'RED_ENLACE_UNAVAILABLE',
+    } satisfies Partial<PaymentDomainError>);
+  });
+
+  it('rejects a response without data', async () => {
+    await expect(generate({ success: true, message: 'ok' })).rejects.toMatchObject({
+      code: 'RED_ENLACE_INVALID_RESPONSE',
+    } satisfies Partial<PaymentDomainError>);
   });
 
   it('rejects an origin reference mismatch', async () => {
     await expect(
-      generate(generateResponse({ origenNumeroReferencia: '999999' })),
+      generate(generateResponse({ numeroReferenciaOriginante: '999999' })),
     ).rejects.toMatchObject({
       code: 'RED_ENLACE_REFERENCE_MISMATCH',
     } satisfies Partial<PaymentDomainError>);
@@ -147,9 +290,17 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
 
   it('rejects a missing ATC numeroReferencia', async () => {
     await expect(
-      generate(generateResponse({ numeroReferencia: undefined })),
+      generate(generateResponse({ numeroReferencia: '' })),
     ).rejects.toMatchObject({
       code: 'RED_ENLACE_INVALID_RESPONSE',
+    } satisfies Partial<PaymentDomainError>);
+  });
+
+  it('rejects an ATC numeroReferencia outside 1 to 9 digits', async () => {
+    await expect(
+      generate(generateResponse({ numeroReferencia: '1000000000' })),
+    ).rejects.toMatchObject({
+      code: 'RED_ENLACE_REFERENCE_INVALID',
     } satisfies Partial<PaymentDomainError>);
   });
 
@@ -167,80 +318,20 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
     } satisfies Partial<PaymentDomainError>);
   });
 
-  it('rejects a PENDING response without an image', async () => {
-    await expect(
-      generate(generateResponse({ imagen: undefined })),
-    ).rejects.toMatchObject({
-      code: 'RED_ENLACE_INVALID_RESPONSE',
-    } satisfies Partial<PaymentDomainError>);
-  });
-
-  it('rejects an empty image for PENDING', async () => {
-    await expect(
-      generate(generateResponse({ imagen: ' ' })),
-    ).rejects.toMatchObject({
-      code: 'RED_ENLACE_INVALID_RESPONSE',
-    } satisfies Partial<PaymentDomainError>);
-  });
-
-  it('rejects invalid Base64 for PENDING without logging the image', async () => {
-    const consoleLog = jest
-      .spyOn(console, 'log')
-      .mockImplementation(() => undefined);
-    const consoleWarn = jest
-      .spyOn(console, 'warn')
-      .mockImplementation(() => undefined);
-    const invalidImage = 'not-base64-qr';
-
-    await expect(
-      generate(generateResponse({ imagen: invalidImage })),
-    ).rejects.toMatchObject({
-      code: 'RED_ENLACE_INVALID_RESPONSE',
-    } satisfies Partial<PaymentDomainError>);
-
-    expect(consoleLog).not.toHaveBeenCalledWith(
-      expect.stringContaining(invalidImage),
-    );
-    expect(consoleWarn).not.toHaveBeenCalledWith(
-      expect.stringContaining(invalidImage),
-    );
-    consoleLog.mockRestore();
-    consoleWarn.mockRestore();
-  });
-
-  it('does not require image for ERROR and preserves the real state', async () => {
-    await expect(
-      generate(
-        generateResponse({ codigoRespuesta: 'ERROR', imagen: undefined }),
-      ),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        providerStatus: 'ERROR',
-        responseCode: 'ERROR',
-        qrImage: '',
-      }),
-    );
-  });
+  it.each([undefined, ' ', 'not-base64-qr', 'data:text/plain;base64,UVI='])(
+    'rejects PENDIENTE with invalid image %p',
+    async (qr) => {
+      await expect(generate(generateResponse({ qr }))).rejects.toMatchObject({
+        code: 'RED_ENLACE_INVALID_RESPONSE',
+      } satisfies Partial<PaymentDomainError>);
+    },
+  );
 
   it('rejects a QR image above the configured internal byte limit', async () => {
-    const post = jest.fn().mockResolvedValue({
-      status: 200,
-      data: generateResponse({ imagen: validQrBase64 }),
-    });
-    const provider = createProvider(
-      { post },
-      { 'app.redEnlace.maxQrImageBytes': 1 },
-    );
+    const post = jest.fn().mockResolvedValue({ status: 200, data: generateResponse() });
+    const provider = createProvider({ post }, { 'app.redEnlace.maxQrImageBytes': 1 });
 
     await expect(provider.generateQr(input)).rejects.toMatchObject({
-      code: 'RED_ENLACE_INVALID_RESPONSE',
-    } satisfies Partial<PaymentDomainError>);
-  });
-
-  it('rejects malformed image data URIs for active QR responses', async () => {
-    await expect(
-      generate(generateResponse({ imagen: 'data:text/plain;base64,UVI=' })),
-    ).rejects.toMatchObject({
       code: 'RED_ENLACE_INVALID_RESPONSE',
     } satisfies Partial<PaymentDomainError>);
   });
@@ -248,129 +339,118 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
   it.each(['20.001', '1e3', ' 20.00', '20,00', '100000000.00'])(
     'rejects provider amount %s without rounding or truncation',
     async (monto) => {
-      await expect(generate(generateResponse({ monto }))).rejects.toMatchObject(
-        {
-          code: 'RED_ENLACE_INVALID_RESPONSE',
-        } satisfies Partial<PaymentDomainError>,
-      );
+      await expect(generate(generateResponse({ monto }))).rejects.toMatchObject({
+        code: 'RED_ENLACE_INVALID_RESPONSE',
+      } satisfies Partial<PaymentDomainError>);
     },
   );
 });
 
 describe('RedEnlaceQrHttpProvider verify parsing', () => {
-  async function verify(data: Record<string, any>) {
-    const get = jest.fn().mockResolvedValue({ status: 200, data });
+  async function verify(body: Record<string, any>, status = 200) {
+    const get = jest.fn().mockResolvedValue({ status, data: body });
     return createProvider({ get }).verifyQr({ providerReference: '6780' });
   }
 
-  it.each([
-    ['PENDING'],
-    ['SUCCESS'],
-    ['CLOSED'],
-    ['EXPIRED'],
-    ['CANCELLED'],
-    ['ERROR'],
-    ['NOTFOUND'],
-  ])(
-    'uses simple codigoRespuesta %s as provider status',
-    async (codigoRespuesta) => {
-      await expect(
-        verify({
-          codigoRespuesta,
-          detalleRespuesta: `Estado ${codigoRespuesta}`,
-        }),
-      ).resolves.toEqual(
+  it.each(['PENDIENTE', 'PAGADO', 'CANCELADO', 'EXPIRADO', 'ERROR'])(
+    'uses data.estado %s as provider status',
+    async (estado) => {
+      await expect(verify(verifyResponse({ estado }))).resolves.toEqual(
         expect.objectContaining({
           providerReference: '6780',
-          providerStatus: codigoRespuesta,
-          responseCode: codigoRespuesta,
+          providerStatus: estado,
+          responseCode: estado,
         }),
       );
     },
   );
 
-  it('normalizes simple codigoRespuesta whitespace and case', async () => {
-    await expect(
-      verify({ codigoRespuesta: ' success ', detalleRespuesta: 'Pagado' }),
-    ).resolves.toEqual(
+  it('treats empty bank fields of a pending QR as absent', async () => {
+    await expect(verify(verifyResponse())).resolves.toEqual(
       expect.objectContaining({
-        providerStatus: 'SUCCESS',
-        responseCode: 'SUCCESS',
+        providerStatus: 'PENDIENTE',
+        responseDetail: 'QR pendiente de pago',
+        amountMinor: '2000',
+        achReference: null,
+        paymentDate: null,
       }),
     );
   });
 
-  it('parses complete response history and transaction data without exposing PII', async () => {
-    const result = await verify({
-      codigoRespuesta: ' CLOSED ',
-      detalleRespuesta: ' Transaccion cerrada ',
-      estados: [
-        { estado: ' CLOSED ', fechaHora: '2024-11-29T17:04:41.032' },
-        { estado: 'SUCCESS', fechaHora: '2024-11-29T16:04:41.032' },
-        { estado: 'PENDING', fechaHora: '2024-11-29T16:01:06.296' },
-        { estado: 'INITIALIZE', fechaHora: '2024-11-29T16:01:06.207' },
-      ],
-      transacciones: {
-        monto: 20.0,
+  it('parses a paid QR without exposing client PII', async () => {
+    const result = await verify(
+      verifyResponse({
+        estado: 'PAGADO',
+        mensaje: ' QR pagado ',
+        importe: 20.0,
         moneda: 'bob',
-        fechaHoraTransaccion: '2024-11-29T16:04:41.057',
-        cliente: {
+        clienteOrigen: {
           nombreCliente: 'NOMBRE',
-          ciCliente: '14240008',
           numeroCuenta: 'CUENTA',
+          ciNitCliente: '14240008',
         },
-        numeroAch: 'REFERENCIA_ACH',
-        banco: {
-          descripcion: 'BANCO',
-          sigla: 'SIGLA',
-          codigoParticipante: 'CODIGO',
+        bancoOrigen: {
+          nombreBanco: 'BANCO',
+          fechaTransaccion: '2026-05-26T14:35:20',
+          numeroOrdenAch: 'REFERENCIA_ACH',
+          codigoBanco: '1016',
         },
-      },
-    });
-
-    expect(result).toEqual(
-      expect.objectContaining({
-        providerStatus: 'CLOSED',
-        responseCode: 'CLOSED',
-        responseDetail: 'Transaccion cerrada',
-        amountMinor: '2000',
-        currency: 'BOB',
-        achReference: 'REFERENCIA_ACH',
-        paymentDate: new Date('2024-11-29T16:04:41.057'),
-        statusHistory: [
-          { status: 'CLOSED', at: new Date('2024-11-29T17:04:41.032') },
-          { status: 'SUCCESS', at: new Date('2024-11-29T16:04:41.032') },
-          { status: 'PENDING', at: new Date('2024-11-29T16:01:06.296') },
-          { status: 'INITIALIZE', at: new Date('2024-11-29T16:01:06.207') },
-        ],
       }),
     );
+
+    expect(result).toEqual({
+      providerReference: '6780',
+      originMerchantReference: '203414',
+      amountMinor: '2000',
+      currency: 'BOB',
+      providerStatus: 'PAGADO',
+      responseCode: 'PAGADO',
+      responseDetail: 'QR pagado',
+      achReference: 'REFERENCIA_ACH',
+      paymentDate: new Date('2026-05-26T18:35:20.000Z'),
+    });
     expect(JSON.stringify(result)).not.toContain('NOMBRE');
     expect(JSON.stringify(result)).not.toContain('14240008');
     expect(JSON.stringify(result)).not.toContain('CUENTA');
   });
 
-  it('uses the PDF example order when codigoRespuesta is absent from complete history', async () => {
-    await expect(
-      verify({
-        estados: [
-          { estado: 'CLOSED', fechaHora: '2024-11-29T17:04:41.032' },
-          { estado: 'SUCCESS', fechaHora: '2024-11-29T16:04:41.032' },
-          { estado: 'PENDING', fechaHora: '2024-11-29T16:01:06.296' },
-          { estado: 'INITIALIZE', fechaHora: '2024-11-29T16:01:06.207' },
+  it.each([
+    [
+      'TRANSACCION_NO_ENCONTRADA',
+      {
+        success: false,
+        message: 'Error',
+        errors: [
+          {
+            field: 'numeroReferencia',
+            message: 'No se encontro la transaccion',
+            code: 'TRANSACCION_NO_ENCONTRADA',
+          },
         ],
-      }),
-    ).resolves.toEqual(
+      },
+      400,
+    ],
+    ['HTTP 404', {}, 404],
+  ])('maps %s to NOTFOUND', async (_label, body, status) => {
+    await expect(verify(body, status)).resolves.toEqual(
       expect.objectContaining({
-        providerStatus: 'CLOSED',
-        responseCode: undefined,
+        providerReference: '6780',
+        providerStatus: 'NOTFOUND',
       }),
     );
   });
 
-  it('does not classify malformed JSON as NOTFOUND', async () => {
+  it('does not classify other rejections as NOTFOUND', async () => {
     await expect(
-      verify({ detalleRespuesta: 'sin estado' }),
+      verify({ success: false, message: 'Error', errors: [] }, 400),
+    ).rejects.toMatchObject({
+      code: 'RED_ENLACE_INVALID_RESPONSE',
+    } satisfies Partial<PaymentDomainError>);
+  });
+
+  it('does not classify a response without estado as NOTFOUND', async () => {
+    await expect(
+      verify(verifyResponse({ estado: undefined })),
     ).rejects.toMatchObject({
       code: 'RED_ENLACE_INVALID_RESPONSE',
     } satisfies Partial<PaymentDomainError>);
@@ -388,5 +468,18 @@ describe('RedEnlaceQrHttpProvider verify parsing', () => {
         ambiguous: true,
       }),
     );
+  });
+
+  it.each([
+    ['PENDIENTE', 'QR_ACTIVE'],
+    ['PAGADO', 'PAYMENT_CONFIRMED'],
+    ['EXPIRADO', 'EXPIRED'],
+    ['CANCELADO', 'CANCELLED'],
+    ['ERROR', 'PROVIDER_ERROR'],
+    ['SUCCESS', 'PAYMENT_CONFIRMED'],
+  ])('maps provider status %s to %s', (providerStatus, status) => {
+    expect(
+      mapRedEnlaceStatus({ providerStatus, source: 'RECONCILIATION' }).status,
+    ).toBe(status);
   });
 });

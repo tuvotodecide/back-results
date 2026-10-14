@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createHash, timingSafeEqual } from 'crypto';
 import { Request } from 'express';
-import { RED_ENLACE_API_KEY_HEADER } from '../payments.constants';
+import { RED_ENLACE_WEBHOOK_AUTH_HEADER } from '../payments.constants';
 
 @Injectable()
 export class RedEnlaceWebhookGuard implements CanActivate {
@@ -24,7 +24,7 @@ export class RedEnlaceWebhookGuard implements CanActivate {
       throw new UnauthorizedException('Webhook authentication not configured');
     }
 
-    const provided = this.getHeader(request, RED_ENLACE_API_KEY_HEADER);
+    const provided = this.getHeader(request, RED_ENLACE_WEBHOOK_AUTH_HEADER);
 
     if (!provided || !this.safeEquals(provided, expected)) {
       throw new UnauthorizedException('Invalid webhook authentication');

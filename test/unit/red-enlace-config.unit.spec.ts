@@ -35,7 +35,23 @@ describe('Red Enlace configuration hardening', () => {
     },
   );
 
-  it('allows mock mode without URL or API key', () => {
+  const sandboxConfig = {
+    'app.redEnlace.baseUrl': 'https://atcgwapitest.redenlace.com.bo/sandbox',
+    'app.redEnlace.clientId': 'client-id',
+    'app.redEnlace.clientSecret': 'client-secret',
+    'app.redEnlace.establishmentId': '461362',
+    'app.redEnlace.establishmentName': 'BLOCKCHAIN API QR',
+    'app.redEnlace.webhookUrl': 'https://api.example.test/api/v1/qr/confirmed',
+    'app.redEnlace.callbackToken': 'callback-token',
+    'app.redEnlace.qrTtl': '00:30:00',
+  };
+  const productionConfig = {
+    ...sandboxConfig,
+    'app.redEnlace.baseUrl': 'https://api.redenlace.com.bo',
+    'app.redEnlace.webhookAuthMode': 'api-key',
+  };
+
+  it('allows mock mode without URL or client credentials', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({ 'app.redEnlace.qrTtl': '00:30:00' }),
@@ -44,67 +60,92 @@ describe('Red Enlace configuration hardening', () => {
     ).not.toThrow();
   });
 
-  it('requires sandbox URL', () => {
+  it('accepts a complete sandbox configuration with the /sandbox base path', () => {
     expect(() =>
-      validateRedEnlaceConfiguration(
-        config({
-          'app.redEnlace.apiKey': 'api-key',
-          'app.redEnlace.callbackToken': 'callback-token',
-          'app.redEnlace.qrTtl': '00:30:00',
-        }),
-        'sandbox',
-      ),
-    ).toThrow('RED_ENLACE_BASE_URL');
+      validateRedEnlaceConfiguration(config(sandboxConfig), 'sandbox'),
+    ).not.toThrow();
   });
 
-  it('requires sandbox API key', () => {
+  it('accepts a complete production configuration', () => {
     expect(() =>
-      validateRedEnlaceConfiguration(
-        config({
-          'app.redEnlace.baseUrl': 'https://appcobranzacert.redenlace.com.bo',
-          'app.redEnlace.callbackToken': 'callback-token',
-          'app.redEnlace.qrTtl': '00:30:00',
-        }),
-        'sandbox',
-      ),
-    ).toThrow('RED_ENLACE_API_KEY');
+      validateRedEnlaceConfiguration(config(productionConfig), 'production'),
+    ).not.toThrow();
   });
 
-  it('TVD-QR-P0-006 | requires sandbox callback token', () => {
+  it.each([
+    ['app.redEnlace.baseUrl', 'RED_ENLACE_BASE_URL'],
+    ['app.redEnlace.clientId', 'RED_ENLACE_CLIENT_ID'],
+    ['app.redEnlace.clientSecret', 'RED_ENLACE_CLIENT_SECRET'],
+    ['app.redEnlace.establishmentId', 'RED_ENLACE_ESTABLISHMENT_ID'],
+    ['app.redEnlace.establishmentName', 'RED_ENLACE_ESTABLISHMENT_NAME'],
+    ['app.redEnlace.webhookUrl', 'RED_ENLACE_WEBHOOK_URL'],
+    ['app.redEnlace.callbackToken', 'RED_ENLACE_CALLBACK_TOKEN'],
+  ])('TVD-QR-P0-006 | requires %s in sandbox', (key, envName) => {
     expect(() =>
       validateRedEnlaceConfiguration(
-        config({
-          'app.redEnlace.baseUrl': 'https://appcobranzacert.redenlace.com.bo',
-          'app.redEnlace.apiKey': 'api-key',
-          'app.redEnlace.qrTtl': '00:30:00',
-        }),
+        config({ ...sandboxConfig, [key]: undefined }),
         'sandbox',
       ),
-    ).toThrow('RED_ENLACE_CALLBACK_TOKEN');
+    ).toThrow(envName);
   });
+
+  it.each(['0', '-1', '12.5', 'abc'])(
+    'rejects establishment id %s',
+    (establishmentId) => {
+      expect(() =>
+        validateRedEnlaceConfiguration(
+          config({
+            ...sandboxConfig,
+            'app.redEnlace.establishmentId': establishmentId,
+          }),
+          'sandbox',
+        ),
+      ).toThrow('RED_ENLACE_ESTABLISHMENT_ID');
+    },
+  );
 
   it('rejects HTTP sandbox URL', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'http://appcobranzacert.redenlace.com.bo',
-          'app.redEnlace.apiKey': 'api-key',
-          'app.redEnlace.callbackToken': 'callback-token',
-          'app.redEnlace.qrTtl': '00:30:00',
+          ...sandboxConfig,
+          'app.redEnlace.baseUrl': 'http://atcgwapitest.redenlace.com.bo/sandbox',
         }),
         'sandbox',
       ),
     ).toThrow('HTTPS');
   });
 
+  it('rejects HTTP production URL', () => {
+    expect(() =>
+      validateRedEnlaceConfiguration(
+        config({
+          ...productionConfig,
+          'app.redEnlace.baseUrl': 'http://api.redenlace.com.bo',
+        }),
+        'production',
+      ),
+    ).toThrow('RED_ENLACE_BASE_URL must use HTTPS');
+  });
+
+  it('rejects an HTTP webhook URL', () => {
+    expect(() =>
+      validateRedEnlaceConfiguration(
+        config({
+          ...sandboxConfig,
+          'app.redEnlace.webhookUrl': 'http://api.example.test/api/v1/qr/confirmed',
+        }),
+        'sandbox',
+      ),
+    ).toThrow('RED_ENLACE_WEBHOOK_URL must use HTTPS');
+  });
+
   it('rejects production-like host in sandbox mode', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'https://cobranza.redenlace.com.bo',
-          'app.redEnlace.apiKey': 'api-key',
-          'app.redEnlace.callbackToken': 'callback-token',
-          'app.redEnlace.qrTtl': '00:30:00',
+          ...sandboxConfig,
+          'app.redEnlace.baseUrl': 'https://api.redenlace.com.bo',
         }),
         'sandbox',
       ),
@@ -115,11 +156,8 @@ describe('Red Enlace configuration hardening', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'https://appcobranzacert.redenlace.com.bo',
-          'app.redEnlace.apiKey': 'api-key',
-          'app.redEnlace.callbackToken': 'callback-token',
-          'app.redEnlace.webhookAuthMode': 'api-key',
-          'app.redEnlace.qrTtl': '00:30:00',
+          ...productionConfig,
+          'app.redEnlace.baseUrl': 'https://atcgwapitest.redenlace.com.bo/sandbox',
         }),
         'production',
       ),
@@ -130,25 +168,21 @@ describe('Red Enlace configuration hardening', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'https://cobranza.redenlace.com.bo',
-          'app.redEnlace.apiKey': 'api-key',
-          'app.redEnlace.callbackToken': 'callback-token',
+          ...productionConfig,
           'app.redEnlace.webhookAuthMode': 'none',
-          'app.redEnlace.qrTtl': '00:30:00',
         }),
         'production',
       ),
     ).toThrow('WEBHOOK_AUTH_MODE');
   });
 
-  it('rejects using the same value for outgoing API key and callback token', () => {
+  it('rejects using the same value for client secret and callback token', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'https://appcobranzacert.redenlace.com.bo',
-          'app.redEnlace.apiKey': 'same-token',
+          ...sandboxConfig,
+          'app.redEnlace.clientSecret': 'same-token',
           'app.redEnlace.callbackToken': 'same-token',
-          'app.redEnlace.qrTtl': '00:30:00',
         }),
         'sandbox',
       ),
@@ -171,10 +205,10 @@ describe('Red Enlace configuration hardening', () => {
     try {
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'http://appcobranzacert.redenlace.com.bo',
-          'app.redEnlace.apiKey': apiSecret,
+          ...sandboxConfig,
+          'app.redEnlace.baseUrl': 'http://atcgwapitest.redenlace.com.bo/sandbox',
+          'app.redEnlace.clientSecret': apiSecret,
           'app.redEnlace.callbackToken': callbackSecret,
-          'app.redEnlace.qrTtl': '00:30:00',
         }),
         'sandbox',
       );

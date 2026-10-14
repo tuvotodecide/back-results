@@ -160,7 +160,7 @@ describe('PaymentTransactionsService QR payments', () => {
       expect.objectContaining({
         amountMinor: '1050',
         currency: 'BOB',
-        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
+        glosa: 'PAGO 203414',
       }),
     );
     expect(result).toEqual(

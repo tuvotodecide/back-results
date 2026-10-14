@@ -85,12 +85,12 @@ describe('test external network guard', () => {
     process.env.TVD_OPERATOR_PRIVATE_KEY = 'synthetic-test-value';
     process.env.GEMINI_API_KEY = 'synthetic-gemini-key';
     process.env.IDENTITY_API_KEY = 'synthetic-identity-key';
-    process.env.RED_ENLACE_API_KEY = 'synthetic-red-enlace-key';
+    process.env.RED_ENLACE_CLIENT_SECRET = 'synthetic-red-enlace-secret';
     prepareTestExternalNetworkEnvironment();
     expect(process.env.TVD_OPERATOR_PRIVATE_KEY).toBeUndefined();
     expect(process.env.GEMINI_API_KEY).toBeUndefined();
     expect(process.env.IDENTITY_API_KEY).toBeUndefined();
-    expect(process.env.RED_ENLACE_API_KEY).toBeUndefined();
+    expect(process.env.RED_ENLACE_CLIENT_SECRET).toBeUndefined();
 
     const writers = createBlockedExternalWriteBoundary();
     expect(() => writers.writeContract()).toThrow('TEST_EXTERNAL_NETWORK_BLOCKED writeContract');

@@ -22,9 +22,6 @@ import {
   PAYMENT_PROVIDER_RED_ENLACE,
   PaymentStatus,
   QR_PAYMENT_PROVIDER,
-  RED_ENLACE_BRANCH_CODE,
-  RED_ENLACE_BRANCH_NAME,
-  RED_ENLACE_BUSINESS_CATEGORY,
   RED_ENLACE_QR_TTL_DEFAULT,
   RED_ENLACE_REFERENCE_MAX_LENGTH,
   validPaymentTransitions,
@@ -44,6 +41,7 @@ import {
 } from '../utils/money.util';
 import {
   RED_ENLACE_ACTIVE_QR_STATUSES,
+  RED_ENLACE_SUCCESS_STATUSES,
   hasRedEnlaceSuccessEvidence,
   mapRedEnlaceStatus,
   normalizeRedEnlaceStatus,
@@ -147,12 +145,9 @@ export class PaymentTransactionsService {
     await this.transitionPayment(payment._id, 'CREATED', 'QR_REQUESTING');
 
     const expiresAt = this.calculateQrExpiresAt();
-    const glosa = buildRedEnlaceGlosa({
-      branchCode: RED_ENLACE_BRANCH_CODE,
-      branchName: RED_ENLACE_BRANCH_NAME,
-      businessCategory: RED_ENLACE_BUSINESS_CATEGORY,
-      customerGloss: this.buildCustomerGloss(payment.merchantReference),
-    });
+    const glosa = buildRedEnlaceGlosa(
+      this.buildCustomerGloss(payment.merchantReference),
+    );
 
     try {
       const result = await this.provider.generateQr({
@@ -395,12 +390,9 @@ export class PaymentTransactionsService {
 
       await this.transitionPayment(nextPayment._id, 'CREATED', 'QR_REQUESTING');
       const expiresAt = this.calculateQrExpiresAt();
-      const glosa = buildRedEnlaceGlosa({
-        branchCode: RED_ENLACE_BRANCH_CODE,
-        branchName: RED_ENLACE_BRANCH_NAME,
-        businessCategory: RED_ENLACE_BUSINESS_CATEGORY,
-        customerGloss: this.buildCustomerGloss(nextPayment.merchantReference),
-      });
+      const glosa = buildRedEnlaceGlosa(
+        this.buildCustomerGloss(nextPayment.merchantReference),
+      );
 
       const result = await this.provider.generateQr({
         merchantReference: nextPayment.merchantReference,
@@ -626,7 +618,10 @@ export class PaymentTransactionsService {
   ) {
     if (payment.status === 'PAYMENT_CONFIRMED') {
       const providerStatus = normalizeRedEnlaceStatus(result.providerStatus);
-      if (providerStatus === 'SUCCESS' || result.responseCode === '00') {
+      if (
+        RED_ENLACE_SUCCESS_STATUSES.has(providerStatus) ||
+        result.responseCode === '00'
+      ) {
         return this.ensureQrAccreditationForConfirmedPayment(payment, source);
       }
       return payment;
@@ -655,7 +650,9 @@ export class PaymentTransactionsService {
       responseCode: result.responseCode,
       source,
       hasSuccessEvidence:
-        payment.providerStatus === 'SUCCESS' ||
+        RED_ENLACE_SUCCESS_STATUSES.has(
+          normalizeRedEnlaceStatus(payment.providerStatus),
+        ) ||
         hasRedEnlaceSuccessEvidence(result.providerStatus, result.statusHistory),
     });
 

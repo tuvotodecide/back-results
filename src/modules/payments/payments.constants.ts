@@ -72,10 +72,14 @@ export const validPaymentTransitions: Record<PaymentStatus, PaymentStatus[]> = {
 
 export const RED_ENLACE_REFERENCE_MAX_LENGTH = 9;
 export const RED_ENLACE_QR_TTL_DEFAULT = '00:30:00';
-export const RED_ENLACE_API_KEY_HEADER = 'x-api-key';
-export const RED_ENLACE_GENERATE_QR_PATH = '/cobranza-0.0.1/atc/generarQr';
-export const RED_ENLACE_VERIFY_QR_PATH = '/cobranza-0.0.1/atc/verificaQr';
-export const RED_ENLACE_BRANCH_CODE = '461362';
-export const RED_ENLACE_BRANCH_NAME = 'BLOCKCHAIN API QR ';
-export const RED_ENLACE_BUSINESS_CATEGORY = '7372';
-export const RED_ENLACE_CHANNEL = 'WEB';
+export const RED_ENLACE_OAUTH_TOKEN_PATH =
+  '/oauth-client-credentials/access-token';
+export const RED_ENLACE_GENERATE_QR_PATH = '/qr/simple/v2/generate';
+export const RED_ENLACE_VERIFY_QR_PATH = '/qr/simple/v2/verify';
+export const RED_ENLACE_ACCESS_TOKEN_HEADER = 'access_token';
+export const RED_ENLACE_CLIENT_ID_HEADER = 'client_id';
+// Header que Red Enlace envia en el webhook (se le indica en webhook.key al generar el QR).
+export const RED_ENLACE_WEBHOOK_AUTH_HEADER = 'x-api-key';
+export const RED_ENLACE_TRANSACTION_NOT_FOUND_CODE = 'TRANSACCION_NO_ENCONTRADA';
+// Bolivia no aplica horario de verano; Red Enlace envia fechas sin zona horaria.
+export const RED_ENLACE_TIMEZONE_OFFSET = '-04:00';

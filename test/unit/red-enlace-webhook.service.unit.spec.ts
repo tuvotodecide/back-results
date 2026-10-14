@@ -18,6 +18,7 @@ import {
   createQrPaymentProvider,
   validateRedEnlaceConfiguration,
 } from '@/modules/payments/providers/qr-payment-provider.factory';
+import { RedEnlaceOAuthService } from '@/modules/payments/providers/red-enlace-oauth.service';
 import { RedEnlaceQrHttpProvider } from '@/modules/payments/providers/red-enlace-qr-http.provider';
 import { PaymentProviderEvent } from '@/modules/payments/schemas/payment-provider-event.schema';
 import { PaymentTransaction } from '@/modules/payments/schemas/payment-transaction.schema';
@@ -28,22 +29,20 @@ import { RedEnlaceWebhookService } from '@/modules/payments/services/red-enlace-
 function redEnlacePayload(numeroReferencia: number | string = 1511556): any {
   return {
     numeroReferencia,
-    estado: '00',
-    transacciones: {
-      monto: '10.00',
-      moneda: 'BOB',
-      fechaHoraTransaccion: '2025-08-01T16:00:57.286',
-      cliente: {
-        nombreCliente: 'JUAN PEREZ',
-        ciCliente: '14240008',
-        numeroCuenta: '1011000024',
-      },
-      numeroAch: '14262508014140754846',
-      banco: {
-        descripcion: 'BANCO ECONOMICO',
-        sigla: 'BEC',
-        codigoParticipante: '1016',
-      },
+    codigoRespuesta: 'SUCCESS',
+    detalleRespuesta: 'Pago procesado exitosamente',
+    monto: '10.00',
+    moneda: 'BOB',
+    fechaHoraTransaccion: '2025-08-01T16:00:57',
+    clienteOrigen: {
+      ciCliente: '14240008',
+      nombreCliente: 'JUAN PEREZ',
+      numeroCuenta: '1011000024',
+    },
+    bancoOrigen: {
+      codigoBanco: '1016',
+      nombreBanco: 'BANCO ECONOMICO',
+      numeroOrdenAch: '14262508014140754846',
     },
   };
 }
@@ -100,6 +99,7 @@ describe('PaymentsModule integration surface', () => {
         RedEnlaceWebhookService,
         RedEnlaceWebhookGuard,
         MockRedEnlaceQrProvider,
+        RedEnlaceOAuthService,
         RedEnlaceQrHttpProvider,
         {
           provide: QR_PAYMENT_PROVIDER,
@@ -158,7 +158,7 @@ describe('PaymentsModule integration surface', () => {
 });
 
 describe('RedEnlaceWebhookService', () => {
-  it('TVD-QR-P0-006 TVD-SEC-P0-002 | processes the nested Red Enlace contract without storing bank client payload', async () => {
+  it('TVD-QR-P0-006 TVD-SEC-P0-002 | processes the QR Simple v2 callback without storing bank client payload', async () => {
     const { service, eventModel, payments } = createService();
 
     await expect(service.receiveWebhook(redEnlacePayload())).resolves.toEqual({
@@ -170,12 +170,13 @@ describe('RedEnlaceWebhookService', () => {
     expect(payments.applyWebhookConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({
         providerReference: '1511556',
-        providerStatus: '00',
-        responseCode: '00',
+        providerStatus: 'SUCCESS',
+        responseCode: 'SUCCESS',
+        responseDetail: 'Pago procesado exitosamente',
         amountMinor: '1000',
         currency: 'BOB',
         achReference: '14262508014140754846',
-        paymentDate: expect.any(Date),
+        paymentDate: new Date('2025-08-01T20:00:57.000Z'),
       }),
     );
 
@@ -183,7 +184,7 @@ describe('RedEnlaceWebhookService', () => {
     expect(persistedEvent).toEqual(
       expect.objectContaining({
         providerReference: '1511556',
-        providerStatus: '00',
+        providerStatus: 'SUCCESS',
         amountMinor: '1000',
         currency: 'BOB',
         achReference: '14262508014140754846',
@@ -282,7 +283,7 @@ describe('RedEnlaceWebhookService', () => {
   it('persists callback evidence before ACK 05 when amount format is invalid', async () => {
     const { service, eventModel, payments } = createService();
     const payload = redEnlacePayload();
-    payload.transacciones.monto = '10.001';
+    payload.monto = '10.001';
 
     await expect(service.receiveWebhook(payload)).resolves.toEqual({
       numeroReferencia: '1511556',
@@ -293,7 +294,7 @@ describe('RedEnlaceWebhookService', () => {
     expect(eventModel.create).toHaveBeenCalledWith(
       expect.objectContaining({
         providerReference: '1511556',
-        providerStatus: '00',
+        providerStatus: 'SUCCESS',
         amountMinor: null,
         currency: 'BOB',
       }),
@@ -403,109 +404,6 @@ describe('RedEnlaceWebhookService', () => {
   });
 });
 
-describe('RedEnlaceQrHttpProvider', () => {
-  it('generates QR with the PDF contract, official glosa and outgoing x-api-key only', async () => {
-    const post = jest.fn().mockResolvedValue({
-      status: 200,
-      data: {
-        moneda: 'BOB',
-        monto: '20.00',
-        origenNumeroReferencia: '203414',
-        numeroReferencia: '6780',
-        codigoRespuesta: 'PENDING',
-        detalleRespuesta: 'QR generado',
-        imagen: 'UVI=',
-      },
-    });
-    const provider = new RedEnlaceQrHttpProvider(
-      { axiosRef: { post } } as any,
-      {
-        get: jest.fn((key: string) => {
-          const values: Record<string, string | number> = {
-            'app.redEnlace.baseUrl': 'https://red-enlace.test',
-            'app.redEnlace.apiKey': 'red-enlace-outgoing-test-key',
-            'app.redEnlace.httpTimeoutMs': 5000,
-            'app.redEnlace.qrTtl': '00:30:00',
-          };
-          return values[key];
-        }),
-      } as unknown as ConfigService,
-    );
-
-    await expect(
-      provider.generateQr({
-        merchantReference: '203414',
-        amountMinor: '2000',
-        currency: 'BOB',
-        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
-        description: 'no debe salir en glosa',
-        expiresAt: new Date('2025-08-01T16:30:57.286Z'),
-      }),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        providerReference: '6780',
-        originMerchantReference: '203414',
-        amountMinor: '2000',
-        currency: 'BOB',
-        providerStatus: 'PENDING',
-        responseCode: 'PENDING',
-        qrImage: 'UVI=',
-      }),
-    );
-
-    expect(post).toHaveBeenCalledWith(
-      'https://red-enlace.test/cobranza-0.0.1/atc/generarQr',
-      {
-        numeroReferencia: 203414,
-        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
-        monto: '20.00',
-        moneda: 'BOB',
-        canal: 'WEB',
-        tiempoQr: '00:30:00',
-        campoExtra: '',
-      },
-      expect.objectContaining({
-        timeout: 5000,
-        headers: { 'x-api-key': 'red-enlace-outgoing-test-key' },
-      }),
-    );
-  });
-
-  it('verifies QR with the PDF URL and outgoing x-api-key', async () => {
-    const get = jest.fn().mockResolvedValue({
-      status: 200,
-      data: {
-        numeroReferenciaAtc: '6780',
-        codigoRespuesta: 'SUCCESS',
-        moneda: 'BOB',
-        monto: 20,
-      },
-    });
-    const provider = new RedEnlaceQrHttpProvider(
-      { axiosRef: { get } } as any,
-      {
-        get: jest.fn((key: string) => {
-          const values: Record<string, string | number> = {
-            'app.redEnlace.baseUrl': 'https://red-enlace.test/',
-            'app.redEnlace.apiKey': 'red-enlace-outgoing-test-key',
-            'app.redEnlace.httpTimeoutMs': 5000,
-          };
-          return values[key];
-        }),
-      } as unknown as ConfigService,
-    );
-
-    await provider.verifyQr({ providerReference: '6780' });
-
-    expect(get).toHaveBeenCalledWith(
-      'https://red-enlace.test/cobranza-0.0.1/atc/verificaQr/6780',
-      expect.objectContaining({
-        headers: { 'x-api-key': 'red-enlace-outgoing-test-key' },
-      }),
-    );
-  });
-});
-
 describe('Red Enlace configuration validation', () => {
   function config(values: Record<string, string | undefined>) {
     return {
@@ -523,8 +421,12 @@ describe('Red Enlace configuration validation', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'https://appcobranzacert.redenlace.com.bo',
-          'app.redEnlace.apiKey': 'red-enlace-outgoing-test-key',
+          'app.redEnlace.baseUrl': 'https://atcgwapitest.redenlace.com.bo/sandbox',
+          'app.redEnlace.clientId': 'client-id',
+          'app.redEnlace.clientSecret': 'client-secret',
+          'app.redEnlace.establishmentId': '461362',
+          'app.redEnlace.establishmentName': 'BLOCKCHAIN API QR',
+          'app.redEnlace.webhookUrl': 'https://api.example.test/api/v1/qr/confirmed',
           'app.redEnlace.qrTtl': '00:30:00',
         }),
         'sandbox',
@@ -532,17 +434,17 @@ describe('Red Enlace configuration validation', () => {
     ).toThrow('RED_ENLACE_CALLBACK_TOKEN');
   });
 
-  it('does not accept callback token as substitute for outgoing API key in production', () => {
+  it('does not accept callback token as substitute for OAuth client credentials in production', () => {
     expect(() =>
       validateRedEnlaceConfiguration(
         config({
-          'app.redEnlace.baseUrl': 'https://red-enlace.prod',
+          'app.redEnlace.baseUrl': 'https://api.redenlace.com.bo',
           'app.redEnlace.callbackToken': 'callback-token',
           'app.redEnlace.qrTtl': '00:30:00',
         }),
         'production',
       ),
-    ).toThrow('RED_ENLACE_API_KEY');
+    ).toThrow('RED_ENLACE_CLIENT_ID');
   });
 });
 
@@ -637,7 +539,7 @@ describe('PaymentTransactionsService Red Enlace QR generation', () => {
         merchantReference: '203414',
         amountMinor: '2000',
         currency: 'BOB',
-        glosa: '461362|BLOCKCHAIN API QR |7372|PAGO 203414',
+        glosa: 'PAGO 203414',
       }),
     );
     expect(provider.generateQr.mock.calls[0][0].glosa).not.toContain(

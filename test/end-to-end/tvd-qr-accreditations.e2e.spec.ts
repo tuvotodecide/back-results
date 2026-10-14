@@ -215,13 +215,11 @@ describe('TVD QR accreditations controlled e2e', () => {
       .post('/api/v1/qr/confirmed')
       .send({
         numeroReferencia: qr.body.providerReference,
-        estado: '00',
-        transacciones: {
-          monto: 10.5,
-          moneda: 'BOB',
-          fechaHoraTransaccion: '2026-07-17T10:30:00.000',
-          numeroAch: 'ACH-E2E-001',
-        },
+        codigoRespuesta: 'SUCCESS',
+        monto: 10.5,
+        moneda: 'BOB',
+        fechaHoraTransaccion: '2026-07-17T10:30:00',
+        bancoOrigen: { numeroOrdenAch: 'ACH-E2E-001' },
       })
       .expect(200, {
         numeroReferencia: qr.body.providerReference,
@@ -261,13 +259,11 @@ describe('TVD QR accreditations controlled e2e', () => {
 
     const payload = {
       numeroReferencia: qr.body.providerReference,
-      estado: '00',
-      transacciones: {
-        monto: 10.5,
-        moneda: 'BOB',
-        fechaHoraTransaccion: '2026-07-17T10:30:00.000',
-        numeroAch: 'ACH-E2E-002',
-      },
+      codigoRespuesta: 'SUCCESS',
+      monto: 10.5,
+      moneda: 'BOB',
+      fechaHoraTransaccion: '2026-07-17T10:30:00',
+      bancoOrigen: { numeroOrdenAch: 'ACH-E2E-002' },
     };
     await request(app.getHttpServer())
       .post('/api/v1/qr/confirmed')

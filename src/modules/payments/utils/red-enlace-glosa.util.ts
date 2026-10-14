@@ -1,63 +1,21 @@
 import { BadRequestException } from '@nestjs/common';
 
-export interface BuildRedEnlaceGlosaInput {
-  branchCode: string;
-  branchName: string;
-  businessCategory: string;
-  customerGloss: string;
-}
+const RED_ENLACE_GLOSA_MAX_LENGTH = 60;
 
-function sanitizeGlosaField(
-  value: string,
-  maxLength: number,
-  field: string,
-  options: { preserveTrailingSpace?: boolean } = {},
-) {
-  const raw = String(value ?? '');
-  const normalized = (
-    options.preserveTrailingSpace ? raw.trimStart() : raw.trim()
-  ).replace(/\s+/g, ' ');
-  if (!normalized) {
-    throw new BadRequestException(`${field} requerido`);
+/**
+ * En QR Simple v2 los datos del comercio viajan en idEstablecimiento y
+ * nombreEstablecimiento; la glosa es solo la descripcion del cobro.
+ */
+export function buildRedEnlaceGlosa(customerGloss: string): string {
+  const glosa = String(customerGloss ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!glosa) {
+    throw new BadRequestException('Glosa requerida');
   }
-  if (normalized.includes('|')) {
-    throw new BadRequestException(`${field} no puede contener separador`);
-  }
-  if (normalized.length > maxLength) {
-    throw new BadRequestException(`${field} excede longitud maxima`);
-  }
-  return normalized;
-}
-
-export function buildRedEnlaceGlosa(input: BuildRedEnlaceGlosaInput): string {
-  const branchCode = sanitizeGlosaField(input.branchCode, 10, 'CodSucursal');
-  const branchName = sanitizeGlosaField(
-    input.branchName,
-    50,
-    'NombreSucursal',
-    {
-      preserveTrailingSpace: true,
-    },
-  );
-  const businessCategory = sanitizeGlosaField(
-    input.businessCategory,
-    10,
-    'RubroComercio',
-  );
-  const customerGloss = sanitizeGlosaField(
-    input.customerGloss,
-    60,
-    'GlosaCliente',
-  );
-
-  const glosa = [branchCode, branchName, businessCategory, customerGloss].join(
-    '|',
-  );
-
-  if (glosa.length > 130) {
+  if (glosa.length > RED_ENLACE_GLOSA_MAX_LENGTH) {
     throw new BadRequestException('Glosa excede longitud maxima');
   }
-
   return glosa;
 }
 

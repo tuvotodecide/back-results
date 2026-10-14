@@ -99,7 +99,7 @@ describe('MX-06 TVD focal acceptance contracts', () => {
 
   it('[MX-06][TVD-QR-P0-006][ACEPTACION] acepta callback válido con respuesta segura', async () => {
     webhook.receiveWebhook.mockResolvedValue({ numeroReferencia: 'ATC-1', codigoRespuesta: '00', detalleRespuesta: null });
-    const response = await request(app.getHttpServer()).post('/api/v1/qr/confirmed').send({ numeroReferencia: 'ATC-1', estado: '00', transacciones: { monto: 10.5, moneda: 'BOB' } }).expect(200);
+    const response = await request(app.getHttpServer()).post('/api/v1/qr/confirmed').send({ numeroReferencia: 'ATC-1', codigoRespuesta: 'SUCCESS', monto: 10.5, moneda: 'BOB' }).expect(200);
     expect(response.body).toEqual({ numeroReferencia: 'ATC-1', codigoRespuesta: '00', detalleRespuesta: null });
     expect(JSON.stringify(response.body)).not.toContain('apiKey');
   });

@@ -12,7 +12,7 @@ const httpsModule = runtimeRequire('node:https') as unknown as MutableNodeModule
 const netModule = runtimeRequire('node:net') as unknown as MutableNodeModule;
 const tlsModule = runtimeRequire('node:tls') as unknown as MutableNodeModule;
 
-const SENSITIVE_ENVIRONMENT_KEY = /(?:PRIVATE(?:_|$)|MNEMONIC|(?:^|_)RPC(?:_|$)|BUNDLER|PAYMASTER|RED_ENLACE_(?:API_KEY|BASE_URL|CALLBACK_TOKEN|WEBHOOK_SECRET)|GEMINI_(?:API_KEY|BASE_URL)|IDENTITY_(?:API_KEY|BASE_URL)|RESOLVER(?:_|$))/i;
+const SENSITIVE_ENVIRONMENT_KEY = /(?:PRIVATE(?:_|$)|MNEMONIC|(?:^|_)RPC(?:_|$)|BUNDLER|PAYMASTER|RED_ENLACE_(?:CLIENT_ID|CLIENT_SECRET|BASE_URL|CALLBACK_TOKEN|WEBHOOK_SECRET)|GEMINI_(?:API_KEY|BASE_URL)|IDENTITY_(?:API_KEY|BASE_URL)|RESOLVER(?:_|$))/i;
 const KNOWN_SENSITIVE_ENVIRONMENT_KEYS = [
   'PRIVATE_KEY',
   'MNEMONIC',
@@ -20,7 +20,7 @@ const KNOWN_SENSITIVE_ENVIRONMENT_KEYS = [
   'BLOCKCHAIN_RPC_URL',
   'BUNDLER_URL',
   'PAYMASTER_URL',
-  'RED_ENLACE_API_KEY',
+  'RED_ENLACE_CLIENT_SECRET',
   'GEMINI_API_KEY',
   'IDENTITY_API_KEY',
   'FB_PRIVATE_KEY',

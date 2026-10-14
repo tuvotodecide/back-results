@@ -8,15 +8,21 @@ import {
   VerifyQrResult,
 } from './qr-payment-provider.interface';
 
-const SUPPORTED_MOCK_STATUSES = new Set([
-  'PENDING',
-  'SUCCESS',
-  'CLOSED',
-  'EXPIRED',
-  'CANCELLED',
-  'ERROR',
-  'NOTFOUND',
-]);
+// Estados de QR Simple v2. Los nombres de v1 se aceptan como alias para no
+// romper a quienes ya usan mockStatus o RED_ENLACE_MOCK_VERIFY_STATUS.
+const MOCK_STATUS_ALIASES: Record<string, string> = {
+  PENDIENTE: 'PENDIENTE',
+  PAGADO: 'PAGADO',
+  EXPIRADO: 'EXPIRADO',
+  CANCELADO: 'CANCELADO',
+  ERROR: 'ERROR',
+  NOTFOUND: 'NOTFOUND',
+  PENDING: 'PENDIENTE',
+  SUCCESS: 'PAGADO',
+  CLOSED: 'CLOSED',
+  EXPIRED: 'EXPIRADO',
+  CANCELLED: 'CANCELADO',
+};
 
 @Injectable()
 export class MockRedEnlaceQrProvider implements QrPaymentProvider {
@@ -29,8 +35,8 @@ export class MockRedEnlaceQrProvider implements QrPaymentProvider {
       originMerchantReference: input.merchantReference,
       amountMinor: input.amountMinor,
       currency: input.currency,
-      providerStatus: 'PENDING',
-      responseCode: 'MOCK_PENDING',
+      providerStatus: 'PENDIENTE',
+      responseCode: 'MOCK_PENDIENTE',
       responseDetail: 'MOCK Red Enlace QR generated',
       qrImage: this.buildMockQrImage(input, providerReference),
       qrExpiresAt: input.expiresAt,
@@ -40,17 +46,15 @@ export class MockRedEnlaceQrProvider implements QrPaymentProvider {
   async verifyQr(input: VerifyQrInput): Promise<VerifyQrResult> {
     const providerStatus = this.resolveMockStatus(input);
     const merchantReference = input.providerReference.replace(/^MOCK-/, '');
+    const paid = providerStatus === 'PAGADO';
     return {
       providerReference: input.providerReference,
       originMerchantReference: merchantReference,
       providerStatus,
-      responseCode: providerStatus === 'SUCCESS' ? '00' : 'MOCK_STATUS',
+      responseCode: providerStatus,
       responseDetail: `MOCK Red Enlace verify status ${providerStatus}`,
-      achReference:
-        providerStatus === 'SUCCESS'
-          ? `MOCK-ACH-${merchantReference.slice(-6)}`
-          : null,
-      paymentDate: providerStatus === 'SUCCESS' ? new Date() : null,
+      achReference: paid ? `MOCK-ACH-${merchantReference.slice(-6)}` : null,
+      paymentDate: paid ? new Date() : null,
     };
   }
 
@@ -59,20 +63,17 @@ export class MockRedEnlaceQrProvider implements QrPaymentProvider {
   }
 
   private resolveMockStatus(input: VerifyQrInput): string {
-    const explicit = String(input.mockStatus ?? '').trim().toUpperCase();
-    if (SUPPORTED_MOCK_STATUSES.has(explicit)) return explicit;
+    const candidates = [
+      input.mockStatus,
+      this.configService.get<string>('app.redEnlace.mockVerifyStatus'),
+      input.providerReference.split('__').pop(),
+    ];
+    for (const candidate of candidates) {
+      const status = MOCK_STATUS_ALIASES[String(candidate ?? '').trim().toUpperCase()];
+      if (status) return status;
+    }
 
-    const configured = String(
-      this.configService.get<string>('app.redEnlace.mockVerifyStatus') ?? '',
-    )
-      .trim()
-      .toUpperCase();
-    if (SUPPORTED_MOCK_STATUSES.has(configured)) return configured;
-
-    const suffix = input.providerReference.split('__').pop()?.toUpperCase();
-    if (suffix && SUPPORTED_MOCK_STATUSES.has(suffix)) return suffix;
-
-    return 'PENDING';
+    return 'PENDIENTE';
   }
 
   private buildMockQrImage(input: GenerateQrInput, providerReference: string) {

@@ -16,6 +16,8 @@ import {
   PaymentProviderEventDocument,
 } from '../schemas/payment-provider-event.schema';
 import { parseBobAmountToMinor } from '../utils/money.util';
+import { normalizeRedEnlaceStatus } from '../utils/payment-status.mapper';
+import { parseRedEnlaceDateTime } from '../utils/red-enlace-datetime.util';
 import { sanitizeProviderDetail } from '../utils/red-enlace-glosa.util';
 import { PaymentTransactionsService } from './payment-transactions.service';
 
@@ -37,14 +39,14 @@ export class RedEnlaceWebhookService {
       const amount = this.getWebhookAmount(dto);
       const amountParse = this.parseWebhookAmount(amount);
       const amountMinor = amountParse.amountMinor;
-      const providerStatus = dto.estado;
+      const providerStatus = normalizeRedEnlaceStatus(dto.codigoRespuesta);
       const responseCode = providerStatus;
+      const responseDetail = sanitizeProviderDetail(dto.detalleRespuesta);
       const currency =
-        dto.transacciones?.moneda != null
-          ? String(dto.transacciones.moneda).trim().toUpperCase()
-          : null;
-      const achReference = dto.transacciones?.numeroAch ?? null;
-      const paymentDate = dto.transacciones?.fechaHoraTransaccion ?? null;
+        dto.moneda != null ? String(dto.moneda).trim().toUpperCase() : null;
+      const achReference = dto.bancoOrigen?.numeroOrdenAch?.trim() || null;
+      const paymentDate = dto.fechaHoraTransaccion ?? null;
+      const parsedPaymentDate = parseRedEnlaceDateTime(paymentDate);
       const fingerprint = this.fingerprint({
         providerReference,
         providerStatus,
@@ -62,7 +64,7 @@ export class RedEnlaceWebhookService {
         amountMinor,
         currency,
         achReference,
-        paymentDate: paymentDate ? new Date(paymentDate) : null,
+        paymentDate: parsedPaymentDate,
       });
 
       if (amountParse.errorCode) {
@@ -97,11 +99,11 @@ export class RedEnlaceWebhookService {
         providerReference,
         providerStatus,
         responseCode,
-        responseDetail: null,
+        responseDetail,
         amountMinor,
         currency,
         achReference,
-        paymentDate: paymentDate ? new Date(paymentDate) : null,
+        paymentDate: parsedPaymentDate,
       });
 
       await this.eventModel.updateOne(
@@ -213,8 +215,8 @@ export class RedEnlaceWebhookService {
   }
 
   private getWebhookAmount(dto: RedEnlaceWebhookDto) {
-    if (dto.transacciones?.monto != null) {
-      return String(dto.transacciones.monto);
+    if (dto.monto != null && String(dto.monto).trim() !== '') {
+      return String(dto.monto);
     }
     return null;
   }
