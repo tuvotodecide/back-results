@@ -33,10 +33,15 @@ function createOAuth(tokens: string[] = ['token-1']) {
   };
 }
 
+function createLogger() {
+  return { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
+}
+
 function createProvider(
   http: { post?: jest.Mock; get?: jest.Mock },
   config: Record<string, string | number> = {},
   oauth = createOAuth(),
+  logger = createLogger(),
 ) {
   return new RedEnlaceQrHttpProvider(
     { axiosRef: http } as any,
@@ -44,6 +49,7 @@ function createProvider(
       get: jest.fn((key: string) => ({ ...defaultConfig, ...config })[key]),
     } as unknown as ConfigService,
     oauth as any,
+    logger as any,
   );
 }
 
@@ -266,6 +272,101 @@ describe('RedEnlaceQrHttpProvider generation parsing', () => {
     await expect(generate(body, status)).rejects.toMatchObject({
       code: 'RED_ENLACE_INVALID_RESPONSE',
     } satisfies Partial<PaymentDomainError>);
+  });
+
+  it('logs the rejection status, message and errors without secrets', async () => {
+    const logger = createLogger();
+    const post = jest.fn().mockResolvedValue({
+      status: 400,
+      data: {
+        success: false,
+        message: 'Error de validacion',
+        errors: [
+          {
+            field: 'idEstablecimiento',
+            message: 'Establecimiento no registrado',
+            code: 'ESTABLECIMIENTO_INVALIDO',
+          },
+        ],
+      },
+    });
+
+    await expect(
+      createProvider({ post }, {}, createOAuth(), logger).generateQr(input),
+    ).rejects.toMatchObject({ code: 'RED_ENLACE_INVALID_RESPONSE' });
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    const [message, context] = logger.warn.mock.calls[0];
+    expect(context).toBe('RedEnlaceQrHttpProvider');
+    expect(JSON.parse(message)).toEqual({
+      event: 'red_enlace_request_rejected',
+      operation: 'generate',
+      reference: '203414',
+      httpStatus: 400,
+      success: false,
+      message: 'Error de validacion',
+      errors: [
+        {
+          field: 'idEstablecimiento',
+          code: 'ESTABLECIMIENTO_INVALIDO',
+          message: 'Establecimiento no registrado',
+        },
+      ],
+      bodyKeys: ['success', 'message', 'errors'],
+    });
+    expect(message).not.toContain('token-1');
+    expect(message).not.toContain('incoming-callback-token');
+  });
+
+  it('logs the body shape when a 200 response lacks success true', async () => {
+    const logger = createLogger();
+    const post = jest.fn().mockResolvedValue({
+      status: 200,
+      data: { success: 'true', data: { qr: validQrBase64 } },
+    });
+
+    await expect(
+      createProvider({ post }, {}, createOAuth(), logger).generateQr(input),
+    ).rejects.toMatchObject({ code: 'RED_ENLACE_INVALID_RESPONSE' });
+
+    const logged = JSON.parse(logger.warn.mock.calls[0][0]);
+    expect(logged).toEqual(
+      expect.objectContaining({
+        httpStatus: 200,
+        success: 'true',
+        errors: null,
+        bodyKeys: ['success', 'data'],
+      }),
+    );
+    expect(logger.warn.mock.calls[0][0]).not.toContain(validQrBase64);
+  });
+
+  it('logs a non JSON gateway error body as a truncated message', async () => {
+    const logger = createLogger();
+    const post = jest
+      .fn()
+      .mockResolvedValue({ status: 404, data: '<html>Not Found</html>' });
+
+    await expect(
+      createProvider({ post }, {}, createOAuth(), logger).generateQr(input),
+    ).rejects.toMatchObject({ code: 'RED_ENLACE_INVALID_RESPONSE' });
+
+    expect(JSON.parse(logger.warn.mock.calls[0][0])).toEqual(
+      expect.objectContaining({
+        httpStatus: 404,
+        message: '<html>Not Found</html>',
+        bodyKeys: 'string',
+      }),
+    );
+  });
+
+  it('does not log successful generation', async () => {
+    const logger = createLogger();
+    const post = jest.fn().mockResolvedValue({ status: 200, data: generateResponse() });
+
+    await createProvider({ post }, {}, createOAuth(), logger).generateQr(input);
+
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('maps 5xx to RED_ENLACE_UNAVAILABLE', async () => {

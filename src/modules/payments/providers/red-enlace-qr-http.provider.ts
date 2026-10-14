@@ -2,6 +2,7 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AxiosResponse } from 'axios';
+import { LoggerService } from '@/core/services/logger.service';
 import { PaymentDomainError } from '../errors/payment-domain.error';
 import {
   RED_ENLACE_ACCESS_TOKEN_HEADER,
@@ -35,10 +36,13 @@ import { RedEnlaceOAuthService } from './red-enlace-oauth.service';
 
 @Injectable()
 export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
+  private readonly context = 'RedEnlaceQrHttpProvider';
+
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
     private readonly oauth: RedEnlaceOAuthService,
+    private readonly logger: LoggerService,
   ) {}
 
   async generateQr(input: GenerateQrInput): Promise<GenerateQrResult> {
@@ -68,6 +72,9 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
         ),
       );
 
+      if (response.status >= 400 || response.data?.success !== true) {
+        this.logRejectedResponse('generate', body.numeroReferencia, response);
+      }
       this.assertHttpStatus(response, 'Red Enlace rechazo la solicitud');
       if (response.data?.success !== true) {
         throw new PaymentDomainError(
@@ -107,6 +114,9 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
           responseCode: '404',
           responseDetail: 'Referencia no encontrada en Red Enlace',
         };
+      }
+      if (response.status >= 400 || response.data?.success !== true) {
+        this.logRejectedResponse('verify', providerReference, response);
       }
       this.assertHttpStatus(response, 'Red Enlace rechazo la consulta');
       if (response.data?.success !== true) {
@@ -167,6 +177,40 @@ export class RedEnlaceQrHttpProvider implements QrPaymentProvider {
         502,
       );
     }
+  }
+
+  /**
+   * Registra por que Red Enlace rechazo una solicitud. Solo incluye status,
+   * message, errors[] y los nombres de campos del body: nunca el token, la
+   * imagen QR ni los datos del cliente pagador.
+   */
+  private logRejectedResponse(
+    operation: 'generate' | 'verify',
+    reference: string,
+    response: AxiosResponse,
+  ) {
+    const body = response.data;
+    const isObject = body != null && typeof body === 'object';
+
+    this.logger.warn(
+      JSON.stringify({
+        event: 'red_enlace_request_rejected',
+        operation,
+        reference,
+        httpStatus: response.status,
+        success: isObject ? (body.success ?? null) : null,
+        message: sanitizeProviderDetail(isObject ? body.message : body),
+        errors: Array.isArray(body?.errors)
+          ? body.errors.slice(0, 10).map((error: any) => ({
+              field: sanitizeProviderDetail(error?.field),
+              code: sanitizeProviderDetail(error?.code),
+              message: sanitizeProviderDetail(error?.message),
+            }))
+          : null,
+        bodyKeys: isObject ? Object.keys(body).slice(0, 20) : typeof body,
+      }),
+      this.context,
+    );
   }
 
   private isTransactionNotFound(body: any) {
