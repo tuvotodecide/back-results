@@ -35,7 +35,7 @@ function redEnlacePayload(numeroReferencia: number | string = 1511556): any {
     moneda: 'BOB',
     fechaHoraTransaccion: '2025-08-01T16:00:57',
     clienteOrigen: {
-      ciCliente: '14240008',
+      ciNitCliente: '14240008',
       nombreCliente: 'JUAN PEREZ',
       numeroCuenta: '1011000024',
     },

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { RedEnlaceWebhookController } from '@/modules/payments/controllers/red-enlace-webhook.controller';
+import { RedEnlaceWebhookDto } from '@/modules/payments/dto/red-enlace-webhook.dto';
 import { RedEnlaceWebhookGuard } from '@/modules/payments/guards/red-enlace-webhook.guard';
 import { RedEnlaceWebhookService } from '@/modules/payments/services/red-enlace-webhook.service';
 
@@ -18,7 +19,7 @@ function redEnlacePayload(numeroReferencia: number | string = 1511556) {
     moneda: 'BOB',
     fechaHoraTransaccion: '2025-08-01T16:00:57',
     clienteOrigen: {
-      ciCliente: '14240008',
+      ciNitCliente: '14240008',
       nombreCliente: 'JUAN PEREZ',
       numeroCuenta: '1011000024',
     },
@@ -108,6 +109,75 @@ describe('Red Enlace webhook routes', () => {
       .send(redEnlacePayload())
       .expect(401);
 
+    expect(receiveWebhook).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/v1/qr/confirmed accepts the callback captured from the ATC sandbox', async () => {
+    await request(app.getHttpServer())
+      .post(CANONICAL_ROUTE)
+      .set('x-api-key', 'valid-callback-token')
+      .send({
+        detalleRespuesta: 'Transacción Procesada',
+        codigoRespuesta: 'SUCCESS',
+        numeroReferencia: '11198392',
+        monto: 1,
+        fechaHoraTransaccion: '2026-10-15T09:23:59.057871554',
+        moneda: 'BOB',
+        clienteOrigen: {
+          ciNitCliente: '1001712',
+          nombreCliente: 'PRUEBA ORIGEN',
+          numeroCuenta: '1001712',
+        },
+        bancoOrigen: {
+          codigoBanco: '51902',
+          nombreBanco: 'ATC ALASITA',
+          numeroOrdenAch: '14262610153259438391',
+        },
+      })
+      .expect(200);
+
+    expect(receiveWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        numeroReferencia: '11198392',
+        codigoRespuesta: 'SUCCESS',
+        monto: '1',
+        moneda: 'BOB',
+        fechaHoraTransaccion: '2026-10-15T09:23:59.057871554',
+      }),
+    );
+  });
+
+  it('POST /api/v1/qr/confirmed ignores unknown top-level and nested fields', async () => {
+    const payload = redEnlacePayload();
+    await request(app.getHttpServer())
+      .post(CANONICAL_ROUTE)
+      .set('x-api-key', 'valid-callback-token')
+      .send({
+        ...payload,
+        campoNuevoAtc: 'valor',
+        clienteOrigen: { ...payload.clienteOrigen, tipoDocumento: 'CI' },
+        bancoOrigen: { ...payload.bancoOrigen, sucursal: 'CENTRAL' },
+      })
+      .expect(200);
+
+    const dto = receiveWebhook.mock.calls[0][0];
+    expect(dto).toBeInstanceOf(RedEnlaceWebhookDto);
+    expect(dto).not.toHaveProperty('campoNuevoAtc');
+    expect(dto.clienteOrigen).not.toHaveProperty('tipoDocumento');
+    expect(dto.bancoOrigen).not.toHaveProperty('sucursal');
+    expect(dto.bancoOrigen.numeroOrdenAch).toBe('14262508014140754846');
+  });
+
+  it('POST /api/v1/qr/confirmed still rejects invalid known fields', async () => {
+    const response = await request(app.getHttpServer())
+      .post(CANONICAL_ROUTE)
+      .set('x-api-key', 'valid-callback-token')
+      .send({ ...redEnlacePayload(), moneda: 'BOLIVIANOS', campoNuevoAtc: 'x' })
+      .expect(400);
+
+    const validationBody = JSON.stringify(response.body);
+    expect(validationBody).toContain('moneda');
+    expect(validationBody).not.toContain('campoNuevoAtc');
     expect(receiveWebhook).not.toHaveBeenCalled();
   });
 

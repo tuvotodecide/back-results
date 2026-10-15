@@ -24,6 +24,13 @@ export class RedEnlaceWebhookClientDto {
   @MaxLength(120)
   nombreCliente?: string;
 
+  /** Nombre que envia Red Enlace (igual que en la respuesta de verify). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  ciNitCliente?: string;
+
+  /** Nombre documentado para el webhook; se acepta por si ATC lo alinea. */
   @IsOptional()
   @IsString()
   @MaxLength(40)
