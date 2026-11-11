@@ -20,7 +20,9 @@ import { Public } from '@/core/decorators/public.decorator';
 import { AdminOnlyGuard } from '@/core/guards/admin-only.guard';
 
 @ApiTags('Political Parties - Election Assignment')
-@Controller('political/election-parties')
+// Expuesto también bajo api/v1 (como el resto de la API, y la baseUrl del frontend).
+// Se mantiene la ruta original sin prefijo por compatibilidad con clientes existentes.
+@Controller(['political/election-parties', 'api/v1/political/election-parties'])
 export class ElectionPartyController {
   constructor(private readonly partyService: PoliticalPartyService) {}
 

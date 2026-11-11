@@ -92,6 +92,39 @@ export class IssuerService {
     return credentialData;
   }
 
+  /**
+   * Enlace de la oferta (iden3comm) de una credencial ya emitida. La app lo
+   * pasa a `claimCredentialFromIssuer` del SDK y reclama la credencial sin
+   * credenciales de administración del issuer.
+   */
+  async getCredentialOffer(credentialId: string): Promise<string> {
+    const url = `${this.baseUrl}/v2/identities/${this.issuerDid}/credentials/${encodeURIComponent(credentialId)}/offer`;
+    let offer: string | undefined;
+    try {
+      const response = await this.httpService.axiosRef.get<{ universalLink?: unknown }>(url, {
+        params: { type: 'deepLink' },
+        auth: {
+          username: this.username,
+          password: this.password,
+        },
+      });
+      // El issuer llama `universalLink` al campo, sea cual sea el tipo pedido.
+      const link = response.data?.universalLink;
+      offer = typeof link === 'string' && link.trim() ? link : undefined;
+    } catch (error: any) {
+      Logger.error(
+        `Error fetching offer for credential ${credentialId}: ` +
+          JSON.stringify(error.response?.data ?? error.message),
+      );
+      throw new InternalServerErrorException('Error fetching credential offer');
+    }
+    if (!offer) {
+      Logger.error(`Issuer returned no offer link for credential ${credentialId}`);
+      throw new InternalServerErrorException('Error fetching credential offer');
+    }
+    return offer;
+  }
+
   async getDidsByDnis(dnis: string[]) {
     if (dnis.length === 0) {
       return [];

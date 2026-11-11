@@ -1,12 +1,12 @@
 /*
   Nest-integrated importer for missing_415_tables.json → MongoDB/AWS DocumentDB
-  - Reuses your Nest connection (CoreModule → DatabaseModule → MongooseModule.forRootAsync)
+  - Reuses your Nest connection (ImportModule → DatabaseModule → MongooseModule.forRootAsync)
   - DocumentDB-safe upserts (updateOne + findOne)
   - Avoids duplicate field paths across $setOnInsert and $set (error code 40)
   - Idempotent, key-driven upserts aligned to your unique indexes
 
   Run:
-    ts-node -r tsconfig-paths/register src/scripts/import-electoral-data.nest.ts --file ./final_data_replaced.json
+    npx ts-node -r tsconfig-paths/register src/scripts/import-prov-dept.ts --file ./final_data_replaced.json
 */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -14,8 +14,10 @@
 import 'reflect-metadata';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { CoreModule } from '../core/core.module';
+import { AppConfigModule } from '../config/app-config.module';
+import { DatabaseModule } from '../database/database.module';
 import { getConnectionToken } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
 import type { Db, Collection, Document, ObjectId } from 'mongodb';
@@ -52,7 +54,25 @@ type InputRow = {
 
 // ===== Helpers =====
 const now = () => new Date();
-const norm = (s?: unknown) => (s ?? '').toString().trim().replace(/\s+/g, ' ');
+// Source exports (pandas) write missing values as "nan"; treat those as empty.
+const PLACEHOLDER = /^(nan|null|undefined|none)$/i;
+const norm = (s?: unknown) => {
+  const v = (s ?? '').toString().trim().replace(/\s+/g, ' ');
+  return PLACEHOLDER.test(v) ? '' : v;
+};
+// Real table codes are numeric (e.g. "100320129540000101"); rows like "TOTALES" are summaries.
+const isValidTableCode = (code: string) => /^\d+$/.test(code);
+const REQUIRED_ROW_FIELDS = [
+  'NomDep',
+  'NomProv',
+  'NombreMuni',
+  'IdLoc',
+  'AsientoEle',
+  'Reci',
+  'NombreReci',
+] as const;
+const missingRowFields = (row: InputRow) =>
+  REQUIRED_ROW_FIELDS.filter((k) => !norm(row[k]));
 const toInt = (v: unknown, d = 0) => {
   const n =
     typeof v === 'string'
@@ -173,16 +193,25 @@ async function upsertSeat(
 }
 
 function buildCircunscripcion(row: InputRow) {
-  const number = toInt(row.NroCircun, 0);
-  const type =
-    (norm(row.TipoCircun) as 'Especial' | 'Uninominal') || 'Uninominal';
+  const number = toInt(norm(row.NroCircun), 0);
+  const rawType = norm(row.TipoCircun);
+  const type: 'Especial' | 'Uninominal' =
+    rawType === 'Especial' ? 'Especial' : 'Uninominal';
   const name = norm(row.NomCircun) || `${type} ${number || ''}`.trim();
   return { number, type, name };
 }
 
+function hasCoordinates(row: InputRow) {
+  return (
+    Number.isFinite(toFloat(norm(row.latitud), NaN)) &&
+    Number.isFinite(toFloat(norm(row.longitud), NaN))
+  );
+}
+
 function buildGeo(row: InputRow) {
-  const lat = toFloat(row.latitud, 0);
-  const lon = toFloat(row.longitud, 0);
+  // Schema requires coordinates; rows without them fall back to 0,0 (counted in the summary).
+  const lat = toFloat(norm(row.latitud), 0);
+  const lon = toFloat(norm(row.longitud), 0);
   return {
     coordinates: { latitude: lat, longitude: lon },
     geo: { type: 'Point', coordinates: [lon, lat] as [number, number] },
@@ -249,9 +278,14 @@ async function upsertTable(locId: ObjectId, m: Mesa) {
   );
 }
 
+// Only config + Mongo connection. CoreModule is not used here because it pulls in
+// controllers/guards (e.g. AdminOnlyGuard → JwtService) that only exist in the full AppModule.
+@Module({ imports: [AppConfigModule, DatabaseModule] })
+class ImportModule {}
+
 // ===== Main (Nest connection reuse) =====
 async function main() {
-  const app = await NestFactory.createApplicationContext(CoreModule, {
+  const app = await NestFactory.createApplicationContext(ImportModule, {
     logger: ['error', 'warn', 'log'],
   });
   try {
@@ -278,8 +312,21 @@ async function main() {
     const rows = JSON.parse(raw) as InputRow[];
 
     let upsertedTables = 0;
+    let skippedRows = 0;
+    let skippedTables = 0;
+    let rowsWithoutCoordinates = 0;
 
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
+      const missing = missingRowFields(row);
+      if (missing.length > 0) {
+        skippedRows++;
+        console.warn(
+          `⚠️  Fila ${index} (FID=${norm(row.FID) || '-'}) omitida: faltan ${missing.join(', ')}`,
+        );
+        continue;
+      }
+      if (!hasCoordinates(row)) rowsWithoutCoordinates++;
+
       const depId = await upsertDepartment(row.NomDep);
       const provId = await upsertProvince(depId, row.NomProv);
       const muniId = await upsertMunicipality(provId, row.NombreMuni);
@@ -287,12 +334,29 @@ async function main() {
       const locId = await upsertLocation(seatId, row);
 
       for (const m of row.mesas || []) {
+        const tableCode = norm(m.codigo_mesa);
+        if (!isValidTableCode(tableCode)) {
+          skippedTables++;
+          console.warn(
+            `⚠️  Mesa omitida en fila ${index}: codigo_mesa inválido "${String(m.codigo_mesa)}"`,
+          );
+          continue;
+        }
         await upsertTable(locId, m);
         upsertedTables++;
       }
     }
 
-   
+    console.log(
+      [
+        `✅ Importación terminada (${dataFile})`,
+        `   Filas leídas: ${rows.length}`,
+        `   Filas omitidas: ${skippedRows}`,
+        `   Mesas guardadas: ${upsertedTables}`,
+        `   Mesas omitidas: ${skippedTables}`,
+        `   Recintos sin coordenadas (guardados en 0,0): ${rowsWithoutCoordinates}`,
+      ].join('\n'),
+    );
   } finally {
     await app.close();
   }

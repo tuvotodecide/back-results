@@ -119,8 +119,12 @@ export class ContractsController {
       .sort({ updatedAt: -1, createdAt: -1 })
       .lean();
 
+    const data = await this.withTerritoryNames(
+      rows.map((row) => this.toTerritorialAccessResponse(row)),
+    );
+
     return {
-      data: rows.map((row) => this.toTerritorialAccessResponse(row)),
+      data,
       total: rows.length,
     };
   }
@@ -135,7 +139,10 @@ export class ContractsController {
   @ApiParam({ name: 'userId', description: 'ID del usuario territorial.' })
   async getTerritorialAccessRequest(@Param('userId') userId: string) {
     const user = await this.getTerritorialUserOrThrow(userId);
-    return this.toTerritorialAccessResponse(user);
+    const [response] = await this.withTerritoryNames([
+      this.toTerritorialAccessResponse(user),
+    ]);
+    return response;
   }
 
   @Post('territorial-access-requests/:userId/approve')
@@ -707,6 +714,62 @@ export class ContractsController {
     }
 
     return 'NONE';
+  }
+
+  // Agrega departmentName/municipalityName al territorio de cada solicitud (para la bandeja
+  // de aprobaciones). Si la búsqueda falla, devuelve las filas sin nombres.
+  private async withTerritoryNames<
+    T extends {
+      territory: { departmentId: string | null; municipalityId: string | null };
+    },
+  >(items: T[]) {
+    const toObjectIds = (values: Array<string | null>) =>
+      Array.from(new Set(values.filter((v): v is string => !!v && Types.ObjectId.isValid(v)))).map(
+        (v) => new Types.ObjectId(v),
+      );
+    const departmentIds = toObjectIds(items.map((i) => i.territory.departmentId));
+    const municipalityIds = toObjectIds(items.map((i) => i.territory.municipalityId));
+
+    let departmentNames = new Map<string, string>();
+    let municipalityNames = new Map<string, string>();
+    try {
+      const db = this.roledUserModel.db;
+      const [departments, municipalities] = await Promise.all([
+        departmentIds.length
+          ? db
+              .collection('departments')
+              .find({ _id: { $in: departmentIds } }, { projection: { name: 1 } })
+              .toArray()
+          : [],
+        municipalityIds.length
+          ? db
+              .collection('municipalities')
+              .find({ _id: { $in: municipalityIds } }, { projection: { name: 1 } })
+              .toArray()
+          : [],
+      ]);
+      departmentNames = new Map(
+        departments.map((d: any): [string, string] => [String(d._id), String(d.name)]),
+      );
+      municipalityNames = new Map(
+        municipalities.map((m: any): [string, string] => [String(m._id), String(m.name)]),
+      );
+    } catch {
+      // Los nombres son solo informativos
+    }
+
+    return items.map((item) => ({
+      ...item,
+      territory: {
+        ...item.territory,
+        departmentName: item.territory.departmentId
+          ? (departmentNames.get(item.territory.departmentId) ?? null)
+          : null,
+        municipalityName: item.territory.municipalityId
+          ? (municipalityNames.get(item.territory.municipalityId) ?? null)
+          : null,
+      },
+    }));
   }
 
   private toTerritorialAccessResponse(user: any) {

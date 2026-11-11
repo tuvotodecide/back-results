@@ -12,6 +12,14 @@ import { VoteReaderService } from "../core/vote-reader.service";
 import { IssuerService } from "../core/issuer.service";
 import { InstitutionalVotingAccessService } from "../core/institutional-voting-access.service";
 
+export type VoteCredentialOffer = {
+  /** Id de la credencial en el issuer (compatibilidad: igual a `credentialId`). */
+  vc: string;
+  credentialId: string;
+  /** Enlace iden3comm de la oferta (`iden3comm://?request_uri=...`). */
+  offer: string;
+};
+
 @Injectable()
 export class EmitVoteService {
   constructor(
@@ -27,14 +35,25 @@ export class EmitVoteService {
     private readonly accessService: InstitutionalVotingAccessService,
   ) {}
 
-  async getVoteVc(eventId: string, dni: string): Promise<{ vc: string }> {
+  /**
+   * Credencial de voto del DNI en el evento: la emite si aún no existe y
+   * devuelve su id y el enlace de la oferta para reclamarla desde la app.
+   * `vc` repite el id para las versiones de la app anteriores a `offer`.
+   */
+  async getVoteVc(eventId: string, dni: string): Promise<VoteCredentialOffer> {
+    const credentialId = await this.getOrIssueVoteCredentialId(eventId, dni);
+    const offer = await this.issuerService.getCredentialOffer(credentialId);
+    return { vc: credentialId, credentialId, offer };
+  }
+
+  private async getOrIssueVoteCredentialId(eventId: string, dni: string): Promise<string> {
     const eventObjectId = new Types.ObjectId(eventId);
     const session = await this.enabledSessionModel.findOne({
       eventId: eventObjectId,
       dni,
     }).exec();
     if (session?.sessionToken) {
-      return { vc: session.sessionToken };
+      return session.sessionToken;
     }
 
     const event = await this.accessService.getEventOrThrow(eventId);
@@ -71,7 +90,7 @@ export class EmitVoteService {
       { upsert: true },
     );
 
-    return { vc: credentialData[dni].credentialData }
+    return credentialData[dni].credentialData;
   }
   
 

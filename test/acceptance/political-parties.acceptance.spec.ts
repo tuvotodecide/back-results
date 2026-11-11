@@ -250,5 +250,11 @@ describe('Aceptación: PoliticalParties', () => {
 
     expect(map['A']).toBe(false);
     expect(map['B']).toBe(false);
+
+    // La misma API está expuesta bajo api/v1 (la usa el frontend con su baseUrl)
+    const prefixed = await request(app.getHttpServer())
+      .get(`/api/v1${epBase}/by-election/${election.id}`);
+    expect(prefixed.status).toBe(200);
+    expect(prefixed.body).toEqual(after.body);
   });
 });

@@ -30,7 +30,7 @@ import { ParticipationService } from './participation/participation.service';
 import { PresentialSessionsService } from './presential/presential-sessions.service';
 import { VotingResultsService } from './results/voting-results.service';
 import { AuthorizationResponseMessage } from '@iden3/js-iden3-auth/dist/types/types-sdk';
-import { EmitVoteService } from './participation/emit-vote.service';
+import { EmitVoteService, VoteCredentialOffer } from './participation/emit-vote.service';
 import { InstitutionalVotingNotificationsService } from './notifications/institutional-voting-notifications.service';
 import { CreditsReaderService } from './core/credits-reader.service';
 
@@ -382,7 +382,7 @@ export class InstitutionalVotingService {
     }
   }
 
-  async getVoteVc(eventId: string, dni: string): Promise<{ vc: string }> {
+  async getVoteVc(eventId: string, dni: string): Promise<VoteCredentialOffer> {
     return this.emitVoteService.getVoteVc(eventId, dni);
   }
 

@@ -20,7 +20,11 @@ describe('EmitVoteService (unit)', () => {
   let voteWritterService: { castVote: jest.Mock; addNewVoters: jest.Mock };
   let historyService: { create: jest.Mock };
   let voteReaderService: { isDniInMerkleTree: jest.Mock };
-  let issuerService: { getDidsByDnis: jest.Mock; issueCredential: jest.Mock };
+  let issuerService: {
+    getDidsByDnis: jest.Mock;
+    issueCredential: jest.Mock;
+    getCredentialOffer: jest.Mock;
+  };
   let accessService: { getEventOrThrow: jest.Mock };
   let service: EmitVoteService;
 
@@ -74,6 +78,7 @@ describe('EmitVoteService (unit)', () => {
     issuerService = {
       getDidsByDnis: jest.fn(),
       issueCredential: jest.fn(),
+      getCredentialOffer: jest.fn((id: string) => Promise.resolve(`iden3comm://?request_uri=offer-${id}`)),
     };
     accessService = {
       getEventOrThrow: jest.fn().mockResolvedValue({ isOpenVoting: false }),
@@ -91,14 +96,18 @@ describe('EmitVoteService (unit)', () => {
     );
   });
 
-  it('VOT-PRE-P0-002 | getVoteVc devuelve la VC cuando existe una sesión habilitada', async () => {
+  it('VOT-PRE-P0-002 | getVoteVc devuelve el id y la oferta de la VC cuando existe una sesión habilitada', async () => {
     enabledSessionModel.findOne.mockReturnValue(
       execResolved({ sessionToken: 'vc-token-123' }),
     );
 
     await expect(service.getVoteVc(eventId, '123456')).resolves.toEqual({
       vc: 'vc-token-123',
+      credentialId: 'vc-token-123',
+      offer: 'iden3comm://?request_uri=offer-vc-token-123',
     });
+    expect(issuerService.getCredentialOffer).toHaveBeenCalledWith('vc-token-123');
+    expect(issuerService.issueCredential).not.toHaveBeenCalled();
     expect(enabledSessionModel.findOne).toHaveBeenCalledWith({
       eventId: new Types.ObjectId(eventId),
       dni: '123456',
@@ -124,6 +133,8 @@ describe('EmitVoteService (unit)', () => {
 
     await expect(service.getVoteVc(eventId, '123456')).resolves.toEqual({
       vc: 'vc-new-token',
+      credentialId: 'vc-new-token',
+      offer: 'iden3comm://?request_uri=offer-vc-new-token',
     });
 
     expect(voteReaderService.isDniInMerkleTree).toHaveBeenCalledWith(eventId, '123456');
@@ -151,6 +162,19 @@ describe('EmitVoteService (unit)', () => {
     );
     expect(voteWritterService.addNewVoters).not.toHaveBeenCalled();
     expect(issuerService.issueCredential).not.toHaveBeenCalled();
+  });
+
+  it('RDV-P0-03-002 getVoteVc propaga el error cuando el issuer no entrega la oferta', async () => {
+    enabledSessionModel.findOne.mockReturnValue(
+      execResolved({ sessionToken: 'vc-token-123' }),
+    );
+    issuerService.getCredentialOffer.mockRejectedValue(
+      new InternalServerErrorException('Error fetching credential offer'),
+    );
+
+    await expect(service.getVoteVc(eventId, '123456')).rejects.toBeInstanceOf(
+      InternalServerErrorException,
+    );
   });
 
   it('VOT-SEL-P0-002 / VOT-PRE-P0-004 / VOT-CHN-P0-001 | emitVote con optionId=blank extrae eventId/nullifier y emite voto blanco', async () => {

@@ -747,7 +747,7 @@ export class WorksheetService {
         topic: `user_${params.userId}`,
         locationId: params.locationId,
         title: 'Hoja de trabajo subida',
-        body: `Mesa ${params.tableNumber || params.tableCode}: tu hoja ya esta disponible para comparacion.`,
+        body: `Mesa ${params.tableNumber || params.tableCode}: tu hoja de trabajo ya está disponible para comparación.`,
         data: {
           type: 'worksheet_uploaded',
           dni: params.dni,

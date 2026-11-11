@@ -262,7 +262,8 @@ export class InstitutionalVotingPublicController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Retorna la VC para votar.',
+    description:
+      'Retorna `{ credentialId, offer, vc }`: el id de la VC de voto en el issuer y el enlace iden3comm de su oferta, que la app reclama con el SDK. `vc` repite el id (compatibilidad).',
   })
   async getVoteVc(
     @Query('eventId') eventId: string,
