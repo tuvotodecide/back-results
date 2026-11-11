@@ -1,6 +1,6 @@
 # Back Results Backend
 
-Backend NestJS del sistema electoral. Expone APIs HTTP, flujos de autenticación, procesos de resultados, integraciones institucionales y rutas ligadas a componentes ZK/on-chain.
+Backend NestJS del sistema electoral. Expone APIs HTTP, flujos de autenticación, procesos de resultados, votaciones institucionales y rutas ligadas a componentes ZK/on-chain.
 
 ## Arranque
 
