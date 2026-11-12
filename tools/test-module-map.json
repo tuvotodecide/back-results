@@ -343,6 +343,7 @@
     "files": [
       "test/unit/institutional-voting/participation.service.unit.spec.ts",
       "test/unit/institutional-voting/emit-vote.service.unit.spec.ts",
+      "test/unit/institutional-voting/issuer.service.unit.spec.ts",
       "test/unit/institutional-voting/vote-writter.service.unit.spec.ts",
       "test/end-to-end/zk-vote.contract.e2e.spec.ts"
     ]
