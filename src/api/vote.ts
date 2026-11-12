@@ -118,6 +118,21 @@ function createInstitution(
   }
 }
 
+function deleteInstitution(
+  chainId: string,
+  institutionId: string,
+) {
+  return {
+    to: availableNetworks[chainId].voteContract,
+    value: BigInt(0),
+    data: encodeFunctionData({
+      abi: votingContractAbi,
+      functionName: 'deleteInstitution',
+      args: [institutionId],
+    })
+  }
+}
+
 function addAuthorizedAddress(
   chainId: string,
   institutionId: string,
@@ -287,6 +302,7 @@ export const VoteContractCalls = {
   castVote,
   disableVote,
   createInstitution,
+  deleteInstitution,
   addAuthorizedAddress,
   removeAuthorizedAddress,
   claimVoteReward,

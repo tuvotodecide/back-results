@@ -157,6 +157,26 @@ export class SignInResponseDto {
   @ApiProperty() requiresContextSelection: boolean;
   @ApiPropertyOptional({ type: AuthContextDto }) defaultContext?: AuthContextDto | null;
   @ApiProperty({ type: AccessStatusDto }) accessStatus: AccessStatusDto;
+  @ApiPropertyOptional({
+    type: () => [InstitutionalWalletMigrationStatusDto],
+    description:
+      'Solo presente cuando la persona es admin principal de una institución que debe re-asignar su billetera on-chain tras la migración de billeteras.',
+  })
+  institutionalWalletMigrations?: InstitutionalWalletMigrationStatusDto[];
+}
+
+export class InstitutionalWalletMigrationStatusDto {
+  @ApiProperty() tenantId: string;
+  @ApiProperty({
+    enum: ['AWAITING_WALLET', 'READY', 'RETRY_PENDING', 'CONFIRMED', 'NOT_REQUIRED', 'NEEDS_REVIEW'],
+  })
+  status: 'AWAITING_WALLET' | 'READY' | 'RETRY_PENDING' | 'CONFIRMED' | 'NOT_REQUIRED' | 'NEEDS_REVIEW';
+  @ApiPropertyOptional({ type: String, nullable: true }) newAdminWallet: string | null;
+  @ApiProperty({
+    description: 'Billeteras perdidas que siguen autorizadas on-chain y la nueva admin debe revocar.',
+  })
+  pendingAuthorizedAddressRevocations: number;
+  @ApiPropertyOptional({ type: String, nullable: true }) message: string | null;
 }
 
 export class ProfileResponseDto {
