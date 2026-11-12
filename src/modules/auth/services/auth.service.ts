@@ -4,8 +4,10 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { InstitutionalWalletMigrationService } from '@/modules/institutional-wallet-migration/services/institutional-wallet-migration.service';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { JwtService } from '@nestjs/jwt';
@@ -62,6 +64,8 @@ export class AuthService {
     private jwtService: JwtService,
     private mailService: MailService,
     private configService: ConfigService,
+    @Optional()
+    private walletMigrationService?: InstitutionalWalletMigrationService,
   ) {}
 
   async register(dto: RegisterRoledUserDto): Promise<RoledUserDocument> {
@@ -187,6 +191,12 @@ export class AuthService {
 
     const accessToken = await this.jwtService.signAsync(payload);
 
+    // Primer login tras la migración de billeteras: re-asigna la admin on-chain de las
+    // instituciones de esta persona a su billetera nueva (resuelta por CI). No bloquea el login.
+    const institutionalWalletMigrations = this.walletMigrationService
+      ? await this.walletMigrationService.handleSignIn(user)
+      : [];
+
     return {
       accessToken,
       role: user.role,
@@ -196,6 +206,7 @@ export class AuthService {
       requiresContextSelection,
       defaultContext,
       accessStatus,
+      ...(institutionalWalletMigrations.length > 0 ? { institutionalWalletMigrations } : {}),
     };
   }
 

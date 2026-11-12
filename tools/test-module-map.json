@@ -51,6 +51,7 @@
       "test/unit/institutional-admin-applications.service.unit.spec.ts",
       "test/unit/auth.service.institutional-access-status.unit.spec.ts",
       "test/unit/auth.service.institutional-role.unit.spec.ts",
+      "test/unit/auth.service.wallet-migration.unit.spec.ts",
       "test/unit/institutional-admin-applications/institutional-mobile-auth.controller.unit.spec.ts",
       "test/unit/institutional-admin-applications/institutional-mobile-zk-auth.service.unit.spec.ts",
       "test/unit/institutional-mobile-authorization-receipt-verification.unit.spec.ts",
@@ -62,7 +63,8 @@
       "test/unit/vote-contract-security.unit.spec.ts",
       "test/unit/institutional-wallets-rate-limit.guard.unit.spec.ts",
       "test/unit/institutional-wallets.dto.unit.spec.ts",
-      "test/unit/institutional-wallets.service.unit.spec.ts"
+      "test/unit/institutional-wallets.service.unit.spec.ts",
+      "test/unit/institutional-wallet-migration.service.unit.spec.ts"
     ]
   },
   "institutional-tools": {

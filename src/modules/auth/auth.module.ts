@@ -20,6 +20,7 @@ import {
   InstitutionalTenant,
   InstitutionalTenantSchema,
 } from '../institutional-tenants/schemas/institutional-tenant.schema';
+import { InstitutionalWalletMigrationModule } from '../institutional-wallet-migration/institutional-wallet-migration.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import {
       inject: [ConfigService],
     }),
     MailModule,
+    InstitutionalWalletMigrationModule,
   ],
   controllers: [AuthController],
   providers: [AuthService],

@@ -130,6 +130,13 @@ export default registerAs('app', () => ({
     privateKey: process.env.BLOCKCHAIN_PRIVATE_KEY || '',
   },
 
+  // Re-asignación de la admin on-chain de instituciones cuyas wallets se perdieron en la
+  // migración del sistema de billeteras. Vacío = deshabilitado. Valor: fecha ISO del despliegue;
+  // solo se migran administraciones principales creadas antes de esa fecha.
+  institutionalWalletMigration: {
+    cutoff: process.env.INSTITUTIONAL_WALLET_MIGRATION_CUTOFF || '',
+  },
+
   tvd: {
     rpcUrl: process.env.TVD_RPC_URL || '',
     chainId: process.env.TVD_CHAIN_ID || '',
