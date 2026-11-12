@@ -1,11 +1,13 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { MongooseModule } from '@nestjs/mongoose';
+import { MongooseModule, getModelToken } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
+import { Model } from 'mongoose';
 import request from 'supertest';
 
 import { ElectionsModule } from '../../src/modules/elections/elections.module';
 import { PoliticalModule } from '../../src/modules/political/political.module';
+import { PoliticalParty } from '../../src/modules/political/schemas/political-party.schema';
 import appConfig from '../../src/config/app.config';
 
 import { InMemoryMongo } from '../utils/mongo';
@@ -54,6 +56,10 @@ describe('Aceptación: PoliticalParties', () => {
 
     app = moduleRef.createNestApplication();
     await app.init();
+
+    // Mongoose construye los índices en segundo plano (autoIndex). Sin esperar,
+    // el índice único de partyId puede no existir aún y el duplicado devuelve 201.
+    await app.get<Model<PoliticalParty>>(getModelToken(PoliticalParty.name)).init();
   });
 
   afterAll(async () => {
