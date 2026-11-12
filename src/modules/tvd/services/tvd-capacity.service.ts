@@ -265,6 +265,21 @@ export class TvdCapacityService {
   private async resolveCurrentPadronState(
     event: CapacityVotingEvent,
   ): Promise<CurrentPadronCapacityState> {
+    // En DRAFT el padrón editado vive en el staging del borrador activo y solo
+    // se materializa como versión vigente al notificar/abrir revisión. Contar
+    // únicamente la versión vigente aquí bloquearía la notificación para
+    // siempre (la notificación exige capacidad y la capacidad exigiría la
+    // versión que crea la notificación).
+    if (event.state === 'DRAFT') {
+      const activeDraft = await this.padronImportJobModel
+        .findOne({ eventId: event._id, isActiveDraft: true })
+        .sort({ createdAt: -1, _id: -1 })
+        .lean<PadronImportJob | null>();
+      if (activeDraft) {
+        return this.resolveActiveDraftState(activeDraft);
+      }
+    }
+
     const currentVersion = await this.padronVersionModel
       .findOne({ eventId: event._id, isCurrent: true })
       .lean();
@@ -309,6 +324,36 @@ export class TvdCapacityService {
       participantCount,
       padronVersionId: String(currentVersion._id),
       reasonCode: participantCount > 0 ? null : 'PADRON_EMPTY',
+    };
+  }
+
+  private resolveActiveDraftState(
+    activeDraft: PadronImportJob,
+  ): CurrentPadronCapacityState {
+    const empty = (reasonCode: TvdCapacityReasonCode) => ({
+      participantCount: 0,
+      padronVersionId: null,
+      reasonCode,
+    });
+
+    if (activeDraft.status === 'PROCESSING') return empty('PADRON_PROCESSING');
+
+    const stagingCount = Number(activeDraft.summary?.stagingCount ?? 0);
+    const invalidCount =
+      Number(activeDraft.summary?.invalidCount ?? 0) +
+      Number(activeDraft.summary?.duplicateCount ?? 0);
+    const enabledCount = Number(activeDraft.summary?.enabledCount ?? 0);
+
+    if (activeDraft.status === 'FAILED' || stagingCount <= 0) {
+      return empty('PADRON_EMPTY');
+    }
+    if (invalidCount > 0) return empty('PADRON_INVALID');
+    if (enabledCount <= 0) return empty('PADRON_EMPTY');
+
+    return {
+      participantCount: enabledCount,
+      padronVersionId: null,
+      reasonCode: null,
     };
   }
 

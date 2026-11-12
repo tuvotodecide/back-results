@@ -585,6 +585,143 @@ describe('TvdCapacityService', () => {
       });
     });
 
+    describe('evento en DRAFT con borrador de padrón activo', () => {
+      function draftHarness(summary: Record<string, number>, status = 'PARSED') {
+        const harness = createHarness();
+        harness.votingEventModel.findById.mockReturnValueOnce(
+          leanResult({
+            _id: harness.eventId,
+            tenantId: harness.tenantA,
+            state: 'DRAFT',
+          }),
+        );
+        harness.padronImportJobModel.findOne.mockReturnValueOnce(
+          sortedLeanResult({ status, isActiveDraft: true, summary }),
+        );
+        return harness;
+      }
+
+      it('cuenta los habilitados del staging aunque aún no exista versión vigente', async () => {
+        const harness = draftHarness({
+          stagingCount: 1,
+          enabledCount: 1,
+          invalidCount: 0,
+          duplicateCount: 0,
+        });
+        harness.tvdPerCredit.mockResolvedValueOnce(500_000_000_000_000_000n);
+        harness.blockchain.getLiquidBalance.mockResolvedValueOnce(
+          '1000000000000000000',
+        );
+
+        const result = await harness.service.getEventCapacity(
+          String(harness.eventId),
+          requester(),
+        );
+
+        expect(harness.padronImportJobModel.findOne).toHaveBeenCalledWith({
+          eventId: harness.eventId,
+          isActiveDraft: true,
+        });
+        expect(harness.padronVersionModel.findOne).not.toHaveBeenCalled();
+        expect(harness.padronEntryModel.countDocuments).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+          participantCount: 1,
+          padronVersionId: null,
+          tokensPerParticipant: '0.5',
+          requiredTokens: '0.5',
+          availableTokens: '1',
+          missingTokens: '0',
+          canPublish: true,
+          reasonCode: null,
+          publicationReadiness: 'PUBLICATION_READY',
+        });
+      });
+
+      it('reporta saldo insuficiente según los habilitados del staging', async () => {
+        const harness = draftHarness({
+          stagingCount: 15,
+          enabledCount: 12,
+          invalidCount: 0,
+          duplicateCount: 0,
+        });
+
+        const result = await harness.service.getEventCapacity(
+          String(harness.eventId),
+          requester(),
+        );
+
+        expect(result).toMatchObject({
+          participantCount: 12,
+          requiredTokens: '12',
+          availableTokens: '10',
+          missingTokens: '2',
+          canPublish: false,
+          reasonCode: 'INSUFFICIENT_TVD_BALANCE',
+        });
+      });
+
+      it.each([
+        ['PROCESSING', { stagingCount: 0, enabledCount: 0 }, 'PADRON_PROCESSING'],
+        ['FAILED', { stagingCount: 0, enabledCount: 0 }, 'PADRON_EMPTY'],
+        ['PARSED', { stagingCount: 3, enabledCount: 0 }, 'PADRON_EMPTY'],
+        ['PARSED', { stagingCount: 3, enabledCount: 3, invalidCount: 1 }, 'PADRON_INVALID'],
+        ['PARSED', { stagingCount: 3, enabledCount: 3, duplicateCount: 1 }, 'PADRON_INVALID'],
+      ])(
+        'bloquea con status %s y summary %j → %s',
+        async (status, summary, reasonCode) => {
+          const harness = draftHarness(summary, status);
+
+          const result = await harness.service.getEventCapacity(
+            String(harness.eventId),
+            requester(),
+          );
+
+          expect(result).toMatchObject({
+            participantCount: 0,
+            canPublish: false,
+            reasonCode,
+            publicationReadiness: 'PUBLICATION_PADRON_BLOCKED',
+          });
+        },
+      );
+
+      it('usa la versión vigente si el evento en DRAFT no tiene borrador activo', async () => {
+        const harness = createHarness();
+        harness.votingEventModel.findById.mockReturnValueOnce(
+          leanResult({
+            _id: harness.eventId,
+            tenantId: harness.tenantA,
+            state: 'DRAFT',
+          }),
+        );
+        harness.padronEntryModel.countDocuments.mockResolvedValueOnce(4);
+
+        const result = await harness.service.getEventCapacity(
+          String(harness.eventId),
+          requester(),
+        );
+
+        expect(result).toMatchObject({
+          participantCount: 4,
+          padronVersionId: String(harness.padronVersionId),
+          canPublish: true,
+        });
+      });
+    });
+
+    it('no usa el staging fuera de DRAFT aunque exista borrador activo', async () => {
+      const harness = createHarness();
+      harness.padronEntryModel.countDocuments.mockResolvedValueOnce(6);
+
+      const result = await harness.service.getEventCapacity(
+        String(harness.eventId),
+        requester(),
+      );
+
+      expect(harness.padronImportJobModel.findOne).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ participantCount: 6, canPublish: true });
+    });
+
     it('no consulta la tarifa on-chain cuando el evento es inválido o de otro tenant', async () => {
       const { service, eventId, tvdQueries, tenantB, tvdPerCredit } =
         createHarness();
